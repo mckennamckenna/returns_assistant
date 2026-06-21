@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Email {
+  id          String   @id @default(cuid())
+  fromEmail   String
+  fromName    String?
+  toHash      String?  // the +tag from the inbound address, identifies the user later
+  subject     String?
+  textBody    String?  @db.Text
+  htmlBody    String?  @db.Text
+  receivedAt  DateTime @default(now())
+  rawJson     Json     // store the whole Postmark payload so nothing is lost
+}
