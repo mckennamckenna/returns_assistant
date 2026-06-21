@@ -7,7 +7,13 @@
       "Bash(curl -s -i -X POST http://localhost:3000/api/inbound -H 'Content-Type: application/json' -d '{ *)",
       "Bash(npx prisma *)",
       "Bash(node -e ' *)",
-      "Bash(pkill -f \"prisma studio\")"
+      "Bash(pkill -f \"prisma studio\")",
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s -i -X POST https://returns-assistant.vercel.app/api/inbound -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s -o /tmp/home.html -w \"%{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(curl -s -X POST http://localhost:3000/api/inbound -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s http://localhost:3000 -o /tmp/home2.html)"
     ]
   }
 }
