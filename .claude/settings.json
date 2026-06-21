@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vercel *)",
+      "Bash(git check-ignore *)",
+      "Bash(nohup npm run dev)",
+      "Bash(curl -s -i -X POST http://localhost:3000/api/inbound -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(npx prisma *)",
+      "Bash(node -e ' *)",
+      "Bash(pkill -f \"prisma studio\")"
+    ]
+  }
+}
