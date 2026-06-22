@@ -17,4 +17,17 @@ model Email {
   htmlBody    String?  @db.Text
   receivedAt  DateTime @default(now())
   rawJson     Json     // store the whole Postmark payload so nothing is lost
+
+  // --- Milestone 2 additions ---
+  retailer         String?
+  orderNumber      String?
+  orderDate        DateTime?
+  deliveryDate     DateTime?
+  returnWindowDays Int? // e.g. 30 — how long the return window is
+  returnDeadline   DateTime? // computed: deliveryDate (or orderDate) + returnWindowDays
+  confidence       String? // "high" | "medium" | "low"
+  needsReview      Boolean   @default(false)
+  extractionNotes  String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
+  extractionRaw    Json? // full AI JSON response, for debugging the prompt
+  extractedAt      DateTime?
 }

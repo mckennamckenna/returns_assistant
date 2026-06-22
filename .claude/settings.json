@@ -21,7 +21,10 @@
       "Bash(curl -s http://localhost:3000/emails/cmqofuclu0000w9r6eon8x6m2)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/emails/cmqog83vx0000w90s8bj37r0k)",
       "Bash(curl -s http://localhost:3000/emails/cmqog83vx0000w90s8bj37r0k)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/emails/does-not-exist)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/emails/does-not-exist)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://returns-assistant.vercel.app/emails/cmqofuclu0000w9r6eon8x6m2)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://returns-assistant.vercel.app/emails/does-not-exist)",
+      "Bash(npm list *)"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"
