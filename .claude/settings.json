@@ -13,7 +13,18 @@
       "Bash(curl -s http://localhost:3000)",
       "Bash(curl -s -o /tmp/home.html -w \"%{http_code}\\\\n\" http://localhost:3000)",
       "Bash(curl -s -X POST http://localhost:3000/api/inbound -H 'Content-Type: application/json' -d '{ *)",
-      "Bash(curl -s http://localhost:3000 -o /tmp/home2.html)"
+      "Bash(curl -s http://localhost:3000 -o /tmp/home2.html)",
+      "Bash(curl -s https://returns-assistant.vercel.app -o /tmp/prod_home.html)",
+      "Bash(mkdir -p /Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails/\\\\[id\\\\])",
+      "Bash(curl -s http://localhost:3000 -o /tmp/home3.html)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/emails/cmqofuclu0000w9r6eon8x6m2)",
+      "Bash(curl -s http://localhost:3000/emails/cmqofuclu0000w9r6eon8x6m2)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/emails/cmqog83vx0000w90s8bj37r0k)",
+      "Bash(curl -s http://localhost:3000/emails/cmqog83vx0000w90s8bj37r0k)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/emails/does-not-exist)"
+    ],
+    "additionalDirectories": [
+      "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"
     ]
   }
 }
