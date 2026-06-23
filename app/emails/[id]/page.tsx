@@ -53,9 +53,16 @@ export default async function EmailDetail({
 
   return (
     <main className="min-h-screen p-8 max-w-5xl mx-auto w-full">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
-        &larr; Back to dashboard
-      </Link>
+      <div className="flex justify-between items-baseline">
+        <Link href="/" className="text-sm text-zinc-500 hover:underline">
+          &larr; Back to dashboard
+        </Link>
+        {email.orderId && (
+          <Link href={`/orders/${email.orderId}`} className="text-sm text-zinc-500 hover:underline">
+            View Order &rarr;
+          </Link>
+        )}
+      </div>
 
       <h1 className="text-2xl font-semibold mt-4">{email.subject || "(no subject)"}</h1>
       <div className="flex justify-between items-baseline gap-4 mt-1 text-sm text-zinc-500">

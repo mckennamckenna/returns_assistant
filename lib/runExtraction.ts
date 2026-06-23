@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { extractEmail } from "@/lib/extract";
+import { linkEmailToOrder } from "@/lib/linkOrder";
 
 export async function runExtraction(emailId: string): Promise<void> {
   const email = await prisma.email.findUnique({ where: { id: emailId } });
@@ -34,6 +35,8 @@ export async function runExtraction(emailId: string): Promise<void> {
         extractedAt: new Date(),
       },
     });
+
+    await linkEmailToOrder(emailId);
   } catch (error) {
     console.error("Extraction failed for email", emailId, error);
 

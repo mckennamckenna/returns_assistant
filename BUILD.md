@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Currently on **Milestone 2: AI Extraction**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Currently on **Milestone 3: Order Model**.
 
 ---
 
@@ -398,8 +398,118 @@ Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumbe
 
 ## What comes after Milestone 2 (not now)
 
-- An `Order` model and the order state machine, once extraction is trustworthy enough to act on
 - The reminder engine (daily cron → email/SMS) — needs live/recent orders to test, not backlog. **Spec note for whenever this is built:** include the order total in the notification subject line when known, e.g. "Your $340 Nordstrom return closes in 2 days" rather than just "Nordstrom return closes in 2 days" — `orderTotal` (Milestone 2) already carries the data this needs.
 - Per-user `+tag` addresses and real auth
 - The guided Gmail forwarding onboarding (the filter milestone)
+
+---
+
+# Milestone 3: Order Model
+
+## Goal — the only thing that counts as "done"
+
+> The dashboard shows one card per real-world order, not one card per email. Forwarding three emails about the same order (confirmation, shipping, delivery) results in one Order card whose data gets more complete and more accurate as each email arrives — not three disconnected cards.
+
+This milestone introduces the aggregation Milestone 2 explicitly deferred: "One real-world email roughly equals one order at this stage; a separate `Order` model comes later once the data justifies it." With ~16 real orders validated, it's time.
+
+## Why this design (read before building)
+
+- **Match on retailer + order number, case-insensitively.** Retailers aren't consistent about casing across emails (e.g. "SKIMS" vs "skims"), so matching must ignore case. This is a heuristic, not a guarantee — see the known limitation below.
+- **Later emails can improve earlier data, never just overwrite blindly.** A shipping confirmation arriving after an order confirmation should fill in `deliveryDate` and trigger a `returnDeadline` recompute — using the same `computeDeadline` logic from Milestone 2, now operating on the Order's merged fields instead of one email's fields. Each field merges independently: a new email's non-null value wins, but a null value never erases existing data.
+- **Order-level `needsReview` reflects the Order's resolved state, not a blind OR of every linked email's flag.** A shipping-confirmation email can legitimately fail its own policy web lookup in isolation (it has no order total or return-policy text) while a sibling order-confirmation email already supplied everything needed. If Order-level `needsReview` just OR'd every child email's flag, it would falsely flag complete orders. Instead, recompute it from what the Order actually knows: does it look like a real order (has an order/shipping/delivery email) and is `returnDeadline` still null?
+- **Status is derived, not stored as ground truth.** Recompute it after every link/merge from the set of `emailType`s seen on linked emails, plus the current date vs. `returnDeadline`. This keeps it self-correcting as new emails arrive, rather than something that can drift out of sync.
+- **Known limitation: order-number drift across email types.** A return/RMA confirmation email sometimes cites a return-authorization number instead of the original order number (e.g. Chan Luu's "your return is approved" email used a different reference than its order confirmation). Matching on order number alone will create a second, fragmented Order in that case. This is a real accuracy gap to watch for during review, not something to silently paper over — flag it, don't guess which number is "real."
+- **Orphaned emails stay visible, not hidden.** An email that couldn't be matched to retailer + order number (marketing, parsing failure, etc.) gets `orderId = null` and `needsReview = true`, but still shows on the dashboard in an "Unlinked emails" section — nothing should disappear silently.
+
+## Data model
+
+```prisma
+model Order {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  retailer    String?
+  orderNumber String?
+
+  orderDate           DateTime?
+  deliveryDate        DateTime? // best available across all linked emails
+  returnDeadline      DateTime?
+  deadlineIsEstimated Boolean   @default(false)
+  policySource        String?   // "web_lookup" | "stated_in_email" | "user_supplied"
+  returnWindowDays    Int?
+
+  orderTotal    Float?
+  orderCurrency String?
+  lineItems     Json?
+
+  // "ordered" | "shipped" | "delivered" | "returnable" | "return_started" |
+  // "refund_pending" | "completed" | "expired" | "needs_review"
+  status      String  @default("ordered")
+  needsReview Boolean @default(false)
+
+  emails Email[]
+}
+```
+
+Add `orderId String?` + a relation to `Email`, pointing at its parent `Order`.
+
+## The linking approach
+
+Add `lib/linkOrder.ts`, called from `lib/runExtraction.ts` right after an email's extraction fields are saved:
+
+1. **No retailer or order number extracted** → leave `orderId` null, set the email's `needsReview = true`. Nothing else to do.
+2. **Look for an existing Order** matching `retailer` + `orderNumber`, case-insensitively.
+3. **Found one** → merge: for each field (`orderDate`, `deliveryDate`, `returnWindowDays`, `orderTotal`, `orderCurrency`), take the new email's value if non-null, else keep the Order's existing value. For `lineItems`, keep whichever array (existing or new) has more items — a fuller itemization beats a partial one. Recompute `returnDeadline`/`deadlineIsEstimated` from the merged dates via `computeDeadline` (exported from `lib/extract.ts`).
+4. **Not found** → create a new Order directly from this email's extracted fields.
+5. Link the email (`orderId`) to the resulting Order.
+6. **Recompute status and needsReview** from the full set of now-linked emails:
+
+```typescript
+// Priority order (first match wins), re-run after every link/merge:
+// 1. any linked email is emailType "refund" -> "completed"
+// 2. any linked email is emailType "return_label" ->
+//      "refund_pending" if the most recent one is >14 days old (likely
+//      shipped back and awaiting processing), else "return_started"
+// 3. returnDeadline is set and has passed -> "expired"
+// 4. any linked email is emailType "delivery" -> "returnable"
+// 5. any linked email is emailType "shipping_confirmation" -> "shipped"
+// 6. any linked email is emailType "order_confirmation" -> "ordered"
+// 7. none of the above -> "needs_review"
+
+// needsReview: true only when the Order looks like a real order (has an
+// order/shipping/delivery email) AND its returnDeadline is still null —
+// not a blind OR of every linked email's own needsReview flag.
+```
+
+## Build steps
+
+1. **Schema.** Add the `Order` model and `Email.orderId` above, run the migration.
+2. **Linking function.** Build `lib/linkOrder.ts` per the approach above. Export `computeDeadline` from `lib/extract.ts` so the linker can reuse it for Order-level recomputation.
+3. **Wire it up.** Call the linker from `lib/runExtraction.ts`, right after an email's extraction fields are saved — so both the webhook and the "Re-extract" button keep Orders in sync.
+4. **Dashboard.** Query `Order`, not `Email`, for the main list. Each card: retailer, order number, order total, return deadline, status, email count. Sort by `returnDeadline` ascending (soonest first, nulls last). Visually emphasize high-value orders (e.g. a colored border above some threshold). Below the Order list, keep a section for unlinked emails (`orderId = null`) so nothing disappears.
+5. **Order detail page.** `app/orders/[id]/page.tsx`: all Order fields plus the list of linked emails, each linking to its email detail page.
+6. **Email detail page.** Add a "View Order" link back to the parent Order when `orderId` is set. The page otherwise stays as-is — individual emails are still readable on their own.
+7. **Backfill.** Write a one-off script that runs the linker against every existing email with a retailer + order number, oldest-first (so the order-confirmation email typically creates the Order before its shipping/delivery siblings arrive to merge into it).
+
+## How to know it works
+
+1. Forward a multi-email order again (confirmation, then shipping) and confirm both land on the same Order card, with `deliveryDate` and `returnDeadline` updating after the second email.
+2. Check the backfill: every real forwarded order from Milestone 2 should now show as a grouped Order card, not a loose email.
+3. Spot-check a few Order statuses against what actually happened to that order — does "expired" make sense given today's date vs. the deadline? Does "shipped" downgrade-proof against a later "delivered" email?
+4. Confirm unlinked/non-commerce emails (marketing, parsing failures) still show up somewhere on the dashboard, not silently dropped.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 12 — Order model + linking**
+> Per BUILD.md's Milestone 3 section, add the Order model and Email.orderId to schema.prisma and migrate. Build lib/linkOrder.ts implementing the matching/merging/status logic described, call it from lib/runExtraction.ts, update the dashboard to group by Order with an "Unlinked emails" section below, add app/orders/[id]/page.tsx, add a "View Order" link on the email detail page, and backfill existing emails into Orders.
+
+---
+
+## What comes after Milestone 3 (not now)
+
+- The reminder engine (daily cron → email/SMS) — needs live/recent orders to test, not backlog
+- Per-user `+tag` addresses and real auth
+- The guided Gmail forwarding onboarding (the filter milestone)
+- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers) — likely needs a secondary matching signal beyond exact order-number equality, such as retailer + approximate order date + line-item overlap
 

@@ -45,7 +45,8 @@
       "Bash(curl -s -o /dev/null -w \"detail: %{http_code}\\\\n\" https://returns-assistant.vercel.app/emails/cmqpy7knn0002jl041trstorh)",
       "Bash(curl -s http://localhost:3000 -o /tmp/dash2.html)",
       "Bash(grep -o \"\\\\$340[^<]*\" /tmp/dash2.html)",
-      "Bash(curl -s http://localhost:3000 -o /tmp/dash3.html)"
+      "Bash(curl -s http://localhost:3000 -o /tmp/dash3.html)",
+      "Bash(curl -s https://returns-assistant.vercel.app -o /tmp/prod_dash.html -w \"dashboard: %{http_code}\\\\n\")"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"

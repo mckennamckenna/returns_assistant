@@ -158,7 +158,7 @@ async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult>
 // 2. orderDate + returnWindowDays, no deliveryDate → estimate assuming
 //    STANDARD_SHIPPING_DAYS of transit, flagged deadlineIsEstimated.
 // 3. returnWindowDays missing → leave null, caller sets needsReview.
-function computeDeadline(parsed: {
+export function computeDeadline(parsed: {
   orderDate: string | null;
   deliveryDate: string | null;
   returnWindowDays: number | null;

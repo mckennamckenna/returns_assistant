@@ -36,4 +36,36 @@ model Email {
   extractionNotes     String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
   extractionRaw       Json? // full AI JSON response, for debugging the prompt
   extractedAt         DateTime?
+
+  // --- Milestone 3 addition ---
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
+}
+
+// --- Milestone 3: one Order aggregates many Emails about the same purchase ---
+model Order {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  retailer    String?
+  orderNumber String?
+
+  orderDate           DateTime?
+  deliveryDate        DateTime? // best available across all linked emails
+  returnDeadline       DateTime?
+  deadlineIsEstimated  Boolean   @default(false)
+  policySource         String? // "web_lookup" | "stated_in_email" | "user_supplied"
+  returnWindowDays     Int?
+
+  orderTotal    Float?
+  orderCurrency String?
+  lineItems     Json?
+
+  // "ordered" | "shipped" | "delivered" | "returnable" | "return_started" |
+  // "refund_pending" | "completed" | "expired" | "needs_review"
+  status      String  @default("ordered")
+  needsReview Boolean @default(false)
+
+  emails Email[]
 }
