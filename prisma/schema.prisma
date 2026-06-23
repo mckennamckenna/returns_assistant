@@ -26,6 +26,7 @@ model Email {
   returnWindowDays    Int? // e.g. 30 — how long the return window is
   returnDeadline      DateTime? // computed — see deadline logic in BUILD.md
   deadlineIsEstimated Boolean   @default(false) // true when delivery date was assumed, not confirmed
+  policySource        String? // "email" (stated in the email) | "web_lookup" (found via web search)
   confidence          String? // "high" | "medium" | "low"
   emailType           String? // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
   needsReview         Boolean   @default(false)

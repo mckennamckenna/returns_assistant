@@ -186,6 +186,7 @@ This milestone validates accuracy. It does not need to be perfect — it needs t
 - **Synchronous is fine for now.** At 15–25 test emails, calling the Claude API right after saving each `Email` row is simple and good enough. A background job queue is a later-scale concern, not a Milestone 2 concern.
 - **Order confirmations and shipping confirmations are different emails about the same order.** The filter (later) and the inbound webhook (now) capture both. They are stored as separate `Email` rows — linking them into one `Order` record is the next milestone. For now, extract what each email contains: order confirmations give us the return policy and order date; shipping confirmations give us the estimated delivery date and tracking number. Both are valuable even unlinked.
 - **When there's no delivery date, estimate conservatively.** Return windows usually start from delivery, not order date. If we only have an order confirmation and no delivery date yet, don’t leave the deadline blank — that’s unhelpful. Instead compute a conservative estimate: `orderDate + 7 days (standard shipping) + returnWindowDays`. Always mark estimated deadlines clearly as `deadlineIsEstimated: true`. Erring toward a tighter (earlier) deadline is safer — it prompts the user to act sooner rather than assuming they have more time than they do.
+- **When the email doesn't state the return policy, look it up live — don't hardcode it.** Plenty of order confirmations never mention the return window at all. A static retailer → policy lookup table was considered and rejected: policies change, retailers get added constantly, and a stale hardcoded table fails silently (looks authoritative, can be wrong). Instead, once the retailer is identified, do a real-time web search via the Claude API's web search tool for "`{retailer}` return policy" and extract `returnWindowDays`/`returnWindowStartsFrom` from the result. This stays current automatically and works for any retailer, not just ones we thought to add. Mark the source (`policySource`) so it's clear whether a deadline came from the email itself or from this lookup, and if the search comes back unclear, say so (`needsReview = true`) rather than guessing.
 
 ## Data model additions
 
@@ -211,6 +212,7 @@ model Email {
   returnWindowDays  Int?      // e.g. 30 — how long the return window is
   returnDeadline         DateTime? // computed — see deadline logic below
   deadlineIsEstimated    Boolean   @default(false) // true when delivery date was assumed, not confirmed
+  policySource           String?   // "email" (stated in the email) | "web_lookup" (found via web search)
   confidence             String?   // "high" | "medium" | "low"
   emailType              String?   // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
   needsReview            Boolean   @default(false)
@@ -252,7 +254,7 @@ From the email body below, extract:
 - orderNumber (string or null)
 - orderDate (ISO date string or null — only if explicitly stated)
 - deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
-- returnWindowDays (integer or null — e.g. 30; only if explicitly stated)
+- returnWindowDays (integer or null — e.g. 30; only if explicitly stated in THIS email)
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
 - confidence ("high" | "medium" | "low")
 - notes (one sentence: your reasoning, especially any assumption or uncertainty)
@@ -264,12 +266,41 @@ Rules:
 - For shipping confirmations: focus on deliveryDate — that's the key field.
 - For order confirmations: focus on returnWindowDays and returnWindowStartsFrom.
 - If the email is marketing/promotional/unrelated: set emailType to "other", retailer to null, confidence to "low".
+- Leave returnWindowDays null if this email doesn't state it — don't guess based on what you know about the retailer. A separate lookup step handles that.
 
 Respond with ONLY valid JSON. No preamble, no markdown, no explanation outside the JSON.
 
 EMAIL BODY:
 {{textBody}}
 ```
+
+## Return policy web lookup (when the email doesn't state it)
+
+If the primary extraction returns `retailer` but `returnWindowDays` is null, the email itself just doesn't say — don't leave it there. Call Claude again, this time with the **web search tool** enabled, to find the retailer's current policy.
+
+**Lookup prompt skeleton:**
+
+```
+Search the web for {{retailer}}'s current return policy.
+
+Respond with ONLY valid JSON, no preamble, no markdown formatting:
+- returnWindowDays (integer or null — only if you find a clear, specific number of days)
+- returnWindowStartsFrom ("order_date" | "delivery_date" | null)
+- confidence ("high" | "medium" | "low")
+- notes (one sentence: what you found and roughly where, or why you couldn't find a clear answer)
+
+Rules:
+- Only report returnWindowDays if a current, official policy clearly states it.
+- If the policy varies by item category, membership tier, or sale status, report the standard/default window and set confidence no higher than "medium".
+- If you can't find a clear, current policy, return null for returnWindowDays and confidence "low". Never guess.
+```
+
+Use the Claude API's `web_search` server tool (`web_search_20260209`) so the model performs real searches instead of relying on training data, which goes stale.
+
+**Resolving the lookup result:**
+- **Succeeds** (`returnWindowDays` is non-null and confidence isn't `"low"`) → use the looked-up `returnWindowDays`/`returnWindowStartsFrom`, set `policySource = "web_lookup"`, fold the lookup's `notes` into `extractionNotes` for traceability.
+- **Unclear** (no clear `returnWindowDays`, or confidence `"low"`) → leave `returnWindowDays` null, leave `policySource` null, and set `needsReview = true`. Never guess a policy just because the lookup came back ambiguous.
+- If `returnWindowDays` was already present from the email itself, skip the lookup entirely and set `policySource = "email"`.
 
 **Deadline computation logic (done in app code, not by the AI):**
 
@@ -310,7 +341,7 @@ function computeDeadline(extracted) {
 }
 ```
 
-Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumber are null on what looks like a real order email, OR returnDeadline is null and emailType is "order_confirmation".
+Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumber are null on what looks like a real order email, OR returnDeadline is null and emailType is "order_confirmation", OR the return policy web lookup came back unclear.
 
 ## Build steps
 
@@ -318,8 +349,9 @@ Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumbe
 2. **Schema.** Add the Milestone 2 fields to the `Email` model above, run the migration.
 3. **Extraction function.** Build `lib/extract.ts` per the approach above. Have it return the parsed JSON plus the computed `returnDeadline`.
 4. **Wire it up.** In `/api/inbound`, after saving the `Email` row, call the extraction function and update that row with the results. Keep it synchronous for now. If the API call fails, log the error and leave the row's extraction fields null with `needsReview = true` — don't break the 200 response to Postmark.
-5. **Surface it.** On the dashboard cards, show retailer, order number, and return deadline (or "needs review" if null/low confidence) alongside the existing sender/subject/date. On the email detail page, show all extracted fields plus `extractionNotes`, so I can compare the AI's answer against the real email body right next to it.
+5. **Surface it.** On the dashboard cards, show retailer, order number, return deadline, `deadlineIsEstimated`, and confidence (or "Needs Review" if `needsReview`) alongside the existing sender/subject/date. On the email detail page, show all extracted fields plus `extractionNotes`, so I can compare the AI's answer against the real email body right next to it.
 6. **Re-run on demand (useful for prompt tuning).** Add a simple way to re-trigger extraction for a single email without re-forwarding it — e.g. a "Re-extract" button on the detail page, or an admin script. I'll be iterating on the prompt and don't want to re-forward emails each time.
+7. **Return policy web lookup.** Add the lookup step from above: when `retailer` is known but `returnWindowDays` is null, search the web for the policy via the Claude API's web search tool, and set `policySource` accordingly. After this lands, re-run extraction (the Prompt 6 "Re-extract" button) on already-forwarded emails that were missing a deadline, so existing rows benefit too.
 
 ## How to know it works
 
@@ -347,6 +379,9 @@ Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumbe
 
 **Prompt 9 — deploy and add the API key on Vercel**
 > Help me add ANTHROPIC_API_KEY to Vercel's environment variables via the CLI, then redeploy so production has it too.
+
+**Prompt 10 — return policy web lookup**
+> Per BUILD.md, after AI extraction identifies the retailer, do a web search for "{retailer} return policy" using the Claude API's web search tool, and extract returnWindowDays and returnWindowStartsFrom from the result. Store policySource as "web_lookup" when this succeeds, or set needsReview = true when the search result is unclear. Add the policySource field to the Email model and migrate. Then re-extract existing emails so they benefit too.
 
 ---
 

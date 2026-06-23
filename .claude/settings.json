@@ -35,7 +35,12 @@
       "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/check-latest.ts)",
       "Bash(git -C /Users/mckennasweazey/Documents/Personal/Returns_Assistant status)",
       "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/check-latest.ts cmqpy9v4k000ejl0476oie0t1)",
-      "Bash(curl -s http://localhost:3000/emails/cmqpy9v4k000ejl0476oie0t1)"
+      "Bash(curl -s http://localhost:3000/emails/cmqpy9v4k000ejl0476oie0t1)",
+      "Bash(curl -s https://returns-assistant.vercel.app -o /dev/null -w \"dashboard: %{http_code}\\\\n\")",
+      "Bash(curl -s -o /dev/null -w \"detail: %{http_code}\\\\n\" https://returns-assistant.vercel.app/emails/cmqpy9v4k000ejl0476oie0t1)",
+      "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/test-lookup.ts)",
+      "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/list-candidates.ts)",
+      "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/reextract-real.ts)"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"

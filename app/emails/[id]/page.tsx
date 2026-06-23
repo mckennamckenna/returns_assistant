@@ -77,6 +77,10 @@ export default async function EmailDetail({
                   : "—"
               }
             />
+            <Field
+              label="Policy source"
+              value={email.policySource === "web_lookup" ? "Web lookup" : email.policySource === "email" ? "Email" : "—"}
+            />
           </dl>
 
           <div className="mt-3">
