@@ -33,7 +33,9 @@
       "Bash(node --env-file=.env -e ' *)",
       "Bash(node --env-file=.env -e \"console.log\\('key length:', process.env.ANTHROPIC_API_KEY?.length, 'prefix:', process.env.ANTHROPIC_API_KEY?.slice\\(0,15\\)\\)\")",
       "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/check-latest.ts)",
-      "Bash(git -C /Users/mckennasweazey/Documents/Personal/Returns_Assistant status)"
+      "Bash(git -C /Users/mckennasweazey/Documents/Personal/Returns_Assistant status)",
+      "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/check-latest.ts cmqpy9v4k000ejl0476oie0t1)",
+      "Bash(curl -s http://localhost:3000/emails/cmqpy9v4k000ejl0476oie0t1)"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"

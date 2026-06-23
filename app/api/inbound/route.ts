@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { extractEmail } from "@/lib/extract";
+import { runExtraction } from "@/lib/runExtraction";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -30,39 +30,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    try {
-      if (!email.textBody) {
-        throw new Error("no textBody to extract from");
-      }
-
-      const result = await extractEmail(email.textBody);
-
-      await prisma.email.update({
-        where: { id: email.id },
-        data: {
-          emailType: result.emailType,
-          retailer: result.retailer,
-          orderNumber: result.orderNumber,
-          orderDate: result.orderDate ? new Date(result.orderDate) : null,
-          deliveryDate: result.deliveryDate ? new Date(result.deliveryDate) : null,
-          returnWindowDays: result.returnWindowDays,
-          returnDeadline: result.returnDeadline ? new Date(result.returnDeadline) : null,
-          deadlineIsEstimated: result.deadlineIsEstimated,
-          confidence: result.confidence,
-          needsReview: result.needsReview,
-          extractionNotes: result.notes,
-          extractionRaw: result as object,
-          extractedAt: new Date(),
-        },
-      });
-    } catch (extractionError) {
-      console.error("Extraction failed for email", email.id, extractionError);
-
-      await prisma.email.update({
-        where: { id: email.id },
-        data: { needsReview: true, extractedAt: new Date() },
-      });
-    }
+    // runExtraction catches its own errors and leaves needsReview = true,
+    // so it never breaks the 200 response below.
+    await runExtraction(email.id);
   } catch (error) {
     // Always return 200 below so Postmark doesn't retry — log instead.
     console.error("Failed to process inbound email:", error);

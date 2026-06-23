@@ -9,6 +9,11 @@ function snippet(text: string | null, length = 200): string {
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
+function formatDate(date: Date | null): string {
+  if (!date) return "—";
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
 export default async function Home() {
   const emails = await prisma.email.findMany({
     orderBy: { receivedAt: "desc" },
@@ -35,6 +40,26 @@ export default async function Home() {
                 </div>
                 <p className="font-semibold mt-1">{email.subject || "(no subject)"}</p>
                 <p className="text-zinc-600 mt-1">{snippet(email.textBody)}</p>
+
+                {(email.retailer || email.orderNumber || email.returnDeadline || email.confidence) && (
+                  <div className="flex items-center gap-2 mt-2 text-sm text-zinc-500 flex-wrap">
+                    {email.retailer && <span className="font-medium text-zinc-700">{email.retailer}</span>}
+                    {email.orderNumber && <span>#{email.orderNumber}</span>}
+                    {email.returnDeadline && (
+                      <span>
+                        Return by {formatDate(email.returnDeadline)}
+                        {email.deadlineIsEstimated ? " (estimated)" : ""}
+                      </span>
+                    )}
+                    {email.confidence && <span className="text-zinc-400">{email.confidence} confidence</span>}
+                  </div>
+                )}
+
+                {email.needsReview && (
+                  <span className="inline-block mt-2 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                    Needs Review
+                  </span>
+                )}
               </Link>
             </li>
           ))}
