@@ -605,6 +605,7 @@ e.g. `"2 days left to return: SKIMS · $210"`. If `orderTotal` is null, drop the
 ## Manual setup checklist additions
 
 - [ ] Set `REMINDER_EMAIL` in `.env` locally and in Vercel's environment variables.
+- [ ] Set `REMINDER_FROM_EMAIL` — must be a verified Sender Signature (or domain) in Postmark, or outbound sends fail. Postmark's inbound-only address won't work for this.
 - [ ] Generate a `CRON_SECRET` (any random string) and set it locally and in Vercel.
 - [ ] Add the `crons` entry to `vercel.json` and redeploy — Vercel only picks up cron schedules from a deployed `vercel.json`, not from `.env` or the dashboard alone.
 - [ ] Confirm Postmark's **outbound** sending is enabled on the same server/account already used for inbound (it's a separate capability from the inbound stream).
