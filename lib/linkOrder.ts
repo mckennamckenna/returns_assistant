@@ -26,6 +26,60 @@ function asLineItemArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+// Gmail's forwarded-message block embeds the ORIGINAL email's send date as
+// plain text, e.g. "Date: Tue, May 19, 2026 at 4:21 PM". That's the
+// retailer's actual send time — unlike receivedAt/rawJson.Date, which is
+// when the customer forwarded it (could be weeks later). Only valid as an
+// orderDate proxy for order_confirmation emails specifically: an order
+// confirmation is normally sent right when the order is placed, but a
+// shipping/delivery/return email's send date has no such relationship to
+// the order date.
+function parseForwardedHeaderDate(textBody: string | null): Date | null {
+  if (!textBody) return null;
+  const match = textBody.match(/^Date:\s*(.+)$/m);
+  if (!match) return null;
+  const parsed = new Date(match[1].trim().replace(" at ", " "));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Finds the earliest order_confirmation email linked to this order and
+// parses its forwarded-header date as an orderDate proxy.
+async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
+  const confirmationEmail = await prisma.email.findFirst({
+    where: { orderId, emailType: "order_confirmation" },
+    orderBy: { receivedAt: "asc" },
+  });
+  return confirmationEmail ? parseForwardedHeaderDate(confirmationEmail.textBody) : null;
+}
+
+// If an order is missing orderDate after normal extraction/merging, try the
+// forwarded-header fallback and recompute returnDeadline from it. The
+// resulting deadline is always marked estimated — the date it's based on
+// is inferred, not stated, regardless of whether deliveryDate is known.
+export async function applyFallbackOrderDate(orderId: string): Promise<void> {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || order.orderDate) return;
+
+  const fallbackOrderDate = await resolveFallbackOrderDate(orderId);
+  if (!fallbackOrderDate) return;
+
+  const { returnDeadline } = computeDeadline({
+    orderDate: fallbackOrderDate.toISOString(),
+    deliveryDate: order.deliveryDate ? order.deliveryDate.toISOString() : null,
+    returnWindowDays: order.returnWindowDays,
+    returnWindowStartsFrom: null,
+  });
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      orderDate: fallbackOrderDate,
+      returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
+      deadlineIsEstimated: true,
+    },
+  });
+}
+
 async function computeOrderStatus(
   orderId: string,
   returnDeadline: Date | null,
@@ -78,6 +132,12 @@ async function computeOrderStatus(
   }
 
   return { status: "needs_review", needsReview: true };
+}
+
+export async function recomputeOrderStatus(orderId: string): Promise<void> {
+  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  const { status, needsReview } = await computeOrderStatus(orderId, order.returnDeadline);
+  await prisma.order.update({ where: { id: orderId }, data: { status, needsReview } });
 }
 
 export async function linkEmailToOrder(emailId: string): Promise<void> {
@@ -148,8 +208,6 @@ export async function linkEmailToOrder(emailId: string): Promise<void> {
   }
 
   await prisma.email.update({ where: { id: emailId }, data: { orderId } });
-
-  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-  const { status, needsReview } = await computeOrderStatus(orderId, order.returnDeadline);
-  await prisma.order.update({ where: { id: orderId }, data: { status, needsReview } });
+  await applyFallbackOrderDate(orderId);
+  await recomputeOrderStatus(orderId);
 }

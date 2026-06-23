@@ -463,7 +463,8 @@ Add `lib/linkOrder.ts`, called from `lib/runExtraction.ts` right after an email'
 3. **Found one** → merge: for each field (`orderDate`, `deliveryDate`, `returnWindowDays`, `orderTotal`, `orderCurrency`), take the new email's value if non-null, else keep the Order's existing value. For `lineItems`, keep whichever array (existing or new) has more items — a fuller itemization beats a partial one. Recompute `returnDeadline`/`deadlineIsEstimated` from the merged dates via `computeDeadline` (exported from `lib/extract.ts`).
 4. **Not found** → create a new Order directly from this email's extracted fields.
 5. Link the email (`orderId`) to the resulting Order.
-6. **Recompute status and needsReview** from the full set of now-linked emails:
+6. **Fallback orderDate from the forwarded header, order_confirmation only.** If the Order still has no `orderDate` after merging, look at its linked emails for the earliest one with `emailType: "order_confirmation"` and parse the `Date:` line Gmail embeds in the `"---------- Forwarded message ---------"` block of its `textBody` (e.g. `"Date: Tue, May 19, 2026 at 4:21 PM"`). That's the retailer's actual send time, unlike `receivedAt`/Postmark's `Date` field, which is just when the customer forwarded it — those can be the same instant in testing but are wrong in general, since a real customer might forward an order from weeks ago. Scoped to `order_confirmation` only: a confirmation email is normally sent right when the order is placed, but a shipping/delivery/return email's send date has no such relationship to the order date, so never apply this fallback using those. The resulting `returnDeadline` is always marked `deadlineIsEstimated = true` — the date it's based on is inferred, not stated.
+7. **Recompute status and needsReview** from the full set of now-linked emails:
 
 ```typescript
 // Priority order (first match wins), re-run after every link/merge:
