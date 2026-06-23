@@ -19,15 +19,17 @@ model Email {
   rawJson     Json     // store the whole Postmark payload so nothing is lost
 
   // --- Milestone 2 additions ---
-  retailer         String?
-  orderNumber      String?
-  orderDate        DateTime?
-  deliveryDate     DateTime?
-  returnWindowDays Int? // e.g. 30 — how long the return window is
-  returnDeadline   DateTime? // computed: deliveryDate (or orderDate) + returnWindowDays
-  confidence       String? // "high" | "medium" | "low"
-  needsReview      Boolean   @default(false)
-  extractionNotes  String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
-  extractionRaw    Json? // full AI JSON response, for debugging the prompt
-  extractedAt      DateTime?
+  retailer            String?
+  orderNumber         String?
+  orderDate           DateTime?
+  deliveryDate        DateTime?
+  returnWindowDays    Int? // e.g. 30 — how long the return window is
+  returnDeadline      DateTime? // computed — see deadline logic in BUILD.md
+  deadlineIsEstimated Boolean   @default(false) // true when delivery date was assumed, not confirmed
+  confidence          String? // "high" | "medium" | "low"
+  emailType           String? // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
+  needsReview         Boolean   @default(false)
+  extractionNotes     String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
+  extractionRaw       Json? // full AI JSON response, for debugging the prompt
+  extractedAt         DateTime?
 }

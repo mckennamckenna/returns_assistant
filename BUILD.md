@@ -184,6 +184,8 @@ This milestone validates accuracy. It does not need to be perfect — it needs t
 - **Conservative over confident.** If the email doesn't clearly state something, the AI should return `null` for that field and lower its confidence — never guess a deadline or invent a policy. A wrong deadline is worse than a missing one, since the entire product exists to prevent missed deadlines.
 - **Confidence + reasoning, always.** Every extraction includes a confidence level and a one-line note on its reasoning (e.g. "return window appears to count from delivery, not order date"). This is what makes the output checkable rather than a black box.
 - **Synchronous is fine for now.** At 15–25 test emails, calling the Claude API right after saving each `Email` row is simple and good enough. A background job queue is a later-scale concern, not a Milestone 2 concern.
+- **Order confirmations and shipping confirmations are different emails about the same order.** The filter (later) and the inbound webhook (now) capture both. They are stored as separate `Email` rows — linking them into one `Order` record is the next milestone. For now, extract what each email contains: order confirmations give us the return policy and order date; shipping confirmations give us the estimated delivery date and tracking number. Both are valuable even unlinked.
+- **When there's no delivery date, estimate conservatively.** Return windows usually start from delivery, not order date. If we only have an order confirmation and no delivery date yet, don’t leave the deadline blank — that’s unhelpful. Instead compute a conservative estimate: `orderDate + 7 days (standard shipping) + returnWindowDays`. Always mark estimated deadlines clearly as `deadlineIsEstimated: true`. Erring toward a tighter (earlier) deadline is safer — it prompts the user to act sooner rather than assuming they have more time than they do.
 
 ## Data model additions
 
@@ -207,12 +209,14 @@ model Email {
   orderDate         DateTime?
   deliveryDate      DateTime?
   returnWindowDays  Int?      // e.g. 30 — how long the return window is
-  returnDeadline    DateTime? // computed: deliveryDate (or orderDate) + returnWindowDays
-  confidence        String?   // "high" | "medium" | "low"
-  needsReview       Boolean   @default(false)
-  extractionNotes   String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
-  extractionRaw     Json?     // full AI JSON response, for debugging the prompt
-  extractedAt       DateTime?
+  returnDeadline         DateTime? // computed — see deadline logic below
+  deadlineIsEstimated    Boolean   @default(false) // true when delivery date was assumed, not confirmed
+  confidence             String?   // "high" | "medium" | "low"
+  emailType              String?   // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
+  needsReview            Boolean   @default(false)
+  extractionNotes        String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
+  extractionRaw          Json?     // full AI JSON response, for debugging the prompt
+  extractedAt            DateTime?
 }
 ```
 
@@ -232,30 +236,81 @@ the customer, not the retailer. Identify the retailer from the email BODY conten
 only — look for sender names, logos described in text, order confirmation
 language, etc.
 
+First, identify the email type. Then extract what's relevant for that type.
+
+EMAIL TYPES:
+- "order_confirmation" — confirms a purchase was placed
+- "shipping_confirmation" — confirms item has shipped, often has estimated delivery date and tracking
+- "delivery" — confirms item was delivered
+- "return_label" — contains a return shipping label or link
+- "refund" — confirms a refund was issued
+- "other" — marketing, promotional, or unrelated
+
 From the email body below, extract:
-- retailer (string or null)
+- emailType (one of the types above)
+- retailer (string or null — from body only, never the From header)
 - orderNumber (string or null)
-- orderDate (ISO date or null)
-- deliveryDate (ISO date or null, only if explicitly stated)
-- returnWindowDays (number or null, e.g. 30 — only if explicitly stated)
-- returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from)
+- orderDate (ISO date string or null — only if explicitly stated)
+- deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
+- returnWindowDays (integer or null — e.g. 30; only if explicitly stated)
+- returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
 - confidence ("high" | "medium" | "low")
 - notes (one sentence: your reasoning, especially any assumption or uncertainty)
 
 Rules:
-- If the email doesn't clearly state something, return null for that field. Never guess or invent a deadline, policy, or date.
+- NEVER invent, guess, or infer a date, deadline, or policy that isn't written in the email.
+- Return null for any field not clearly present. Null + low confidence is always better than a wrong answer.
 - Lower confidence whenever you have to infer rather than read something directly.
-- If this email isn't an order/shipping confirmation at all (e.g. marketing, unrelated), set retailer to null and confidence to "low" with a note saying so.
+- For shipping confirmations: focus on deliveryDate — that's the key field.
+- For order confirmations: focus on returnWindowDays and returnWindowStartsFrom.
+- If the email is marketing/promotional/unrelated: set emailType to "other", retailer to null, confidence to "low".
 
-Respond with ONLY valid JSON, no preamble, no markdown formatting.
+Respond with ONLY valid JSON. No preamble, no markdown, no explanation outside the JSON.
 
 EMAIL BODY:
 {{textBody}}
 ```
 
-After getting the response, the app computes `returnDeadline` itself (don't trust the AI to do date math): `deliveryDate or orderDate, plus returnWindowDays`. If the inputs needed for that math are missing, leave `returnDeadline` null and set `needsReview = true`.
+**Deadline computation logic (done in app code, not by the AI):**
 
-Set `needsReview = true` whenever confidence is `"low"`, or any of retailer/orderNumber/returnDeadline come back null on what looks like a real order email.
+```typescript
+// Priority order for computing returnDeadline:
+// 1. If we have deliveryDate + returnWindowDays → use those (most accurate)
+// 2. If we have orderDate + returnWindowDays but no deliveryDate → estimate:
+//    assume 7 days standard shipping, mark deadlineIsEstimated = true
+// 3. If returnWindowDays is missing → leave returnDeadline null, needsReview = true
+
+const STANDARD_SHIPPING_DAYS = 7; // conservative — errs toward tighter deadline
+
+function computeDeadline(extracted) {
+  const { orderDate, deliveryDate, returnWindowDays, returnWindowStartsFrom } = extracted;
+  if (!returnWindowDays) return { returnDeadline: null, deadlineIsEstimated: false };
+
+  // Use confirmed delivery date if available
+  if (deliveryDate) {
+    const start = returnWindowStartsFrom === 'order_date' && orderDate
+      ? new Date(orderDate)
+      : new Date(deliveryDate);
+    return {
+      returnDeadline: addDays(start, returnWindowDays),
+      deadlineIsEstimated: false
+    };
+  }
+
+  // Fall back to estimated delivery from order date
+  if (orderDate) {
+    const estimatedDelivery = addDays(new Date(orderDate), STANDARD_SHIPPING_DAYS);
+    return {
+      returnDeadline: addDays(estimatedDelivery, returnWindowDays),
+      deadlineIsEstimated: true
+    };
+  }
+
+  return { returnDeadline: null, deadlineIsEstimated: false };
+}
+```
+
+Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumber are null on what looks like a real order email, OR returnDeadline is null and emailType is "order_confirmation".
 
 ## Build steps
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { extractEmail } from "@/lib/extract";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
     console.log("Inbound email payload:", JSON.stringify(payload));
 
-    await prisma.email.create({
+    const email = await prisma.email.create({
       data: {
         fromEmail: payload.FromFull?.Email ?? "",
         fromName: payload.FromFull?.Name,
@@ -28,6 +29,40 @@ export async function POST(request: NextRequest) {
         rawJson: payload as object,
       },
     });
+
+    try {
+      if (!email.textBody) {
+        throw new Error("no textBody to extract from");
+      }
+
+      const result = await extractEmail(email.textBody);
+
+      await prisma.email.update({
+        where: { id: email.id },
+        data: {
+          emailType: result.emailType,
+          retailer: result.retailer,
+          orderNumber: result.orderNumber,
+          orderDate: result.orderDate ? new Date(result.orderDate) : null,
+          deliveryDate: result.deliveryDate ? new Date(result.deliveryDate) : null,
+          returnWindowDays: result.returnWindowDays,
+          returnDeadline: result.returnDeadline ? new Date(result.returnDeadline) : null,
+          deadlineIsEstimated: result.deadlineIsEstimated,
+          confidence: result.confidence,
+          needsReview: result.needsReview,
+          extractionNotes: result.notes,
+          extractionRaw: result as object,
+          extractedAt: new Date(),
+        },
+      });
+    } catch (extractionError) {
+      console.error("Extraction failed for email", email.id, extractionError);
+
+      await prisma.email.update({
+        where: { id: email.id },
+        data: { needsReview: true, extractedAt: new Date() },
+      });
+    }
   } catch (error) {
     // Always return 200 below so Postmark doesn't retry — log instead.
     console.error("Failed to process inbound email:", error);
