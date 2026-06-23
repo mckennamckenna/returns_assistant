@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
 
   const sent: { orderId: string; retailer: string | null; reminderType: ReminderType }[] = [];
   const skippedAlreadySent: { orderId: string; reminderType: ReminderType }[] = [];
+  const failed: { orderId: string; reminderType: ReminderType; error: string }[] = [];
 
   for (const order of orders) {
     const asReminderOrder: OrderForReminder = { returnDeadline: order.returnDeadline, status: order.status };
@@ -135,24 +136,35 @@ export async function GET(request: NextRequest) {
 
     if (!order.returnDeadline) continue; // type narrowing safety net; reminderType implies this is non-null
 
-    const subject = buildSubject(reminderType, order.retailer, order.orderTotal, order.orderCurrency);
-    const body = buildBody(
-      {
-        id: order.id,
-        retailer: order.retailer,
-        orderNumber: order.orderNumber,
-        returnDeadline: order.returnDeadline,
-        deadlineIsEstimated: order.deadlineIsEstimated,
-        orderTotal: order.orderTotal,
-        orderCurrency: order.orderCurrency,
-      },
-      reminderType,
-    );
+    // One order's send failing (e.g. a Postmark account/config issue)
+    // shouldn't block reminders for every other order in this run.
+    try {
+      const subject = buildSubject(reminderType, order.retailer, order.orderTotal, order.orderCurrency);
+      const body = buildBody(
+        {
+          id: order.id,
+          retailer: order.retailer,
+          orderNumber: order.orderNumber,
+          returnDeadline: order.returnDeadline,
+          deadlineIsEstimated: order.deadlineIsEstimated,
+          orderTotal: order.orderTotal,
+          orderCurrency: order.orderCurrency,
+        },
+        reminderType,
+      );
 
-    await sendEmail({ to: recipient, from: fromEmail, subject, textBody: body });
-    await prisma.reminder.create({ data: { orderId: order.id, reminderType } });
+      await sendEmail({ to: recipient, from: fromEmail, subject, textBody: body });
+      await prisma.reminder.create({ data: { orderId: order.id, reminderType } });
 
-    sent.push({ orderId: order.id, retailer: order.retailer, reminderType });
+      sent.push({ orderId: order.id, retailer: order.retailer, reminderType });
+    } catch (error) {
+      console.error("Reminder send failed for order", order.id, reminderType, error);
+      failed.push({
+        orderId: order.id,
+        reminderType,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return NextResponse.json({
@@ -161,5 +173,6 @@ export async function GET(request: NextRequest) {
     totalOrders: orders.length,
     sent,
     skippedAlreadySent,
+    failed,
   });
 }
