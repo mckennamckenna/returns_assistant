@@ -513,3 +513,11 @@ Add `lib/linkOrder.ts`, called from `lib/runExtraction.ts` right after an email'
 - The guided Gmail forwarding onboarding (the filter milestone)
 - Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers) — likely needs a secondary matching signal beyond exact order-number equality, such as retailer + approximate order date + line-item overlap
 
+### Privacy hardening (before opening to public users)
+
+Everything so far has been single-user (me), where `fromEmail`/`fromName` is always my own address and `rawJson` is convenient debugging. Neither assumption holds once other people's data is in this database. Required before any public launch, building on the "Privacy principle" established at the top of this doc:
+
+- **Hash or encrypt `fromEmail` and `fromName` at write time.** These are the one piece of PII guaranteed to be on every row (it's the forwarding user's own address). Don't store them in plaintext once there's more than one user — hash for lookup/display needs that tolerate it, encrypt (with a key outside the database) if the original value must ever be recovered.
+- **Audit `rawJson` for PII exposure.** It was flagged back in Milestone 1 as "for early debugging, must stay prunable/deletable — don't treat it as permanent." Before launch, actually go through what Postmark's payload contains beyond what we already extract (full headers, attachment metadata, etc.) and decide what's safe to keep, what to strip, and a concrete retention/deletion policy — not just a TODO.
+- **Per-user `+tag` addresses must use random hashes, not user IDs.** Milestone 1 noted that `MailboxHash` will eventually carry a per-user identifier so one inbox can route everyone. If that identifier is a sequential or guessable user ID, anyone can enumerate or guess other users' forwarding addresses. Generate an opaque random token per user instead, with no structural relationship to their account ID.
+
