@@ -40,7 +40,12 @@
       "Bash(curl -s -o /dev/null -w \"detail: %{http_code}\\\\n\" https://returns-assistant.vercel.app/emails/cmqpy9v4k000ejl0476oie0t1)",
       "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/test-lookup.ts)",
       "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/list-candidates.ts)",
-      "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/reextract-real.ts)"
+      "Bash(node --env-file=.env ./node_modules/.bin/tsx scripts/reextract-real.ts)",
+      "Bash(curl -s -o /dev/null -w \"dashboard: %{http_code}\\\\n\" https://returns-assistant.vercel.app)",
+      "Bash(curl -s -o /dev/null -w \"detail: %{http_code}\\\\n\" https://returns-assistant.vercel.app/emails/cmqpy7knn0002jl041trstorh)",
+      "Bash(curl -s http://localhost:3000 -o /tmp/dash2.html)",
+      "Bash(grep -o \"\\\\$340[^<]*\" /tmp/dash2.html)",
+      "Bash(curl -s http://localhost:3000 -o /tmp/dash3.html)"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"

@@ -14,10 +14,35 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function formatCurrency(total: number | null, currency: string | null): string {
+  if (total == null) return "";
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(total);
+  } catch {
+    return `${currency ?? "$"}${total}`;
+  }
+}
+
+// Highest-value orders with a return window closing soon should surface
+// first; everything else stays newest-first.
+const CLOSE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isClosingSoon(returnDeadline: Date | null): boolean {
+  if (!returnDeadline) return false;
+  const msUntilDeadline = returnDeadline.getTime() - Date.now();
+  return msUntilDeadline >= 0 && msUntilDeadline <= CLOSE_WINDOW_MS;
+}
+
 export default async function Home() {
   const emails = await prisma.email.findMany({
     orderBy: { receivedAt: "desc" },
   });
+
+  const closingSoon = emails
+    .filter((e) => isClosingSoon(e.returnDeadline))
+    .sort((a, b) => (b.orderTotal ?? 0) - (a.orderTotal ?? 0));
+  const rest = emails.filter((e) => !isClosingSoon(e.returnDeadline));
+  const sortedEmails = [...closingSoon, ...rest];
 
   return (
     <main className="min-h-screen p-8 max-w-2xl mx-auto w-full">
@@ -27,7 +52,7 @@ export default async function Home() {
         <p className="text-zinc-500">No emails yet. Forward one to see it here.</p>
       ) : (
         <ul className="flex flex-col gap-4">
-          {emails.map((email) => (
+          {sortedEmails.map((email) => (
             <li key={email.id} className="border border-zinc-200 rounded-lg">
               <Link href={`/emails/${email.id}`} className="block p-4 hover:bg-zinc-50">
                 <div className="flex justify-between items-baseline gap-4">
@@ -47,6 +72,11 @@ export default async function Home() {
                     {email.orderNumber && <span>#{email.orderNumber}</span>}
                     {email.returnDeadline && (
                       <span>
+                        {email.orderTotal != null && (
+                          <span className="font-semibold text-zinc-800">
+                            {formatCurrency(email.orderTotal, email.orderCurrency)}{" "}
+                          </span>
+                        )}
                         Return by {formatDate(email.returnDeadline)}
                         {email.deadlineIsEstimated ? " (estimated)" : ""}
                       </span>

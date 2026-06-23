@@ -29,6 +29,9 @@ model Email {
   policySource        String? // "email" (stated in the email) | "web_lookup" (found via web search)
   confidence          String? // "high" | "medium" | "low"
   emailType           String? // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
+  orderTotal          Float? // total order amount, from the email body
+  orderCurrency       String? // e.g. "USD"
+  lineItems           Json? // array of {name, price, quantity}, from the email body
   needsReview         Boolean   @default(false)
   extractionNotes     String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
   extractionRaw       Json? // full AI JSON response, for debugging the prompt

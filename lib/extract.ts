@@ -21,6 +21,12 @@ export type EmailType =
 
 export type PolicySource = "email" | "web_lookup";
 
+export interface LineItem {
+  name: string;
+  price: number | null;
+  quantity: number | null;
+}
+
 interface RawExtraction {
   emailType: EmailType;
   retailer: string | null;
@@ -29,6 +35,9 @@ interface RawExtraction {
   deliveryDate: string | null;
   returnWindowDays: number | null;
   returnWindowStartsFrom: "order_date" | "delivery_date" | null;
+  orderTotal: number | null;
+  orderCurrency: string | null;
+  lineItems: LineItem[];
   confidence: Confidence;
   notes: string;
 }
@@ -73,15 +82,18 @@ From the email body below, extract:
 - deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
 - returnWindowDays (integer or null — e.g. 30; only if explicitly stated in THIS email)
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
+- orderTotal (number or null — the total amount charged, only if explicitly stated)
+- orderCurrency (string or null — e.g. "USD", only if determinable)
+- lineItems (array of {name, price, quantity} — individual items in the order; empty array if none are itemized in this email)
 - confidence ("high" | "medium" | "low")
 - notes (one sentence: your reasoning, especially any assumption or uncertainty)
 
 Rules:
-- NEVER invent, guess, or infer a date, deadline, or policy that isn't written in the email.
+- NEVER invent, guess, or infer a date, deadline, policy, price, or item that isn't written in the email.
 - Return null for any field not clearly present. Null + low confidence is always better than a wrong answer.
 - Lower confidence whenever you have to infer rather than read something directly.
 - For shipping confirmations: focus on deliveryDate — that's the key field.
-- For order confirmations: focus on returnWindowDays and returnWindowStartsFrom.
+- For order confirmations: focus on returnWindowDays, returnWindowStartsFrom, orderTotal, and lineItems.
 - If the email is marketing/promotional/unrelated: set emailType to "other", retailer to null, confidence to "low".
 - Leave returnWindowDays null if this email doesn't state it — don't guess based on what you know about the retailer. A separate lookup step handles that.
 
@@ -108,7 +120,10 @@ Rules:
 
 function stripCodeFence(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  return fenced ? fenced[1] : text;
+  if (fenced) return fenced[1];
+  // No closing fence found — likely a truncated response. Strip a leading
+  // fence marker if present so we can still attempt to parse what we have.
+  return text.replace(/^```(?:json)?\s*/, "");
 }
 
 function lastTextBlock(content: { type: string; text?: string }[]): string {
@@ -195,7 +210,9 @@ function computeDeadline(parsed: {
 export async function extractEmail(textBody: string): Promise<ExtractionResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 1024,
+    // Orders with many line items can produce long responses — 1024 was
+    // truncating mid-JSON for orders with a dozen+ items.
+    max_tokens: 4096,
     messages: [{ role: "user", content: buildPrompt(textBody) }],
   });
 

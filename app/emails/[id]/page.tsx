@@ -11,6 +11,25 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function formatCurrency(total: number | null, currency: string | null): string {
+  if (total == null) return "—";
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(total);
+  } catch {
+    return `${currency ?? "$"}${total}`;
+  }
+}
+
+interface LineItem {
+  name: string;
+  price: number | null;
+  quantity: number | null;
+}
+
+function isLineItemArray(value: unknown): value is LineItem[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "object" && item !== null && "name" in item);
+}
+
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
@@ -81,7 +100,27 @@ export default async function EmailDetail({
               label="Policy source"
               value={email.policySource === "web_lookup" ? "Web lookup" : email.policySource === "email" ? "Email" : "—"}
             />
+            <Field label="Order total" value={formatCurrency(email.orderTotal, email.orderCurrency)} />
           </dl>
+
+          {isLineItemArray(email.lineItems) && email.lineItems.length > 0 && (
+            <div className="mt-3">
+              <dt className="text-xs uppercase tracking-wide text-zinc-400">Line items</dt>
+              <ul className="text-sm text-zinc-800 mt-0.5">
+                {email.lineItems.map((item, i) => (
+                  <li key={i} className="flex justify-between gap-2">
+                    <span className="truncate">
+                      {item.name}
+                      {item.quantity != null && item.quantity > 1 ? ` ×${item.quantity}` : ""}
+                    </span>
+                    <span className="text-zinc-500 whitespace-nowrap">
+                      {item.price != null ? formatCurrency(item.price, email.orderCurrency) : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="mt-3">
             <Field label="Extraction notes" value={email.extractionNotes} />

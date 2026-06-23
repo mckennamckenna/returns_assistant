@@ -187,6 +187,7 @@ This milestone validates accuracy. It does not need to be perfect — it needs t
 - **Order confirmations and shipping confirmations are different emails about the same order.** The filter (later) and the inbound webhook (now) capture both. They are stored as separate `Email` rows — linking them into one `Order` record is the next milestone. For now, extract what each email contains: order confirmations give us the return policy and order date; shipping confirmations give us the estimated delivery date and tracking number. Both are valuable even unlinked.
 - **When there's no delivery date, estimate conservatively.** Return windows usually start from delivery, not order date. If we only have an order confirmation and no delivery date yet, don’t leave the deadline blank — that’s unhelpful. Instead compute a conservative estimate: `orderDate + 7 days (standard shipping) + returnWindowDays`. Always mark estimated deadlines clearly as `deadlineIsEstimated: true`. Erring toward a tighter (earlier) deadline is safer — it prompts the user to act sooner rather than assuming they have more time than they do.
 - **When the email doesn't state the return policy, look it up live — don't hardcode it.** Plenty of order confirmations never mention the return window at all. A static retailer → policy lookup table was considered and rejected: policies change, retailers get added constantly, and a stale hardcoded table fails silently (looks authoritative, can be wrong). Instead, once the retailer is identified, do a real-time web search via the Claude API's web search tool for "`{retailer}` return policy" and extract `returnWindowDays`/`returnWindowStartsFrom` from the result. This stays current automatically and works for any retailer, not just ones we thought to add. Mark the source (`policySource`) so it's clear whether a deadline came from the email itself or from this lookup, and if the search comes back unclear, say so (`needsReview = true`) rather than guessing.
+- **Order value is the urgency signal, not just the date.** A $15 return closing in 3 days matters less than a $400 return closing in 3 days — both need attention, but the expensive one is worth surfacing first. Extract `orderTotal`, `orderCurrency`, and `lineItems` from the email body with the same conservative rules as everything else (null/empty if not clearly stated, never inferred from product names or guessed). Orders with many line items can produce long model responses — size `max_tokens` generously (4096, not 1024) so a 20-item order doesn't get truncated mid-JSON.
 
 ## Data model additions
 
@@ -215,6 +216,9 @@ model Email {
   policySource           String?   // "email" (stated in the email) | "web_lookup" (found via web search)
   confidence             String?   // "high" | "medium" | "low"
   emailType              String?   // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
+  orderTotal             Float?    // total order amount, from the email body
+  orderCurrency          String?   // e.g. "USD"
+  lineItems              Json?     // array of {name, price, quantity}, from the email body
   needsReview            Boolean   @default(false)
   extractionNotes        String?   @db.Text // AI's one-line reasoning, esp. for uncertainty
   extractionRaw          Json?     // full AI JSON response, for debugging the prompt
@@ -256,15 +260,18 @@ From the email body below, extract:
 - deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
 - returnWindowDays (integer or null — e.g. 30; only if explicitly stated in THIS email)
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
+- orderTotal (number or null — the total amount charged, only if explicitly stated)
+- orderCurrency (string or null — e.g. "USD", only if determinable)
+- lineItems (array of {name, price, quantity} — individual items in the order; empty array if none are itemized in this email)
 - confidence ("high" | "medium" | "low")
 - notes (one sentence: your reasoning, especially any assumption or uncertainty)
 
 Rules:
-- NEVER invent, guess, or infer a date, deadline, or policy that isn't written in the email.
+- NEVER invent, guess, or infer a date, deadline, policy, price, or item that isn't written in the email.
 - Return null for any field not clearly present. Null + low confidence is always better than a wrong answer.
 - Lower confidence whenever you have to infer rather than read something directly.
 - For shipping confirmations: focus on deliveryDate — that's the key field.
-- For order confirmations: focus on returnWindowDays and returnWindowStartsFrom.
+- For order confirmations: focus on returnWindowDays, returnWindowStartsFrom, orderTotal, and lineItems.
 - If the email is marketing/promotional/unrelated: set emailType to "other", retailer to null, confidence to "low".
 - Leave returnWindowDays null if this email doesn't state it — don't guess based on what you know about the retailer. A separate lookup step handles that.
 
@@ -352,6 +359,7 @@ Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumbe
 5. **Surface it.** On the dashboard cards, show retailer, order number, return deadline, `deadlineIsEstimated`, and confidence (or "Needs Review" if `needsReview`) alongside the existing sender/subject/date. On the email detail page, show all extracted fields plus `extractionNotes`, so I can compare the AI's answer against the real email body right next to it.
 6. **Re-run on demand (useful for prompt tuning).** Add a simple way to re-trigger extraction for a single email without re-forwarding it — e.g. a "Re-extract" button on the detail page, or an admin script. I'll be iterating on the prompt and don't want to re-forward emails each time.
 7. **Return policy web lookup.** Add the lookup step from above: when `retailer` is known but `returnWindowDays` is null, search the web for the policy via the Claude API's web search tool, and set `policySource` accordingly. After this lands, re-run extraction (the Prompt 6 "Re-extract" button) on already-forwarded emails that were missing a deadline, so existing rows benefit too.
+8. **Order value.** Add `orderTotal`, `orderCurrency`, `lineItems` to the schema and the extraction prompt. Surface `orderTotal` prominently on dashboard cards, right next to the return deadline — it's the signal for whether a return is worth the effort of acting on. Sort the dashboard so that among emails with a return deadline closing soon (within 7 days), the highest-value orders appear first; everything else stays newest-first. Re-run extraction on existing emails so they backfill order value too.
 
 ## How to know it works
 
@@ -383,12 +391,15 @@ Set `needsReview = true` whenever: confidence is `"low"`, OR retailer/orderNumbe
 **Prompt 10 — return policy web lookup**
 > Per BUILD.md, after AI extraction identifies the retailer, do a web search for "{retailer} return policy" using the Claude API's web search tool, and extract returnWindowDays and returnWindowStartsFrom from the result. Store policySource as "web_lookup" when this succeeds, or set needsReview = true when the search result is unclear. Add the policySource field to the Email model and migrate. Then re-extract existing emails so they benefit too.
 
+**Prompt 11 — order value extraction**
+> Per BUILD.md, add orderTotal, orderCurrency, and lineItems to the Email model and migrate. Update the extraction prompt to extract these from the email body, conservatively (null/empty if not stated). Show orderTotal prominently on dashboard cards next to the return deadline. Sort the dashboard so highest-value orders with a return deadline closing soon (within 7 days) appear first. Re-extract existing emails so they backfill order value too.
+
 ---
 
 ## What comes after Milestone 2 (not now)
 
 - An `Order` model and the order state machine, once extraction is trustworthy enough to act on
-- The reminder engine (daily cron → email/SMS) — needs live/recent orders to test, not backlog
+- The reminder engine (daily cron → email/SMS) — needs live/recent orders to test, not backlog. **Spec note for whenever this is built:** include the order total in the notification subject line when known, e.g. "Your $340 Nordstrom return closes in 2 days" rather than just "Nordstrom return closes in 2 days" — `orderTotal` (Milestone 2) already carries the data this needs.
 - Per-user `+tag` addresses and real auth
 - The guided Gmail forwarding onboarding (the filter milestone)
 
