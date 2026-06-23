@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Currently on **Milestone 3: Order Model**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Currently on **Milestone 4: Reminder Engine**.
 
 ---
 
@@ -509,10 +509,123 @@ Add `lib/linkOrder.ts`, called from `lib/runExtraction.ts` right after an email'
 
 ## What comes after Milestone 3 (not now)
 
-- The reminder engine (daily cron → email/SMS) — needs live/recent orders to test, not backlog
 - Per-user `+tag` addresses and real auth
 - The guided Gmail forwarding onboarding (the filter milestone)
 - Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers) — likely needs a secondary matching signal beyond exact order-number equality, such as retailer + approximate order date + line-item overlap
+
+---
+
+# Milestone 4: Reminder Engine
+
+## Goal — the only thing that counts as "done"
+
+> Every day, the app checks all Orders and emails me a reminder at 7 days, 2 days, 1 day, and the same day before each return deadline — once per milestone per order, never a duplicate, and never for an order that's already closed out.
+
+This is the payoff for everything before it: Milestones 2–3 exist so this milestone has a trustworthy `returnDeadline` to act on. No reminder logic is worth building on top of unreliable dates — that's why this came last.
+
+## Why this design (read before building)
+
+- **Cron, not a queue.** One Vercel Cron job, once a day, is simple and sufficient at this scale — a job queue is a later-scale concern, same reasoning as Milestone 2's synchronous extraction call.
+- **A fixed reminder cadence (7/2/1/0 days), not a configurable one.** Per-user reminder preferences are a real feature eventually, but they need real users first. Hardcoding the cadence now means the cron logic ships today instead of waiting on a preferences UI that has no one to use it yet.
+- **Dedup via a database table, not in-memory state.** Vercel Cron can in principle invoke the route more than once (retries, manual re-triggers, the `force` test param below) — a `Reminder` row per `(orderId, reminderType)` with a unique constraint is the only thing that reliably prevents a double-send across separate invocations, since nothing else persists between them.
+- **Skip orders that don't need a reminder, not just orders that don't have a deadline.** `completed`/`expired`/`return_started` all mean the user already acted (or the window's gone) — reminding them is noise at best, confusing at worst ("return closes in 2 days" on an order they already returned). Orders flagged `needsReview` still get reminded *if* they have a confirmed `returnDeadline` — uncertainty about some other field (retailer casing, an unconfirmed line item) shouldn't suppress a deadline we're actually confident about.
+- **The subject line always carries retailer + order total.** This was scoped back in Milestone 2 ("Spec note for whenever this is built") — `orderTotal` already exists on every Order for exactly this purpose. A vague "Return closing soon" email is easy to ignore; "2 days left to return: SKIMS · $210" tells me whether to care before I even open it.
+- **One hardcoded recipient for now, not a real per-user system.** There's no `User` model yet (still one user: me) — `REMINDER_EMAIL` is a stand-in until per-user `+tag` addresses and auth exist. Don't build the per-user version now; there's no second user to validate it against.
+- **`lib/reminders.ts` is pure logic, deliberately.** It takes an order and a date and returns a `ReminderType | null` — no DB reads, no sending. That makes it trivial to unit-test every day-offset and status-skip case without mocking Prisma or Postmark, and keeps "which reminder fires" decoupled from "how it gets sent."
+
+## Data model
+
+```prisma
+model Reminder {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  reminderType String   // "7_day" | "2_day" | "1_day" | "same_day"
+  sentAt       DateTime @default(now())
+
+  @@unique([orderId, reminderType])
+}
+```
+
+Add `reminders Reminder[]` to `Order`. The `@@unique([orderId, reminderType])` constraint is the actual duplicate-prevention mechanism — application logic should check it too (to skip work, not just to fail), but the constraint is what guarantees correctness even if that check has a bug or two cron invocations race.
+
+## The reminder logic
+
+`lib/reminders.ts` exports `reminderTypeForOrder(order, today)`:
+
+1. Skip if `order.status` is `"completed"`, `"expired"`, or `"return_started"`.
+2. Skip if `order.returnDeadline` is null (covers "`needsReview` with no confirmed deadline" — and any other reason the deadline might be missing).
+3. Otherwise compute the calendar-day difference between `today` and `returnDeadline` (UTC dates, ignoring time-of-day, so it doesn't flicker depending on what time the cron happens to run).
+4. Return `"7_day"`, `"2_day"`, `"1_day"`, or `"same_day"` if that difference matches exactly 7, 2, 1, or 0 days. Otherwise `null`.
+
+This function never touches the database and never sends anything — it's the answer to "should *this* order get a reminder today," nothing more.
+
+## The cron route
+
+`app/api/cron/route.ts`, triggered by Vercel Cron daily at **14:00 UTC**:
+
+1. Fetch all Orders.
+2. For each, call `reminderTypeForOrder`. Skip if `null`.
+3. If a `Reminder` row already exists for `(orderId, reminderType)`, skip (already sent).
+4. Otherwise send via **Postmark outbound** (same Postmark account already used for inbound) to `REMINDER_EMAIL`, subject formatted as below, then create the `Reminder` row.
+
+**Subject line format** (always retailer + total when known):
+
+```
+{daysLeftLabel} to return: {retailer} · {orderTotal formatted as currency}
+```
+
+| reminderType | daysLeftLabel |
+|---|---|
+| `7_day` | "7 days left" |
+| `2_day` | "2 days left" |
+| `1_day` | "1 day left" |
+| `same_day` | "Last day" |
+
+e.g. `"2 days left to return: SKIMS · $210"`. If `orderTotal` is null, drop the `· {total}` segment rather than printing "· $null".
+
+**Auth + manual testing:** the route requires a `CRON_SECRET` (Vercel Cron sends it automatically as a bearer token on scheduled invocations; reject any request without it matching). A `?force=true` query param, gated behind the same `CRON_SECRET`, lets me trigger a real run on demand while testing — without it, there's no way to test the cron logic except waiting for 14:00 UTC or faking the system clock.
+
+## Build steps
+
+1. **Schema.** Add the `Reminder` model and `Order.reminders` above, run the migration.
+2. **Reminder logic.** Build `lib/reminders.ts` per the approach above — pure function, no DB, no sending.
+3. **Cron route.** Build `app/api/cron/route.ts`: auth via `CRON_SECRET`, fetch Orders, call `reminderTypeForOrder`, check/create `Reminder` rows, send via Postmark outbound.
+4. **Vercel Cron config.** Add the daily 14:00 UTC schedule (`vercel.json` `crons` entry pointing at `/api/cron`).
+5. **Manual test path.** Confirm `?force=true` + correct `CRON_SECRET` triggers a real send; confirm a second call right after doesn't double-send (the `Reminder` row should already exist).
+
+## How to know it works
+
+1. Hit `/api/cron?force=true` with the right `CRON_SECRET` against an Order whose `returnDeadline` is exactly 7/2/1/0 days out (date-shift a test Order if nothing in the backlog lines up — BUILD.md's own sequencing notes flagged that backlog deadlines are already expired and can't test this naturally).
+2. Confirm the email arrives at `REMINDER_EMAIL` with the right subject line, including retailer and total.
+3. Call the same endpoint again immediately — confirm no second email sends, and check the `Reminder` table has exactly one row for that `(orderId, reminderType)`.
+4. Confirm an order with status `completed`/`expired`/`return_started`, or `needsReview` with no deadline, never produces a reminder regardless of date.
+
+## Manual setup checklist additions
+
+- [ ] Set `REMINDER_EMAIL` in `.env` locally and in Vercel's environment variables.
+- [ ] Generate a `CRON_SECRET` (any random string) and set it locally and in Vercel.
+- [ ] Add the `crons` entry to `vercel.json` and redeploy — Vercel only picks up cron schedules from a deployed `vercel.json`, not from `.env` or the dashboard alone.
+- [ ] Confirm Postmark's **outbound** sending is enabled on the same server/account already used for inbound (it's a separate capability from the inbound stream).
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 13 — Reminder model + pure reminder logic**
+> Per BUILD.md's Milestone 4 section, add the Reminder model to schema.prisma and migrate. Build lib/reminders.ts as pure logic — no sending, just returns which reminder type should fire today (or null) given an order and a date.
+
+**Prompt 14 — cron route + sending**
+> Per BUILD.md, build app/api/cron/route.ts: authenticate via CRON_SECRET, fetch all Orders, call reminderTypeForOrder for each, skip if a matching Reminder row already exists, otherwise send via Postmark outbound to REMINDER_EMAIL with the specified subject format and create the Reminder row. Add the ?force=true test param gated behind CRON_SECRET, and the vercel.json cron schedule for 14:00 UTC daily.
+
+---
+
+## What comes after Milestone 4 (not now)
+
+- Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is a stand-in until this exists
+- The guided Gmail forwarding onboarding (the filter milestone)
+- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers) — likely needs a secondary matching signal beyond exact order-number equality, such as retailer + approximate order date + line-item overlap
+- Configurable per-user reminder cadence and channel (SMS, not just email)
+- Snoozing or dismissing a reminder, and a way to mark an order "returned" manually so it stops reminding without waiting for a `refund`/`return_label` email
 
 ### Privacy hardening (before opening to public users)
 

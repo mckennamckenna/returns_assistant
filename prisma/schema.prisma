@@ -67,5 +67,19 @@ model Order {
   status      String  @default("ordered")
   needsReview Boolean @default(false)
 
-  emails Email[]
+  emails    Email[]
+  reminders Reminder[]
+}
+
+// --- Milestone 4: tracks which reminder emails have already been sent,
+// so the daily cron never sends the same one twice ---
+model Reminder {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  reminderType String // "7_day" | "2_day" | "1_day" | "same_day"
+  sentAt       DateTime @default(now())
+
+  @@unique([orderId, reminderType])
 }
