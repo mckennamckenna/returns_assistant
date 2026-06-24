@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { runExtraction } from "@/lib/runExtraction";
+import { isCommerceEmail } from "@/lib/classify";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -14,6 +15,21 @@ interface PostmarkInboundPayload {
 export async function POST(request: NextRequest) {
   try {
     const payload: PostmarkInboundPayload = await request.json();
+
+    let isCommerce: boolean;
+    try {
+      isCommerce = await isCommerceEmail(payload.TextBody, payload.HtmlBody);
+    } catch (error) {
+      // Fail open: a classifier outage shouldn't silently drop real data.
+      console.error("Commerce classification failed, keeping email:", error);
+      isCommerce = true;
+    }
+
+    if (!isCommerce) {
+      // Never stored, never logged beyond this count — no content here.
+      console.log("Discarded non-commerce email at inbound");
+      return NextResponse.json({ ok: true });
+    }
 
     console.log("Inbound email payload:", JSON.stringify(payload));
 

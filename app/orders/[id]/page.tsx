@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { deleteEmail } from "@/app/actions";
+import { DeleteButton } from "@/app/DeleteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -138,8 +140,8 @@ export default async function OrderDetail({
       </h2>
       <ul className="flex flex-col gap-3">
         {order.emails.map((email) => (
-          <li key={email.id} className="border border-zinc-200 rounded-lg">
-            <Link href={`/emails/${email.id}`} className="block p-3 hover:bg-zinc-50">
+          <li key={email.id} className="border border-zinc-200 rounded-lg flex items-stretch">
+            <Link href={`/emails/${email.id}`} className="flex-1 block p-3 hover:bg-zinc-50 min-w-0">
               <div className="flex justify-between items-baseline gap-4">
                 <span className="font-medium truncate">{email.subject || "(no subject)"}</span>
                 <span className="text-sm text-zinc-500 whitespace-nowrap">
@@ -148,6 +150,9 @@ export default async function OrderDetail({
               </div>
               <span className="text-xs text-zinc-400">{email.emailType ?? "unclassified"}</span>
             </Link>
+            <form action={deleteEmail.bind(null, email.id)} className="flex items-center pr-3">
+              <DeleteButton label="Delete email" />
+            </form>
           </li>
         ))}
       </ul>

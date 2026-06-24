@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { deleteOrder, deleteEmail } from "./actions";
+import { DeleteButton } from "./DeleteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -71,11 +73,11 @@ export default async function Home() {
               return (
                 <li
                   key={order.id}
-                  className={`border rounded-lg ${
+                  className={`border rounded-lg flex items-stretch ${
                     isHighValue ? "border-amber-300 border-l-4" : "border-zinc-200"
                   }`}
                 >
-                  <Link href={`/orders/${order.id}`} className="block p-4 hover:bg-zinc-50">
+                  <Link href={`/orders/${order.id}`} className="flex-1 block p-4 hover:bg-zinc-50 min-w-0">
                     <div className="flex justify-between items-baseline gap-4">
                       <span className="font-semibold text-zinc-800">{order.retailer || "Unknown retailer"}</span>
                       <span className="text-sm text-zinc-500 whitespace-nowrap">
@@ -109,6 +111,9 @@ export default async function Home() {
                       )}
                     </div>
                   </Link>
+                  <form action={deleteOrder.bind(null, order.id)} className="flex items-center pr-3">
+                    <DeleteButton label="Delete order" />
+                  </form>
                 </li>
               );
             })}
@@ -122,8 +127,8 @@ export default async function Home() {
               </p>
               <ul className="flex flex-col gap-4">
                 {orphanedEmails.map((email) => (
-                  <li key={email.id} className="border border-zinc-200 rounded-lg">
-                    <Link href={`/emails/${email.id}`} className="block p-4 hover:bg-zinc-50">
+                  <li key={email.id} className="border border-zinc-200 rounded-lg flex items-stretch">
+                    <Link href={`/emails/${email.id}`} className="flex-1 block p-4 hover:bg-zinc-50 min-w-0">
                       <div className="flex justify-between items-baseline gap-4">
                         <span className="font-medium truncate">
                           {email.fromName ? `${email.fromName} <${email.fromEmail}>` : email.fromEmail}
@@ -140,6 +145,9 @@ export default async function Home() {
                         </span>
                       )}
                     </Link>
+                    <form action={deleteEmail.bind(null, email.id)} className="flex items-center pr-3">
+                      <DeleteButton label="Delete email" />
+                    </form>
                   </li>
                 ))}
               </ul>
@@ -147,6 +155,12 @@ export default async function Home() {
           )}
         </>
       )}
+
+      <footer className="mt-12 pt-4 border-t border-zinc-100 text-sm text-zinc-400">
+        <Link href="/privacy" className="hover:underline">
+          Privacy
+        </Link>
+      </footer>
     </main>
   );
 }

@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Currently on **Milestone 4: Reminder Engine**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Currently on **Milestone 5: Pre-Alpha Privacy Features**.
 
 ---
 
@@ -25,7 +25,7 @@ No AI, no reminders, no login yet. Just: email in → stored → visible.
 Privacy is a core feature, not a settings page added later. The product's promise is: *we never touch your inbox — only the shopping emails you choose to forward.* Two layers make that true:
 
 1. **The filter is the visible front door.** Onboarding (a later milestone) gives users a specific, narrow Gmail filter that forwards only order/shipping/refund-type mail. It should be *shown and explained in plain language and be editable*, so a skeptical user can read exactly what reaches us. Specific and legible beats complex — a scary filter string undermines both trust and easy setup.
-2. **The backend must honor the promise even when the filter doesn't.** A filter can't guarantee nothing sensitive slips through, so the app must: discard anything that isn't clearly commerce, store the minimum needed, make per-email and full-account deletion easy, and never train models on user email content.
+2. **The backend must honor the promise even when the filter doesn't.** A filter can't guarantee nothing sensitive slips through, so the app must: discard anything that isn't clearly commerce, store the minimum needed, make per-email and full-account deletion easy, and never train models on user email content. **Implemented in Milestone 5:** non-commerce discard at ingestion, per-email/per-order delete, and full-account delete are all live — see that section.
 
 For this milestone specifically: `rawJson` storage is for early debugging and must stay prunable/deletable — don't treat it as permanent.
 
@@ -629,11 +629,61 @@ e.g. `"2 days left to return: SKIMS · $210"`. If `orderTotal` is null, drop the
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually so it stops reminding without waiting for a `refund`/`return_label` email
 
+---
+
+# Milestone 5: Pre-Alpha Privacy Features
+
+## Goal — the only thing that counts as "done"
+
+> A non-commerce email never gets stored, not even briefly. Every email and every order can be deleted with one click. All data can be wiped in one confirmed action. Anyone can read, in five bullet points, exactly what's stored, what isn't, and how to erase it.
+
+This makes good on the promise from Milestone 1's privacy principle ("the backend must honor the promise even when the filter doesn't") before the next milestone (auth, multiple users) makes that promise matter to anyone but me.
+
+## Why this design (read before building)
+
+- **Classify before storing, not after.** Milestone 2's extraction already classifies `emailType` including `"other"` — but that happens *after* the row is already in the database. A privacy filter that runs after the fact has already failed at its one job. The new gate runs first, on the raw Postmark payload, before any `prisma.email.create` call — a non-commerce email is never written, not even transiently.
+- **A separate, cheap model for the gate.** This call runs on every single inbound email, including all the ones that get thrown away — it should be fast and cheap, not the same model/prompt doing full extraction. `claude-haiku-4-5` for a one-word answer is the right tool; spending a Sonnet extraction call to decide "don't keep this" first would be backwards.
+- **When uncertain, discard.** The gate's prompt explicitly says "if you're not sure, answer NOT_COMMERCE." This mirrors Milestone 2's "null + low confidence is always better than a wrong answer" — except here the cost of a wrong answer in the other direction (keeping something sensitive) is much higher than the cost of occasionally dropping a legitimate but ambiguously-worded commerce email.
+- **Classifier errors fail open, not closed.** If the Haiku call itself fails (API outage, rate limit), the email is kept and goes through the normal flow rather than being silently discarded. An infrastructure hiccup shouldn't quietly delete real data — that's a different failure mode than "this content looks non-commerce," and conflating them would turn a transient outage into permanent data loss.
+- **Log a count, never content.** The whole point of the filter is that sensitive content never gets persisted or logged. `console.log("Discarded non-commerce email at inbound")` is the entire log line — no subject, no body, no sender. Counting discards over time (via log search) is useful for tuning the filter; logging what got discarded would defeat the filter's purpose.
+- **Deletion needs two different postures.** Deleting one email or one order should be a single click, no confirmation dialog — low blast radius, and the data can usually be recreated by forwarding again. Deleting *everything* is irreversible and total, so it gets real friction: typing the word `DELETE` before the button even becomes clickable.
+
+## What got built
+
+1. **Non-commerce discard at ingestion** (`lib/classify.ts`, wired into `/api/inbound` before extraction). `isCommerceEmail(textBody, htmlBody)` calls `claude-haiku-4-5` with a one-word yes/no prompt. `NOT_COMMERCE` (or no body to even classify) → return 200, never create the `Email` row. Classification errors are caught separately and fail open (keep the email, log the error) rather than discarding on an infrastructure failure.
+2. **Dashboard delete controls.** Every Order card and every unlinked-Email card on the dashboard has a delete (`✕`) button, structured as a sibling of the card's `Link` (not nested inside it) so it doesn't trigger navigation. `deleteOrder` (in `app/actions.ts`) deletes the Order's `Reminder` rows, then its `Email` rows, then the Order itself — in that order, since `Reminder` has no cascade on its `Order` foreign key. `deleteEmail` deletes one email and, if that was the last email linked to its Order, deletes the now-empty Order too (and its Reminders). The same `deleteEmail` action and delete button are also used on the Order detail page's linked-email list, where the unlink-and-maybe-cascade behavior is most visible.
+3. **`/settings` — delete all data.** One destructive action: wipes every `Reminder`, then every `Email`, then every `Order` (same dependency order as above), gated behind typing `DELETE` into a text field — the submit button stays disabled until the input matches exactly. Redirects to the (now empty) dashboard on completion.
+4. **`/privacy` page**, linked from the dashboard footer. Five bullets, plain language: what's stored, what isn't (and that the non-commerce filter runs before storage), that data is never sold, that email content never trains any model, and a link to `/settings` for full deletion.
+
+## How to know it works
+
+1. Forward something pharmacy/medical/financial/personal — confirm it never appears on the dashboard, and the only server log is the no-content discard line.
+2. Forward a real order confirmation — confirm it still appears and extracts normally; the gate shouldn't affect legitimate commerce mail.
+3. Click delete on an Order with multiple linked emails — confirm the Order and *all* its emails disappear from the dashboard.
+4. Click delete on one email within a multi-email Order — confirm the Order survives with the rest of its emails. Delete the last one — confirm the Order disappears too.
+5. Go to `/settings`, confirm the button stays disabled until `DELETE` is typed exactly, then confirm the dashboard is empty afterward.
+6. Read `/privacy` cold (as if you'd never seen this codebase) — confirm it's accurate and actually answers "what happens to my data."
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 15 — pre-alpha privacy features**
+> Per BUILD.md's Milestone 5 section: add a fast commerce/non-commerce classification gate to /api/inbound that runs before extraction and discards (without storing) anything that isn't clearly commerce, logging only a count, never content. Add delete buttons to every email and order card on the dashboard, with the cascade/unlink behavior described. Add a /settings page that wipes all data behind a typed "DELETE" confirmation. Add a /privacy page linked from the dashboard footer with five plain-language bullets covering what's stored, what isn't, no selling, no training on email content, and how to delete everything.
+
+---
+
+## What comes after Milestone 5 (not now)
+
+- Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is still a stand-in until this exists
+- The guided Gmail forwarding onboarding (the filter milestone)
+- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Configurable per-user reminder cadence and channel (SMS, not just email)
+- Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
+
 ### Privacy hardening (before opening to public users)
 
-Everything so far has been single-user (me), where `fromEmail`/`fromName` is always my own address and `rawJson` is convenient debugging. Neither assumption holds once other people's data is in this database. Required before any public launch, building on the "Privacy principle" established at the top of this doc:
+Everything so far has been single-user (me), where `fromEmail`/`fromName` is always my own address and `rawJson` is convenient debugging. Neither assumption holds once other people's data is in this database. Required before any public launch:
 
 - **Hash or encrypt `fromEmail` and `fromName` at write time.** These are the one piece of PII guaranteed to be on every row (it's the forwarding user's own address). Don't store them in plaintext once there's more than one user — hash for lookup/display needs that tolerate it, encrypt (with a key outside the database) if the original value must ever be recovered.
-- **Audit `rawJson` for PII exposure.** It was flagged back in Milestone 1 as "for early debugging, must stay prunable/deletable — don't treat it as permanent." Before launch, actually go through what Postmark's payload contains beyond what we already extract (full headers, attachment metadata, etc.) and decide what's safe to keep, what to strip, and a concrete retention/deletion policy — not just a TODO.
+- **Audit `rawJson` for PII exposure.** It was flagged back in Milestone 1 as "for early debugging, must stay prunable/deletable — don't treat it as permanent." Milestone 5 made deletion easy; this is the remaining half — go through what Postmark's payload contains beyond what we already extract (full headers, attachment metadata, etc.) and decide what's safe to keep, what to strip, and a concrete retention policy, not just a TODO.
 - **Per-user `+tag` addresses must use random hashes, not user IDs.** Milestone 1 noted that `MailboxHash` will eventually carry a per-user identifier so one inbox can route everyone. If that identifier is a sequential or guessable user ID, anyone can enumerate or guess other users' forwarding addresses. Generate an opaque random token per user instead, with no structural relationship to their account ID.
 
