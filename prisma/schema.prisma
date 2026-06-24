@@ -9,14 +9,14 @@ datasource db {
 
 model Email {
   id          String   @id @default(cuid())
-  fromEmail   String
-  fromName    String?
+  fromEmail   String   // encrypted at rest — see lib/crypto.ts
+  fromName    String?  // encrypted at rest
   toHash      String?  // the +tag from the inbound address, identifies the user later
   subject     String?
-  textBody    String?  @db.Text
-  htmlBody    String?  @db.Text
+  textBody    String?  @db.Text // encrypted at rest
+  htmlBody    String?  @db.Text // encrypted at rest
   receivedAt  DateTime @default(now())
-  rawJson     Json     // store the whole Postmark payload so nothing is lost
+  rawJson     String   @db.Text // encrypted at rest — whole Postmark payload, JSON-stringified then encrypted
 
   // --- Milestone 2 additions ---
   retailer            String?

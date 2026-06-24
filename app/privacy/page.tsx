@@ -12,7 +12,9 @@ export default function PrivacyPage() {
       <ul className="flex flex-col gap-4 text-zinc-800">
         <li>
           <strong>What we store:</strong> only the shopping emails you forward to us — sender, subject, date, body
-          text, and whatever order details (retailer, order number, dates, totals) we can read from them.
+          text, and whatever order details (retailer, order number, dates, totals) we can read from them. The
+          sender and message content are encrypted at rest — even we can&apos;t read the raw email content without
+          the decryption key.
         </li>
         <li>
           <strong>What we don&apos;t store:</strong> emails that aren&apos;t clearly about a purchase. A fast check

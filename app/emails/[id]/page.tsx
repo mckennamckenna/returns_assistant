@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { reExtract } from "./actions";
 import { ReExtractButton } from "./ReExtractButton";
+import { decryptEmailContent } from "@/lib/emailEncryption";
 
 export const dynamic = "force-dynamic";
 
@@ -45,11 +46,13 @@ export default async function EmailDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const email = await prisma.email.findUnique({ where: { id } });
+  const emailRaw = await prisma.email.findUnique({ where: { id } });
 
-  if (!email) {
+  if (!emailRaw) {
     notFound();
   }
+
+  const email = decryptEmailContent(emailRaw);
 
   return (
     <main className="min-h-screen p-8 max-w-5xl mx-auto w-full">

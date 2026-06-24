@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Email" ALTER COLUMN "rawJson" SET DATA TYPE TEXT USING "rawJson"::TEXT;

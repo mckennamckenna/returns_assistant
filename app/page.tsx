@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { deleteOrder, deleteEmail } from "./actions";
 import { DeleteButton } from "./DeleteButton";
+import { decryptEmailContent } from "@/lib/emailEncryption";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default async function Home() {
-  const [orders, orphanedEmails] = await Promise.all([
+  const [orders, rawOrphanedEmails] = await Promise.all([
     prisma.order.findMany({
       include: { _count: { select: { emails: true } } },
     }),
@@ -51,6 +52,8 @@ export default async function Home() {
       orderBy: { receivedAt: "desc" },
     }),
   ]);
+
+  const orphanedEmails = rawOrphanedEmails.map(decryptEmailContent);
 
   const sortedOrders = [...orders].sort((a, b) => {
     if (a.returnDeadline == null && b.returnDeadline == null) return 0;

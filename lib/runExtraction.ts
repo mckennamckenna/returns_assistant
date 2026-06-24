@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { extractEmail } from "@/lib/extract";
 import { linkEmailToOrder } from "@/lib/linkOrder";
+import { decrypt } from "@/lib/crypto";
 
 export async function runExtraction(emailId: string): Promise<void> {
   const email = await prisma.email.findUnique({ where: { id: emailId } });
@@ -11,7 +12,7 @@ export async function runExtraction(emailId: string): Promise<void> {
       throw new Error("no textBody to extract from");
     }
 
-    const result = await extractEmail(email.textBody);
+    const result = await extractEmail(decrypt(email.textBody));
 
     await prisma.email.update({
       where: { id: emailId },

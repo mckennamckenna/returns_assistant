@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Currently on **Milestone 5: Pre-Alpha Privacy Features**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Currently on **Milestone 6: Encryption at Rest**.
 
 ---
 
@@ -679,11 +679,63 @@ This makes good on the promise from Milestone 1's privacy principle ("the backen
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
 
-### Privacy hardening (before opening to public users)
+---
 
-Everything so far has been single-user (me), where `fromEmail`/`fromName` is always my own address and `rawJson` is convenient debugging. Neither assumption holds once other people's data is in this database. Required before any public launch:
+# Milestone 6: Encryption at Rest
 
-- **Hash or encrypt `fromEmail` and `fromName` at write time.** These are the one piece of PII guaranteed to be on every row (it's the forwarding user's own address). Don't store them in plaintext once there's more than one user — hash for lookup/display needs that tolerate it, encrypt (with a key outside the database) if the original value must ever be recovered.
-- **Audit `rawJson` for PII exposure.** It was flagged back in Milestone 1 as "for early debugging, must stay prunable/deletable — don't treat it as permanent." Milestone 5 made deletion easy; this is the remaining half — go through what Postmark's payload contains beyond what we already extract (full headers, attachment metadata, etc.) and decide what's safe to keep, what to strip, and a concrete retention policy, not just a TODO.
+## Goal — the only thing that counts as "done"
+
+> The five fields that carry actual email content or identity — `fromEmail`, `fromName`, `textBody`, `htmlBody`, `rawJson` — are ciphertext in the database, not plaintext. Reading them back through the app still works exactly as before. Anyone with read access to the database (including the app operator) sees only ciphertext without the key.
+
+This is the other half of Milestone 5's discard gate: discarding non-commerce content protects against storing the wrong things, encryption at rest protects the right things that *are* stored, in case the database itself is ever compromised, queried by the wrong person, or backed up somewhere less controlled than expected.
+
+## Why this design (read before building)
+
+- **Field-level, not whole-database, encryption.** Neon/Postgres already encrypts data at rest at the storage layer — this is a different, stronger guarantee: even a query run directly against the database, or a leaked connection string, returns ciphertext for these fields rather than plaintext. The two are complementary, not redundant.
+- **Encrypt content and identity, not product data.** `retailer`, `orderNumber`, dates, totals, `emailType`, `confidence`, `extractionNotes` are derived facts about a purchase — useful to query, sort, and match Orders on, and not personally sensitive on their own. `fromEmail`/`fromName` (who sent it), `textBody`/`htmlBody` (what it says), and `rawJson` (everything Postmark gave us, unfiltered) are the fields that actually carry someone's inbox content — those are what get encrypted.
+- **AES-256-GCM, IV embedded in every value.** GCM gives both confidentiality and tamper detection (decryption fails loudly if ciphertext is modified, rather than silently returning garbage). Each encrypted value stores its own random IV (`iv:authTag:ciphertext`, all hex) — no separate IV table or per-row metadata needed, and no IV is ever reused across values.
+- **`rawJson` changes type, not just content.** It was a Prisma/Postgres `Json` (`jsonb`) column — ciphertext isn't valid JSON, so encrypting it required migrating the column to `String`/`text` first (`ALTER COLUMN ... TYPE TEXT USING "rawJson"::TEXT`, applied before any encryption ran). Reading it back means decrypting then `JSON.parse`-ing, rather than Postgres handling JSON natively.
+- **The backfill is idempotent by construction.** A value that already matches the `iv:authTag:ciphertext` shape (exact hex-digit-count pattern) is left alone rather than encrypted again — re-running the script after a partial failure, or by accident, can't double-encrypt and corrupt rows. This matters because the alternative (encrypting already-encrypted ciphertext) produces data that looks fine until someone tries to decrypt it.
+- **Decryption happens at every read site, explicitly — not via Prisma middleware.** Given the relatively small number of call sites (one write path, four read paths: extraction, the order-linking date fallback, the dashboard, and the email detail page), explicit `decryptEmailContent()`/`decrypt()` calls at each site stay easier to audit than a Prisma Client Extension that transparently rewrites every query. Bugs here are easy to spot (a field renders as ciphertext) rather than silent.
+
+## What got built
+
+1. **`ENCRYPTION_KEY`** — a random 32-byte hex value, set in `.env` and all three Vercel environments. Losing this key means losing the ability to ever decrypt existing rows — there is no recovery path, by design.
+2. **`lib/crypto.ts`** — `encrypt(text: string): string` / `decrypt(text: string): string`, AES-256-GCM via Node's built-in `crypto` module. Output format `iv:authTag:ciphertext` (hex). Tested directly: round-trips correctly for plain text, empty strings, unicode, and JSON content; a tampered ciphertext correctly throws rather than decrypting to garbage.
+3. **`lib/emailEncryption.ts`** — thin field-level wrappers used at every call site: `encryptEmailContent`/`decryptEmailContent` for `fromEmail`/`fromName`/`textBody`/`htmlBody` together, and `encryptRawJson`/`decryptRawJson` for the JSON-then-encrypt/decrypt-then-parse `rawJson` path.
+4. **Write path** (`/api/inbound`): encrypts all five fields before `prisma.email.create`. The full plaintext payload is still logged via `console.log` for debugging, same as before this milestone — see the residual gap noted below.
+5. **Read paths updated to decrypt:** `lib/runExtraction.ts` (decrypts `textBody` before handing it to the AI), `lib/linkOrder.ts`'s forwarded-header-date fallback (decrypts the `order_confirmation` email's `textBody` before regex-parsing it), the dashboard's unlinked-email cards, and the email detail page. The Order detail page needed no changes — it only renders `subject`/`receivedAt`/`emailType` from linked emails, none of which are encrypted.
+6. **`scripts/encrypt-existing-emails.ts`** — one-time, idempotent backfill. Run against the 21 existing rows: all 21 encrypted on the first run, all 21 correctly skipped (already encrypted) on a second run. Spot-checked decrypted content against known values (sender, body text, parsed `rawJson`) to confirm no corruption.
+7. **`/privacy` page** updated: the "What we store" bullet now states that sender and message content are encrypted at rest and unreadable without the key, without exceeding the five-bullet limit set in Milestone 5.
+
+## Known residual gap
+
+The webhook still `console.log`s the full plaintext Postmark payload for every commerce email, same as it has since Milestone 1 — encrypting the database doesn't help if the same content sits in plaintext in Vercel's log aggregator. Out of scope for this milestone (which was specifically about data *at rest*), but worth addressing before this matters for anyone but me: either drop that log line in production, or redact it to structure-only (field names present/absent) rather than full content.
+
+## How to know it works
+
+1. Read a few existing rows directly (bypassing the app) — `fromEmail`, `fromName`, `textBody`, `htmlBody`, and `rawJson` are all `iv:authTag:ciphertext` hex strings, not readable content.
+2. Forward a new email — confirm it lands on the dashboard and extracts correctly, then confirm its stored row is also ciphertext.
+3. Open an existing email's detail page — confirm sender, subject line area, and body render exactly as they did before encryption.
+4. Open an Order with multiple linked emails — confirm the Order card and detail page still show retailer/order number/dates/total correctly (none of that is encrypted, so this should be unaffected, but worth confirming nothing broke).
+5. Re-run the backfill script a second time — confirm it reports 0 newly-encrypted rows, all skipped.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 16 — encryption at rest**
+> Per BUILD.md's Milestone 6 section: generate ENCRYPTION_KEY and add it to .env and Vercel. Build lib/crypto.ts (AES-256-GCM encrypt/decrypt, IV embedded in output). Encrypt fromEmail, fromName, textBody, htmlBody, and rawJson before writing Email rows (rawJson needs a schema migration from Json to String first), decrypt them at every read site. Write and run an idempotent backfill script for existing rows. Add a note to /privacy that content is encrypted at rest.
+
+---
+
+## What comes after Milestone 6 (not now)
+
+- Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is still a stand-in until this exists
+- The guided Gmail forwarding onboarding (the filter milestone)
+- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Configurable per-user reminder cadence and channel (SMS, not just email)
+- Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
+- Stop logging full plaintext payloads to server logs (the residual gap noted above) — encryption at rest is undermined if the same content is sitting in plaintext log history
+- **Audit `rawJson` for content minimization**, not just encryption. It was flagged back in Milestone 1 as "for early debugging, must stay prunable/deletable — don't treat it as permanent," and Milestone 6 encrypted it, but encryption isn't minimization: go through what Postmark's payload contains beyond what we already extract (full headers, attachment metadata, etc.) and decide what's safe to drop entirely, plus a concrete retention policy.
 - **Per-user `+tag` addresses must use random hashes, not user IDs.** Milestone 1 noted that `MailboxHash` will eventually carry a per-user identifier so one inbox can route everyone. If that identifier is a sequential or guessable user ID, anyone can enumerate or guess other users' forwarding addresses. Generate an opaque random token per user instead, with no structural relationship to their account ID.
+- Key rotation strategy for `ENCRYPTION_KEY` — there is currently no way to re-encrypt under a new key without decrypting every row under the old one first; fine for one key that's never been rotated, not fine indefinitely.
 

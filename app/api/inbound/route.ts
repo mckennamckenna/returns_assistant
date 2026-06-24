@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { runExtraction } from "@/lib/runExtraction";
 import { isCommerceEmail } from "@/lib/classify";
+import { encryptEmailContent, encryptRawJson } from "@/lib/emailEncryption";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -33,16 +34,23 @@ export async function POST(request: NextRequest) {
 
     console.log("Inbound email payload:", JSON.stringify(payload));
 
+    const encrypted = encryptEmailContent({
+      fromEmail: payload.FromFull?.Email ?? "",
+      fromName: payload.FromFull?.Name ?? null,
+      textBody: payload.TextBody ?? null,
+      htmlBody: payload.HtmlBody ?? null,
+    });
+
     const email = await prisma.email.create({
       data: {
-        fromEmail: payload.FromFull?.Email ?? "",
-        fromName: payload.FromFull?.Name,
+        fromEmail: encrypted.fromEmail,
+        fromName: encrypted.fromName,
         toHash: payload.MailboxHash,
         subject: payload.Subject,
-        textBody: payload.TextBody,
-        htmlBody: payload.HtmlBody,
+        textBody: encrypted.textBody,
+        htmlBody: encrypted.htmlBody,
         receivedAt: payload.Date ? new Date(payload.Date) : new Date(),
-        rawJson: payload as object,
+        rawJson: encryptRawJson(payload),
       },
     });
 

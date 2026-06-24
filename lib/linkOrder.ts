@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { computeDeadline } from "@/lib/extract";
+import { decrypt } from "@/lib/crypto";
 
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
@@ -49,7 +50,8 @@ async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
     where: { orderId, emailType: "order_confirmation" },
     orderBy: { receivedAt: "asc" },
   });
-  return confirmationEmail ? parseForwardedHeaderDate(confirmationEmail.textBody) : null;
+  if (!confirmationEmail?.textBody) return null;
+  return parseForwardedHeaderDate(decrypt(confirmationEmail.textBody));
 }
 
 // If an order is missing orderDate after normal extraction/merging, try the
