@@ -157,9 +157,12 @@ export default async function Home() {
         </>
       )}
 
-      <footer className="mt-12 pt-4 border-t border-zinc-100 text-sm text-zinc-400">
+      <footer className="mt-12 pt-4 border-t border-zinc-100 text-sm text-zinc-400 flex gap-4">
         <Link href="/privacy" className="hover:underline">
           Privacy
+        </Link>
+        <Link href="/settings" className="hover:underline">
+          Settings
         </Link>
       </footer>
     </main>
