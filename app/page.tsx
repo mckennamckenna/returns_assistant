@@ -133,9 +133,7 @@ export default async function Home() {
                   <li key={email.id} className="border border-zinc-200 rounded-lg flex items-stretch">
                     <Link href={`/emails/${email.id}`} className="flex-1 block p-4 hover:bg-zinc-50 min-w-0">
                       <div className="flex justify-between items-baseline gap-4">
-                        <span className="font-medium truncate">
-                          {email.fromName ? `${email.fromName} <${email.fromEmail}>` : email.fromEmail}
-                        </span>
+                        <span className="font-medium truncate">Forwarded by you</span>
                         <span className="text-sm text-zinc-500 whitespace-nowrap">
                           {email.receivedAt.toLocaleString()}
                         </span>

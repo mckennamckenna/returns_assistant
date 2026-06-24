@@ -69,9 +69,7 @@ export default async function EmailDetail({
 
       <h1 className="text-2xl font-semibold mt-4">{email.subject || "(no subject)"}</h1>
       <div className="flex justify-between items-baseline gap-4 mt-1 text-sm text-zinc-500">
-        <span className="truncate">
-          {email.fromName ? `${email.fromName} <${email.fromEmail}>` : email.fromEmail}
-        </span>
+        <span className="truncate">Forwarded by you</span>
         <span className="whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
       </div>
 

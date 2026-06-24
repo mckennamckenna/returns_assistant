@@ -720,10 +720,17 @@ The webhook still `console.log`s the full plaintext Postmark payload for every c
 4. Open an Order with multiple linked emails — confirm the Order card and detail page still show retailer/order number/dates/total correctly (none of that is encrypted, so this should be unaffected, but worth confirming nothing broke).
 5. Re-run the backfill script a second time — confirm it reports 0 newly-encrypted rows, all skipped.
 
+## Follow-up: stop displaying fromEmail/fromName entirely
+
+Encrypting `fromEmail`/`fromName` at rest doesn't help if the app still decrypts and displays them on every page — every email in this system was forwarded by the one account holder, so showing their own address back to them is redundant exposure, not useful information. Fixed: the email detail page and the dashboard's "Unlinked emails" review list (the closest thing this app has to an admin/database-facing view — there's no separate `/admin` route) both show a generic **"Forwarded by you"** label instead of the decrypted sender. The Order detail page never rendered these fields and needed no change. The fields are still decrypted internally as part of `decryptEmailContent`'s bundled call (since `textBody`/`htmlBody` still need it) — they're just never passed into rendered JSX, so they never reach the client.
+
 ## Copy-paste prompts for Claude Code
 
 **Prompt 16 — encryption at rest**
 > Per BUILD.md's Milestone 6 section: generate ENCRYPTION_KEY and add it to .env and Vercel. Build lib/crypto.ts (AES-256-GCM encrypt/decrypt, IV embedded in output). Encrypt fromEmail, fromName, textBody, htmlBody, and rawJson before writing Email rows (rawJson needs a schema migration from Json to String first), decrypt them at every read site. Write and run an idempotent backfill script for existing rows. Add a note to /privacy that content is encrypted at rest.
+
+**Prompt 17 — stop displaying fromEmail/fromName**
+> On the email detail page, replace the fromName/fromEmail display with a generic "Forwarded by you" label. In any admin or database-facing views, make sure fromEmail and fromName are never displayed in plaintext.
 
 ---
 
