@@ -609,7 +609,7 @@ e.g. `"2 days left to return: SKIMS · $210"`. If `orderTotal` is null, drop the
 - [ ] Generate a `CRON_SECRET` (any random string) and set it locally and in Vercel.
 - [ ] Add the `crons` entry to `vercel.json` and redeploy — Vercel only picks up cron schedules from a deployed `vercel.json`, not from `.env` or the dashboard alone.
 - [ ] Confirm Postmark's **outbound** sending is enabled on the same server/account already used for inbound (it's a separate capability from the inbound stream).
-- [ ] **Known issue:** reminder emails currently land in spam. The send pipeline itself works (verified: cron sends, dedups via the `Reminder` table, and persists correctly) — this is a deliverability/domain-reputation gap, not a code bug. Fix is DKIM/SPF/DMARC setup for `REMINDER_FROM_EMAIL`'s domain in Postmark's Sender Signatures/Domains settings + corresponding DNS records, plus normal new-sender reputation warmup. Address before this matters for real use.
+- [x] ~~Known issue: reminder emails land in spam.~~ **Resolved.** Added DKIM (TXT) and Return-Path (CNAME `pm-bounces` → `pm.mtasv.net`) records for `metaxmoda.com` per Postmark's Domains setup, extended the existing root SPF record with `include:spf.mtasv.net` (without touching the GoDaddy-managed Google Workspace include already there), and added a fresh DMARC record (`p=none` to start, monitor-only). Verified end-to-end: the real scheduled cron run on 2026-06-24 sent a "1 day left to return: SKIMS · $210" reminder that landed in the inbox, not spam.
 
 ## Copy-paste prompts for Claude Code
 
