@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Currently on **Milestone 6: Encryption at Rest**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Currently on **Milestone 7: Return Portal Links**.
 
 ---
 
@@ -746,3 +746,56 @@ Encrypting `fromEmail`/`fromName` at rest doesn't help if the app still decrypts
 - **Per-user `+tag` addresses must use random hashes, not user IDs.** Milestone 1 noted that `MailboxHash` will eventually carry a per-user identifier so one inbox can route everyone. If that identifier is a sequential or guessable user ID, anyone can enumerate or guess other users' forwarding addresses. Generate an opaque random token per user instead, with no structural relationship to their account ID.
 - Key rotation strategy for `ENCRYPTION_KEY` — there is currently no way to re-encrypt under a new key without decrypting every row under the old one first; fine for one key that's never been rotated, not fine indefinitely.
 
+---
+
+# Milestone 7: Return Portal Links
+
+## Goal — the only thing that counts as "done"
+
+> Every Order card and detail page that has a known return-policy page shows a "Start Return →" link straight to it — the actual page where a return begins, not the retailer's homepage.
+
+Knowing the deadline tells you *when* to act. This tells you *where* — closing the gap between "this return closes in 2 days" and actually doing something about it.
+
+## Why this design (read before building)
+
+- **Extend the existing lookup, don't add a second one.** The return-policy web lookup already runs (Milestone 2) whenever an email doesn't state its own return window. Bundling the portal-URL question into that same call/prompt is one more field in the same JSON response, not a second API call, a second cost, or a second place that can fail.
+- **`returnPortalUrl` lives on `Order` only, not `Email`.** It's retailer-level information (Mango's return portal is the same URL regardless of which order or email you're looking at) — it doesn't belong on a per-email row the way `returnWindowDays` does. The lookup result is threaded straight from `lib/extract.ts`'s in-memory result through `runExtraction` into `linkEmailToOrder`, which merges it onto the Order, and is never persisted on `Email` at all.
+- **A known consequence of bundling, not a bug:** an order whose emails always state their own return window inline (so the web lookup never runs) won't get a `returnPortalUrl` via this path, even if one exists. Fine for now — most retailers that bother stating policy details in-email are well-known enough that this matters less. A future, independent "look up the portal URL regardless of whether we already know the day-count" pass would close this gap, listed below.
+- **Never let the model construct a URL — only report one it actually found.** Same "never invent" principle as everywhere else: the prompt explicitly forbids guessing a plausible-looking URL from the retailer's domain. A wrong return-policy day estimate is bad; a wrong return-portal URL is actively harmful (someone clicks it expecting to start a return). Verified directly against a real lookup (Mango) — the URL it returned was a genuine, live page, not a guess.
+
+## What got built
+
+1. **`Order.returnPortalUrl` (`String?`)** — migrated.
+2. **Lookup prompt extended** (`lib/extract.ts`'s `buildPolicyLookupPrompt`) to also ask for the direct return-initiation page, with the same "never guess" rule applied to it as to the day-count.
+3. **Threaded through, not persisted on `Email`:** `extractEmail` returns `returnPortalUrl` on `ExtractionResult`; `runExtraction` passes it to `linkEmailToOrder(emailId, returnPortalUrl)`; `linkEmailToOrder` merges it onto the Order (new non-null value wins, else keeps whatever the Order already had).
+4. **Dashboard Order card:** a "Start Return →" link (opens in a new tab) appears when `returnPortalUrl` is set, placed as a sibling of the card's main `Link` — same pattern as the delete button, so it doesn't trigger the card's own navigation.
+5. **Order detail page:** the same link, styled as a prominent button, placed right after the field grid that includes the return deadline.
+6. **Backfill:** re-ran extraction on existing orders' emails so they pick up `returnPortalUrl` retroactively.
+
+## How to know it works
+
+1. Re-extract an order for a well-known retailer with no explicit return policy in its emails — confirm `returnPortalUrl` gets set to a real, working URL (check it resolves — some retail sites 403 plain `curl` as bot-blocking, so verify with a browser or a browser-like User-Agent before concluding a URL is bad).
+2. Re-extract an order for an obscure/fictitious retailer — confirm `returnPortalUrl` stays `null` rather than a guessed URL.
+3. Confirm the "Start Return →" link appears on both the dashboard card and the order detail page when set, and is absent (not a broken link) when not.
+4. Click it — confirm it opens in a new tab and doesn't trigger the card's own navigation to the order detail page.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 18 — return portal links**
+> Per BUILD.md's Milestone 7 section: add returnPortalUrl to the Order model and migrate. Extend the web lookup in lib/extract.ts to also find the direct return-initiation URL, never guessed. Thread it through to Order (not stored on Email) via linkEmailToOrder. Show a "Start Return →" link on the dashboard order card and prominently on the order detail page. Re-run extraction on existing orders to backfill.
+
+---
+
+## What comes after Milestone 7 (not now)
+
+- Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is still a stand-in until this exists
+- The guided Gmail forwarding onboarding (the filter milestone)
+- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Configurable per-user reminder cadence and channel (SMS, not just email)
+- Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
+- Stop logging full plaintext payloads to server logs — encryption at rest is undermined if the same content is sitting in plaintext log history
+- Audit `rawJson` for content minimization, not just encryption — a concrete retention policy, not just a TODO
+- Per-user `+tag` addresses must use random hashes, not user IDs, once multi-user auth exists
+- Key rotation strategy for `ENCRYPTION_KEY`
+- **An independent return-portal-URL lookup**, not gated behind "the email didn't state its own return window" — would close the gap where an order whose emails always state their policy inline never gets a portal URL today
+- Include the return portal URL in reminder emails themselves (currently only the dashboard/detail pages show it) — the whole point of a reminder is prompting action, and the portal link is the most direct way to act

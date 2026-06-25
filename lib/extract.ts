@@ -46,12 +46,14 @@ export interface ExtractionResult extends RawExtraction {
   returnDeadline: string | null;
   deadlineIsEstimated: boolean;
   policySource: PolicySource | null;
+  returnPortalUrl: string | null;
   needsReview: boolean;
 }
 
 interface PolicyLookupResult {
   returnWindowDays: number | null;
   returnWindowStartsFrom: "order_date" | "delivery_date" | null;
+  returnPortalUrl: string | null;
   confidence: Confidence;
   notes: string;
 }
@@ -104,16 +106,18 @@ ${textBody}`;
 }
 
 function buildPolicyLookupPrompt(retailer: string): string {
-  return `Search the web for ${retailer}'s current return policy.
+  return `Search the web for ${retailer}'s current return policy, and the direct page where a customer actually starts a return.
 
 Respond with ONLY valid JSON, no preamble, no markdown formatting:
 - returnWindowDays (integer or null — only if you find a clear, specific number of days)
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null)
+- returnPortalUrl (string or null — the direct URL of the specific page where a customer begins/initiates a return, e.g. a "Returns & Exchanges" or "Start a Return" page. NOT the homepage, NOT a general help-center search page — the actual page for starting a return.)
 - confidence ("high" | "medium" | "low")
 - notes (one sentence: what you found and roughly where, or why you couldn't find a clear answer)
 
 Rules:
 - Only report returnWindowDays if a current, official policy clearly states it.
+- Only report returnPortalUrl if you find an actual, specific URL on the retailer's official site for starting a return — never guess or construct a plausible-looking URL from the retailer's domain.
 - If the policy varies by item category, membership tier, or sale status, report the standard/default window and set confidence no higher than "medium".
 - If you can't find a clear, current policy, return null for returnWindowDays and confidence "low". Never guess.`;
 }
@@ -221,12 +225,14 @@ export async function extractEmail(textBody: string): Promise<ExtractionResult> 
 
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
+  let returnPortalUrl: string | null = null;
 
   if (parsed.returnWindowDays != null) {
     policySource = "email";
   } else if (parsed.retailer) {
     try {
       const lookup = await lookupReturnPolicy(parsed.retailer);
+      returnPortalUrl = lookup.returnPortalUrl;
 
       if (lookup.returnWindowDays != null && lookup.confidence !== "low") {
         parsed.returnWindowDays = lookup.returnWindowDays;
@@ -252,5 +258,5 @@ export async function extractEmail(textBody: string): Promise<ExtractionResult> 
     (parsed.emailType === "order_confirmation" && returnDeadline == null) ||
     policyLookupWasUnclear;
 
-  return { ...parsed, returnDeadline, deadlineIsEstimated, policySource, needsReview };
+  return { ...parsed, returnDeadline, deadlineIsEstimated, policySource, returnPortalUrl, needsReview };
 }

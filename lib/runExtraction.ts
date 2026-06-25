@@ -37,7 +37,7 @@ export async function runExtraction(emailId: string): Promise<void> {
       },
     });
 
-    await linkEmailToOrder(emailId);
+    await linkEmailToOrder(emailId, result.returnPortalUrl);
   } catch (error) {
     console.error("Extraction failed for email", emailId, error);
 

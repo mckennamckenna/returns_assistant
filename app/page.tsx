@@ -114,6 +114,16 @@ export default async function Home() {
                       )}
                     </div>
                   </Link>
+                  {order.returnPortalUrl && (
+                    <a
+                      href={order.returnPortalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center px-3 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap"
+                    >
+                      Start Return →
+                    </a>
+                  )}
                   <form action={deleteOrder.bind(null, order.id)} className="flex items-center pr-3">
                     <DeleteButton label="Delete order" />
                   </form>

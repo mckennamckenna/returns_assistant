@@ -115,6 +115,17 @@ export default async function OrderDetail({
           <Field label="Order total" value={formatCurrency(order.orderTotal, order.orderCurrency)} />
         </dl>
 
+        {order.returnPortalUrl && (
+          <a
+            href={order.returnPortalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block mt-4 bg-blue-600 text-white text-sm font-medium rounded px-4 py-2 hover:bg-blue-700"
+          >
+            Start Return &rarr;
+          </a>
+        )}
+
         {isLineItemArray(order.lineItems) && order.lineItems.length > 0 && (
           <div className="mt-4">
             <dt className="text-xs uppercase tracking-wide text-zinc-400">Line items</dt>

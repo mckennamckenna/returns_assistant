@@ -58,9 +58,10 @@ model Order {
   policySource         String? // "web_lookup" | "stated_in_email" | "user_supplied"
   returnWindowDays     Int?
 
-  orderTotal    Float?
-  orderCurrency String?
-  lineItems     Json?
+  orderTotal      Float?
+  orderCurrency   String?
+  lineItems       Json?
+  returnPortalUrl String? // direct URL to start a return, e.g. mango.com/help/returns
 
   // "ordered" | "shipped" | "delivered" | "returnable" | "return_started" |
   // "refund_pending" | "completed" | "expired" | "needs_review"

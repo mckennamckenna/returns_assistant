@@ -142,7 +142,10 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
   await prisma.order.update({ where: { id: orderId }, data: { status, needsReview } });
 }
 
-export async function linkEmailToOrder(emailId: string): Promise<void> {
+// returnPortalUrl isn't stored on Email (it's product/retailer data, not
+// derived from any one email) — it's threaded through from the in-memory
+// extraction result straight onto the Order, never persisted per-email.
+export async function linkEmailToOrder(emailId: string, returnPortalUrl: string | null = null): Promise<void> {
   const email = await prisma.email.findUnique({ where: { id: emailId } });
   if (!email) return;
 
@@ -187,6 +190,7 @@ export async function linkEmailToOrder(emailId: string): Promise<void> {
         orderTotal: email.orderTotal ?? existing.orderTotal,
         orderCurrency: email.orderCurrency ?? existing.orderCurrency,
         lineItems: mergedLineItems as object,
+        returnPortalUrl: returnPortalUrl ?? existing.returnPortalUrl,
       },
     });
     orderId = updated.id;
@@ -204,6 +208,7 @@ export async function linkEmailToOrder(emailId: string): Promise<void> {
         orderTotal: email.orderTotal,
         orderCurrency: email.orderCurrency,
         lineItems: emailLineItems as object,
+        returnPortalUrl,
       },
     });
     orderId = created.id;
