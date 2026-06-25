@@ -5,7 +5,10 @@ import { signIn } from "@/auth";
 
 export async function sendMagicLink(formData: FormData): Promise<{ error?: string }> {
   try {
-    await signIn("nodemailer", formData);
+    // Without redirectTo, signIn defaults to the current page — which is
+    // this very form, so a successful magic-link click would bounce back
+    // to /login instead of the dashboard. Send users to "/" explicitly.
+    await signIn("nodemailer", formData, { redirectTo: "/" });
     return {};
   } catch (error) {
     if (error instanceof AuthError) {

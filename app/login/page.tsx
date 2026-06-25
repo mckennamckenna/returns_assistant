@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 import { LoginForm } from "./LoginForm";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -9,6 +11,12 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  // A signed-in user landing here (e.g. an older magic link whose
+  // callbackUrl pointed back at /login) should bounce straight to the
+  // dashboard instead of being shown the form again.
+  const session = await auth();
+  if (session?.user) redirect("/");
+
   const { error } = await searchParams;
   const errorMessage = error ? ERROR_MESSAGES[error] ?? "Something went wrong signing in. Please try again." : null;
 
