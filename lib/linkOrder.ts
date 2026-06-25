@@ -154,8 +154,13 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
     return;
   }
 
+  // userId scoping here is load-bearing, not optional: without it, two
+  // different users who both happen to shop at the same retailer with a
+  // matching order-number format could have their orders merged together,
+  // leaking one user's purchase data onto another's dashboard.
   const existing = await prisma.order.findFirst({
     where: {
+      userId: email.userId,
       retailer: { equals: email.retailer, mode: "insensitive" },
       orderNumber: { equals: email.orderNumber, mode: "insensitive" },
     },
@@ -197,6 +202,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   } else {
     const created = await prisma.order.create({
       data: {
+        userId: email.userId,
         retailer: email.retailer,
         orderNumber: email.orderNumber,
         orderDate: email.orderDate,

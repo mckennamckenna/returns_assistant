@@ -17,6 +17,20 @@ export async function POST(request: NextRequest) {
   try {
     const payload: PostmarkInboundPayload = await request.json();
 
+    // Route by the +tag (MailboxHash), which carries the user's opaque
+    // inboundToken — never the raw userId, see BUILD.md Milestone 8. Fail
+    // fast and cheap here, before spending an AI call on mail we can't
+    // attribute to anyone.
+    const inboundToken = payload.MailboxHash;
+    const user = inboundToken ? await prisma.user.findUnique({ where: { inboundToken } }) : null;
+
+    if (!user) {
+      // Same treatment as the non-commerce discard: no content logged,
+      // just a count. We have nowhere safe to attribute this mail.
+      console.log("Discarded inbound email with unrecognized routing token");
+      return NextResponse.json({ ok: true });
+    }
+
     let isCommerce: boolean;
     try {
       isCommerce = await isCommerceEmail(payload.TextBody, payload.HtmlBody);
@@ -43,6 +57,7 @@ export async function POST(request: NextRequest) {
 
     const email = await prisma.email.create({
       data: {
+        userId: user.id,
         fromEmail: encrypted.fromEmail,
         fromName: encrypted.fromName,
         toHash: payload.MailboxHash,

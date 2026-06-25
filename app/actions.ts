@@ -2,8 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { auth, signOut } from "@/auth";
 
 export async function deleteOrder(orderId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) return;
+
+  // Ownership check, independent of whatever page linked to this action —
+  // server actions are directly invocable, so a crafted request with
+  // someone else's orderId must not be able to delete it.
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { userId: true } });
+  if (!order || order.userId !== session.user.id) return;
+
   // Reminder rows reference Order with no cascade — delete dependents first
   // or the Order delete fails on the foreign key constraint.
   await prisma.reminder.deleteMany({ where: { orderId } });
@@ -14,8 +24,11 @@ export async function deleteOrder(orderId: string): Promise<void> {
 }
 
 export async function deleteEmail(emailId: string): Promise<void> {
-  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { orderId: true } });
-  if (!email) return;
+  const session = await auth();
+  if (!session?.user) return;
+
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { orderId: true, userId: true } });
+  if (!email || email.userId !== session.user.id) return;
 
   await prisma.email.delete({ where: { id: emailId } });
 
@@ -29,4 +42,8 @@ export async function deleteEmail(emailId: string): Promise<void> {
   }
 
   revalidatePath("/");
+}
+
+export async function signOutAction(): Promise<void> {
+  await signOut({ redirectTo: "/login" });
 }

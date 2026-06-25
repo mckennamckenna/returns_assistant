@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { signOutAction } from "./actions";
 
 function ComingSoonItem({ label }: { label: string }) {
   return (
@@ -51,6 +52,11 @@ export function Sidebar({ alertCount, accountLabel }: { alertCount: number; acco
           </span>
           <span className="text-sm text-stone-600 truncate">{accountLabel}</span>
         </div>
+        <form action={signOutAction}>
+          <button type="submit" className="w-full text-left px-3 py-2 rounded-lg text-sm text-stone-500 hover:bg-stone-50">
+            Sign out
+          </button>
+        </form>
       </div>
     </aside>
   );

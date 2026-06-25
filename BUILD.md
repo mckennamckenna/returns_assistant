@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Currently on **Milestone 7: Return Portal Links**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Currently on **Milestone 8: Authentication & Multi-User**.
 
 ---
 
@@ -788,14 +788,108 @@ Knowing the deadline tells you *when* to act. This tells you *where* — closing
 
 ## What comes after Milestone 7 (not now)
 
-- Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is still a stand-in until this exists
 - The guided Gmail forwarding onboarding (the filter milestone)
 - Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
 - Stop logging full plaintext payloads to server logs — encryption at rest is undermined if the same content is sitting in plaintext log history
 - Audit `rawJson` for content minimization, not just encryption — a concrete retention policy, not just a TODO
-- Per-user `+tag` addresses must use random hashes, not user IDs, once multi-user auth exists
+
+---
+
+# Milestone 8: Authentication & Multi-User
+
+## Goal — the only thing that counts as "done"
+
+> Anyone can sign in with just their email (no password), gets their own private forwarding address, and only ever sees their own orders — verified by actually creating a second account and confirming it sees zero of the first account's data, not just by reasoning that the code "should" isolate them.
+
+This is the milestone every prior one has been deferring to. Milestone 1's privacy principle, Milestone 5's discard gate, Milestone 6's encryption — all of it was building toward a product other people can actually use, not just the one account that's been testing it.
+
+## Why this design (read before building)
+
+- **Auth.js v5 (beta) is genuinely still beta — verify against the installed package, don't trust memory.** The Email provider was deprecated in favor of `Nodemailer` between v4 and v5; the factory throws if `server` isn't provided even when `sendVerificationRequest` is fully overridden and never touches it. Confirmed by reading the installed `@auth/core` source directly before writing `auth.ts`, not by assuming the v4 API still applies.
+- **Send via Postmark's HTTP API, not SMTP.** `Nodemailer`'s `sendVerificationRequest` override calls the existing `lib/postmark.ts` `sendEmail()` — the same path used for reminder emails. No new SMTP credentials, no second way to send mail.
+- **The Prisma adapter needs more than just `User`.** The request asked for a `User` model with four fields; what actually shipped also includes `Account`, `Session`, and `VerificationToken` — the standard Auth.js Prisma schema. The adapter's methods reference `prisma.account`/`prisma.session`/`prisma.verificationToken` generically regardless of which providers are configured (no OAuth is configured here, so `Account` stays empty in practice, but omitting the table would break the adapter at the type/runtime level the moment any adapter method touches it). This is required plumbing for "Auth.js with the Email provider," not scope creep beyond the literal ask.
+- **The inbound `+tag` is an opaque `inboundToken`, not the raw `userId`.** The original ask was literally `...+[userId]@...`. BUILD.md had already flagged this exact pattern as a future risk (Milestone 1/5 notes: "+tag addresses must use random hashes, not user IDs") — a `cuid()` `id` encodes a timestamp and counter, which is far better than a sequential integer but isn't a fully opaque token either. Added a separate `inboundToken` field (also a `cuid()`, but with zero structural relationship exposed anywhere else) used only for the forwarding address. Flagged this tension explicitly and asked before building, rather than silently complying with the literal instruction or silently overriding it.
+- **userId scoping had to be audited everywhere, not just where it was named.** The request named "dashboard queries" (item 6) and "delete all my data" (item 7) explicitly. Auditing every Prisma query in the codebase surfaced two more categories that needed the same fix or the whole feature would have a hole in it:
+  - **`lib/linkOrder.ts`'s order-matching query.** Orders match by `retailer` + `orderNumber` — without `userId` in that `WHERE` clause, two different users shopping at the same retailer with a coincidentally-matching order-number format could have their orders merged onto the same row, leaking one user's purchase data onto another's dashboard. This is the single most important fix in this milestone, not a minor one.
+  - **IDOR on `/orders/[id]` and `/emails/[id]`.** Fetching by `id` alone meant any logged-in user could view any other user's order/email by guessing or iterating IDs. Fixed by scoping the `findUnique` to `{ id, userId: session.user.id }` — a mismatched owner 404s exactly like a nonexistent row, never leaking that something exists at that id but belongs to someone else.
+  - **Server actions re-checked ownership independently of the page that calls them.** `deleteOrder`, `deleteEmail`, `reExtract` are directly invocable endpoints, not just buttons behind an already-protected page — relying solely on "the page already checked auth" would leave the action itself open to a crafted request with someone else's id. Each one re-verifies ownership before doing anything.
+- **`proxy.ts`, not `middleware.ts`.** Next.js 16 deprecated and renamed the file mid-build (confirmed via their own migration docs, not assumed) — same default-export behavior, just a different filename and a Node.js-by-default runtime instead of Edge.
+- **One-off migration scripts get excluded from `tsc`, not patched forever.** `scripts/backfill-owner-user.ts` made `prisma.email.updateMany({ where: { userId: null } })` valid the moment it ran — and invalid the moment `userId` became required afterward, exactly as intended (its job was done). Rather than keep hand-patching historical scripts to satisfy a schema that's moved on, `scripts/` is now excluded from `tsconfig.json`'s type-checking scope. They still run fine via `tsx`, which doesn't enforce `tsc`'s strictness.
+
+## Data model
+
+```prisma
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  // The +tag in this user's forwarding address — never `id`, see above.
+  inboundToken String @unique @default(cuid())
+
+  accounts Account[]
+  sessions Session[]
+  orders   Order[]
+  emails   Email[]
+}
+
+model Account { /* standard Auth.js Prisma adapter shape */ }
+model Session { /* standard Auth.js Prisma adapter shape */ }
+model VerificationToken { /* standard Auth.js Prisma adapter shape */ }
+```
+
+`Email.userId` and `Order.userId` are both required (`String`, not `String?`) — added nullable first, backfilled via `scripts/backfill-owner-user.ts`, then tightened to required in a second migration once zero unowned rows remained. Same two-step discipline as every other risky migration in this project (e.g. Milestone 6's `rawJson` type change).
+
+## The auth approach
+
+1. **`auth.ts`** — `NextAuth({ adapter: PrismaAdapter(prisma), session: { strategy: "database" }, providers: [Nodemailer({...})] })`. `callbacks.session` copies the adapter's real `user.id` onto `session.user.id` (the default type doesn't include it — see `types/next-auth.d.ts` for the augmentation).
+2. **`proxy.ts`** — `export default auth((req) => { if (!req.auth) redirect to /login })`, matcher covers `/`, `/orders/:path*`, `/emails/:path*`, `/settings`. `/login`, `/privacy`, `/api/inbound`, `/api/cron`, and the NextAuth routes are intentionally not matched.
+3. **`/login`** — server-rendered form, `useActionState` for pending/error feedback (the one place a client component was actually necessary), calls `signIn("nodemailer", formData)` as a server action.
+4. **Inbound routing**: `/api/inbound` looks up the `User` by `inboundToken` (the `+tag`/`MailboxHash`) *before* running commerce classification — cheaper to fail fast on an unroutable email than to spend an AI call on it. No match → same no-content-logged discard as the non-commerce gate, since there's nowhere safe to attribute the data.
+5. **Every dashboard/detail query scoped by `session.user.id`** — both via the `WHERE` clause (so wrong-owner rows are never fetched) and, for detail pages, by treating a wrong-owner match as a 404.
+6. **Settings page** shows the real forwarding address (`${POSTMARK_INBOUND_HASH}+${user.inboundToken}@inbound.postmarkapp.com`) with a copy button, and `deleteAllData` now scopes all three `deleteMany` calls (`Reminder` via its `Order` relation, `Email`, `Order`) to `session.user.id`.
+7. **Cron route** now `include: { user: { select: { email: true } } }` on the Order query and sends each reminder to `order.user.email` instead of the global `REMINDER_EMAIL`. `REMINDER_FROM_EMAIL` stays global — that's the product's own sending identity, not a per-user concern.
+8. **Sign-out** — not explicitly requested, but there was no way to log out once logged in. Added a minimal `signOutAction` in the sidebar.
+
+## Manual setup checklist additions
+
+- [ ] `AUTH_SECRET` (random) and `POSTMARK_INBOUND_HASH` (the Postmark inbound stream's hash — the prefix before any `+tag`) added to `.env` and all three Vercel environments.
+- [ ] **Update your Gmail forwarding filter** to your new per-user tagged address (visible on `/settings` once logged in) — the old bare inbound address still works for routing to Postmark, but mail without a recognized `+tag` is now discarded rather than attributed to anyone.
+- [ ] `REMINDER_EMAIL` is no longer read anywhere in code (superseded by per-user `user.email`) but is left set, harmlessly unused, rather than deleted.
+
+## How to know it works
+
+1. Sign in with a real email, confirm the magic link arrives via Postmark and clicking it logs you in.
+2. Forward an email to your new tagged address — confirm it appears on your dashboard.
+3. Forward something to a bare/garbled tag — confirm it's discarded (never stored) rather than landing on anyone's dashboard.
+4. **Create a second account and confirm it sees zero orders/emails from the first** — this is the one test that actually matters here; everything else is secondary to "users only see their own data" being true in practice, not just in code review.
+5. As the second account, try navigating directly to the first account's `/orders/<id>` — confirm a 404, not the order, not a 403 that would confirm something exists at that id.
+6. Try deleting an order while logged in as a different account than the one that owns it (e.g. via a crafted request) — confirm it's a no-op.
+7. Confirm `/login` and `/privacy` are reachable without a session, and every other page redirects there when signed out.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 19 — authentication & multi-user**
+> Per BUILD.md's Milestone 8 section: install and configure Auth.js v5 with the Nodemailer/Email provider sending via Postmark. Add User/Account/Session/VerificationToken to schema.prisma, plus a required userId on Email and Order (nullable first, backfilled via script, then tightened). Protect the dashboard/orders/emails/settings pages via proxy.ts, redirecting to /login. Build a login page matching the design system. Use a separate inboundToken (not raw userId) for the per-user +tag, shown on /settings with a copy button. Scope every query — and every server action's ownership check, independent of the page that calls it — by session.user.id. Update the cron route to send to each order's own user.email. Verify cross-user isolation with an actual second account, not just by code review.
+
+---
+
+## What comes after Milestone 8 (not now)
+
+- The guided Gmail forwarding onboarding (the filter milestone) — now genuinely relevant, since there's a real per-user address to onboard people onto
+- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Configurable per-user reminder cadence and channel (SMS, not just email)
+- Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
+- Stop logging full plaintext payloads to server logs — encryption at rest is undermined if the same content is sitting in plaintext log history
+- Audit `rawJson` for content minimization, not just encryption — a concrete retention policy, not just a TODO
+- `/privacy` doesn't yet mention multi-user account isolation explicitly — worth a pass now that it's real, not aspirational
+- Key rotation strategy for `ENCRYPTION_KEY` and `AUTH_SECRET`
+- Real `Account`-linking (OAuth) support is schema-ready but unused — fine until there's a reason to add a second sign-in method
 - Key rotation strategy for `ENCRYPTION_KEY`
 - **An independent return-portal-URL lookup**, not gated behind "the email didn't state its own return window" — would close the gap where an order whose emails always state their policy inline never gets a portal URL today
 - Include the return portal URL in reminder emails themselves (currently only the dashboard/detail pages show it) — the whole point of a reminder is prompting action, and the portal link is the most direct way to act

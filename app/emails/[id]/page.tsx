@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
 import { reExtract } from "./actions";
 import { ReExtractButton } from "./ReExtractButton";
 import { decryptEmailContent } from "@/lib/emailEncryption";
@@ -45,8 +46,11 @@ export default async function EmailDetail({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+
   const { id } = await params;
-  const emailRaw = await prisma.email.findUnique({ where: { id } });
+  const emailRaw = await prisma.email.findUnique({ where: { id, userId: session.user.id } });
 
   if (!emailRaw) {
     notFound();

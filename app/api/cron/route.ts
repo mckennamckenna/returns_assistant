@@ -99,14 +99,15 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const force = url.searchParams.get("force") === "true";
 
-  const recipient = process.env.REMINDER_EMAIL;
   const fromEmail = process.env.REMINDER_FROM_EMAIL;
-  if (!recipient || !fromEmail) {
-    return NextResponse.json({ error: "REMINDER_EMAIL or REMINDER_FROM_EMAIL not configured" }, { status: 500 });
+  if (!fromEmail) {
+    return NextResponse.json({ error: "REMINDER_FROM_EMAIL not configured" }, { status: 500 });
   }
 
   const today = new Date();
-  const orders = await prisma.order.findMany();
+  // Each order's reminder goes to its own owner now, not a single global
+  // recipient — see BUILD.md Milestone 8.
+  const orders = await prisma.order.findMany({ include: { user: { select: { email: true } } } });
 
   const sent: { orderId: string; retailer: string | null; reminderType: ReminderType }[] = [];
   const skippedAlreadySent: { orderId: string; reminderType: ReminderType }[] = [];
@@ -136,6 +137,13 @@ export async function GET(request: NextRequest) {
 
     if (!order.returnDeadline) continue; // type narrowing safety net; reminderType implies this is non-null
 
+    if (!order.user?.email) {
+      // Shouldn't happen once every Order has a required userId, but the
+      // column is still nullable during the Milestone 8 migration window.
+      console.error("Order has no associated user, skipping reminder:", order.id);
+      continue;
+    }
+
     // One order's send failing (e.g. a Postmark account/config issue)
     // shouldn't block reminders for every other order in this run.
     try {
@@ -153,7 +161,7 @@ export async function GET(request: NextRequest) {
         reminderType,
       );
 
-      await sendEmail({ to: recipient, from: fromEmail, subject, textBody: body });
+      await sendEmail({ to: order.user.email, from: fromEmail, subject, textBody: body });
       await prisma.reminder.create({ data: { orderId: order.id, reminderType } });
 
       sent.push({ orderId: order.id, retailer: order.retailer, reminderType });

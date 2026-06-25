@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
 import { deleteEmail } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
 
@@ -56,9 +57,15 @@ export default async function OrderDetail({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+
   const { id } = await params;
+  // Scoped by userId, not just id — a mismatched owner 404s exactly like a
+  // nonexistent order, rather than leaking that *some* order exists at
+  // this id but belongs to someone else.
   const order = await prisma.order.findUnique({
-    where: { id },
+    where: { id, userId: session.user.id },
     include: { emails: { orderBy: { receivedAt: "asc" } } },
   });
 

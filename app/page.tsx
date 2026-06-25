@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
 import { deleteOrder, deleteEmail } from "./actions";
 import { DeleteButton } from "./DeleteButton";
 import { decryptEmailContent } from "@/lib/emailEncryption";
@@ -62,6 +64,10 @@ export default async function Home({
 }: {
   searchParams: Promise<{ q?: string; status?: string; sort?: string; dir?: string }>;
 }) {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+  const userId = session.user.id;
+
   const params = await searchParams;
   const q = (params.q ?? "").trim().toLowerCase();
   const statusFilter = params.status ?? "all";
@@ -76,10 +82,11 @@ export default async function Home({
 
   const [allOrders, rawOrphanedEmails] = await Promise.all([
     prisma.order.findMany({
+      where: { userId },
       include: { _count: { select: { emails: true } } },
     }),
     prisma.email.findMany({
-      where: { orderId: null },
+      where: { orderId: null, userId },
       orderBy: { receivedAt: "desc" },
     }),
   ]);
@@ -155,7 +162,7 @@ export default async function Home({
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar alertCount={alertCount} accountLabel={process.env.REMINDER_EMAIL ?? "Your account"} />
+      <Sidebar alertCount={alertCount} accountLabel={session.user.email ?? "Your account"} />
 
       <main className="flex-1 p-8 max-w-6xl">
         <header className="mb-6">
@@ -203,7 +210,15 @@ export default async function Home({
           <StatCard label="Total value at risk" value={formatCurrency(valueAtRisk, "USD")} sublabel="closing soon, not yet returned" />
         </div>
 
-        {visibleOrders.length === 0 ? (
+        {allOrders.length === 0 && orphanedEmails.length === 0 ? (
+          <p className="text-stone-500">
+            No emails yet.{" "}
+            <Link href="/settings" className="underline">
+              Forward your first order confirmation
+            </Link>{" "}
+            to get started.
+          </p>
+        ) : visibleOrders.length === 0 ? (
           <p className="text-stone-500">No orders match your search and filters.</p>
         ) : (
           <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
