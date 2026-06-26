@@ -1,3 +1,4 @@
+import type { Order, Email } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { computeDeadline } from "@/lib/extract";
 import { decrypt } from "@/lib/crypto";
@@ -5,6 +6,15 @@ import { decrypt } from "@/lib/crypto";
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
 const RETURN_PROCESSING_DAYS = 14;
+
+// A return-flow email citing "F4VLSF00" for an order confirmed as "F4VLSF"
+// is the same order — ReBOUND and similar return portals sometimes
+// append/truncate digits rather than repeating the order number exactly.
+// Only treated as a *candidate* match, not a certain one: the prefix must
+// be at least this long to avoid two unrelated short order numbers
+// coincidentally matching, and every prefix match still gets needsReview
+// so a human confirms it. See BUILD.md's order-number-drift note.
+const MIN_PREFIX_MATCH_LENGTH = 5;
 
 type OrderStatus =
   | "ordered"
@@ -142,6 +152,58 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
   await prisma.order.update({ where: { id: orderId }, data: { status, needsReview } });
 }
 
+function isPrefixMatch(a: string, b: string): boolean {
+  const lowerA = a.toLowerCase();
+  const lowerB = b.toLowerCase();
+  const shorter = lowerA.length <= lowerB.length ? lowerA : lowerB;
+  const longer = lowerA.length <= lowerB.length ? lowerB : lowerA;
+  return shorter.length >= MIN_PREFIX_MATCH_LENGTH && longer.startsWith(shorter);
+}
+
+// Same userId + retailer scoping as the exact match — see the comment on
+// the exact-match query below for why that's load-bearing, not optional.
+async function findPrefixMatchOrder(userId: string, retailer: string, orderNumber: string): Promise<Order | null> {
+  const candidates = await prisma.order.findMany({
+    where: { userId, retailer: { equals: retailer, mode: "insensitive" } },
+  });
+  return candidates.find((candidate) => candidate.orderNumber && isPrefixMatch(candidate.orderNumber, orderNumber)) ?? null;
+}
+
+// Shared by both the exact-match and prefix-match paths: an existing Order
+// gets enriched with whatever the new email adds, never blindly overwritten.
+async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
+  const emailLineItems = asLineItemArray(email.lineItems);
+  const mergedOrderDate = email.orderDate ?? existing.orderDate;
+  const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
+  const mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays;
+  const existingLineItems = asLineItemArray(existing.lineItems);
+  const mergedLineItems = emailLineItems.length > existingLineItems.length ? emailLineItems : existingLineItems;
+
+  const { returnDeadline, deadlineIsEstimated } = computeDeadline({
+    orderDate: mergedOrderDate ? mergedOrderDate.toISOString() : null,
+    deliveryDate: mergedDeliveryDate ? mergedDeliveryDate.toISOString() : null,
+    returnWindowDays: mergedReturnWindowDays,
+    returnWindowStartsFrom: null, // not persisted on Order; defaults to delivery-anchored
+  });
+
+  const updated = await prisma.order.update({
+    where: { id: existing.id },
+    data: {
+      orderDate: mergedOrderDate,
+      deliveryDate: mergedDeliveryDate,
+      returnWindowDays: mergedReturnWindowDays,
+      returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
+      deadlineIsEstimated,
+      policySource: mapPolicySource(email.policySource) ?? existing.policySource,
+      orderTotal: email.orderTotal ?? existing.orderTotal,
+      orderCurrency: email.orderCurrency ?? existing.orderCurrency,
+      lineItems: mergedLineItems as object,
+      returnPortalUrl: returnPortalUrl ?? existing.returnPortalUrl,
+    },
+  });
+  return updated.id;
+}
+
 // returnPortalUrl isn't stored on Email (it's product/retailer data, not
 // derived from any one email) — it's threaded through from the in-memory
 // extraction result straight onto the Order, never persisted per-email.
@@ -166,61 +228,49 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
     },
   });
 
-  const emailLineItems = asLineItemArray(email.lineItems);
   let orderId: string;
+  let isPrefixMatchedOrder = false;
 
   if (existing) {
-    const mergedOrderDate = email.orderDate ?? existing.orderDate;
-    const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
-    const mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays;
-    const existingLineItems = asLineItemArray(existing.lineItems);
-    const mergedLineItems = emailLineItems.length > existingLineItems.length ? emailLineItems : existingLineItems;
-
-    const { returnDeadline, deadlineIsEstimated } = computeDeadline({
-      orderDate: mergedOrderDate ? mergedOrderDate.toISOString() : null,
-      deliveryDate: mergedDeliveryDate ? mergedDeliveryDate.toISOString() : null,
-      returnWindowDays: mergedReturnWindowDays,
-      returnWindowStartsFrom: null, // not persisted on Order; defaults to delivery-anchored
-    });
-
-    const updated = await prisma.order.update({
-      where: { id: existing.id },
-      data: {
-        orderDate: mergedOrderDate,
-        deliveryDate: mergedDeliveryDate,
-        returnWindowDays: mergedReturnWindowDays,
-        returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
-        deadlineIsEstimated,
-        policySource: mapPolicySource(email.policySource) ?? existing.policySource,
-        orderTotal: email.orderTotal ?? existing.orderTotal,
-        orderCurrency: email.orderCurrency ?? existing.orderCurrency,
-        lineItems: mergedLineItems as object,
-        returnPortalUrl: returnPortalUrl ?? existing.returnPortalUrl,
-      },
-    });
-    orderId = updated.id;
+    orderId = await mergeEmailIntoOrder(existing, email, returnPortalUrl);
   } else {
-    const created = await prisma.order.create({
-      data: {
-        userId: email.userId,
-        retailer: email.retailer,
-        orderNumber: email.orderNumber,
-        orderDate: email.orderDate,
-        deliveryDate: email.deliveryDate,
-        returnWindowDays: email.returnWindowDays,
-        returnDeadline: email.returnDeadline,
-        deadlineIsEstimated: email.deadlineIsEstimated,
-        policySource: mapPolicySource(email.policySource),
-        orderTotal: email.orderTotal,
-        orderCurrency: email.orderCurrency,
-        lineItems: emailLineItems as object,
-        returnPortalUrl,
-      },
-    });
-    orderId = created.id;
+    const prefixMatch = await findPrefixMatchOrder(email.userId, email.retailer, email.orderNumber);
+
+    if (prefixMatch) {
+      orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
+      isPrefixMatchedOrder = true;
+    } else {
+      const created = await prisma.order.create({
+        data: {
+          userId: email.userId,
+          retailer: email.retailer,
+          orderNumber: email.orderNumber,
+          orderDate: email.orderDate,
+          deliveryDate: email.deliveryDate,
+          returnWindowDays: email.returnWindowDays,
+          returnDeadline: email.returnDeadline,
+          deadlineIsEstimated: email.deadlineIsEstimated,
+          policySource: mapPolicySource(email.policySource),
+          orderTotal: email.orderTotal,
+          orderCurrency: email.orderCurrency,
+          lineItems: asLineItemArray(email.lineItems) as object,
+          returnPortalUrl,
+        },
+      });
+      orderId = created.id;
+    }
   }
 
   await prisma.email.update({ where: { id: emailId }, data: { orderId } });
   await applyFallbackOrderDate(orderId);
   await recomputeOrderStatus(orderId);
+
+  // recomputeOrderStatus derives needsReview from data completeness, which
+  // would happily clear it the moment the order looks complete — but a
+  // prefix match needs a human to confirm it wasn't two different orders
+  // that happened to share a prefix, regardless of how complete the data
+  // looks. Force it true after recompute, not before.
+  if (isPrefixMatchedOrder) {
+    await prisma.order.update({ where: { id: orderId }, data: { needsReview: true } });
+  }
 }

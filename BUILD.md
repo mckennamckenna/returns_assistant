@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Currently on **Milestone 8: Authentication & Multi-User**.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8.
 
 ---
 
@@ -418,7 +418,7 @@ This milestone introduces the aggregation Milestone 2 explicitly deferred: "One 
 - **Later emails can improve earlier data, never just overwrite blindly.** A shipping confirmation arriving after an order confirmation should fill in `deliveryDate` and trigger a `returnDeadline` recompute — using the same `computeDeadline` logic from Milestone 2, now operating on the Order's merged fields instead of one email's fields. Each field merges independently: a new email's non-null value wins, but a null value never erases existing data.
 - **Order-level `needsReview` reflects the Order's resolved state, not a blind OR of every linked email's flag.** A shipping-confirmation email can legitimately fail its own policy web lookup in isolation (it has no order total or return-policy text) while a sibling order-confirmation email already supplied everything needed. If Order-level `needsReview` just OR'd every child email's flag, it would falsely flag complete orders. Instead, recompute it from what the Order actually knows: does it look like a real order (has an order/shipping/delivery email) and is `returnDeadline` still null?
 - **Status is derived, not stored as ground truth.** Recompute it after every link/merge from the set of `emailType`s seen on linked emails, plus the current date vs. `returnDeadline`. This keeps it self-correcting as new emails arrive, rather than something that can drift out of sync.
-- **Known limitation: order-number drift across email types.** A return/RMA confirmation email sometimes cites a return-authorization number instead of the original order number (e.g. Chan Luu's "your return is approved" email used a different reference than its order confirmation). Matching on order number alone will create a second, fragmented Order in that case. This is a real accuracy gap to watch for during review, not something to silently paper over — flag it, don't guess which number is "real."
+- **Known limitation, partially resolved: order-number drift across email types.** A return/RMA confirmation email sometimes cites a different reference than its order confirmation. Exact-match-only linking fragments these into two Orders. **Resolved for the prefix case** (e.g. Mango order `F4VLSF` vs. its ReBOUND return confirmation citing `F4VLSF00` — the return portal appends digits rather than repeating the order number) — see "Fuzzy order-number matching" below. Still unresolved: a return citing a number that *isn't* a prefix of the original (e.g. Chan Luu's case, a wholly different RMA reference) has no shared substring to match on at all; that needs a different signal entirely (retailer + approximate order date + line-item overlap), not a string heuristic.
 - **Orphaned emails stay visible, not hidden.** An email that couldn't be matched to retailer + order number (marketing, parsing failure, etc.) gets `orderId = null` and `needsReview = true`, but still shows on the dashboard in an "Unlinked emails" section — nothing should disappear silently.
 
 ## Data model
@@ -507,11 +507,30 @@ Add `lib/linkOrder.ts`, called from `lib/runExtraction.ts` right after an email'
 
 ---
 
+## Fuzzy order-number matching (fix, added post-Milestone 8)
+
+**The problem:** Mango's order confirmation cited order number `F4VLSF`; the ReBOUND return-confirmation email for the same order cited `F4VLSF00`. Exact-match-only linking created two separate Order cards for what was clearly one real-world order — the return portal appends digits to the order number rather than repeating it.
+
+**The fix, in `lib/linkOrder.ts`:** when the exact retailer+orderNumber match fails, before creating a new Order, check every existing Order for that retailer (same `userId` scoping as the exact match — see the comment there) for a prefix relationship in either direction: the existing order's number is a prefix of the incoming one, or vice versa. The shared prefix must be at least 5 characters (`MIN_PREFIX_MATCH_LENGTH`) — short order numbers are more likely to collide coincidentally, so a short match isn't trusted.
+
+A prefix match is a *candidate*, not a certainty — it's merged into the existing Order exactly like an exact match would be (same `mergeEmailIntoOrder` path, so later emails still only add data, never erase it), but the Order is always force-flagged `needsReview = true` afterward, overriding whatever `recomputeOrderStatus`'s normal data-completeness check would have computed. That override matters: a prefix-matched order can easily look "complete" (deadline computed, status resolved) immediately after the merge, and the normal self-correcting needsReview logic would clear the flag before a human ever saw it. The review flag here means something different — "confirm this prefix wasn't coincidental" — and needs to survive the recompute.
+
+**What this doesn't fix:** a return email citing a number that shares no prefix with the original at all (e.g. Chan Luu's case, a wholly different RMA reference) has nothing for a string-prefix heuristic to find. That still needs a different signal — see the note carried in "What comes after" below.
+
+**Cleanup performed:** the two real, already-fragmented Mango orders (`F4VLSF` and the orphaned `F4VLSF00`) were merged — the orphan's two return-confirmation emails were unlinked, the empty orphan Order was deleted, and the emails were re-extracted, which re-linked them onto `F4VLSF` via the new prefix match. Confirmed `F4VLSF` ended up with all three emails, status recomputed to `return_started`, and `needsReview: true`. Also confirmed the unrelated `F4VLSG` order (a different real order — last character differs, not a prefix relationship) was untouched.
+
+**How to know it works:** check the dashboard for a single Mango card covering order `F4VLSF` showing the order confirmation and both return-confirmation emails, flagged for review. Confirm `F4VLSG` (the unrelated Mango order) is still its own separate card. Forward a brand-new return email whose order number is a different retailer's order number plus extra digits/characters — confirm it lands on the existing order, flagged `needsReview`, rather than creating a new card.
+
+**Prompt 20 — fuzzy order-number prefix matching**
+> Per BUILD.md's "Fuzzy order-number matching" addendum to Milestone 3: in lib/linkOrder.ts, when no exact retailer+orderNumber match exists, check existing Orders for that retailer for a prefix relationship in either direction (minimum 5 shared characters) before creating a new Order. Merge into a prefix match the same way as an exact match, but always force needsReview true afterward — it overrides recomputeOrderStatus's normal self-correcting flag, since a prefix match needs human confirmation regardless of how complete the merged data looks.
+
+---
+
 ## What comes after Milestone 3 (not now)
 
 - Per-user `+tag` addresses and real auth
 - The guided Gmail forwarding onboarding (the filter milestone)
-- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers) — likely needs a secondary matching signal beyond exact order-number equality, such as retailer + approximate order date + line-item overlap
+- Order-number drift where the new number shares no prefix with the original (e.g. a wholly different RMA reference) — the prefix heuristic added post-Milestone 8 doesn't help here; needs a secondary signal like retailer + approximate order date + line-item overlap
 
 ---
 
@@ -625,7 +644,7 @@ e.g. `"2 days left to return: SKIMS · $210"`. If `orderTotal` is null, drop the
 
 - Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is a stand-in until this exists
 - The guided Gmail forwarding onboarding (the filter milestone)
-- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers) — likely needs a secondary matching signal beyond exact order-number equality, such as retailer + approximate order date + line-item overlap
+- Order-number drift where the new number shares no prefix with the original (e.g. a wholly different RMA reference) — needs a secondary signal like retailer + approximate order date + line-item overlap; the prefix case is resolved, see Milestone 3's addendum
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually so it stops reminding without waiting for a `refund`/`return_label` email
 
@@ -675,7 +694,7 @@ This makes good on the promise from Milestone 1's privacy principle ("the backen
 
 - Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is still a stand-in until this exists
 - The guided Gmail forwarding onboarding (the filter milestone)
-- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Order-number drift where the new number shares no prefix with the original (e.g. a wholly different RMA reference) — needs a secondary signal like retailer + approximate order date + line-item overlap; the prefix case is resolved, see Milestone 3's addendum
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
 
@@ -738,7 +757,7 @@ Encrypting `fromEmail`/`fromName` at rest doesn't help if the app still decrypts
 
 - Per-user `+tag` addresses and real auth — `REMINDER_EMAIL` is still a stand-in until this exists
 - The guided Gmail forwarding onboarding (the filter milestone)
-- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Order-number drift where the new number shares no prefix with the original (e.g. a wholly different RMA reference) — needs a secondary signal like retailer + approximate order date + line-item overlap; the prefix case is resolved, see Milestone 3's addendum
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
 - Stop logging full plaintext payloads to server logs (the residual gap noted above) — encryption at rest is undermined if the same content is sitting in plaintext log history
@@ -789,7 +808,7 @@ Knowing the deadline tells you *when* to act. This tells you *where* — closing
 ## What comes after Milestone 7 (not now)
 
 - The guided Gmail forwarding onboarding (the filter milestone)
-- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Order-number drift where the new number shares no prefix with the original (e.g. a wholly different RMA reference) — needs a secondary signal like retailer + approximate order date + line-item overlap; the prefix case is resolved, see Milestone 3's addendum
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
 - Stop logging full plaintext payloads to server logs — encryption at rest is undermined if the same content is sitting in plaintext log history
@@ -885,7 +904,7 @@ model VerificationToken { /* standard Auth.js Prisma adapter shape */ }
 ## What comes after Milestone 8 (not now)
 
 - The guided Gmail forwarding onboarding (the filter milestone) — now genuinely relevant, since there's a real per-user address to onboard people onto
-- Resolving order-number drift across email types (e.g. return/RMA numbers vs. original order numbers)
+- Order-number drift where the new number shares no prefix with the original (e.g. a wholly different RMA reference) — needs a secondary signal like retailer + approximate order date + line-item overlap; the prefix case is resolved, see Milestone 3's addendum
 - Configurable per-user reminder cadence and channel (SMS, not just email)
 - Snoozing or dismissing a reminder, and a way to mark an order "returned" manually
 - Stop logging full plaintext payloads to server logs — encryption at rest is undermined if the same content is sitting in plaintext log history
