@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard. Milestone 11 ✅ complete — alpha UX polish: instant search/filter, Needs Review hidden when empty, product renamed to Return Window, stat card redesign, missing-total guidance.
 
 ---
 
@@ -1011,3 +1011,29 @@ This is the resolution half of a loop Milestone 3 only opened: prefix-match merg
 - Admin actions don't currently let the admin leave their own note (only users can) — deliberate scope cut, not an oversight, but worth revisiting if the admin starts wanting to record their own reasoning
 - The admin dashboard has no pagination on any section — fine at current volume, not at 10x
 - `lastEmailByUser` in the admin page is one query per user (N+1) — acceptable today, would need a real aggregate query if the user base grows past a couple dozen
+
+---
+
+# Milestone 11: Alpha UX Polish
+
+Five small, independent fixes ahead of opening up to alpha users — not a new feature, just removing friction that would otherwise be the first thing a new user notices.
+
+- **Instant search/filter, no Apply button.** `app/SearchFilterBar.tsx` (new client component) replaces the old `<form method="get">`. The text input debounces 300ms before pushing a `router.replace` with updated `q`/`status` params; the status `<select>` updates immediately (a dropdown choice isn't "keystrokes," so no debounce). All actual filtering/sorting stays server-side exactly as before — this only changes *how* the URL params get there, not who reads them.
+- **Needs Review disappears entirely when empty**, instead of showing a collapsed-but-visible bar. A truly empty state should look like nothing changed, not like there's a feature waiting to be noticed.
+- **Renamed "Returns Assistant" → "Return Window" everywhere it appeared**: page title/metadata, the sidebar, both login pages, the magic-link email subject/body, the cron reminder email's signature, and the admin run-summary subject. (Milestone 8 had explicitly deferred this exact rename at the time — see that section's design notes — this is the deliberate reversal of that earlier call, not an inconsistency.)
+- **Stat cards**: Playfair Display (added via `next/font/google`, exposed as `--font-playfair`/`font-playfair`) for the large number, a 3px top accent bar per card (rose for open returns, amber for closing soon, a new custom `sage` color for value at risk — Tailwind v4's default green/emerald read too saturated for the cream/blush palette, so `--color-sage` was added directly in `app/globals.css`'s `@theme` block), and more generous padding (`p-5` → `p-6`).
+- **Missing-total guidance.** An order missing `orderTotal` (because only a shipping/delivery email was ever forwarded, not the order confirmation — confirmed against two real orders, Shopbop and a second Mango order) now shows "Forward your order confirmation to add the total" in small muted text under the retailer name, instead of just a blank "—" the user has to guess the meaning of.
+
+## How to know it works
+
+1. Type in the dashboard search box — confirm the URL updates ~300ms after the last keystroke, with no Apply button anywhere and no page flash/reload.
+2. Change the status filter — confirm it updates immediately.
+3. On an account with zero flagged orders, confirm there's no amber bar of any kind above the orders table.
+4. Confirm "Return Window" appears on the page title, the sidebar, both login pages, and a real magic-link email (subject and body).
+5. Confirm the three stat cards show a serif number, a colored top edge matching their meaning, and visibly more padding than before.
+6. Find (or create) an order with no total and confirm the guidance text appears under its retailer name; confirm an order that does have a total shows nothing extra.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 23 — alpha UX polish**
+> Per BUILD.md's Milestone 11 section: make dashboard search/filter instant via a debounced client component instead of a submit button, hide the Needs Review section entirely (not collapsed) when there's nothing in it, rename "Returns Assistant" to "Return Window" everywhere it appears in the app, redesign the stat cards with a Playfair Display number and a colored top accent bar per card, and add a small "Forward your order confirmation to add the total" note under the retailer name on any order missing its total.

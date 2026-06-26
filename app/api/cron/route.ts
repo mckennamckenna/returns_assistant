@@ -75,7 +75,7 @@ function buildBody(
     "",
     `View details: ${APP_URL}/orders/${order.id}`,
     "",
-    "— Returns Assistant",
+    "— Return Window",
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -212,7 +212,7 @@ export async function GET(request: NextRequest) {
   // 0 failures" email would just be noise. Failures still warrant a
   // summary even with zero successful sends.
   if (sent.length > 0 || failed.length > 0) {
-    await notifyAdmin("Returns Assistant: reminder run summary", buildAdminSummary(sent, failed));
+    await notifyAdmin("Return Window: reminder run summary", buildAdminSummary(sent, failed));
   }
 
   return NextResponse.json({

@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
 import { ReviewActions } from "./ReviewActions";
+import { SearchFilterBar } from "./SearchFilterBar";
 import { reviewReason } from "@/lib/orderReview";
 import { decryptEmailContent } from "@/lib/emailEncryption";
 import { daysUntil } from "@/lib/reminders";
@@ -178,52 +179,35 @@ export default async function Home({
           <p className="text-stone-500 mt-1">Here&apos;s what&apos;s happening with your returns.</p>
         </header>
 
-        <form method="get" className="flex flex-wrap items-center gap-3 mb-6">
-          <input
-            type="text"
-            name="q"
-            defaultValue={params.q ?? ""}
-            placeholder="Search retailer or order number"
-            className="flex-1 min-w-[14rem] bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm placeholder:text-stone-400"
-          />
-          <select
-            name="status"
-            defaultValue={statusFilter}
-            className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-600"
-          >
-            <option value="all">All orders</option>
-            <option value="open">Open</option>
-            <option value="closing_soon">Closing soon</option>
-            <option value="needs_review">Needs review</option>
-            <option value="completed">Completed</option>
-            <option value="expired">Expired</option>
-          </select>
-          <button type="submit" className="bg-rose-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-rose-700">
-            Apply
-          </button>
-          {(params.q || statusFilter !== "all") && (
-            <Link href="/" className="text-sm text-stone-500 hover:underline">
-              Clear
-            </Link>
-          )}
-        </form>
+        <SearchFilterBar initialQuery={params.q ?? ""} initialStatus={statusFilter} />
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <StatCard
             label="Open returns"
             value={String(openOrders.length)}
             sublabel={`${formatCurrency(openValue, "USD")} total value`}
+            accent="rose"
           />
-          <StatCard label="Closing soon" value={String(closingSoonOrders.length)} sublabel={`within ${CLOSING_SOON_DAYS} days`} />
-          <StatCard label="Total value at risk" value={formatCurrency(valueAtRisk, "USD")} sublabel="closing soon, not yet returned" />
+          <StatCard
+            label="Closing soon"
+            value={String(closingSoonOrders.length)}
+            sublabel={`within ${CLOSING_SOON_DAYS} days`}
+            accent="amber"
+          />
+          <StatCard
+            label="Total value at risk"
+            value={formatCurrency(valueAtRisk, "USD")}
+            sublabel="closing soon, not yet returned"
+            accent="sage"
+          />
         </div>
 
-        <details open={reviewOrders.length > 0} className="mb-8 bg-amber-50 border border-amber-200 rounded-xl">
-          <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-amber-900 flex items-center justify-between">
-            <span>Needs review ({reviewOrders.length})</span>
-            <span className="text-xs text-amber-700">{reviewOrders.length > 0 ? "▾" : "▸"}</span>
-          </summary>
-          {reviewOrders.length > 0 && (
+        {reviewOrders.length > 0 && (
+          <details open className="mb-8 bg-amber-50 border border-amber-200 rounded-xl">
+            <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-amber-900 flex items-center justify-between">
+              <span>Needs review ({reviewOrders.length})</span>
+              <span className="text-xs text-amber-700">▾</span>
+            </summary>
             <div className="px-5 pb-5 flex flex-col gap-4">
               {reviewOrders.map((order) => (
                 <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-4">
@@ -246,8 +230,8 @@ export default async function Home({
                 </div>
               ))}
             </div>
-          )}
-        </details>
+          </details>
+        )}
 
         {allOrders.length === 0 && orphanedEmails.length === 0 ? (
           <p className="text-stone-500">
@@ -290,6 +274,9 @@ export default async function Home({
                             {order.orderNumber && <div className="text-xs text-stone-400 truncate">#{order.orderNumber}</div>}
                           </div>
                         </Link>
+                        {order.orderTotal == null && (
+                          <p className="text-xs text-stone-400 mt-1">Forward your order confirmation to add the total</p>
+                        )}
                         {order.returnPortalUrl && (
                           <a
                             href={order.returnPortalUrl}

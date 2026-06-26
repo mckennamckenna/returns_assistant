@@ -16,7 +16,7 @@ export function Sidebar({ alertCount, accountLabel }: { alertCount: number; acco
   return (
     <aside className="w-60 shrink-0 bg-white border-r border-stone-200 flex flex-col h-screen sticky top-0">
       <div className="px-5 py-6">
-        <span className="text-lg font-semibold text-stone-800">Returns assistant</span>
+        <span className="text-lg font-semibold text-stone-800">Return Window</span>
       </div>
 
       <nav className="flex-1 px-3 flex flex-col gap-1">
