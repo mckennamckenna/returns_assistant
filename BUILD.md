@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard. Milestone 11 ✅ complete — alpha UX polish: instant search/filter, Needs Review hidden when empty, product renamed to Return Window, stat card redesign, missing-total guidance. Milestone 12 ✅ complete — more aggressive single-email extraction (order total, line items, order date, return links from shipping/delivery confirmations), backfilled across all existing emails.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard. Milestone 11 ✅ complete — alpha UX polish: instant search/filter, Needs Review hidden when empty, product renamed to Return Window, stat card redesign, missing-total guidance. Milestone 12 ✅ complete — more aggressive single-email extraction (order total, line items, order date, return links from shipping/delivery confirmations), backfilled across all existing emails. Milestone 13 ✅ complete — plain-language Needs Review reasons with truncated technical detail on the dashboard, full detail kept on the admin dashboard.
 
 ---
 
@@ -1072,5 +1072,33 @@ The product reality this addresses: users forward whatever email happens to catc
 
 **Prompt 24 — maximize single-email extraction**
 > Per BUILD.md's Milestone 12 section: rewrite lib/extract.ts's prompt to extract order total (try harder before nulling — check for stated totals, summed charges, or sum line items as a last resort with a confidence cap), line items, and order date aggressively from shipping/delivery confirmations, not just order confirmations, and extract any return-policy link in the email body as returnPortalUrlFromEmail, preferring it over the web lookup's URL. Fix lib/linkOrder.ts's merge logic so an order_confirmation's total, once known, can never be overwritten by a different email type's (e.g. a shipping email's partial-package total). Re-extract all existing emails to backfill, verifying against real data that nothing regresses.
+
+---
+
+---
+
+# Milestone 13: Plain-Language Needs Review
+
+## Goal — the only thing that counts as "done"
+
+> A user looking at a flagged order understands *why* at a glance, in plain English — without reading a paragraph of AI extraction reasoning meant for debugging, not for them.
+
+## Why this design (read before building)
+
+- **The label and the technical note answer different questions, so they're not the same string.** `reviewReasonLabel()` translates the same underlying signals `reviewReason()` already inspects (prefix-match mismatch, missing orderDate, low confidence, missing orderTotal) into one short, human sentence — checked in priority order, most specific and actionable first. `reviewReason()` keeps returning the raw, technical text; it didn't need to change at all, just be displayed differently depending on audience.
+- **"2 sentences" had to mean "actually short," not "split on periods."** Real extraction notes chain several distinct observations with semicolons into one long, period-terminated sentence (confirmed against a real flagged order: a 2-period note was ~500 characters). Splitting strictly on `.!?` would have "truncated to 2 sentences" without truncating anything meaningful. `truncateToSentences()` also splits on semicolons — an approximation, not a grammar rule, but the one that actually serves the stated goal of a short, scannable preview.
+- **No new persisted reason code.** Detecting "was this a prefix match" reuses the same signal already available — does any linked email's own `orderNumber` differ from the order's `orderNumber`. No schema change needed; this is the same kind of best-effort inference `reviewReason()`'s fallback text already did.
+- **The admin dashboard gets the label too, but never the truncation.** The full technical note stays exactly as useful as before for debugging; the label is just additional, cheap context layered on top, not a replacement.
+
+## How to know it works
+
+1. A flagged order from a prefix match shows "We matched this return email to an existing order — please confirm it's correct" on the dashboard, with a separate, visibly shorter line of technical detail below it and a "Read more" toggle that expands to the full text.
+2. The admin dashboard shows the same plain-language label, but the technical detail underneath is the complete, untruncated text with no toggle.
+3. Confirmed against all five cases (one real, four synthetic): prefix match, missing orderDate, low confidence, missing orderTotal, and the generic fallback each produce their distinct, correct label.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 25 — plain-language Needs Review reasons**
+> Per BUILD.md's Milestone 13 section: add reviewReasonLabel() to lib/orderReview.ts, translating the existing needsReview signals (prefix-match order-number mismatch, missing orderDate, low confidence, missing orderTotal, generic fallback) into plain-language labels, checked in that priority order. Add truncateToSentences() (splitting on semicolons as well as sentence-ending punctuation, since real extraction notes chain clauses with semicolons) and a client-side read-more toggle component. Show the label always on the dashboard's Needs Review cards, with the truncated technical note below it; show the label plus the full untruncated note on the admin dashboard.
 
 ---

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { isValidAdminSecret } from "@/lib/adminAuth";
-import { reviewReason } from "@/lib/orderReview";
+import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
 import { adminApproveAction, adminSplitAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export default async function AdminPage({
       where: { needsReview: true },
       include: {
         user: { select: { email: true } },
-        emails: { select: { subject: true, extractionNotes: true }, orderBy: { receivedAt: "desc" } },
+        emails: { select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true }, orderBy: { receivedAt: "desc" } },
       },
       orderBy: { updatedAt: "desc" },
     }),
@@ -86,7 +86,8 @@ export default async function AdminPage({
                   </div>
                   <span className="text-sm text-stone-500">{order.user.email}</span>
                 </div>
-                <p className="text-sm text-stone-600 mt-2">{reviewReason(order)}</p>
+                <p className="text-sm font-medium text-stone-700 mt-2">{reviewReasonLabel(order)}</p>
+                <p className="text-xs text-stone-400 mt-1">{reviewReason(order)}</p>
                 <p className="text-xs text-stone-400 mt-2">
                   Emails: {order.emails.map((e) => e.subject || "(no subject)").join(" · ")}
                 </p>

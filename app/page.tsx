@@ -6,7 +6,8 @@ import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction } from "
 import { DeleteButton } from "./DeleteButton";
 import { ReviewActions } from "./ReviewActions";
 import { SearchFilterBar } from "./SearchFilterBar";
-import { reviewReason } from "@/lib/orderReview";
+import { TruncatedNote } from "./TruncatedNote";
+import { reviewReason, reviewReasonLabel, truncateToSentences } from "@/lib/orderReview";
 import { decryptEmailContent } from "@/lib/emailEncryption";
 import { daysUntil } from "@/lib/reminders";
 import { Sidebar } from "./Sidebar";
@@ -95,7 +96,9 @@ export default async function Home({
     }),
     prisma.order.findMany({
       where: { userId, needsReview: true },
-      include: { emails: { select: { subject: true, extractionNotes: true }, orderBy: { receivedAt: "desc" } } },
+      include: {
+        emails: { select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true }, orderBy: { receivedAt: "desc" } },
+      },
       orderBy: { updatedAt: "desc" },
     }),
   ]);
@@ -209,7 +212,9 @@ export default async function Home({
               <span className="text-xs text-amber-700">▾</span>
             </summary>
             <div className="px-5 pb-5 flex flex-col gap-4">
-              {reviewOrders.map((order) => (
+              {reviewOrders.map((order) => {
+                const fullNote = reviewReason(order);
+                return (
                 <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -219,7 +224,8 @@ export default async function Home({
                       {order.orderNumber && <span className="text-sm text-stone-400 ml-2">#{order.orderNumber}</span>}
                     </div>
                   </div>
-                  <p className="text-sm text-stone-600 mt-2">{reviewReason(order)}</p>
+                  <p className="text-sm font-medium text-stone-700 mt-2">{reviewReasonLabel(order)}</p>
+                  <TruncatedNote {...truncateToSentences(fullNote, 2)} full={fullNote} />
                   {order.userNote && (
                     <p className="text-sm text-stone-500 italic mt-2 border-l-2 border-amber-300 pl-2">Your note: {order.userNote}</p>
                   )}
@@ -228,7 +234,8 @@ export default async function Home({
                     splitAction={splitOrderAction.bind(null, order.id)}
                   />
                 </div>
-              ))}
+                );
+              })}
             </div>
           </details>
         )}
