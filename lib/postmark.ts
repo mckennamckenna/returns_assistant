@@ -5,9 +5,10 @@ interface SendEmailParams {
   from: string;
   subject: string;
   textBody: string;
+  bcc?: string;
 }
 
-export async function sendEmail({ to, from, subject, textBody }: SendEmailParams): Promise<void> {
+export async function sendEmail({ to, from, subject, textBody, bcc }: SendEmailParams): Promise<void> {
   const response = await fetch(POSTMARK_SEND_URL, {
     method: "POST",
     headers: {
@@ -18,6 +19,7 @@ export async function sendEmail({ to, from, subject, textBody }: SendEmailParams
     body: JSON.stringify({
       From: from,
       To: to,
+      ...(bcc ? { Bcc: bcc } : {}),
       Subject: subject,
       TextBody: textBody,
       MessageStream: "outbound",

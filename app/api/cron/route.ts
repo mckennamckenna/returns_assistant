@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { reminderTypeForOrder, isEligibleForReminder, daysUntil, type OrderForReminder, type ReminderType } from "@/lib/reminders";
 import { sendEmail } from "@/lib/postmark";
+import { notifyAdmin } from "@/lib/adminNotify";
 
 export const dynamic = "force-dynamic";
 
@@ -109,9 +110,22 @@ export async function GET(request: NextRequest) {
   // recipient — see BUILD.md Milestone 8.
   const orders = await prisma.order.findMany({ include: { user: { select: { email: true } } } });
 
-  const sent: { orderId: string; retailer: string | null; reminderType: ReminderType }[] = [];
+  const sent: {
+    orderId: string;
+    retailer: string | null;
+    orderNumber: string | null;
+    reminderType: ReminderType;
+    userEmail: string;
+  }[] = [];
   const skippedAlreadySent: { orderId: string; reminderType: ReminderType }[] = [];
-  const failed: { orderId: string; reminderType: ReminderType; error: string }[] = [];
+  const failed: {
+    orderId: string;
+    retailer: string | null;
+    orderNumber: string | null;
+    reminderType: ReminderType;
+    userEmail: string | null;
+    error: string;
+  }[] = [];
 
   for (const order of orders) {
     const asReminderOrder: OrderForReminder = { returnDeadline: order.returnDeadline, status: order.status };
@@ -138,9 +152,19 @@ export async function GET(request: NextRequest) {
     if (!order.returnDeadline) continue; // type narrowing safety net; reminderType implies this is non-null
 
     if (!order.user?.email) {
-      // Shouldn't happen once every Order has a required userId, but the
-      // column is still nullable during the Milestone 8 migration window.
+      // userId is required on Order as of Milestone 8 — this would only
+      // happen if the User row itself were deleted out from under an
+      // Order, which shouldn't occur given the cascade delete. Surfaced
+      // as a failure rather than a silent skip since it's unexpected.
       console.error("Order has no associated user, skipping reminder:", order.id);
+      failed.push({
+        orderId: order.id,
+        retailer: order.retailer,
+        orderNumber: order.orderNumber,
+        reminderType,
+        userEmail: null,
+        error: "Order has no associated user",
+      });
       continue;
     }
 
@@ -164,15 +188,31 @@ export async function GET(request: NextRequest) {
       await sendEmail({ to: order.user.email, from: fromEmail, subject, textBody: body });
       await prisma.reminder.create({ data: { orderId: order.id, reminderType } });
 
-      sent.push({ orderId: order.id, retailer: order.retailer, reminderType });
+      sent.push({
+        orderId: order.id,
+        retailer: order.retailer,
+        orderNumber: order.orderNumber,
+        reminderType,
+        userEmail: order.user.email,
+      });
     } catch (error) {
       console.error("Reminder send failed for order", order.id, reminderType, error);
       failed.push({
         orderId: order.id,
+        retailer: order.retailer,
+        orderNumber: order.orderNumber,
         reminderType,
+        userEmail: order.user.email,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  // Only notify when something actually happened — a daily "0 reminders,
+  // 0 failures" email would just be noise. Failures still warrant a
+  // summary even with zero successful sends.
+  if (sent.length > 0 || failed.length > 0) {
+    await notifyAdmin("Returns Assistant: reminder run summary", buildAdminSummary(sent, failed));
   }
 
   return NextResponse.json({
@@ -183,4 +223,37 @@ export async function GET(request: NextRequest) {
     skippedAlreadySent,
     failed,
   });
+}
+
+function buildAdminSummary(
+  sent: { orderId: string; retailer: string | null; orderNumber: string | null; reminderType: ReminderType; userEmail: string }[],
+  failed: {
+    orderId: string;
+    retailer: string | null;
+    orderNumber: string | null;
+    reminderType: ReminderType;
+    userEmail: string | null;
+    error: string;
+  }[],
+): string {
+  const lines = [`${sent.length} reminder(s) sent, ${failed.length} failure(s).`, ""];
+
+  if (sent.length > 0) {
+    lines.push("Sent:");
+    for (const s of sent) {
+      const orderRef = s.orderNumber ? ` (${s.orderNumber})` : "";
+      lines.push(`- ${s.retailer ?? "Unknown retailer"}${orderRef} — ${s.reminderType} — to ${s.userEmail} — order ${APP_URL}/orders/${s.orderId}`);
+    }
+    lines.push("");
+  }
+
+  if (failed.length > 0) {
+    lines.push("Failed:");
+    for (const f of failed) {
+      const orderRef = f.orderNumber ? ` (${f.orderNumber})` : "";
+      lines.push(`- ${f.retailer ?? "Unknown retailer"}${orderRef} — ${f.reminderType} — user ${f.userEmail ?? "unknown"} — order ${f.orderId} — ${f.error}`);
+    }
+  }
+
+  return lines.join("\n");
 }

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { runExtraction } from "@/lib/runExtraction";
 import { isCommerceEmail } from "@/lib/classify";
 import { encryptEmailContent, encryptRawJson } from "@/lib/emailEncryption";
+import { isGmailForwardingVerification, extractVerificationDetails } from "@/lib/gmailVerification";
+import { notifyAdmin } from "@/lib/adminNotify";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -28,6 +30,38 @@ export async function POST(request: NextRequest) {
       // Same treatment as the non-commerce discard: no content logged,
       // just a count. We have nowhere safe to attribute this mail.
       console.log("Discarded inbound email with unrecognized routing token");
+      return NextResponse.json({ ok: true });
+    }
+
+    // Gmail's forwarding setup sends this to whichever address the user
+    // is trying to forward to — i.e. straight into a user's inbound
+    // address, not to anyone's actual inbox. It's not commerce mail and
+    // shouldn't be classified or stored as one; it needs a human (the
+    // admin) to click the confirmation link or enter the code on Gmail's
+    // settings page before forwarding will actually start working.
+    if (isGmailForwardingVerification(payload.FromFull?.Email, payload.Subject)) {
+      const { code, link } = extractVerificationDetails(payload.TextBody ?? payload.HtmlBody);
+      const inboundAddress = `${process.env.POSTMARK_INBOUND_HASH}+${user.inboundToken}@inbound.postmarkapp.com`;
+
+      await notifyAdmin(
+        "New user verification needed",
+        [
+          "A Gmail forwarding verification email arrived for one of your users.",
+          "",
+          `User account: ${user.email}`,
+          `Inbound address used: ${inboundAddress}`,
+          "",
+          `Confirmation code: ${code ?? "(not found — see raw email below)"}`,
+          `Confirmation link: ${link ?? "(not found — see raw email below)"}`,
+          "",
+          "--- Raw email ---",
+          `Subject: ${payload.Subject ?? ""}`,
+          "",
+          payload.TextBody ?? payload.HtmlBody ?? "(no body)",
+        ].join("\n"),
+      );
+
+      console.log("Detected Gmail forwarding verification email, notified admin, not stored");
       return NextResponse.json({ ok: true });
     }
 

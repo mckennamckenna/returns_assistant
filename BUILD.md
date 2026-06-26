@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries.
 
 ---
 
@@ -915,3 +915,46 @@ model VerificationToken { /* standard Auth.js Prisma adapter shape */ }
 - Key rotation strategy for `ENCRYPTION_KEY`
 - **An independent return-portal-URL lookup**, not gated behind "the email didn't state its own return window" — would close the gap where an order whose emails always state their policy inline never gets a portal URL today
 - Include the return portal URL in reminder emails themselves (currently only the dashboard/detail pages show it) — the whole point of a reminder is prompting action, and the portal link is the most direct way to act
+
+---
+
+# Milestone 9: Admin Notifications
+
+## Goal — the only thing that counts as "done"
+
+> The admin (me) finds out immediately when something needs a human: a new user's Gmail-forwarding verification email arrives, or the daily reminder cron sends/fails something — without having to go digging through logs or the database to notice.
+
+This is purely an operational visibility milestone, not a user-facing feature — nothing here changes what any signed-in user sees.
+
+## Why this design (read before building)
+
+- **Gmail's forwarding verification email is not commerce mail and must never be stored or classified as one.** It's not addressed to a real person checking an inbox — it lands straight in a user's inbound address because that's literally what the user is setting up forwarding *to*. It needs to be detected and handled before the commerce-classification step, the same way the inbound-token routing check happens before classification: there's no reason to spend an AI call on something whose sender + subject are this distinctive, and it's wrong to store something that isn't actually the user's shopping mail.
+- **Detection by sender + subject, not AI.** `forwarding-noreply@google.com` plus one of two known subject strings is exact and free — no ambiguity that would justify a classifier call.
+- **Extraction is best-effort; the raw email is always included as a fallback.** Gmail's confirmation code/link formatting isn't a documented, stable API — regex-based extraction could miss on a format change. Rather than risk losing the information if a pattern stops matching, the admin notification always includes the full raw subject + body underneath whatever was auto-extracted, so a missed match costs the admin one extra line of reading, not the information itself.
+- **The admin notification names the user's account email AND their full inbound address.** "Which +tag address it came from" alone is a `cuid`-based token a human can't immediately place; pairing it with the account's actual email makes "which user" answerable at a glance.
+- **A shared `notifyAdmin()` helper, not three separate Postmark calls.** Both the verification-email handler and the cron summary need the exact same "send to ADMIN_EMAIL, and never let a failure here break the real flow that triggered it" behavior — centralized once in `lib/adminNotify.ts` rather than duplicated with subtly different error handling in two places.
+- **The magic-link BCC reuses the existing `sendEmail` call, not a separate send.** A true BCC (not a second independent email) means the admin sees exactly what the user received, in the same thread context a mail client would group it in — and it's one optional field on a call that already exists, not new code.
+- **The cron summary only sends when something happened.** A daily "0 reminders sent, 0 failures" email would be pure noise for what's meant to be an exception/activity signal. It sends whenever `sent.length > 0 || failed.length > 0` — a quiet day produces no email at all. (Worth revisiting if "confirm the cron is even running" becomes a real concern — that's a different signal than this milestone's "something needs your attention.")
+- **A missing user/order linkage on an order at reminder time is now treated as a failure, not a silent skip.** `userId` has been required on Order since Milestone 8; an order with no resolvable user shouldn't happen anymore, so if it does, the admin should hear about it rather than have it disappear into a `continue`.
+
+## What got built
+
+- `lib/gmailVerification.ts` — `isGmailForwardingVerification()` (sender + subject match) and `extractVerificationDetails()` (best-effort code/link regex extraction).
+- `lib/adminNotify.ts` — `notifyAdmin(subject, textBody)`, sends to `ADMIN_EMAIL` from `REMINDER_FROM_EMAIL`, logs and swallows its own failures (a missing `ADMIN_EMAIL` or a Postmark error here never breaks the inbound webhook or the cron run).
+- `lib/postmark.ts` — `sendEmail()` now accepts an optional `bcc`.
+- `app/api/inbound/route.ts` — checks for a Gmail verification email right after resolving the user (so the notification can name them) and before commerce classification; on a match, notifies the admin with the user's account email, full inbound address, extracted code/link, and the raw subject + body, then returns 200 without storing anything.
+- `auth.ts` — the magic-link send now BCCs `ADMIN_EMAIL`.
+- `app/api/cron/route.ts` — `sent`/`failed` entries now carry `orderNumber` and `userEmail`; after the run, `buildAdminSummary()` lists every reminder sent (retailer, order number, reminder type, recipient, a direct link to the order) and every failure (same fields plus the error), and `notifyAdmin()` is called only if there's something to report.
+- `ADMIN_EMAIL` added to `.env` and all three Vercel environments.
+
+## How to know it works
+
+1. Forward a synthetic email from `forwarding-noreply@google.com` with subject containing "Gmail Forwarding Confirmation" — confirm it never appears as an Email row, and an admin notification arrives with the code/link parsed out plus the raw body underneath.
+2. Sign in via a real magic link — confirm `ADMIN_EMAIL` receives a BCC of the exact same email the user got.
+3. Trigger the cron with `force=true` against a **disposable/non-production order set** — confirm the admin summary lists the right retailer, order number, reminder type, and recipient for each send. *(Caution learned the hard way while building this: `force=true` against real orders creates real `Reminder` rows for whatever threshold it nearest-matches to, even if the order isn't actually at that day-count — which then blocks the order's genuine reminder at that threshold from ever firing later. Don't force-test against real orders without deleting the resulting `Reminder` rows for any threshold that wasn't actually due.)*
+4. Confirm a quiet cron run (nothing eligible) sends no admin email at all.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 21 — admin notifications**
+> Per BUILD.md's Milestone 9 section: detect Gmail forwarding-verification emails in /api/inbound by sender + subject before commerce classification, extract the confirmation code/link best-effort, and notify ADMIN_EMAIL with the user's account email, inbound address, extracted details, and the raw email as a fallback — never store these as a normal Email row. Add a shared lib/adminNotify.ts helper. BCC ADMIN_EMAIL on every magic-link send. After each cron run, email ADMIN_EMAIL a summary of every reminder sent and failed (retailer, order number, recipient, error if any) — but only when there's something to report. Add ADMIN_EMAIL everywhere REMINDER_FROM_EMAIL already exists.
