@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard.
 
 ---
 
@@ -958,3 +958,56 @@ This is purely an operational visibility milestone, not a user-facing feature �
 
 **Prompt 21 — admin notifications**
 > Per BUILD.md's Milestone 9 section: detect Gmail forwarding-verification emails in /api/inbound by sender + subject before commerce classification, extract the confirmation code/link best-effort, and notify ADMIN_EMAIL with the user's account email, inbound address, extracted details, and the raw email as a fallback — never store these as a normal Email row. Add a shared lib/adminNotify.ts helper. BCC ADMIN_EMAIL on every magic-link send. After each cron run, email ADMIN_EMAIL a summary of every reminder sent and failed (retailer, order number, recipient, error if any) — but only when there's something to report. Add ADMIN_EMAIL everywhere REMINDER_FROM_EMAIL already exists.
+
+---
+
+# Milestone 10: Needs Review Resolution + Admin Dashboard
+
+## Goal — the only thing that counts as "done"
+
+> A flagged order doesn't just sit there forever. Either I (the user) or the admin can look at it, understand why it was flagged, decide it's fine or actually two different orders, and resolve it — with the resolution itself, and whatever explanation was given, visible afterward, not lost.
+
+This is the resolution half of a loop Milestone 3 only opened: prefix-match merges and missing-deadline orders get flagged, but nothing before this milestone ever let anyone *close* that flag with a real decision.
+
+## Why this design (read before building)
+
+- **One shared resolution engine, two front doors.** `lib/orderReview.ts`'s `approveOrder()` and `splitOrder()` contain all the actual logic and do zero access control — exactly like `linkEmailToOrder` doesn't do auth either. The user-facing dashboard action (`app/actions.ts`) checks `session.user.id` ownership; the admin action (`app/admin/actions.ts`) checks `ADMIN_SECRET` instead. Two different gates calling the same engine, not two different implementations that could quietly drift apart.
+- **"Looks correct" is an explicit override; "Split" isn't.** Approving forces `needsReview: false` outright — a human directly asserted this is fine, full stop. Splitting only resolves *one* question ("are these the same order") and deliberately leaves `needsReview` to the normal data-completeness recompute on both resulting orders — confirmed by a real test: splitting a synthetic order whose remaining email still had no return deadline left it correctly flagged again, for a genuinely different (and still true) reason. Conflating "wrong match" and "incomplete data" under one flag was already a known shortcut; this milestone doesn't fix that, but it does make sure resolving one doesn't silently paper over the other.
+- **Splitting re-derives the original order's fields, it doesn't just detach an email.** `mergeEmailIntoOrder`'s additive merge (Milestone 3) was built assuming emails only ever get added, never removed — split breaks that assumption. `rebuildOrderFromRemainingEmails()` replays the same fold logic from scratch over whatever emails are left, so a split order doesn't keep stale data the departing email had contributed. `createOrderFromEmail()` was extracted out of `linkEmailToOrder`'s old inline "no match" branch so both the normal linking path and the new split path build a fresh Order the same way.
+- **The note lives on the Order the human was looking at, not wherever the split data ends up.** Both actions accept an optional note; it's always saved on the order the review card belonged to, regardless of which button was pressed — splitting creates a second order, but the explanation is about the *decision*, made on the order being reviewed.
+- **The admin dashboard is a query param, not a login.** `ADMIN_SECRET` is checked statelessly on every page load and every action — no session, no cookie, nothing to expire or to leave logged in on a shared computer. An invalid or missing secret 404s, not a "wrong password" page, since the URL itself is meant to be unguessable and is never linked from anywhere a user would see.
+- **`DiscardLog` is a count, not a record.** The non-commerce discard path has never stored what it discarded — that's the whole point of the discard. Showing "how often does this happen" without ever knowing "what was it" needed a model with no email content and no userId: just a reason and a timestamp. Anything richer would have undermined the exact privacy guarantee this milestone is supposed to make visible, not work around.
+
+## What got built
+
+- **Schema**: `Order.userNote` (nullable text, not encrypted — it's the user's own note about their own order, and the admin dashboard reads it directly), and a new `DiscardLog` model (`reason`, `occurredAt`, nothing else).
+- **`lib/linkOrder.ts`**: `createOrderFromEmail()` and `rebuildOrderFromRemainingEmails()` exported and reused by the split path; no behavior change to the existing linking flow.
+- **`lib/orderReview.ts`**: `approveOrder(orderId, note)`, `splitOrder(orderId, note)`, and `reviewReason(order)` (the same best-effort "why was this flagged" heuristic — most recent email's `extractionNotes`, falling back to a missing-deadline or prefix-match-shaped message — shared by both UIs).
+- **`lib/adminAuth.ts`**: `isValidAdminSecret()`, the one place `ADMIN_SECRET` gets checked.
+- **Dashboard** (`app/page.tsx`): a "Needs Review" section using a native `<details>` element — open by default only when there's something in it, so it's never a wall of empty chrome on a clean account. Each card shows the retailer/order number, the review reason, any existing note, and `app/ReviewActions.tsx` (a small client component: one textarea, two submit buttons sharing it via `formAction`).
+- **`app/api/inbound/route.ts`**: a `DiscardLog` row is created on every non-commerce discard.
+- **Admin dashboard** (`app/admin/page.tsx` + `app/admin/actions.ts`): Needs Review (all users, with the owning account's email, the triggering email subjects, and any user note), Recent Users (email, join date, order/email counts, last email received), Recent Sends (last 50 reminders with recipient and order), Discard Log (non-commerce discards bucketed by day, last 30 days).
+- `ADMIN_SECRET` added to `.env` and all three Vercel environments (`ADMIN_EMAIL` was already there from Milestone 9).
+
+## How to know it works
+
+1. Create or find a real flagged order; confirm the dashboard's "Needs Review" section is expanded and shows a sensible reason.
+2. Leave a note and click "Looks correct" — confirm `needsReview` clears and the note persists (re-flagging the order from a fresh prefix match later should still work normally).
+3. On a multi-email flagged order, click "Split into separate order" — confirm a new Order appears with the most recently received email, the original order's data no longer reflects that email's contribution, and both orders' statuses look right independently.
+4. Visit `/admin` with no secret and with a wrong secret — confirm 404 both times. Visit with the correct secret — confirm all four sections render with real data.
+5. Approve or split from the admin dashboard — confirm it has the identical effect as the user-facing action (same underlying functions).
+6. Forward a piece of marketing mail and confirm a `DiscardLog` row appears, bucketed under today's date in the admin Discard Log — and that nothing about its content is stored anywhere.
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 22 — needs-review resolution + admin dashboard**
+> Per BUILD.md's Milestone 10 section: add Order.userNote and a content-free DiscardLog model, migrate. Build lib/orderReview.ts with approveOrder/splitOrder (no auth inside — callers gate it) plus a shared reviewReason heuristic, extracting createOrderFromEmail and a rebuildOrderFromRemainingEmails replay helper out of lib/linkOrder.ts for the split path to reuse. Add a "Needs Review" section to the dashboard (collapsed via a native <details> when empty) with a note textarea and Approve/Split buttons, scoped by session ownership. Build /admin, gated statelessly by an ADMIN_SECRET query param (404 on mismatch, never a login form), with the same two actions plus Recent Users, Recent Sends, and a Discard Log bucketed by day. Log every non-commerce discard to DiscardLog. Add ADMIN_SECRET everywhere ADMIN_EMAIL already exists.
+
+---
+
+## What comes after Milestone 10 (not now)
+
+- The "needs review for a wrong match" vs. "needs review for incomplete data" distinction is still conflated under one boolean — fine for now, but a real reason-code field would let both UIs stop guessing via heuristics like `reviewReason()`
+- Admin actions don't currently let the admin leave their own note (only users can) — deliberate scope cut, not an oversight, but worth revisiting if the admin starts wanting to record their own reasoning
+- The admin dashboard has no pagination on any section — fine at current volume, not at 10x
+- `lastEmailByUser` in the admin page is one query per user (N+1) — acceptable today, would need a real aggregate query if the user base grows past a couple dozen

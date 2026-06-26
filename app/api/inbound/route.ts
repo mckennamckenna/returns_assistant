@@ -76,7 +76,11 @@ export async function POST(request: NextRequest) {
 
     if (!isCommerce) {
       // Never stored, never logged beyond this count — no content here.
+      // DiscardLog deliberately carries no email content and no userId,
+      // matching that same discard philosophy — it exists purely so the
+      // admin dashboard can show how often this happens, not what.
       console.log("Discarded non-commerce email at inbound");
+      await prisma.discardLog.create({ data: { reason: "non_commerce" } });
       return NextResponse.json({ ok: true });
     }
 

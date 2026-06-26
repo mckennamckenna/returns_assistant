@@ -2,8 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteOrder, deleteEmail } from "./actions";
+import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
+import { ReviewActions } from "./ReviewActions";
+import { reviewReason } from "@/lib/orderReview";
 import { decryptEmailContent } from "@/lib/emailEncryption";
 import { daysUntil } from "@/lib/reminders";
 import { Sidebar } from "./Sidebar";
@@ -49,6 +51,7 @@ function snippet(text: string | null, length = 160): string {
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
+
 // Nulls always sort last, regardless of direction — a missing date or total
 // isn't "less than zero," it's unknown, and shouldn't jump to the top when
 // sorting descending.
@@ -80,7 +83,7 @@ export default async function Home({
 
   const now = new Date();
 
-  const [allOrders, rawOrphanedEmails] = await Promise.all([
+  const [allOrders, rawOrphanedEmails, reviewOrders] = await Promise.all([
     prisma.order.findMany({
       where: { userId },
       include: { _count: { select: { emails: true } } },
@@ -88,6 +91,11 @@ export default async function Home({
     prisma.email.findMany({
       where: { orderId: null, userId },
       orderBy: { receivedAt: "desc" },
+    }),
+    prisma.order.findMany({
+      where: { userId, needsReview: true },
+      include: { emails: { select: { subject: true, extractionNotes: true }, orderBy: { receivedAt: "desc" } } },
+      orderBy: { updatedAt: "desc" },
     }),
   ]);
 
@@ -209,6 +217,37 @@ export default async function Home({
           <StatCard label="Closing soon" value={String(closingSoonOrders.length)} sublabel={`within ${CLOSING_SOON_DAYS} days`} />
           <StatCard label="Total value at risk" value={formatCurrency(valueAtRisk, "USD")} sublabel="closing soon, not yet returned" />
         </div>
+
+        <details open={reviewOrders.length > 0} className="mb-8 bg-amber-50 border border-amber-200 rounded-xl">
+          <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-amber-900 flex items-center justify-between">
+            <span>Needs review ({reviewOrders.length})</span>
+            <span className="text-xs text-amber-700">{reviewOrders.length > 0 ? "▾" : "▸"}</span>
+          </summary>
+          {reviewOrders.length > 0 && (
+            <div className="px-5 pb-5 flex flex-col gap-4">
+              {reviewOrders.map((order) => (
+                <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <Link href={`/orders/${order.id}`} className="font-medium text-stone-800 hover:underline">
+                        {order.retailer || "Unknown retailer"}
+                      </Link>
+                      {order.orderNumber && <span className="text-sm text-stone-400 ml-2">#{order.orderNumber}</span>}
+                    </div>
+                  </div>
+                  <p className="text-sm text-stone-600 mt-2">{reviewReason(order)}</p>
+                  {order.userNote && (
+                    <p className="text-sm text-stone-500 italic mt-2 border-l-2 border-amber-300 pl-2">Your note: {order.userNote}</p>
+                  )}
+                  <ReviewActions
+                    approveAction={approveOrderAction.bind(null, order.id)}
+                    splitAction={splitOrderAction.bind(null, order.id)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </details>
 
         {allOrders.length === 0 && orphanedEmails.length === 0 ? (
           <p className="text-stone-500">

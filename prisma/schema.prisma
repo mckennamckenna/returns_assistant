@@ -135,6 +135,13 @@ model Order {
   status      String  @default("ordered")
   needsReview Boolean @default(false)
 
+  // --- Milestone 10 addition --- the user's (or admin's) own explanation
+  // when resolving a needsReview flag, via "Looks correct" or "Split into
+  // separate order". Not encrypted: it's a note about the user's own
+  // order, not retailer/email PII, and the admin dashboard reads it
+  // directly without a decrypt step.
+  userNote String? @db.Text
+
   // --- Milestone 8 addition ---
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -154,4 +161,14 @@ model Reminder {
   sentAt       DateTime @default(now())
 
   @@unique([orderId, reminderType])
+}
+
+// --- Milestone 10: aggregate-only record of non-commerce discards at
+// inbound, for the admin "Discard Log" — deliberately no email content
+// and no userId, matching the existing discard philosophy (the content
+// is never stored; this exists purely to count how often it happens).
+model DiscardLog {
+  id         String   @id @default(cuid())
+  reason     String // "non_commerce" for now; room to add more reasons later
+  occurredAt DateTime @default(now())
 }

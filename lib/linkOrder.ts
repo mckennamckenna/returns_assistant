@@ -204,6 +204,73 @@ async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUr
   return updated.id;
 }
 
+// Seeds a brand-new Order directly from one email's fields — the same
+// shape as the very first email an order is ever created from. Shared by
+// the no-match path below and by lib/orderReview.ts's split action, which
+// re-derives this when un-merging an email from an existing order.
+export async function createOrderFromEmail(
+  userId: string,
+  email: Email,
+  returnPortalUrl: string | null,
+): Promise<string> {
+  const created = await prisma.order.create({
+    data: {
+      userId,
+      retailer: email.retailer,
+      orderNumber: email.orderNumber,
+      orderDate: email.orderDate,
+      deliveryDate: email.deliveryDate,
+      returnWindowDays: email.returnWindowDays,
+      returnDeadline: email.returnDeadline,
+      deadlineIsEstimated: email.deadlineIsEstimated,
+      policySource: mapPolicySource(email.policySource),
+      orderTotal: email.orderTotal,
+      orderCurrency: email.orderCurrency,
+      lineItems: asLineItemArray(email.lineItems) as object,
+      returnPortalUrl,
+    },
+  });
+  return created.id;
+}
+
+// Re-derives an order's merged fields from scratch, from whatever emails
+// are still linked to it — used after splitting one email back out, so
+// the remaining order doesn't keep stale data contributed by the email
+// that just left. Replays the same fold the emails would have produced if
+// merged in receivedAt order originally (later non-null values win),
+// which matches mergeEmailIntoOrder's existing merge semantics exactly.
+// returnPortalUrl is deliberately left untouched: it isn't stored on
+// Email, so it can't be recovered from the remaining emails alone.
+export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<void> {
+  const emails = await prisma.email.findMany({ where: { orderId }, orderBy: { receivedAt: "asc" } });
+  if (emails.length === 0) return;
+
+  const [first, ...rest] = emails;
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      orderDate: first.orderDate,
+      deliveryDate: first.deliveryDate,
+      returnWindowDays: first.returnWindowDays,
+      returnDeadline: first.returnDeadline,
+      deadlineIsEstimated: first.deadlineIsEstimated,
+      policySource: mapPolicySource(first.policySource),
+      orderTotal: first.orderTotal,
+      orderCurrency: first.orderCurrency,
+      lineItems: asLineItemArray(first.lineItems) as object,
+    },
+  });
+
+  let current = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  for (const email of rest) {
+    const updatedId = await mergeEmailIntoOrder(current, email, null);
+    current = await prisma.order.findUniqueOrThrow({ where: { id: updatedId } });
+  }
+
+  await applyFallbackOrderDate(orderId);
+  await recomputeOrderStatus(orderId);
+}
+
 // returnPortalUrl isn't stored on Email (it's product/retailer data, not
 // derived from any one email) — it's threaded through from the in-memory
 // extraction result straight onto the Order, never persisted per-email.
@@ -240,24 +307,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
       orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
       isPrefixMatchedOrder = true;
     } else {
-      const created = await prisma.order.create({
-        data: {
-          userId: email.userId,
-          retailer: email.retailer,
-          orderNumber: email.orderNumber,
-          orderDate: email.orderDate,
-          deliveryDate: email.deliveryDate,
-          returnWindowDays: email.returnWindowDays,
-          returnDeadline: email.returnDeadline,
-          deadlineIsEstimated: email.deadlineIsEstimated,
-          policySource: mapPolicySource(email.policySource),
-          orderTotal: email.orderTotal,
-          orderCurrency: email.orderCurrency,
-          lineItems: asLineItemArray(email.lineItems) as object,
-          returnPortalUrl,
-        },
-      });
-      orderId = created.id;
+      orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
     }
   }
 
