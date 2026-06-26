@@ -2,7 +2,7 @@
 
 This file is the spec. The goal is to point a coding agent (Claude Code) at it and build incrementally. Work through it top to bottom. Don't skip ahead to features that aren't in the current milestone.
 
-**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard. Milestone 11 ✅ complete — alpha UX polish: instant search/filter, Needs Review hidden when empty, product renamed to Return Window, stat card redesign, missing-total guidance.
+**Status:** Milestone 1 ✅ complete — verified in production with a real forwarded H&M order confirmation. Milestone 2 ✅ complete — AI extraction, return-policy web lookup, and order value all validated against ~16 real forwarded orders. Milestone 3 ✅ complete — 16 real emails aggregated into 8 Order cards. Milestone 4 ✅ complete — daily cron verified end-to-end with a real reminder send, landing in the inbox after DKIM/SPF/DMARC setup. Milestone 5 ✅ complete — non-commerce discard gate, dashboard delete controls, full-data wipe, and the privacy page all live. Milestone 6 ✅ complete — fromEmail/fromName/textBody/htmlBody/rawJson encrypted at rest, verified against all 21 existing rows with no corruption. Milestone 7 ✅ complete — return-portal links backfilled and verified against real, resolving URLs. Milestone 8 ✅ complete — Auth.js magic-link login, per-user data isolation, and per-user inbound addresses all live in production. Fuzzy order-number prefix matching (see Milestone 3's addendum) added and verified post-Milestone 8. Milestone 9 ✅ complete — admin notifications for Gmail-verification emails, magic-link BCCs, and cron run summaries. Milestone 10 ✅ complete — user-facing Needs Review resolution (approve/split/note) and an admin dashboard. Milestone 11 ✅ complete — alpha UX polish: instant search/filter, Needs Review hidden when empty, product renamed to Return Window, stat card redesign, missing-total guidance. Milestone 12 ✅ complete — more aggressive single-email extraction (order total, line items, order date, return links from shipping/delivery confirmations), backfilled across all existing emails.
 
 ---
 
@@ -913,7 +913,7 @@ model VerificationToken { /* standard Auth.js Prisma adapter shape */ }
 - Key rotation strategy for `ENCRYPTION_KEY` and `AUTH_SECRET`
 - Real `Account`-linking (OAuth) support is schema-ready but unused — fine until there's a reason to add a second sign-in method
 - Key rotation strategy for `ENCRYPTION_KEY`
-- **An independent return-portal-URL lookup**, not gated behind "the email didn't state its own return window" — would close the gap where an order whose emails always state their policy inline never gets a portal URL today
+- **An independent return-portal-URL lookup**, not gated behind "the email didn't state its own return window" — **partially closed in Milestone 12**: the email's own return link is now extracted directly regardless of whether returnWindowDays was also found in that email. Still not closed: an order whose every email links nowhere AND states its own return window inline never gets a portal URL, since the web lookup (the only other source) only runs when returnWindowDays is null.
 - Include the return portal URL in reminder emails themselves (currently only the dashboard/detail pages show it) — the whole point of a reminder is prompting action, and the portal link is the most direct way to act
 
 ---
@@ -1037,3 +1037,40 @@ Five small, independent fixes ahead of opening up to alpha users — not a new f
 
 **Prompt 23 — alpha UX polish**
 > Per BUILD.md's Milestone 11 section: make dashboard search/filter instant via a debounced client component instead of a submit button, hide the Needs Review section entirely (not collapsed) when there's nothing in it, rename "Returns Assistant" to "Return Window" everywhere it appears in the app, redesign the stat cards with a Playfair Display number and a colored top accent bar per card, and add a small "Forward your order confirmation to add the total" note under the retailer name on any order missing its total.
+
+---
+
+# Milestone 12: Maximize Single-Email Extraction
+
+## Goal — the only thing that counts as "done"
+
+> Forwarding just one shipping or delivery confirmation — never the order confirmation — still gets a real order total, item list, order date, and return link whenever that information is actually present in the email, instead of waiting for a second forward that may never come.
+
+The product reality this addresses: users forward whatever email happens to catch their attention, often a shipping or delivery notification, not the order confirmation. The old prompt told the model to treat shipping confirmations as a deliveryDate-only email type, leaving real, present-in-the-body data on the table.
+
+## Why this design (read before building)
+
+- **The old per-type guidance was the actual bug.** "For shipping confirmations: focus on deliveryDate" wasn't just unhelpful — it told the model to deprioritize fields that retailers frequently *do* restate in shipping/delivery emails (total, items, order date). Rewriting that guidance to extract aggressively from every email type, regardless of emailType, was the core fix; nothing about the web-lookup firing condition needed to change, since it was never actually gated by emailType in code — the gap was upstream, in what the model was told to bother looking for.
+- **Deriving a total by summing line items is allowed, but flagged as derived, not stated.** The prompt explicitly tells the model to say so in `notes` and cap confidence at "medium" when it computes rather than reads a total — that distinction matters downstream (a derived sum can miss tax/shipping/discounts in either direction).
+- **The email's own return link now wins over the web lookup**, instead of being structurally impossible to capture. `RawExtraction` gained `returnPortalUrlFromEmail`, kept distinct from `ExtractionResult.returnPortalUrl` (the final, merged value) so the two sources never get confused in `extractEmail`'s merge logic. Previously `returnPortalUrl` could *only* ever come from the web lookup, and the web lookup only ever ran when `returnWindowDays` was null in the email — meaning an order whose every email stated its policy inline could never get a portal URL at all. Now the email's own link is read independently of that.
+- **A real regression, caught by testing against real data, not assumed away.** Making shipping/delivery extraction this much more aggressive immediately exposed a latent bug in `lib/linkOrder.ts`'s merge logic: a multi-package Old Navy order's correct $433.64 total (from its order_confirmation) got silently overwritten by two shipping emails' own *partial-package* totals (e.g. "Package total: $21.84" for one box of five) — because the merge rule was simply "newest non-null wins," with no concept that an order_confirmation is the only email type that reliably describes the *whole* order. `resolveOrderTotal()` now checks for an order_confirmation among the order's already-linked emails and treats its total as authoritative once present, never letting a different email type's number override it. This bug predates this milestone — the old prompt's narrow shipping guidance just meant it almost never had a chance to fire.
+
+## What got built
+
+- `lib/extract.ts`'s prompt rewritten: explicit instructions for harder order-total extraction (check for "total"/"amount"/"charged", sum stated subtotal+charges, sum line items as a last resort with a confidence cap), line-item extraction from any email type, order-date extraction from shipping/delivery emails when explicitly restated, and `returnPortalUrlFromEmail` extraction from any return-related link in the body.
+- `extractEmail()`'s merge logic: the email's own return link is checked first, the web lookup's URL is only used as a fallback when the email had none.
+- `lib/linkOrder.ts`'s `resolveOrderTotal()`: order_confirmation totals are authoritative once known; no other email type can override them. Used inside `mergeEmailIntoOrder`, so this protection applies to ordinary linking, the prefix-match path, and the split-order rebuild path identically.
+- `scripts/reextract-all-emails.ts`: a permanent record of the one-time backfill, re-running extraction on every existing email.
+
+## How to know it works
+
+1. Forward only a shipping or delivery confirmation (no order confirmation) for an order where the email itself states a total or lists priced items — confirm the resulting Order gets a real `orderTotal`, not null, and that `extractionNotes` says whether it was read directly or summed.
+2. Confirm an order with a real order_confirmation keeps that email's total even after later shipping/delivery emails for the same order are linked (this was the exact regression caught and fixed) — verified directly against real data: a real Old Navy order's total was confirmed unchanged at $433.64 after re-linking all six of its emails, while two real previously-null totals (a Shopbop order and a second Mango order) picked up real, derived totals ($112.50 and $539.97) with no other order's data disturbed.
+3. Forward an email containing a return-policy or "how to return" link — confirm the Order's `returnPortalUrl` reflects that link, even when the same email also stated its own return window (previously structurally impossible).
+
+## Copy-paste prompts for Claude Code
+
+**Prompt 24 — maximize single-email extraction**
+> Per BUILD.md's Milestone 12 section: rewrite lib/extract.ts's prompt to extract order total (try harder before nulling — check for stated totals, summed charges, or sum line items as a last resort with a confidence cap), line items, and order date aggressively from shipping/delivery confirmations, not just order confirmations, and extract any return-policy link in the email body as returnPortalUrlFromEmail, preferring it over the web lookup's URL. Fix lib/linkOrder.ts's merge logic so an order_confirmation's total, once known, can never be overwritten by a different email type's (e.g. a shipping email's partial-package total). Re-extract all existing emails to backfill, verifying against real data that nothing regresses.
+
+---

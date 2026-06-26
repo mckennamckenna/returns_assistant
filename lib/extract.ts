@@ -38,6 +38,11 @@ interface RawExtraction {
   orderTotal: number | null;
   orderCurrency: string | null;
   lineItems: LineItem[];
+  // Distinct from ExtractionResult.returnPortalUrl below: this is only
+  // ever set when the email itself links to a returns page — the final
+  // field falls back to a web lookup when this is null. Named separately
+  // so the two sources never get confused in extractEmail's merge logic.
+  returnPortalUrlFromEmail: string | null;
   confidence: Confidence;
   notes: string;
 }
@@ -80,22 +85,41 @@ From the email body below, extract:
 - emailType (one of the types above)
 - retailer (string or null — from body only, never the From header)
 - orderNumber (string or null)
-- orderDate (ISO date string or null — only if explicitly stated)
+- orderDate (ISO date string or null)
 - deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
 - returnWindowDays (integer or null — e.g. 30; only if explicitly stated in THIS email)
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
-- orderTotal (number or null — the total amount charged, only if explicitly stated)
+- orderTotal (number or null — see ORDER TOTAL below)
 - orderCurrency (string or null — e.g. "USD", only if determinable)
-- lineItems (array of {name, price, quantity} — individual items in the order; empty array if none are itemized in this email)
+- lineItems (array of {name, price, quantity} — see LINE ITEMS below)
+- returnPortalUrlFromEmail (string or null — see RETURN POLICY LINK below)
 - confidence ("high" | "medium" | "low")
-- notes (one sentence: your reasoning, especially any assumption or uncertainty)
+- notes (one sentence: your reasoning, especially any assumption or uncertainty, and call out explicitly if orderTotal was derived by summing line items rather than read directly)
+
+A forwarded shopping email is rarely the ONLY email about that order a
+customer will send — but don't assume a follow-up is coming. Extract as
+much as this single email actually supports, for every field, regardless
+of emailType. Shipping and delivery confirmations are not just
+"deliveryDate" emails: retailers very often restate the order total,
+the full item list, and the original order date even in a shipping
+notification — read the whole body, not just the shipping-specific part.
+
+ORDER TOTAL — look harder before returning null:
+- Check for "order total", "total", "amount charged", "amount", "you paid", or a dollar figure positioned near the order number.
+- If the email shows a subtotal plus separate charges (shipping, tax, discount) that combine into a total, compute that sum.
+- If no total is stated anywhere but individual line items with prices are listed, sum the line item prices as an estimate — and say so in notes. This estimate may not match the real charged total (it can miss tax, shipping, or discounts), so don't report confidence higher than "medium" when the total is derived this way rather than read directly.
+- Still NEVER invent a number with no basis in the email at all. Trying harder means reading more carefully and computing sums that are actually present in the text — not guessing.
+
+LINE ITEMS — extract from any email type that lists them, not just order confirmations. Shipping and delivery confirmations frequently list "what's in this shipment" with names and prices — extract those exactly the same way you would from an order confirmation.
+
+ORDER DATE — look for it in shipping and delivery confirmations too, not just order confirmations. Retailers often restate it as "you placed this order on [date]", "order placed: [date]", or similar, even in a shipping notification. Extract it as orderDate whenever it's explicitly stated, regardless of emailType.
+
+RETURN POLICY LINK — if the email contains a link to a returns page, a return policy, a "how to return this item" section, or similar, extract that URL as returnPortalUrlFromEmail. Only extract an actual URL present in the email text — never construct or guess one.
 
 Rules:
-- NEVER invent, guess, or infer a date, deadline, policy, price, or item that isn't written in the email.
+- NEVER invent, guess, or infer a date, deadline, policy, price, or item that isn't written in the email (an order-total sum derived from line items that ARE in the email doesn't count as inventing — that's computing from what's there).
 - Return null for any field not clearly present. Null + low confidence is always better than a wrong answer.
-- Lower confidence whenever you have to infer rather than read something directly.
-- For shipping confirmations: focus on deliveryDate — that's the key field.
-- For order confirmations: focus on returnWindowDays, returnWindowStartsFrom, orderTotal, and lineItems.
+- Lower confidence whenever you have to infer or compute rather than read something directly.
 - If the email is marketing/promotional/unrelated: set emailType to "other", retailer to null, confidence to "low".
 - Leave returnWindowDays null if this email doesn't state it — don't guess based on what you know about the retailer. A separate lookup step handles that.
 
@@ -225,14 +249,17 @@ export async function extractEmail(textBody: string): Promise<ExtractionResult> 
 
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
-  let returnPortalUrl: string | null = null;
+  // The email's own link wins when present — only fall back to the web
+  // lookup's URL (which only runs at all when returnWindowDays is still
+  // null) when the email itself didn't link to one.
+  let returnPortalUrl: string | null = parsed.returnPortalUrlFromEmail ?? null;
 
   if (parsed.returnWindowDays != null) {
     policySource = "email";
   } else if (parsed.retailer) {
     try {
       const lookup = await lookupReturnPolicy(parsed.retailer);
-      returnPortalUrl = lookup.returnPortalUrl;
+      returnPortalUrl = returnPortalUrl ?? lookup.returnPortalUrl;
 
       if (lookup.returnWindowDays != null && lookup.confidence !== "low") {
         parsed.returnWindowDays = lookup.returnWindowDays;

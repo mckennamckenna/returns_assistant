@@ -169,6 +169,30 @@ async function findPrefixMatchOrder(userId: string, retailer: string, orderNumbe
   return candidates.find((candidate) => candidate.orderNumber && isPrefixMatch(candidate.orderNumber, orderNumber)) ?? null;
 }
 
+// An order_confirmation describes the WHOLE order; a shipping or delivery
+// email often only describes ONE package of a multi-package shipment, and
+// can state THAT package's own subtotal in a way that looks exactly like
+// a stated total (e.g. "Package total: $21.84" for one box of a five-box
+// order). Once a real order_confirmation has supplied a total, no other
+// email type is allowed to override it — discovered as a real regression
+// while backfilling more aggressive shipping/delivery extraction: a
+// correct $433.64 order_confirmation total got silently overwritten by
+// two shipping emails' partial-package totals, in merge order.
+async function resolveOrderTotal(existing: Order, email: Email): Promise<number | null> {
+  if (email.emailType === "order_confirmation") {
+    return email.orderTotal ?? existing.orderTotal;
+  }
+
+  const confirmation = await prisma.email.findFirst({
+    where: { orderId: existing.id, emailType: "order_confirmation", orderTotal: { not: null } },
+  });
+  if (confirmation) {
+    return confirmation.orderTotal;
+  }
+
+  return email.orderTotal ?? existing.orderTotal;
+}
+
 // Shared by both the exact-match and prefix-match paths: an existing Order
 // gets enriched with whatever the new email adds, never blindly overwritten.
 async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
@@ -178,6 +202,7 @@ async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUr
   const mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays;
   const existingLineItems = asLineItemArray(existing.lineItems);
   const mergedLineItems = emailLineItems.length > existingLineItems.length ? emailLineItems : existingLineItems;
+  const mergedOrderTotal = await resolveOrderTotal(existing, email);
 
   const { returnDeadline, deadlineIsEstimated } = computeDeadline({
     orderDate: mergedOrderDate ? mergedOrderDate.toISOString() : null,
@@ -195,7 +220,7 @@ async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUr
       returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
       deadlineIsEstimated,
       policySource: mapPolicySource(email.policySource) ?? existing.policySource,
-      orderTotal: email.orderTotal ?? existing.orderTotal,
+      orderTotal: mergedOrderTotal,
       orderCurrency: email.orderCurrency ?? existing.orderCurrency,
       lineItems: mergedLineItems as object,
       returnPortalUrl: returnPortalUrl ?? existing.returnPortalUrl,
