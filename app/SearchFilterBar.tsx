@@ -49,18 +49,18 @@ export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery:
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 mb-6">
+    <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-3 mb-6">
       <input
         type="text"
         value={query}
         onChange={(e) => handleQueryChange(e.target.value)}
         placeholder="Search retailer or order number"
-        className="flex-1 min-w-[14rem] bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm placeholder:text-stone-400"
+        className="w-full md:flex-1 md:min-w-[14rem] bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm placeholder:text-stone-400"
       />
       <select
         value={status}
         onChange={(e) => handleStatusChange(e.target.value)}
-        className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-600"
+        className="w-full md:w-auto bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-600"
       >
         {STATUS_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>

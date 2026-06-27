@@ -14,7 +14,7 @@ function ComingSoonItem({ label }: { label: string }) {
 
 export function Sidebar({ alertCount, accountLabel }: { alertCount: number; accountLabel: string }) {
   return (
-    <aside className="w-60 shrink-0 bg-white border-r border-stone-200 flex flex-col h-screen sticky top-0">
+    <aside className="hidden md:flex w-60 shrink-0 bg-white border-r border-stone-200 flex-col h-screen sticky top-0">
       <div className="px-5 py-6">
         <span className="text-lg font-semibold text-stone-800">Return Window</span>
       </div>

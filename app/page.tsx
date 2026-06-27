@@ -4,13 +4,13 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
-import { ReviewActions } from "./ReviewActions";
+import { ReviewCard } from "./ReviewCard";
 import { SearchFilterBar } from "./SearchFilterBar";
-import { TruncatedNote } from "./TruncatedNote";
-import { reviewReason, reviewReasonLabel, truncateToSentences } from "@/lib/orderReview";
+import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
 import { decryptEmailContent } from "@/lib/emailEncryption";
 import { daysUntil } from "@/lib/reminders";
 import { Sidebar } from "./Sidebar";
+import { BottomNav } from "./BottomNav";
 import { StatCard } from "./StatCard";
 import { RetailerAvatar } from "./RetailerAvatar";
 import { DaysLeftChip } from "./DaysLeftChip";
@@ -175,8 +175,9 @@ export default async function Home({
   return (
     <div className="flex min-h-screen">
       <Sidebar alertCount={alertCount} accountLabel={session.user.email ?? "Your account"} />
+      <BottomNav alertCount={alertCount} />
 
-      <main className="flex-1 p-8 max-w-6xl">
+      <main className="flex-1 p-4 pb-20 md:p-8 max-w-6xl">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-stone-800">{getGreeting()}</h1>
           <p className="text-stone-500 mt-1">Here&apos;s what&apos;s happening with your returns.</p>
@@ -184,7 +185,7 @@ export default async function Home({
 
         <SearchFilterBar initialQuery={params.q ?? ""} initialStatus={statusFilter} />
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <StatCard
             label="Open returns"
             value={String(openOrders.length)}
@@ -211,31 +212,19 @@ export default async function Home({
               <span>Needs review ({reviewOrders.length})</span>
               <span className="text-xs text-amber-700">▾</span>
             </summary>
-            <div className="px-5 pb-5 flex flex-col gap-4">
-              {reviewOrders.map((order) => {
-                const fullNote = reviewReason(order);
-                return (
-                <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <Link href={`/orders/${order.id}`} className="font-medium text-stone-800 hover:underline">
-                        {order.retailer || "Unknown retailer"}
-                      </Link>
-                      {order.orderNumber && <span className="text-sm text-stone-400 ml-2">#{order.orderNumber}</span>}
-                    </div>
-                  </div>
-                  <p className="text-sm font-medium text-stone-700 mt-2">{reviewReasonLabel(order)}</p>
-                  <TruncatedNote {...truncateToSentences(fullNote, 2)} full={fullNote} />
-                  {order.userNote && (
-                    <p className="text-sm text-stone-500 italic mt-2 border-l-2 border-amber-300 pl-2">Your note: {order.userNote}</p>
-                  )}
-                  <ReviewActions
+            <div className="px-5 pb-5 flex flex-col gap-3">
+              {reviewOrders.map((order) => (
+                <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-2.5">
+                  <p className="text-sm font-medium text-stone-700 leading-tight">{reviewReasonLabel(order)}</p>
+                  <ReviewCard
+                    retailerLine={`${order.retailer || "Unknown retailer"}${order.orderNumber ? ` #${order.orderNumber}` : ""}`}
+                    note={reviewReason(order)}
+                    userNote={order.userNote}
                     approveAction={approveOrderAction.bind(null, order.id)}
                     splitAction={splitOrderAction.bind(null, order.id)}
                   />
                 </div>
-                );
-              })}
+              ))}
             </div>
           </details>
         )}
@@ -251,7 +240,57 @@ export default async function Home({
         ) : visibleOrders.length === 0 ? (
           <p className="text-stone-500">No orders match your search and filters.</p>
         ) : (
-          <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
+          <>
+          <div className="md:hidden flex flex-col gap-3">
+            {visibleOrders.map((order) => {
+              const isHighValue = (order.orderTotal ?? 0) >= HIGH_VALUE_THRESHOLD;
+              return (
+                <div key={order.id} className={`bg-white border border-stone-200 rounded-xl p-4 ${isHighValue ? "bg-rose-50/40" : ""}`}>
+                  <div className="flex items-center gap-3">
+                    <Link href={`/orders/${order.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                      <RetailerAvatar name={order.retailer || "?"} />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-stone-800 truncate">{order.retailer || "Unknown retailer"}</div>
+                        {order.orderNumber && <div className="text-xs text-stone-400 truncate">#{order.orderNumber}</div>}
+                      </div>
+                    </Link>
+                    <DaysLeftChip returnDeadline={order.returnDeadline} />
+                  </div>
+                  <div className="flex items-baseline justify-between mt-3">
+                    <span className={`font-playfair text-xl ${isHighValue ? "font-semibold text-stone-900" : "text-stone-700"}`}>
+                      {formatCurrency(order.orderTotal, order.orderCurrency)}
+                    </span>
+                    <span className="text-xs text-stone-500 whitespace-nowrap">
+                      Return by {formatDate(order.returnDeadline)}
+                      {order.deadlineIsEstimated ? " (est.)" : ""}
+                    </span>
+                  </div>
+                  {order.orderTotal == null && (
+                    <p className="text-xs text-stone-400 mt-1">Forward your order confirmation to add the total</p>
+                  )}
+                  <div className="flex items-center justify-between mt-2">
+                    {order.returnPortalUrl ? (
+                      <a
+                        href={order.returnPortalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-rose-600 hover:text-rose-800 hover:underline"
+                      >
+                        Start return →
+                      </a>
+                    ) : (
+                      <span />
+                    )}
+                    <form action={deleteOrder.bind(null, order.id)}>
+                      <DeleteButton label="Delete order" />
+                    </form>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden md:block bg-white border border-stone-200 rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
@@ -318,6 +357,7 @@ export default async function Home({
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         {orphanedEmails.length > 0 && (

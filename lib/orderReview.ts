@@ -104,19 +104,3 @@ export function reviewReasonLabel(order: ReviewOrderForLabel): string {
   return "This order needs a quick check";
 }
 
-// Approximate, not linguistically perfect — splits after sentence-ending
-// punctuation OR a semicolon, followed by whitespace, which leaves
-// decimals like "$433.64" intact (no space directly after that period).
-// The semicolon split matters in practice: the AI's extraction notes
-// routinely chain several distinct observations into one long,
-// semicolon-separated period-terminated sentence (e.g. "X is true; Y was
-// assumed because Z; confidence is medium since W."), so splitting on
-// periods alone could return all of that as a single "sentence" and
-// completely defeat the point of truncating for a short preview.
-export function truncateToSentences(text: string, maxSentences: number): { truncated: string; isTruncated: boolean } {
-  const sentences = text.split(/(?<=[.!?;])\s+/).filter(Boolean);
-  if (sentences.length <= maxSentences) {
-    return { truncated: text, isTruncated: false };
-  }
-  return { truncated: sentences.slice(0, maxSentences).join(" "), isTruncated: true };
-}
