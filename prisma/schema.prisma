@@ -28,10 +28,11 @@ model User {
   // be derived from it. See BUILD.md Milestone 8.
   inboundToken String @unique @default(cuid())
 
-  accounts Account[]
-  sessions Session[]
-  orders   Order[]
-  emails   Email[]
+  accounts  Account[]
+  sessions  Session[]
+  orders    Order[]
+  emails    Email[]
+  reminders Reminder[]
 }
 
 model Account {
@@ -158,12 +159,23 @@ model Order {
 
 // --- Milestone 4: tracks which reminder emails have already been sent,
 // so the daily cron never sends the same one twice ---
+// --- Milestone 16 addition: orderId is now optional and userId required,
+// since the weekly coverage check (reminderType "weekly_coverage_check")
+// is a per-user email with no specific order behind it. The unique
+// constraint below only meaningfully applies to per-order reminder types
+// (Postgres doesn't treat repeated NULL orderIds as duplicates) — the
+// weekly check's own "don't double-send" rule is enforced in code by
+// checking for a recent send instead, since its scope is "per user per
+// week," not "per order, ever."
 model Reminder {
-  id      String @id @default(cuid())
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
+  id      String  @id @default(cuid())
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
 
-  reminderType String // "7_day" | "2_day" | "1_day" | "same_day"
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  reminderType String // "7_day" | "2_day" | "1_day" | "same_day" | "weekly_coverage_check"
   sentAt       DateTime @default(now())
 
   @@unique([orderId, reminderType])

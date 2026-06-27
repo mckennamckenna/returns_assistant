@@ -46,7 +46,7 @@ export default async function AdminPage({
     prisma.reminder.findMany({
       take: 50,
       orderBy: { sentAt: "desc" },
-      include: { order: { select: { retailer: true, orderNumber: true, user: { select: { email: true } } } } },
+      include: { order: { select: { retailer: true, orderNumber: true } }, user: { select: { email: true } } },
     }),
     prisma.discardLog.findMany({
       where: { reason: "non_commerce", occurredAt: { gte: thirtyDaysAgo } },
@@ -160,10 +160,11 @@ export default async function AdminPage({
             <tbody>
               {recentSends.map((reminder) => (
                 <tr key={reminder.id} className="border-b border-stone-50 last:border-0">
-                  <td className="py-2 pl-4 pr-4">{reminder.order.user.email}</td>
+                  <td className="py-2 pl-4 pr-4">{reminder.user.email}</td>
                   <td className="py-2 pr-4 text-stone-500">
-                    {reminder.order.retailer || "Unknown"}
-                    {reminder.order.orderNumber ? ` #${reminder.order.orderNumber}` : ""}
+                    {reminder.order
+                      ? `${reminder.order.retailer || "Unknown"}${reminder.order.orderNumber ? ` #${reminder.order.orderNumber}` : ""}`
+                      : "—"}
                   </td>
                   <td className="py-2 pr-4 text-stone-500">{reminder.reminderType}</td>
                   <td className="py-2 pr-4 text-stone-500">{formatDateTime(reminder.sentAt)}</td>

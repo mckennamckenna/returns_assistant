@@ -186,7 +186,7 @@ export async function GET(request: NextRequest) {
       );
 
       await sendEmail({ to: order.user.email, from: fromEmail, subject, textBody: body });
-      await prisma.reminder.create({ data: { orderId: order.id, reminderType } });
+      await prisma.reminder.create({ data: { orderId: order.id, userId: order.userId, reminderType } });
 
       sent.push({
         orderId: order.id,

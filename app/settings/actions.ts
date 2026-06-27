@@ -11,8 +11,11 @@ export async function deleteAllData(): Promise<void> {
   const userId = session.user.id;
 
   // Dependency order: Reminder references Order, Email references Order.
-  // Reminder has no direct userId — scope it through the Order relation.
-  await prisma.reminder.deleteMany({ where: { order: { userId } } });
+  // Reminder now has a direct userId (Milestone 16, for the per-user
+  // weekly coverage check, which has no order at all) — delete by that
+  // directly rather than through the order relation, which would miss
+  // exactly those rows.
+  await prisma.reminder.deleteMany({ where: { userId } });
   await prisma.email.deleteMany({ where: { userId } });
   await prisma.order.deleteMany({ where: { userId } });
 
