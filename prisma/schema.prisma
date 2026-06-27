@@ -87,6 +87,7 @@ model Email {
   orderDate           DateTime?
   deliveryDate        DateTime?
   returnWindowDays    Int? // e.g. 30 — how long the return window is
+  returnWindowStartsFrom String? // "order_date" | "delivery_date" | null — what the window counts from
   returnDeadline      DateTime? // computed — see deadline logic in BUILD.md
   deadlineIsEstimated Boolean   @default(false) // true when delivery date was assumed, not confirmed
   policySource        String? // "email" (stated in the email) | "web_lookup" (found via web search)
@@ -124,6 +125,11 @@ model Order {
   deadlineIsEstimated  Boolean   @default(false)
   policySource         String? // "web_lookup" | "stated_in_email" | "user_supplied"
   returnWindowDays     Int?
+  // --- Milestone 15 addition --- "order_date" | "delivery_date" | null —
+  // was already computed during extraction but never persisted, so
+  // computeDeadline() could never actually anchor on order_date at the
+  // Order level (it always got passed null). See Milestone 15.
+  returnWindowStartsFrom String?
 
   orderTotal      Float?
   orderCurrency   String?

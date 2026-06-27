@@ -23,6 +23,7 @@ export async function runExtraction(emailId: string): Promise<void> {
         orderDate: result.orderDate ? new Date(result.orderDate) : null,
         deliveryDate: result.deliveryDate ? new Date(result.deliveryDate) : null,
         returnWindowDays: result.returnWindowDays,
+        returnWindowStartsFrom: result.returnWindowStartsFrom,
         returnDeadline: result.returnDeadline ? new Date(result.returnDeadline) : null,
         deadlineIsEstimated: result.deadlineIsEstimated,
         policySource: result.policySource,

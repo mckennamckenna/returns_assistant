@@ -79,7 +79,7 @@ export async function applyFallbackOrderDate(orderId: string): Promise<void> {
     orderDate: fallbackOrderDate.toISOString(),
     deliveryDate: order.deliveryDate ? order.deliveryDate.toISOString() : null,
     returnWindowDays: order.returnWindowDays,
-    returnWindowStartsFrom: null,
+    returnWindowStartsFrom: order.returnWindowStartsFrom as "order_date" | "delivery_date" | null,
   });
 
   await prisma.order.update({
@@ -200,6 +200,7 @@ async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUr
   const mergedOrderDate = email.orderDate ?? existing.orderDate;
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
   const mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays;
+  const mergedReturnWindowStartsFrom = email.returnWindowStartsFrom ?? existing.returnWindowStartsFrom;
   const existingLineItems = asLineItemArray(existing.lineItems);
   const mergedLineItems = emailLineItems.length > existingLineItems.length ? emailLineItems : existingLineItems;
   const mergedOrderTotal = await resolveOrderTotal(existing, email);
@@ -208,7 +209,7 @@ async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUr
     orderDate: mergedOrderDate ? mergedOrderDate.toISOString() : null,
     deliveryDate: mergedDeliveryDate ? mergedDeliveryDate.toISOString() : null,
     returnWindowDays: mergedReturnWindowDays,
-    returnWindowStartsFrom: null, // not persisted on Order; defaults to delivery-anchored
+    returnWindowStartsFrom: mergedReturnWindowStartsFrom as "order_date" | "delivery_date" | null,
   });
 
   const updated = await prisma.order.update({
@@ -217,6 +218,7 @@ async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUr
       orderDate: mergedOrderDate,
       deliveryDate: mergedDeliveryDate,
       returnWindowDays: mergedReturnWindowDays,
+      returnWindowStartsFrom: mergedReturnWindowStartsFrom,
       returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
       deadlineIsEstimated,
       policySource: mapPolicySource(email.policySource) ?? existing.policySource,
@@ -246,6 +248,7 @@ export async function createOrderFromEmail(
       orderDate: email.orderDate,
       deliveryDate: email.deliveryDate,
       returnWindowDays: email.returnWindowDays,
+      returnWindowStartsFrom: email.returnWindowStartsFrom,
       returnDeadline: email.returnDeadline,
       deadlineIsEstimated: email.deadlineIsEstimated,
       policySource: mapPolicySource(email.policySource),
@@ -277,6 +280,7 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
       orderDate: first.orderDate,
       deliveryDate: first.deliveryDate,
       returnWindowDays: first.returnWindowDays,
+      returnWindowStartsFrom: first.returnWindowStartsFrom,
       returnDeadline: first.returnDeadline,
       deadlineIsEstimated: first.deadlineIsEstimated,
       policySource: mapPolicySource(first.policySource),

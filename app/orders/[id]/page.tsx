@@ -52,6 +52,53 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function returnWindowFromLabel(startsFrom: string | null): string {
+  if (startsFrom === "order_date") return "from order date";
+  if (startsFrom === "delivery_date") return "from delivery date";
+  return "from purchase";
+}
+
+// Combines what used to be two separate fields ("Return window" /
+// "Policy source") into one human-readable line, e.g. "30 days from
+// delivery date — Web lookup". "Web lookup" is the only source worth
+// linking — it's the one case where there's somewhere useful to send a
+// skeptical user to verify the policy themselves; "stated in email" and
+// "user supplied" have no comparable destination.
+function PolicyLine({
+  order,
+}: {
+  order: {
+    retailer: string | null;
+    returnWindowDays: number | null;
+    returnWindowStartsFrom: string | null;
+    policySource: string | null;
+    returnPortalUrl: string | null;
+  };
+}): React.ReactNode {
+  if (!order.returnWindowDays) return "—";
+
+  const prefix = `${order.returnWindowDays} days ${returnWindowFromLabel(order.returnWindowStartsFrom)}`;
+
+  if (order.policySource === "web_lookup") {
+    const lookupUrl =
+      order.returnPortalUrl ||
+      `https://www.google.com/search?q=${encodeURIComponent(`${order.retailer ?? ""} return policy`)}`;
+    return (
+      <>
+        {prefix} —{" "}
+        <a href={lookupUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+          Web lookup
+        </a>
+      </>
+    );
+  }
+
+  const sourceText =
+    order.policySource === "stated_in_email" ? "stated in email" : order.policySource === "user_supplied" ? "user supplied" : null;
+
+  return sourceText ? `${prefix} — ${sourceText}` : prefix;
+}
+
 export default async function OrderDetail({
   params,
 }: {
@@ -98,27 +145,25 @@ export default async function OrderDetail({
           <Field label="Order number" value={order.orderNumber} />
           <Field label="Order date" value={formatDate(order.orderDate)} />
           <Field label="Delivery date" value={formatDate(order.deliveryDate)} />
-          <Field label="Return window" value={order.returnWindowDays ? `${order.returnWindowDays} days` : "—"} />
           <Field
             label="Return deadline"
             value={
-              order.returnDeadline
-                ? `${formatDate(order.returnDeadline)}${order.deadlineIsEstimated ? " (estimated)" : ""}`
-                : "—"
+              <>
+                {order.returnDeadline ? `${formatDate(order.returnDeadline)}${order.deadlineIsEstimated ? " (estimated)" : ""}` : "—"}
+                {order.returnPortalUrl && (
+                  <a
+                    href={order.returnPortalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline mt-0.5"
+                  >
+                    View return policy &rarr;
+                  </a>
+                )}
+              </>
             }
           />
-          <Field
-            label="Policy source"
-            value={
-              order.policySource === "web_lookup"
-                ? "Web lookup"
-                : order.policySource === "stated_in_email"
-                  ? "Stated in email"
-                  : order.policySource === "user_supplied"
-                    ? "User supplied"
-                    : "—"
-            }
-          />
+          <Field label="Return policy" value={<PolicyLine order={order} />} />
           <Field label="Order total" value={formatCurrency(order.orderTotal, order.orderCurrency)} />
         </dl>
 
