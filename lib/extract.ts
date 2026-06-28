@@ -182,10 +182,18 @@ async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult>
 }
 
 // Priority order for computing returnDeadline:
-// 1. deliveryDate + returnWindowDays → most accurate.
-// 2. orderDate + returnWindowDays, no deliveryDate → estimate assuming
+// 1. deliveryDate known → most accurate; anchor on orderDate instead of
+//    deliveryDate if the policy says so, but never estimate.
+// 2. orderDate known, no deliveryDate, policy counts from order date →
+//    orderDate + returnWindowDays directly. Not estimated — we have the
+//    real anchor the policy actually counts from, there's nothing to
+//    estimate. The 7-day shipping buffer would be wrong here: it exists
+//    to guess a delivery date, which is irrelevant when the window
+//    never counted from delivery in the first place.
+// 3. orderDate known, no deliveryDate, policy counts from delivery (or
+//    doesn't say) → estimate a delivery date assuming
 //    STANDARD_SHIPPING_DAYS of transit, flagged deadlineIsEstimated.
-// 3. returnWindowDays missing → leave null, caller sets needsReview.
+// 4. returnWindowDays missing → leave null, caller sets needsReview.
 export function computeDeadline(parsed: {
   orderDate: string | null;
   deliveryDate: string | null;
@@ -223,6 +231,13 @@ export function computeDeadline(parsed: {
     const orderParsed = new Date(orderDate);
     if (Number.isNaN(orderParsed.getTime())) {
       return { returnDeadline: null, deadlineIsEstimated: false };
+    }
+
+    if (returnWindowStartsFrom === "order_date") {
+      return {
+        returnDeadline: addDays(orderParsed, returnWindowDays).toISOString(),
+        deadlineIsEstimated: false,
+      };
     }
 
     const estimatedDelivery = addDays(orderParsed, STANDARD_SHIPPING_DAYS);
