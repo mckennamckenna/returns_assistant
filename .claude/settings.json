@@ -48,7 +48,10 @@
       "Bash(curl -s http://localhost:3000 -o /tmp/dash3.html)",
       "Bash(curl -s https://returns-assistant.vercel.app -o /tmp/prod_dash.html -w \"dashboard: %{http_code}\\\\n\")",
       "Bash(curl -s https://returns-assistant.vercel.app -o /tmp/prod_dash_encrypted.html -w \"dashboard: %{http_code}\\\\n\")",
-      "Bash(curl -s https://returns-assistant.vercel.app/emails/cmqpy9mvs000djl047lss9zee -o /tmp/prod_email_check.html -w \"%{http_code}\\\\n\")"
+      "Bash(curl -s https://returns-assistant.vercel.app/emails/cmqpy9mvs000djl047lss9zee -o /tmp/prod_email_check.html -w \"%{http_code}\\\\n\")",
+      "Bash(npm run *)",
+      "Bash(curl -s -b \"authjs.session-token=9e1189f022465d10a70524f18a62b448649f3cb50ebc2e82ce0f81baafe8f322\" \"http://localhost:3000/admin?secret=admin2026\" -o /tmp/admin_check.html)",
+      "Bash(curl -s -b \"authjs.session-token=9e1189f022465d10a70524f18a62b448649f3cb50ebc2e82ce0f81baafe8f322\" \"http://localhost:3000/admin/onboarding\" -o /tmp/onboarding_check.html)"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"

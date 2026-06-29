@@ -5,6 +5,7 @@ import { isCommerceEmail } from "@/lib/classify";
 import { encryptEmailContent, encryptRawJson } from "@/lib/emailEncryption";
 import { isGmailForwardingVerification, extractVerificationDetails } from "@/lib/gmailVerification";
 import { notifyAdmin } from "@/lib/adminNotify";
+import { getInboundAddress } from "@/lib/inboundAddress";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -12,24 +13,53 @@ interface PostmarkInboundPayload {
   TextBody?: string;
   HtmlBody?: string;
   MailboxHash?: string;
+  OriginalRecipient?: string;
+  To?: string;
   Date?: string;
+}
+
+// The "+tag" convention (MailboxHash) only exists on the shared
+// inbound.postmarkapp.com domain — Postmark populates it from the part
+// between "+" and "@". The pilot custom domain (mail.myreturnwindow.com,
+// see lib/inboundAddress.ts) uses a bare `<inboundToken>@domain` address
+// with no "+" at all, so MailboxHash is empty for mail that arrives there.
+// Falls back to treating the whole local part as the token when the
+// recipient's domain matches INBOUND_DOMAIN — never used for the shared
+// domain, so this can't accidentally resolve a token for someone it
+// shouldn't.
+function extractInboundToken(payload: PostmarkInboundPayload): string | null {
+  if (payload.MailboxHash) return payload.MailboxHash;
+
+  const pilotDomain = process.env.INBOUND_DOMAIN;
+  const recipient = payload.OriginalRecipient || payload.To;
+  if (!pilotDomain || !recipient) return null;
+
+  const match = recipient.match(/^([^@]+)@([^@>]+)/);
+  if (!match) return null;
+  const [, localPart, domain] = match;
+  return domain.toLowerCase() === pilotDomain.toLowerCase() ? localPart : null;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const payload: PostmarkInboundPayload = await request.json();
 
-    // Route by the +tag (MailboxHash), which carries the user's opaque
-    // inboundToken — never the raw userId, see BUILD.md Milestone 8. Fail
-    // fast and cheap here, before spending an AI call on mail we can't
-    // attribute to anyone.
-    const inboundToken = payload.MailboxHash;
+    // Route by the inboundToken, resolved from either the "+tag"
+    // (MailboxHash) on the shared domain, or the bare local part on the
+    // pilot custom domain — see extractInboundToken above. Never the raw
+    // userId, see BUILD.md Milestone 8. Fail fast and cheap here, before
+    // spending an AI call on mail we can't attribute to anyone.
+    const inboundToken = extractInboundToken(payload);
     const user = inboundToken ? await prisma.user.findUnique({ where: { inboundToken } }) : null;
 
     if (!user) {
       // Same treatment as the non-commerce discard: no content logged,
-      // just a count. We have nowhere safe to attribute this mail.
-      console.log("Discarded inbound email with unrecognized routing token");
+      // just a count. We have nowhere safe to attribute this mail. The
+      // recipient is logged (not personal content, just routing info) —
+      // useful while piloting the custom domain, to confirm whether a
+      // failure here is "token genuinely unrecognized" vs. "recipient
+      // domain didn't match what extractInboundToken expected."
+      console.log("Discarded inbound email with unrecognized routing token. Recipient:", payload.OriginalRecipient || payload.To);
       return NextResponse.json({ ok: true });
     }
 
@@ -41,7 +71,7 @@ export async function POST(request: NextRequest) {
     // settings page before forwarding will actually start working.
     if (isGmailForwardingVerification(payload.FromFull?.Email, payload.Subject)) {
       const { code, link } = extractVerificationDetails(payload.TextBody ?? payload.HtmlBody);
-      const inboundAddress = `${process.env.POSTMARK_INBOUND_HASH}+${user.inboundToken}@inbound.postmarkapp.com`;
+      const inboundAddress = getInboundAddress(user.inboundToken, user.email);
 
       await notifyAdmin(
         "New user verification needed",
@@ -98,7 +128,7 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         fromEmail: encrypted.fromEmail,
         fromName: encrypted.fromName,
-        toHash: payload.MailboxHash,
+        toHash: inboundToken,
         subject: payload.Subject,
         textBody: encrypted.textBody,
         htmlBody: encrypted.htmlBody,
