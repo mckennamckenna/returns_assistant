@@ -30,6 +30,14 @@
       mismatch. Removed `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_TRUST_HOST`
       (v5 uses `AUTH_SECRET` / `AUTH_URL`; Vercel sets trust host automatically),
       redeployed clean.
+- [x] Admin onboarding view added (`app/admin/onboarding/page.tsx`) listing every
+      real user's forwarding address, gated on `ADMIN_USER_EMAIL` — verified
+      against live data (`e1111e3`).
+- [x] Custom inbound domain piloted on one account (`mail.myreturnwindow.com`),
+      verified end-to-end with a real forwarded order email before rollout
+      (`83a7a15`).
+- [x] Custom inbound domain rolled out to every user — old `+tag` addresses still
+      work unchanged; verified live on a non-pilot account (`3eb005a`).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
@@ -42,3 +50,6 @@
   unified "Window" metaphor. Build/validate Return Window first; expansions wait
   for retention data.
 - Auth: Auth.js v5 — use `AUTH_*` env vars only, never the legacy `NEXTAUTH_*`.
+- Inbound email domain is now `mail.myreturnwindow.com` for all users (rolled
+  out from a one-account pilot); old `+tag` `postmarkapp.com` addresses still
+  resolve, so no user's existing forwarding rule broke.
