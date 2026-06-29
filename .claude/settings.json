@@ -54,7 +54,8 @@
       "Bash(curl -s -b \"authjs.session-token=9e1189f022465d10a70524f18a62b448649f3cb50ebc2e82ce0f81baafe8f322\" \"http://localhost:3000/admin/onboarding\" -o /tmp/onboarding_check.html)",
       "Bash(curl -s -b \"__Secure-authjs.session-token=e7b5ba969a5cf914e711ba58f36cebb77eb17795792cf972f1a32a14ee8a6d00\" https://returns-assistant.vercel.app/settings)",
       "Bash(curl -s -X POST https://returns-assistant.vercel.app/api/inbound -H 'Content-Type: application/json' -d '{ *)",
-      "Bash(curl -s -b \"authjs.session-token=bbb94b3156dbc18fe01b6f8a843ed445495a39aa76bff7a7089207f71ac50140\" http://localhost:3000/settings)"
+      "Bash(curl -s -b \"authjs.session-token=bbb94b3156dbc18fe01b6f8a843ed445495a39aa76bff7a7089207f71ac50140\" http://localhost:3000/settings)",
+      "Bash(curl -s -b \"__Secure-authjs.session-token=b7733d927c2fcab06dc5912efc52a191b2d55f7f03d4a9a3a550bd9e447fb60d\" https://returns-assistant.vercel.app/settings)"
     ],
     "additionalDirectories": [
       "/Users/mckennasweazey/Documents/Personal/Returns_Assistant/app/emails"

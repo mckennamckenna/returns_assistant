@@ -1,8 +1,13 @@
 # CLAUDE.md — Return Window
 
 Project context for Claude Code. This file is auto-loaded every session.
-**At the start of a session, also read `TASKS.md` for current priorities.**
-**At the end of each task, update `TASKS.md`** (mark done, add issues found).
+
+## TASK TRACKING — NON-NEGOTIABLE
+- Before doing anything else in any session, read `TASKS.md`.
+- When given any new request, add it to `TASKS.md` as Pending BEFORE starting work.
+- Move to In Progress when starting, Done only after verifying live in production.
+- If a session ends mid-task, it stays In Progress — never auto-mark Done.
+- At the end of every session, update `TASKS.md` to reflect actual current state.
 
 ---
 
