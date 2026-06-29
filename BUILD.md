@@ -278,7 +278,7 @@ Rules:
 Respond with ONLY valid JSON. No preamble, no markdown, no explanation outside the JSON.
 
 EMAIL BODY:
-{{textBody}}
+{{textBody-or-htmlText}}
 ```
 
 ## Return policy web lookup (when the email doesn't state it)

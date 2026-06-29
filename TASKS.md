@@ -38,6 +38,12 @@
       (`83a7a15`).
 - [x] Custom inbound domain rolled out to every user — old `+tag` addresses still
       work unchanged; verified live on a non-pilot account (`3eb005a`).
+- [x] Extraction now falls back to htmlBody (converted to plain text) when
+      textBody is empty/whitespace-only — `lib/runExtraction.ts` was sending
+      Claude nothing for HTML-only forwards (e.g. iPhone/Apple Mail). Verified
+      against the real Coyuchi order email (`cmqyqtb5e0001ji04u78l8ny2`): now
+      extracts retailer, order number, dates, and total correctly. Backfill
+      scan found no other affected rows in the current dataset.
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
@@ -53,3 +59,5 @@
 - Inbound email domain is now `mail.myreturnwindow.com` for all users (rolled
   out from a one-account pilot); old `+tag` `postmarkapp.com` addresses still
   resolve, so no user's existing forwarding rule broke.
+- Extraction falls back to html-to-text when textBody is empty — required for
+  iPhone/Apple Mail forwards, which are HTML-only.
