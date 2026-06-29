@@ -31,7 +31,7 @@ export default async function AdminOnboardingPage() {
 
       <div className="flex flex-col gap-3">
         {users.map((user) => {
-          const inboundAddress = getInboundAddress(user.inboundToken, user.email);
+          const inboundAddress = getInboundAddress(user.inboundToken);
           return (
             <div key={user.id} className="bg-white border border-stone-200 rounded-lg p-4">
               <div className="flex items-baseline justify-between gap-4">

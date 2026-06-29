@@ -141,7 +141,7 @@ export default async function AdminPage({
                   <td className="py-2 pr-4 text-stone-500">{user._count.emails}</td>
                   <td className="py-2 pr-4 text-stone-500">{formatDateTime(lastEmailByUser[i]?.receivedAt ?? null)}</td>
                   <td className="py-2 pr-4 text-stone-500 font-mono text-xs whitespace-nowrap">
-                    {getInboundAddress(user.inboundToken, user.email)}
+                    {getInboundAddress(user.inboundToken)}
                   </td>
                 </tr>
               ))}

@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     // settings page before forwarding will actually start working.
     if (isGmailForwardingVerification(payload.FromFull?.Email, payload.Subject)) {
       const { code, link } = extractVerificationDetails(payload.TextBody ?? payload.HtmlBody);
-      const inboundAddress = getInboundAddress(user.inboundToken, user.email);
+      const inboundAddress = getInboundAddress(user.inboundToken);
 
       await notifyAdmin(
         "New user verification needed",

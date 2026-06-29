@@ -1,23 +1,23 @@
 // Single source of truth for computing a user's Postmark inbound forwarding
 // address — used by the settings page and both admin views.
 //
-// Mid-migration to a custom inbound domain (mail.myreturnwindow.com): the
-// new format is bare `<inboundToken>@mail.myreturnwindow.com` — no
-// "+tag" hash prefix, since the whole subdomain is now dedicated to this
-// app rather than shared across every Postmark customer. Piloted on one
-// account at a time via INBOUND_DOMAIN + INBOUND_DOMAIN_PILOT_EMAIL,
-// deliberately separate from ADMIN_USER_EMAIL even though they hold the
-// same value right now — "who's in the migration pilot" and "who can see
-// the admin pages" are different concerns that happen to coincide today.
-// Unset either env var and every account (including the pilot) falls back
-// to the old, known-working postmarkapp.com format.
-export function getInboundAddress(inboundToken: string, userEmail: string): string {
-  const pilotDomain = process.env.INBOUND_DOMAIN;
-  const pilotEmail = process.env.INBOUND_DOMAIN_PILOT_EMAIL;
-
-  if (pilotDomain && pilotEmail && userEmail === pilotEmail) {
-    return `${inboundToken}@${pilotDomain}`;
+// Migrated off the shared inbound.postmarkapp.com domain onto a custom
+// domain (mail.myreturnwindow.com): the address is bare
+// `<inboundToken>@mail.myreturnwindow.com` — no "+tag" hash prefix, since
+// the whole subdomain is now dedicated to this app rather than shared
+// across every Postmark customer. Piloted on one account first (see
+// BUILD.md Milestone 19 — confirmed working with a real forwarded order),
+// then rolled out to everyone here once confirmed.
+//
+// Safe in either direction: app/api/inbound/route.ts's extractInboundToken()
+// still checks the old "+tag" (MailboxHash) format first, unconditionally —
+// anyone whose forwarding rule still points at their old address keeps
+// working exactly as before. This only changes what gets *displayed* going
+// forward; nobody's existing forward silently breaks because of this change.
+export function getInboundAddress(inboundToken: string): string {
+  const domain = process.env.INBOUND_DOMAIN;
+  if (domain) {
+    return `${inboundToken}@${domain}`;
   }
-
   return `${process.env.POSTMARK_INBOUND_HASH}+${inboundToken}@inbound.postmarkapp.com`;
 }

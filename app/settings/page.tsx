@@ -13,7 +13,7 @@ export default async function SettingsPage() {
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user) redirect("/login");
 
-  const inboundAddress = getInboundAddress(user.inboundToken, user.email);
+  const inboundAddress = getInboundAddress(user.inboundToken);
 
   return (
     <main className="min-h-screen p-8 max-w-2xl mx-auto w-full">
