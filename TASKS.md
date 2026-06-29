@@ -44,6 +44,17 @@
       against the real Coyuchi order email (`cmqyqtb5e0001ji04u78l8ny2`): now
       extracts retailer, order number, dates, and total correctly. Backfill
       scan found no other affected rows in the current dataset.
+- [x] Forwarded-header `orderDate` fallback (`lib/linkOrder.ts`) now reads the
+      same `textBody`-or-`htmlText` body (shared via new `lib/emailBodyText.ts`)
+      and recognizes both Gmail's and Apple Mail/iPhone's forwarded-header
+      formats. Also fixed a real bug found in the process: `html-to-text`
+      renders Apple's forwarded block as a blockquote (each line prefixed
+      `"> "`), which the old regex never matched. Verified against the real
+      Coyuchi email's actual htmlBody — correctly parses its Apple-format
+      `Date:` line. Diagnosis + re-run found 0 currently-affected orders (the
+      3 orders missing `orderDate` have no linked `order_confirmation` email,
+      so the fallback correctly leaves them untouched); re-linking Coyuchi
+      itself confirmed no regression.
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
@@ -61,3 +72,5 @@
   resolve, so no user's existing forwarding rule broke.
 - Extraction falls back to html-to-text when textBody is empty — required for
   iPhone/Apple Mail forwards, which are HTML-only.
+- Forwarded-header orderDate fallback handles Apple Mail format + reads
+  htmlBody for HTML-only iPhone forwards.

@@ -2,6 +2,7 @@ import type { Order, Email } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { computeDeadline } from "@/lib/extract";
 import { decrypt } from "@/lib/crypto";
+import { resolveBodyText } from "@/lib/emailBodyText";
 
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
@@ -37,19 +38,28 @@ function asLineItemArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-// Gmail's forwarded-message block embeds the ORIGINAL email's send date as
-// plain text, e.g. "Date: Tue, May 19, 2026 at 4:21 PM". That's the
-// retailer's actual send time — unlike receivedAt/rawJson.Date, which is
-// when the customer forwarded it (could be weeks later). Only valid as an
-// orderDate proxy for order_confirmation emails specifically: an order
-// confirmation is normally sent right when the order is placed, but a
-// shipping/delivery/return email's send date has no such relationship to
-// the order date.
-function parseForwardedHeaderDate(textBody: string | null): Date | null {
-  if (!textBody) return null;
-  const match = textBody.match(/^Date:\s*(.+)$/m);
+// A forwarded-message block embeds the ORIGINAL email's send date as plain
+// text — Gmail: "Date: Tue, May 19, 2026 at 4:21 PM"; Apple Mail/iPhone:
+// "Date: April 22, 2026 at 9:07:10 PM PDT". That's the retailer's actual
+// send time — unlike receivedAt/rawJson.Date, which is when the customer
+// forwarded it (could be weeks later). Only valid as an orderDate proxy for
+// order_confirmation emails specifically: an order confirmation is normally
+// sent right when the order is placed, but a shipping/delivery/return
+// email's send date has no such relationship to the order date.
+//
+// Operates on resolveBodyText's output (textBody, or htmlBody converted to
+// plain text when textBody is empty), not raw textBody — Apple/iPhone
+// forwards are HTML-only. html-to-text renders Apple's forwarded block as a
+// blockquote, prefixing every line with "> ", so the leading `(?:>\s*)*` is
+// required or the Date line never matches at all for that format. The
+// unicode normalization handles Apple's narrow no-break space (U+202F)
+// before AM/PM, which plain whitespace handling can miss.
+function parseForwardedHeaderDate(bodyText: string | null): Date | null {
+  if (!bodyText) return null;
+  const match = bodyText.match(/^(?:>\s*)*Date:\s*(.+)$/m);
   if (!match) return null;
-  const parsed = new Date(match[1].trim().replace(" at ", " "));
+  const normalized = match[1].trim().normalize("NFKC").replace(/\s+/g, " ").replace(" at ", " ");
+  const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -60,8 +70,11 @@ async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
     where: { orderId, emailType: "order_confirmation" },
     orderBy: { receivedAt: "asc" },
   });
-  if (!confirmationEmail?.textBody) return null;
-  return parseForwardedHeaderDate(decrypt(confirmationEmail.textBody));
+  if (!confirmationEmail) return null;
+
+  const textBody = confirmationEmail.textBody ? decrypt(confirmationEmail.textBody) : null;
+  const htmlBody = confirmationEmail.htmlBody ? decrypt(confirmationEmail.htmlBody) : null;
+  return parseForwardedHeaderDate(resolveBodyText(textBody, htmlBody));
 }
 
 // If an order is missing orderDate after normal extraction/merging, try the
