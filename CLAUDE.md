@@ -83,6 +83,10 @@ Return Window matters until it has happy users.
   first (Plan Mode) before editing.
 
 ## Working agreement
+- At the start of a session, run `git status` — if anything is untracked or
+  modified outside the current task, flag it before proceeding (this is how
+  `CLAUDE.md` and `TASKS.md` themselves once sat uncommitted for several
+  sessions without anyone noticing).
 - Before a big or ambiguous change: outline the plan, wait for approval.
 - After finishing: summarize what changed in 2–3 lines and update `TASKS.md`.
 - Flag any new issue you notice into `TASKS.md` under "Known issues" even if
