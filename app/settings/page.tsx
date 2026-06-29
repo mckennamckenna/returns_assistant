@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { getInboundAddress } from "@/lib/inboundAddress";
 import { DeleteAllDataForm } from "./DeleteAllDataForm";
 import { CopyButton } from "./CopyButton";
 
@@ -12,7 +13,7 @@ export default async function SettingsPage() {
   const user = await prisma.user.findUnique({ where: { id: session.user.id } });
   if (!user) redirect("/login");
 
-  const inboundAddress = `${process.env.POSTMARK_INBOUND_HASH}+${user.inboundToken}@inbound.postmarkapp.com`;
+  const inboundAddress = getInboundAddress(user.inboundToken);
 
   return (
     <main className="min-h-screen p-8 max-w-2xl mx-auto w-full">
