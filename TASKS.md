@@ -1,0 +1,44 @@
+# Return Window — Task Board
+
+> Single source of truth for what's being worked on. Claude Code reads this at the
+> start of a session and updates it at the end of each task.
+> Priority tags: 🔴 ship-blocker (do now) · 🟡 next · ⚪ later
+> Rule: only 🔴 items get worked right now. Everything is measured against
+> "does this get a real user on it today."
+
+---
+
+## 🔴 Now — ship-blockers
+- [ ] **Mango order matching** — `F4VLSF` (order confirmation) vs `F4VLSF00`
+      (ReBOUND return confirmation) create two separate Order records instead of
+      linking. Fix in `lib/linkOrder.ts` with fuzzy prefix matching. *(in progress)*
+
+## 🟡 Next
+- [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
+- [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
+- [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
+      an order email → see it parsed → see the return window / deadline
+
+## ⚪ Later
+- [ ] Closet Window (wardrobe intelligence) — only after Return Window has
+      retention data
+- [ ] Window Shopping (pre-purchase / price tracking) — same gate
+- [ ] Holding-company structure ("Window") — not now
+
+## ✅ Done
+- [x] Magic-link login fixed in production — root cause was Auth.js **v5** env var
+      mismatch. Removed `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_TRUST_HOST`
+      (v5 uses `AUTH_SECRET` / `AUTH_URL`; Vercel sets trust host automatically),
+      redeployed clean.
+
+## ⚠️ Known issues / tech debt
+<!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- Order-number normalization is brittle across retailers (Mango is the first
+  case; expect more retailer-specific suffix quirks).
+
+## 📝 Decisions log
+<!-- One line per decision so future-you and Claude Code know WHY -->
+- Brand family: **Return Window** (wedge) → **Closet Window** → **Window Shopping**,
+  unified "Window" metaphor. Build/validate Return Window first; expansions wait
+  for retention data.
+- Auth: Auth.js v5 — use `AUTH_*` env vars only, never the legacy `NEXTAUTH_*`.
