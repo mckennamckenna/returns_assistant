@@ -6,7 +6,7 @@ import { notifyAdmin } from "@/lib/adminNotify";
 
 export const dynamic = "force-dynamic";
 
-const APP_URL = "https://returns-assistant.vercel.app";
+const APP_URL = "https://app.myreturnwindow.com";
 
 const DAYS_LEFT_LABEL: Record<ReminderType, string> = {
   "7_day": "7 days left",
