@@ -9,6 +9,13 @@ Project context for Claude Code. This file is auto-loaded every session.
 - If a session ends mid-task, it stays In Progress — never auto-mark Done.
 - At the end of every session, update `TASKS.md` to reflect actual current state.
 
+**DONE MEANS DEPLOYED — NON-NEGOTIABLE:**
+A task is only "Done" when it is committed AND pushed to origin AND verified live
+in production. Committed-but-unpushed is not done. Pushed-but-unverified is not done.
+At the end of every session: run `git status` and
+`git log origin/main..main --oneline`. If anything is uncommitted or unpushed,
+surface it and resolve it before ending. Never leave a session with unpushed commits.
+
 ---
 
 ## What this is
@@ -88,10 +95,12 @@ Return Window matters until it has happy users.
   first (Plan Mode) before editing.
 
 ## Working agreement
-- At the start of a session, run `git status` — if anything is untracked or
-  modified outside the current task, flag it before proceeding (this is how
-  `CLAUDE.md` and `TASKS.md` themselves once sat uncommitted for several
-  sessions without anyone noticing).
+- At the start of a session, run `git status` AND `git log origin/main..main --oneline`
+  AND `npx vercel inspect returns-assistant.vercel.app | grep "Git Commit"` (or
+  equivalent) to report sync state: are local `main`, `origin/main`, and the live
+  Vercel deploy all on the same commit? Flag any drift immediately before proceeding.
+  (This is how `CLAUDE.md` and `TASKS.md` once sat uncommitted for several sessions,
+  and how unpushed commits once lingered without anyone noticing.)
 - Before a big or ambiguous change: outline the plan, wait for approval.
 - After finishing: summarize what changed in 2–3 lines and update `TASKS.md`.
 - Flag any new issue you notice into `TASKS.md` under "Known issues" even if
