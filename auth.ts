@@ -20,11 +20,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // connection. We send via Postmark's HTTP API instead, same as
       // the rest of the app.
       server: { host: "smtp.postmarkapp.com", port: 587, auth: { user: "unused", pass: "unused" } },
-      from: process.env.REMINDER_FROM_EMAIL,
+      from: process.env.LOGIN_FROM_EMAIL ?? process.env.REMINDER_FROM_EMAIL,
       sendVerificationRequest: async ({ identifier, url }) => {
         await sendEmail({
           to: identifier,
-          from: process.env.REMINDER_FROM_EMAIL!,
+          from: (process.env.LOGIN_FROM_EMAIL ?? process.env.REMINDER_FROM_EMAIL)!,
           bcc: process.env.ADMIN_EMAIL,
           subject: "Sign in to Return Window",
           textBody: `Click the link below to sign in to Return Window.\n\n${url}\n\nIf you didn't request this, you can safely ignore this email — no account changes were made.`,
