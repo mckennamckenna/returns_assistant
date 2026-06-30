@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { resolveBodyText } from "./emailBodyText";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -19,19 +20,19 @@ EMAIL BODY:
 ${text}`;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 // Returns true if the email should be kept (is commerce, or we couldn't
 // tell — see the catch in callers: classification errors fail OPEN, since
 // dropping real data because of a transient API error is worse than
 // occasionally keeping a non-commerce email pending the next privacy pass).
+//
+// Uses resolveBodyText (the same textBody-first, html-to-text resolver the
+// extractor uses) so the gate sees identical content to the rest of the
+// pipeline. Truncation is applied to the RESOLVED plain text — for large
+// retailer HTML emails, raw HTML truncation would cut at CSS/head boilerplate
+// with no commerce words, causing false negatives (see BUILD.md Milestone 5).
 export async function isCommerceEmail(textBody: string | undefined, htmlBody: string | undefined): Promise<boolean> {
-  const text = (textBody || (htmlBody ? stripHtml(htmlBody) : "")).slice(0, 8000);
+  const resolved = resolveBodyText(textBody ?? null, htmlBody ?? null);
+  const text = resolved ? resolved.slice(0, 8000) : "";
   if (!text) return false; // nothing to classify, nothing to confirm as commerce
 
   const message = await anthropic.messages.create({
