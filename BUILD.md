@@ -674,7 +674,7 @@ This makes good on the promise from Milestone 1's privacy principle ("the backen
 
 ## What got built
 
-1. **Non-commerce discard at ingestion** (`lib/classify.ts`, wired into `/api/inbound` before extraction). `isCommerceEmail(textBody, htmlBody)` calls `claude-haiku-4-5` with a one-word yes/no prompt. `NOT_COMMERCE` (or no body to even classify) → return 200, never create the `Email` row. Classification errors are caught separately and fail open (keep the email, log the error) rather than discarding on an infrastructure failure.
+1. **Non-commerce discard at ingestion** (`lib/classify.ts`, wired into `/api/inbound` before extraction). `isCommerceEmail(textBody, htmlBody)` calls `claude-haiku-4-5` with a one-word yes/no prompt. `NOT_COMMERCE` (or no body to even classify) → return 200, never create the `Email` row. Classification errors are caught separately and fail open (keep the email, log the error) rather than discarding on an infrastructure failure. *(Body handling fixed post-Milestone 19 — see "Commerce-gate body handling" section below.)*
 2. **Dashboard delete controls.** Every Order card and every unlinked-Email card on the dashboard has a delete (`✕`) button, structured as a sibling of the card's `Link` (not nested inside it) so it doesn't trigger navigation. `deleteOrder` (in `app/actions.ts`) deletes the Order's `Reminder` rows, then its `Email` rows, then the Order itself — in that order, since `Reminder` has no cascade on its `Order` foreign key. `deleteEmail` deletes one email and, if that was the last email linked to its Order, deletes the now-empty Order too (and its Reminders). The same `deleteEmail` action and delete button are also used on the Order detail page's linked-email list, where the unlink-and-maybe-cascade behavior is most visible.
 3. **`/settings` — delete all data.** One destructive action: wipes every `Reminder`, then every `Email`, then every `Order` (same dependency order as above), gated behind typing `DELETE` into a text field — the submit button stays disabled until the input matches exactly. Redirects to the (now empty) dashboard on completion.
 4. **`/privacy` page**, linked from the dashboard footer. Five bullets, plain language: what's stored, what isn't (and that the non-commerce filter runs before storage), that data is never sold, that email content never trains any model, and a link to `/settings` for full deletion.
@@ -1337,3 +1337,38 @@ them directly (which is exactly what that page was built for).
 
 **Prompt 31 — pilot the custom inbound domain**
 > Per BUILD.md's Milestone 19 section: make lib/inboundAddress.ts's getInboundAddress() pilot-aware via INBOUND_DOMAIN + INBOUND_DOMAIN_PILOT_EMAIL env vars, falling back to the existing postmarkapp.com format for everyone else. Fix app/api/inbound/route.ts's token matching to also handle a bare `<token>@INBOUND_DOMAIN` address with no `+tag` (Postmark's MailboxHash only populates from a `+` separator) by falling back to the recipient's local part when the domain matches — additive, never changing matching behavior for the existing shared domain. Verify against synthetic payloads covering the old format, the new format via both OriginalRecipient and To, and a wrong-domain negative case, before sending the pilot user their real new address.
+
+---
+
+# Commerce-gate body handling (fix, added post-Milestone 19)
+
+## The bug
+
+Milestone 5's `isCommerceEmail()` selected the body to classify with:
+
+```typescript
+(textBody || (htmlBody ? stripHtml(htmlBody) : "")).slice(0, 8000)
+```
+
+where `stripHtml` was a 3-line tag-stripper: `html.replace(/<[^>]*>/g, " ")`. This deleted angle-bracket pairs but left all *text content* inside `<style>`, `<head>`, and MSO conditional-comment blocks intact as raw text.
+
+For large retailer HTML emails — e.g. an H&M "Your return package has arrived" email with a 130KB `HtmlBody` — the `TextBody` field from Postmark was absent (or whitespace-only, which is falsy in JS), so classification fell through to `stripHtml(htmlBody).slice(0, 8000)`. The first 8,000 characters of a stripped marketing email are dominated by CSS font-face declarations, media queries, and MSO conditional comments: no commerce words. Haiku followed its own "if unsure, answer NOT_COMMERCE" instruction and the email was discarded before ever being stored. Confirmed: the H&M email produced the only `DiscardLog` entry on record; its `Email` row is absent from the database.
+
+The downstream pipeline (`lib/runExtraction.ts`, `lib/linkOrder.ts`) had already been fixed to use `resolveBodyText()` from `lib/emailBodyText.ts`, which uses `html-to-text` and drops `<style>`/`<head>` content entirely. The classify gate was still on the old path, creating a split: extraction could read the email's real content, but the gate discarded the email before extraction ever ran.
+
+## The fix
+
+**Scope:** `lib/classify.ts` only. No schema changes, no prompt changes, no new env vars.
+
+`isCommerceEmail()` now routes through `resolveBodyText(textBody ?? null, htmlBody ?? null)` — the shared helper that uses `html-to-text` with the same selector config as extraction — and truncates the resolved plain text at 8,000 chars. The old `stripHtml` function is removed. For the H&M email, `html-to-text` drops the entire `<style>` block and the resolved text opens with "H&M Your return package has arrived" at character 0 — well within the 8,000-char window.
+
+Existing behavior preserved exactly: still a one-word Haiku call; "no body to classify" still returns `false` without calling the API (the `resolveBodyText` threshold of >20 non-whitespace chars catches whitespace-only bodies that the old truthy check would have passed to the API); classifier errors still fail open.
+
+## Verification
+
+Six unit tests added in `__tests__/classify.test.ts` (vitest). The key regression test feeds the H&M-style fixture (no `textBody`, `htmlBody` with 15KB of `<style>` filler before the commerce signal) and asserts:
+- The prompt sent to Haiku contains "H&M" (proving `html-to-text` reached the visible body).
+- The prompt does *not* contain the CSS filler (`"aaaa..."`).
+- Temporarily restoring the old `stripHtml` path causes the test to fail — the prompt is nothing but CSS filler, no "H&M" — confirming the test catches the actual bug, not a coincidence.
+
+A non-commerce test (hotel booking) confirms the gate still returns `false` and isn't incorrectly loosened. Two no-content-log tests confirm `console.log`/`console.error` are never called inside `classify.ts`. Two no-API-call tests confirm the early exit on absent or whitespace-only bodies works correctly.
