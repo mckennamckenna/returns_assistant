@@ -55,6 +55,14 @@
       3 orders missing `orderDate` have no linked `order_confirmation` email,
       so the fallback correctly leaves them untouched); re-linking Coyuchi
       itself confirmed no regression.
+- [x] Commerce gate (`lib/classify.ts`) false-negative fixed — `isCommerceEmail()`
+      was using a home-rolled `stripHtml` that left `<style>`/`<head>` CSS content
+      as raw text, so large retailer HTML emails (H&M 130KB) had their Haiku window
+      filled with CSS boilerplate and were discarded as NOT_COMMERCE. Fixed by
+      routing through `resolveBodyText()` (shared with extraction) and truncating
+      the clean plain text. Confirmed via DB + DiscardLog: H&M "Your return package
+      has arrived" was the single discard on record; row is absent. Deployed
+      `ffb42be`. **Action: re-forward the H&M email to land it.**
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
