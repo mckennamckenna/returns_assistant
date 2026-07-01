@@ -58,6 +58,12 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **Subject-line `orderNumber` fix** — extraction prompt now reads the email subject
+      for `orderNumber` (but never `retailer`). Proenza Schouler shipping email
+      (subject "A shipment from order #86864 is on the way") now resolves correctly:
+      `orderNumber: "86864"`, `needsReview: false`. Backfill re-extracted 5 affected
+      rows; 1 fixed, 4 legitimately remain (no order number in subject or body).
+      Deployed `22975f7`.
 - [x] **User-facing `displayStatus` field** — `ordered` / `shipped` / `return_requested` /
       `returned` / `refunded` on Order, separate from internal `Order.status`. `shipped`
       auto-derives from `shipping_confirmation` emails + scrapes carrier tracking info
