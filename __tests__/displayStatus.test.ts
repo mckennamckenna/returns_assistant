@@ -11,6 +11,18 @@ describe("deriveDisplayStatus", () => {
     expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation"], "ordered")).toBe("shipped");
   });
 
+  it("advances to 'shipped' when only delivery is present (delivery implies shipped)", () => {
+    expect(deriveDisplayStatus(["delivery"], "ordered")).toBe("shipped");
+  });
+
+  it("advances to 'shipped' when delivery and order_confirmation are present but no shipping_confirmation", () => {
+    expect(deriveDisplayStatus(["order_confirmation", "delivery"], "ordered")).toBe("shipped");
+  });
+
+  it("advances to 'shipped' when both shipping_confirmation and delivery are present", () => {
+    expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation", "delivery"], "ordered")).toBe("shipped");
+  });
+
   it("returns 'ordered' for an empty email list", () => {
     expect(deriveDisplayStatus([], "ordered")).toBe("ordered");
   });

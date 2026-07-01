@@ -21,6 +21,10 @@ export const DISPLAY_STATUS_LABELS: Record<string, string> = {
 // Returns the displayStatus that auto-derivation would produce given the
 // current email types linked to an order. Never downgrades a status that
 // has already been manually advanced (return_requested or higher).
+//
+// delivery implies shipped (delivery is a strict superset), so both email
+// types advance displayStatus to "shipped". There is no separate "delivered"
+// value in displayStatus — users advance beyond "shipped" manually.
 export function deriveDisplayStatus(emailTypes: string[], currentDisplayStatus: string): string {
   const currentRank = DISPLAY_STATUS_RANK[currentDisplayStatus] ?? 0;
 
@@ -28,7 +32,8 @@ export function deriveDisplayStatus(emailTypes: string[], currentDisplayStatus: 
   // auto-derivation must never pull it back down.
   if (currentRank >= DISPLAY_STATUS_RANK.return_requested) return currentDisplayStatus;
 
-  const derived = emailTypes.includes("shipping_confirmation") ? "shipped" : "ordered";
+  const hasShipped = emailTypes.includes("shipping_confirmation") || emailTypes.includes("delivery");
+  const derived = hasShipped ? "shipped" : "ordered";
   const derivedRank = DISPLAY_STATUS_RANK[derived];
 
   // Only advance, never downgrade.
