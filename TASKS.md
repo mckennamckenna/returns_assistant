@@ -33,6 +33,14 @@
       Spawned by `2cb5de2`.
 
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Post-beta: delivery-only orders (no `shipping_confirmation`)** — during alpha,
+      4 orders (H&M, Freda Salvador, Tuckernuck, Shopbop) had only a delivery email,
+      no shipping confirmation. Root cause: users forwarding manually and not forwarding
+      every email. Once real Gmail-filter forwarding replaces manual forwarding, delivery-only
+      orders should become rare. If still common post-beta, investigate the discard gate
+      and extraction pipeline for dropped `shipping_confirmation` emails — don't assume
+      "user didn't forward it" anymore. See BUILD.md Milestone 3 "Known matching
+      limitations" → "Delivery-only orders during alpha."
 - [ ] **Mango order-number mismatch** (`F4VLSF` vs `F4VLSF00`, ReBOUND suffix) —
       Do NOT fix yet. Watch whether third-party return services (ReBOUND, Narvar,
       Happy Returns, etc.) consistently append suffixes across multiple retailers.
