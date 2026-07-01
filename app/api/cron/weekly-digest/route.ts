@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { DISPLAY_STATUS_LABELS } from "@/lib/displayStatus";
+import { activeOrderFilter } from "@/lib/orderFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,6 @@ const REMINDER_TYPE = "weekly_digest";
 const LOOKBACK_DAYS = 7;
 const APP_URL = "https://app.myreturnwindow.com";
 
-// archivedAt / deletedAt don't exist on Order yet — no filter for them.
-// Add those filters here once the archive/delete feature lands.
 const EXCLUDED_STATUSES = ["returned", "refunded"];
 
 function formatDate(date: Date): string {
@@ -117,6 +116,7 @@ export async function GET(request: NextRequest) {
           userId: user.id,
           returnDeadline: { gte: now, lte: sevenDaysOut },
           displayStatus: { notIn: EXCLUDED_STATUSES },
+          ...activeOrderFilter,
         },
         orderBy: { returnDeadline: "asc" },
         select: {

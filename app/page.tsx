@@ -11,6 +11,7 @@ import { SearchFilterBar } from "./SearchFilterBar";
 import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
 import { decryptEmailContent } from "@/lib/emailEncryption";
 import { daysUntil } from "@/lib/reminders";
+import { activeOrderFilter } from "@/lib/orderFilters";
 import { Sidebar } from "./Sidebar";
 import { BottomNav } from "./BottomNav";
 import { StatCard } from "./StatCard";
@@ -89,7 +90,7 @@ export default async function Home({
 
   const [allOrders, rawOrphanedEmails, reviewOrders] = await Promise.all([
     prisma.order.findMany({
-      where: { userId },
+      where: { userId, ...activeOrderFilter },
       include: { _count: { select: { emails: true } } },
     }),
     prisma.email.findMany({
@@ -97,7 +98,7 @@ export default async function Home({
       orderBy: { receivedAt: "desc" },
     }),
     prisma.order.findMany({
-      where: { userId, needsReview: true },
+      where: { userId, needsReview: true, ...activeOrderFilter },
       include: {
         emails: { select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true }, orderBy: { receivedAt: "desc" } },
       },

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { reminderTypeForOrder, isEligibleForReminder, daysUntil, type OrderForReminder, type ReminderType } from "@/lib/reminders";
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
+import { activeOrderFilter, hardDeleteCutoff } from "@/lib/orderFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -106,9 +107,20 @@ export async function GET(request: NextRequest) {
   }
 
   const today = new Date();
+
+  // Hard-delete orders that were soft-deleted more than HARD_DELETE_DAYS ago.
+  // Runs first so deleted orders are already gone before reminder processing.
+  const cutoff = hardDeleteCutoff(today);
+  const { count: hardDeleted } = await prisma.order.deleteMany({
+    where: { deletedAt: { lte: cutoff } },
+  });
+
   // Each order's reminder goes to its own owner now, not a single global
-  // recipient — see BUILD.md Milestone 8.
-  const orders = await prisma.order.findMany({ include: { user: { select: { email: true } } } });
+  // recipient — see BUILD.md Milestone 8. Archived/deleted orders are excluded.
+  const orders = await prisma.order.findMany({
+    where: { ...activeOrderFilter },
+    include: { user: { select: { email: true } } },
+  });
 
   const sent: {
     orderId: string;
@@ -218,6 +230,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ranAt: today.toISOString(),
     force,
+    hardDeleted,
     totalOrders: orders.length,
     sent,
     skippedAlreadySent,

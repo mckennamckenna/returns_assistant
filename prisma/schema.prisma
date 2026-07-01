@@ -161,6 +161,12 @@ model Order {
   returnTrackingNumber String?
   returnTrackingUrl    String?
 
+  // Soft-state fields: null = active; non-null = hidden from all normal views.
+  // archivedAt — reversible, user-initiated hiding (no confirm required).
+  // deletedAt  — soft delete; hard-deleted by cron after HARD_DELETE_DAYS.
+  archivedAt DateTime?
+  deletedAt  DateTime?
+
   // --- Milestone 10 addition --- the user's (or admin's) own explanation
   // when resolving a needsReview flag, via "Looks correct" or "Split into
   // separate order". Not encrypted: it's a note about the user's own
