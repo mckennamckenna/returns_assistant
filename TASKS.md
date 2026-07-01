@@ -20,8 +20,6 @@
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
-- [ ] **Refund check-in reminder** — one-way email, no CTA. Fires 5 days after
-      `returned` if `returnTrackingNumber` present, 10 days if not.
 - [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
       backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
       per Milestone 10 is the user-authored review note. If `[auto]`-prefixed
@@ -60,6 +58,12 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **Refund check-in reminder** — `lib/refundCheckin.ts`. Fires 5 days after
+      `returnedAt` if `returnTrackingNumber` set, 10 days otherwise. One-way nudge,
+      no CTA. Stored as `reminderType: "refund_checkin"` (@@unique dedup). Archived/
+      deleted orders excluded via `activeOrderFilter`. `returnedAt` set on first
+      transition to `"returned"` via both `recomputeDisplayStatus` and PATCH endpoint.
+      15 new tests. Piggybacked on daily cron. `d133c8c`.
 - [x] **Archive + soft-delete for orders** — `archivedAt`/`deletedAt` on Order
       (migration `20260701212145`). `PATCH /api/orders/:id/archive` (reversible),
       `PATCH /api/orders/:id/delete` (soft). `activeOrderFilter` in `lib/orderFilters.ts`
