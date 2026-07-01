@@ -22,9 +22,6 @@
       an order email → see it parsed → see the return window / deadline
 - [ ] **Refund check-in reminder** — one-way email, no CTA. Fires 5 days after
       `returned` if `returnTrackingNumber` present, 10 days if not.
-- [ ] **Archive + delete for orders** — soft-delete via `archivedAt` / `deletedAt`.
-      Archive is reversible, no confirm required. Delete requires confirmation and
-      hard-deletes after 30 days via cron.
 - [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
       backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
       per Milestone 10 is the user-authored review note. If `[auto]`-prefixed
@@ -63,6 +60,13 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **Archive + soft-delete for orders** — `archivedAt`/`deletedAt` on Order
+      (migration `20260701212145`). `PATCH /api/orders/:id/archive` (reversible),
+      `PATCH /api/orders/:id/delete` (soft). `activeOrderFilter` in `lib/orderFilters.ts`
+      spreads into dashboard, weekly digest, and daily reminder cron. Hard-delete cron
+      step added: removes rows where `deletedAt ≤ 30 days ago`; `hardDeleteCutoff()`
+      exported and tested. Digest TODO comment removed. 8 new tests. No UI in this pass.
+      `d35b19e`.
 - [x] **displayStatus backfill + logic fixes** — `deriveDisplayStatus` now: (1) treats
       `delivery` as equivalent to `shipping_confirmation` for `"shipped"` advancement;
       (2) auto-advances to `"return_requested"` when a `return_label` email is present
