@@ -3,7 +3,7 @@ import { deriveDisplayStatus, DISPLAY_STATUS_RANK } from "../lib/displayStatus";
 
 describe("deriveDisplayStatus", () => {
   // ── Basic derivation ──────────────────────────────────────────────────────
-  it("returns 'ordered' when no shipping_confirmation is present", () => {
+  it("returns 'ordered' when no shipping_confirmation, delivery, or return_label is present", () => {
     expect(deriveDisplayStatus(["order_confirmation"], "ordered")).toBe("ordered");
   });
 
@@ -23,6 +23,14 @@ describe("deriveDisplayStatus", () => {
     expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation", "delivery"], "ordered")).toBe("shipped");
   });
 
+  it("advances to 'return_requested' when return_label is present", () => {
+    expect(deriveDisplayStatus(["order_confirmation", "return_label"], "ordered")).toBe("return_requested");
+  });
+
+  it("advances to 'return_requested' when return_label is present alongside shipping and delivery", () => {
+    expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation", "delivery", "return_label"], "shipped")).toBe("return_requested");
+  });
+
   it("returns 'ordered' for an empty email list", () => {
     expect(deriveDisplayStatus([], "ordered")).toBe("ordered");
   });
@@ -36,12 +44,16 @@ describe("deriveDisplayStatus", () => {
     expect(deriveDisplayStatus([], "return_requested")).toBe("return_requested");
   });
 
+  it("does not downgrade return_requested even when return_label is present (already at that rank)", () => {
+    expect(deriveDisplayStatus(["return_label"], "return_requested")).toBe("return_requested");
+  });
+
   it("does not downgrade returned", () => {
-    expect(deriveDisplayStatus(["shipping_confirmation"], "returned")).toBe("returned");
+    expect(deriveDisplayStatus(["shipping_confirmation", "return_label"], "returned")).toBe("returned");
   });
 
   it("does not downgrade refunded", () => {
-    expect(deriveDisplayStatus(["shipping_confirmation"], "refunded")).toBe("refunded");
+    expect(deriveDisplayStatus(["shipping_confirmation", "return_label"], "refunded")).toBe("refunded");
   });
 
   it("does not downgrade shipped to ordered", () => {
@@ -52,6 +64,10 @@ describe("deriveDisplayStatus", () => {
   // ── Idempotent on re-run ──────────────────────────────────────────────────
   it("is idempotent: re-running with shipping_confirmation when already shipped stays shipped", () => {
     expect(deriveDisplayStatus(["shipping_confirmation"], "shipped")).toBe("shipped");
+  });
+
+  it("is idempotent: re-running with return_label when already return_requested stays return_requested", () => {
+    expect(deriveDisplayStatus(["return_label"], "return_requested")).toBe("return_requested");
   });
 });
 
