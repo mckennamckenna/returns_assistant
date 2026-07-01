@@ -63,7 +63,7 @@ interface PolicyLookupResult {
   notes: string;
 }
 
-function buildPrompt(textBody: string): string {
+function buildPrompt(subject: string, textBody: string): string {
   return `You are extracting return/refund-relevant information from a forwarded shopping email.
 
 IMPORTANT: This email was forwarded by the customer, so the From header shows
@@ -81,10 +81,10 @@ EMAIL TYPES:
 - "refund" — confirms a refund was issued
 - "other" — marketing, promotional, or unrelated
 
-From the email body below, extract:
+From the email subject and body below, extract:
 - emailType (one of the types above)
-- retailer (string or null — from body only, never the From header)
-- orderNumber (string or null)
+- retailer (string or null — from body only, NEVER from the subject line or From header)
+- orderNumber (string or null — may appear in the subject line OR the body)
 - orderDate (ISO date string or null)
 - deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
 - returnWindowDays (integer or null — e.g. 30; only if explicitly stated in THIS email)
@@ -122,8 +122,12 @@ Rules:
 - Lower confidence whenever you have to infer or compute rather than read something directly.
 - If the email is marketing/promotional/unrelated: set emailType to "other", retailer to null, confidence to "low".
 - Leave returnWindowDays null if this email doesn't state it — don't guess based on what you know about the retailer. A separate lookup step handles that.
+- orderNumber may be read from the subject line (e.g. "A shipment from order #86864 is on the way") as well as from the body. retailer must NEVER be read from the subject or From header — body only.
 
 Respond with ONLY valid JSON. No preamble, no markdown, no explanation outside the JSON.
+
+EMAIL SUBJECT:
+${subject}
 
 EMAIL BODY:
 ${textBody}`;
@@ -250,13 +254,13 @@ export function computeDeadline(parsed: {
   return { returnDeadline: null, deadlineIsEstimated: false };
 }
 
-export async function extractEmail(textBody: string): Promise<ExtractionResult> {
+export async function extractEmail(textBody: string, subject: string | null): Promise<ExtractionResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
     // Orders with many line items can produce long responses — 1024 was
     // truncating mid-JSON for orders with a dozen+ items.
     max_tokens: 4096,
-    messages: [{ role: "user", content: buildPrompt(textBody) }],
+    messages: [{ role: "user", content: buildPrompt(subject ?? "(no subject)", textBody) }],
   });
 
   const text = lastTextBlock(message.content as { type: string; text?: string }[]);
