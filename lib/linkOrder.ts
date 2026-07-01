@@ -17,6 +17,19 @@ const RETURN_PROCESSING_DAYS = 14;
 // so a human confirms it. See BUILD.md's order-number-drift note.
 const MIN_PREFIX_MATCH_LENGTH = 5;
 
+// The AI sometimes extracts different precision from different email types for
+// the same retailer — "Proenza" from a shipping template vs "Proenza Schouler"
+// from an order confirmation. Exact-retailer matching then silently creates two
+// Order cards for one real order. The fallback below catches this by treating
+// one name being a prefix of the other as a merge candidate (with needsReview).
+// Minimum length guards against short common words like "Gap" (3 chars) or
+// "Net" colliding coincidentally. Known failure mode: "American" (8 chars) is a
+// valid prefix of both "American Eagle" and "American Vintage" — if two different
+// "American X" retailer orders share the same order number they would be wrongly
+// merged. Accepted over silent duplicate-card creation; every retailer-prefix merge
+// is flagged needsReview + logged in Order.userNote so a human can correct it.
+const MIN_RETAILER_PREFIX_LENGTH = 4;
+
 type OrderStatus =
   | "ordered"
   | "shipped"
@@ -182,6 +195,33 @@ async function findPrefixMatchOrder(userId: string, retailer: string, orderNumbe
   return candidates.find((candidate) => candidate.orderNumber && isPrefixMatch(candidate.orderNumber, orderNumber)) ?? null;
 }
 
+// Exported for unit testing.
+// Returns true when one retailer name is a case-insensitive prefix of the
+// other and the shorter name meets the minimum length floor.
+export function isRetailerPrefixMatch(a: string, b: string): boolean {
+  const lowerA = a.toLowerCase();
+  const lowerB = b.toLowerCase();
+  const shorter = lowerA.length <= lowerB.length ? lowerA : lowerB;
+  const longer = lowerA.length <= lowerB.length ? lowerB : lowerA;
+  return shorter.length >= MIN_RETAILER_PREFIX_LENGTH && longer.startsWith(shorter);
+}
+
+// Fallback for the case where the exact retailer match fails but the order
+// number matches exactly — looks for an existing order whose retailer is a
+// prefix match of the incoming email's retailer (or vice versa).
+// Order-number equality is enforced in the DB query (not the JS filter) to
+// avoid loading the entire user's Order set into memory.
+async function findRetailerPrefixMatchOrder(
+  userId: string,
+  retailer: string,
+  orderNumber: string,
+): Promise<Order | null> {
+  const candidates = await prisma.order.findMany({
+    where: { userId, orderNumber: { equals: orderNumber, mode: "insensitive" } },
+  });
+  return candidates.find((c) => c.retailer != null && isRetailerPrefixMatch(c.retailer, retailer)) ?? null;
+}
+
 // An order_confirmation describes the WHOLE order; a shipping or delivery
 // email often only describes ONE package of a multi-package shipment, and
 // can state THAT package's own subtotal in a way that looks exactly like
@@ -206,9 +246,11 @@ async function resolveOrderTotal(existing: Order, email: Email): Promise<number 
   return email.orderTotal ?? existing.orderTotal;
 }
 
-// Shared by both the exact-match and prefix-match paths: an existing Order
-// gets enriched with whatever the new email adds, never blindly overwritten.
-async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
+// Shared by the exact-match, order-number-prefix-match, and retailer-prefix-match
+// paths: an existing Order gets enriched with whatever the new email adds, never
+// blindly overwritten. Exported so the backfill script can call it directly,
+// bypassing the normal match step entirely.
+export async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
   const emailLineItems = asLineItemArray(email.lineItems);
   const mergedOrderDate = email.orderDate ?? existing.orderDate;
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
@@ -339,6 +381,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
 
   let orderId: string;
   let isPrefixMatchedOrder = false;
+  let retailerPrefixNote: string | null = null;
 
   if (existing) {
     orderId = await mergeEmailIntoOrder(existing, email, returnPortalUrl);
@@ -349,7 +392,18 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
       orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
       isPrefixMatchedOrder = true;
     } else {
-      orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
+      const retailerPrefixMatch = await findRetailerPrefixMatchOrder(
+        email.userId,
+        email.retailer,
+        email.orderNumber,
+      );
+      if (retailerPrefixMatch) {
+        orderId = await mergeEmailIntoOrder(retailerPrefixMatch, email, returnPortalUrl);
+        isPrefixMatchedOrder = true;
+        retailerPrefixNote = `[auto] retailer prefix match: "${retailerPrefixMatch.retailer}" ← "${email.retailer}"`;
+      } else {
+        orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
+      }
     }
   }
 
@@ -358,11 +412,19 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   await recomputeOrderStatus(orderId);
 
   // recomputeOrderStatus derives needsReview from data completeness, which
-  // would happily clear it the moment the order looks complete — but a
+  // would happily clear it the moment the order looks complete — but any
   // prefix match needs a human to confirm it wasn't two different orders
   // that happened to share a prefix, regardless of how complete the data
   // looks. Force it true after recompute, not before.
+  // For a retailer-prefix merge, also append an audit note to userNote so
+  // the merge reason is visible without having to diff order records.
   if (isPrefixMatchedOrder) {
-    await prisma.order.update({ where: { id: orderId }, data: { needsReview: true } });
+    const noteUpdate: { needsReview: boolean; userNote?: string } = { needsReview: true };
+    if (retailerPrefixNote) {
+      const merged = await prisma.order.findUnique({ where: { id: orderId }, select: { userNote: true } });
+      const prior = merged?.userNote ?? null;
+      noteUpdate.userNote = prior ? `${prior}\n${retailerPrefixNote}` : retailerPrefixNote;
+    }
+    await prisma.order.update({ where: { id: orderId }, data: noteUpdate });
   }
 }
