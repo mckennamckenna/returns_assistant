@@ -11,8 +11,10 @@ const STATUS_OPTIONS = [
   { value: "open", label: "Open" },
   { value: "closing_soon", label: "Closing soon" },
   { value: "needs_review", label: "Needs review" },
-  { value: "completed", label: "Completed" },
-  { value: "expired", label: "Expired" },
+  { value: "shipped", label: "Shipped" },
+  { value: "return_requested", label: "Return requested" },
+  { value: "returned", label: "Returned" },
+  { value: "refunded", label: "Refunded" },
 ];
 
 export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery: string; initialStatus: string }) {

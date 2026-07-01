@@ -2,8 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction } from "./actions";
+import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
+import { DisplayStatusBadge } from "./DisplayStatusBadge";
+import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 import { ReviewCard } from "./ReviewCard";
 import { SearchFilterBar } from "./SearchFilterBar";
 import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
@@ -124,7 +126,7 @@ export default async function Home({
     if (statusFilter === "open") return OPEN_STATUSES.includes(order.status);
     if (statusFilter === "closing_soon") return isClosingSoon(order);
     if (statusFilter === "needs_review") return order.needsReview;
-    return order.status === statusFilter;
+    return order.displayStatus === statusFilter;
   });
 
   // Sort
@@ -252,6 +254,7 @@ export default async function Home({
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-stone-800 truncate">{order.retailer || "Unknown retailer"}</div>
                         {order.orderNumber && <div className="text-xs text-stone-400 truncate">#{order.orderNumber}</div>}
+                        <div className="mt-0.5"><DisplayStatusBadge status={order.displayStatus} /></div>
                       </div>
                     </Link>
                     <DaysLeftChip returnDeadline={order.returnDeadline} />
@@ -268,8 +271,18 @@ export default async function Home({
                   {order.orderTotal == null && (
                     <p className="text-xs text-stone-400 mt-1">Forward your order confirmation to add the total</p>
                   )}
-                  <div className="flex items-center justify-between mt-2">
-                    {order.returnPortalUrl ? (
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    {order.trackingNumber && order.trackingUrl && (
+                      <a
+                        href={order.trackingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        Track package →
+                      </a>
+                    )}
+                    {order.returnPortalUrl && (
                       <a
                         href={order.returnPortalUrl}
                         target="_blank"
@@ -278,10 +291,22 @@ export default async function Home({
                       >
                         Start return →
                       </a>
-                    ) : (
-                      <span />
                     )}
-                    <form action={deleteOrder.bind(null, order.id)}>
+                    {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.return_requested && (
+                      <form action={markReturnRequestedAction.bind(null, order.id)}>
+                        <button type="submit" className="text-xs font-medium text-stone-600 hover:text-stone-900 hover:underline">
+                          I&apos;m returning this
+                        </button>
+                      </form>
+                    )}
+                    {order.displayStatus === "return_requested" && (
+                      <form action={markReturnedAction.bind(null, order.id)}>
+                        <button type="submit" className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline">
+                          Mark as returned
+                        </button>
+                      </form>
+                    )}
+                    <form action={deleteOrder.bind(null, order.id)} className="ml-auto">
                       <DeleteButton label="Delete order" />
                     </form>
                   </div>
@@ -296,6 +321,9 @@ export default async function Home({
                 <tr className="border-b border-stone-100">
                   <th className="text-left text-xs font-medium text-stone-400 uppercase tracking-wide pb-3 pr-4 pl-5 pt-4">
                     Retailer
+                  </th>
+                  <th className="text-left text-xs font-medium text-stone-400 uppercase tracking-wide pb-3 pr-4 pt-4">
+                    Status
                   </th>
                   <SortHeader field="total">Total price</SortHeader>
                   <SortHeader field="purchaseDate">Purchase date</SortHeader>
@@ -323,6 +351,16 @@ export default async function Home({
                         {order.orderTotal == null && (
                           <p className="text-xs text-stone-400 mt-1">Forward your order confirmation to add the total</p>
                         )}
+                        {order.trackingNumber && order.trackingUrl && (
+                          <a
+                            href={order.trackingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            Track package →
+                          </a>
+                        )}
                         {order.returnPortalUrl && (
                           <a
                             href={order.returnPortalUrl}
@@ -333,6 +371,9 @@ export default async function Home({
                             Start return →
                           </a>
                         )}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <DisplayStatusBadge status={order.displayStatus} />
                       </td>
                       <td className={`py-3 pr-4 whitespace-nowrap ${isHighValue ? "font-semibold text-stone-900" : "text-stone-700"}`}>
                         {formatCurrency(order.orderTotal, order.orderCurrency)}

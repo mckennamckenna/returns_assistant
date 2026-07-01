@@ -2,22 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail } from "@/app/actions";
+import { deleteEmail, markReturnRequestedAction, markReturnedAction } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
+import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
+import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 
 export const dynamic = "force-dynamic";
-
-const STATUS_LABELS: Record<string, string> = {
-  ordered: "Ordered",
-  shipped: "Shipped",
-  delivered: "Delivered",
-  returnable: "Returnable",
-  return_started: "Return started",
-  refund_pending: "Refund pending",
-  completed: "Completed",
-  expired: "Expired",
-  needs_review: "Needs Review",
-};
 
 function formatDate(date: Date | null): string {
   if (!date) return "—";
@@ -129,9 +119,7 @@ export default async function OrderDetail({
       <div className="flex justify-between items-baseline gap-4 mt-4">
         <h1 className="text-2xl font-semibold">{order.retailer || "Unknown retailer"}</h1>
         <div className="flex items-center gap-2">
-          <span className="inline-block text-xs font-medium text-zinc-600 bg-zinc-100 px-2 py-0.5 rounded">
-            {STATUS_LABELS[order.status] ?? order.status}
-          </span>
+          <DisplayStatusBadge status={order.displayStatus} />
           {order.needsReview && (
             <span className="inline-block text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
               Needs Review
@@ -167,16 +155,48 @@ export default async function OrderDetail({
           <Field label="Order total" value={formatCurrency(order.orderTotal, order.orderCurrency)} />
         </dl>
 
-        {order.returnPortalUrl && (
-          <a
-            href={order.returnPortalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block mt-4 bg-blue-600 text-white text-sm font-medium rounded px-4 py-2 hover:bg-blue-700"
-          >
-            Start Return &rarr;
-          </a>
-        )}
+        <div className="flex flex-wrap gap-3 mt-4">
+          {order.returnPortalUrl && (
+            <a
+              href={order.returnPortalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block bg-blue-600 text-white text-sm font-medium rounded px-4 py-2 hover:bg-blue-700"
+            >
+              Start Return &rarr;
+            </a>
+          )}
+          {order.trackingNumber && order.trackingUrl && (
+            <a
+              href={order.trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block bg-stone-100 text-stone-700 text-sm font-medium rounded px-4 py-2 hover:bg-stone-200"
+            >
+              Track package &rarr;
+            </a>
+          )}
+          {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.return_requested && (
+            <form action={markReturnRequestedAction.bind(null, order.id)}>
+              <button
+                type="submit"
+                className="bg-amber-50 text-amber-700 text-sm font-medium rounded px-4 py-2 hover:bg-amber-100 border border-amber-200"
+              >
+                I&apos;m returning this
+              </button>
+            </form>
+          )}
+          {order.displayStatus === "return_requested" && (
+            <form action={markReturnedAction.bind(null, order.id)}>
+              <button
+                type="submit"
+                className="bg-green-50 text-green-700 text-sm font-medium rounded px-4 py-2 hover:bg-green-100 border border-green-200"
+              >
+                Mark as returned
+              </button>
+            </form>
+          )}
+        </div>
 
         {isLineItemArray(order.lineItems) && order.lineItems.length > 0 && (
           <div className="mt-4">

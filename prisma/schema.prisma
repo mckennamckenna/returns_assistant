@@ -142,6 +142,19 @@ model Order {
   status      String  @default("ordered")
   needsReview Boolean @default(false)
 
+  // User-facing order status, separate from the internal `status` state machine.
+  // Values: "ordered" | "shipped" | "return_requested" | "returned" | "refunded"
+  // "shipped" auto-derives from shipping_confirmation emails; the others are
+  // set via PATCH /api/orders/:id/status or future auto-derivation from email types.
+  // Precedence on recompute: refunded > returned > return_requested > shipped > ordered.
+  // Auto-derivation never downgrades a manually-advanced status.
+  displayStatus  String  @default("ordered")
+
+  // Outbound shipment tracking, scraped from shipping_confirmation email bodies.
+  carrier        String?
+  trackingNumber String?
+  trackingUrl    String?
+
   // --- Milestone 10 addition --- the user's (or admin's) own explanation
   // when resolving a needsReview flag, via "Looks correct" or "Split into
   // separate order". Not encrypted: it's a note about the user's own

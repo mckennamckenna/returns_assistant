@@ -8,6 +8,13 @@ vi.mock("@/lib/db", () => ({ prisma: {} }));
 vi.mock("@/lib/crypto", () => ({ decrypt: (x: string) => x }));
 vi.mock("@/lib/emailBodyText", () => ({ resolveBodyText: () => null }));
 vi.mock("@/lib/extract", () => ({ computeDeadline: () => ({ returnDeadline: null, deadlineIsEstimated: false }) }));
+vi.mock("@/lib/displayStatus", async () => {
+  const real = await vi.importActual<typeof import("../lib/displayStatus")>("../lib/displayStatus");
+  return real;
+});
+vi.mock("@/lib/trackingParser", () => ({
+  parseTracking: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
+}));
 
 const { isRetailerPrefixMatch } = await import("../lib/linkOrder");
 

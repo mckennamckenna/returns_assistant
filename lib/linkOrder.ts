@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { computeDeadline } from "@/lib/extract";
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyText } from "@/lib/emailBodyText";
+import { deriveDisplayStatus } from "@/lib/displayStatus";
+import { parseTracking } from "@/lib/trackingParser";
 
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
@@ -176,6 +178,54 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
   const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
   const { status, needsReview } = await computeOrderStatus(orderId, order.returnDeadline);
   await prisma.order.update({ where: { id: orderId }, data: { status, needsReview } });
+}
+
+// Derives and persists the user-facing displayStatus from the email types
+// linked to this order. Never auto-downgrades a status that was manually
+// advanced (return_requested or higher) — those can only move forward via
+// the PATCH /api/orders/:id/status endpoint.
+export async function recomputeDisplayStatus(orderId: string): Promise<void> {
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { id: orderId },
+    select: { displayStatus: true },
+  });
+  const emails = await prisma.email.findMany({
+    where: { orderId },
+    select: { emailType: true },
+  });
+  const emailTypes = emails.map((e) => e.emailType).filter((t): t is string => t != null);
+  const next = deriveDisplayStatus(emailTypes, order.displayStatus);
+  if (next !== order.displayStatus) {
+    await prisma.order.update({ where: { id: orderId }, data: { displayStatus: next } });
+  }
+}
+
+// Scrapes carrier/trackingNumber/trackingUrl from a shipping_confirmation email
+// body and writes them to the order. Skips if the order already has tracking
+// info (from an earlier shipping email) or if the email is not a shipping_confirmation.
+async function applyShippingTracking(orderId: string, email: Email): Promise<void> {
+  if (email.emailType !== "shipping_confirmation") return;
+
+  const existing = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { trackingNumber: true },
+  });
+  if (existing?.trackingNumber) return;
+
+  const textBody = email.textBody ? decrypt(email.textBody) : null;
+  const htmlBody = email.htmlBody ? decrypt(email.htmlBody) : null;
+  const tracking = parseTracking(textBody, htmlBody);
+
+  if (tracking.carrier || tracking.trackingNumber || tracking.trackingUrl) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        carrier: tracking.carrier,
+        trackingNumber: tracking.trackingNumber,
+        trackingUrl: tracking.trackingUrl,
+      },
+    });
+  }
 }
 
 function isPrefixMatch(a: string, b: string): boolean {
@@ -410,6 +460,8 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   await prisma.email.update({ where: { id: emailId }, data: { orderId } });
   await applyFallbackOrderDate(orderId);
   await recomputeOrderStatus(orderId);
+  await applyShippingTracking(orderId, email);
+  await recomputeDisplayStatus(orderId);
 
   // recomputeOrderStatus derives needsReview from data completeness, which
   // would happily clear it the moment the order looks complete — but any
