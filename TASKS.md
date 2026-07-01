@@ -18,18 +18,45 @@
 - [ ] **Re-forward H&M "Your return package has arrived"** — email was discarded
       by the old classify gate (now fixed). Row is absent from DB; needs manual
       re-forward to land it.
+- [ ] **Approve auto-merged Proenza Schouler order in Needs Review** — retailer-prefix
+      fix (`2cb5de2`) merged the shipping email into the order confirmation order and
+      set `needsReview: true`. Visually confirm both emails are linked, extraction data
+      intact, then approve via the dashboard review flow.
 
 ## 🟡 Next
 - [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
+- [ ] **User-visible order status** — ordered / shipped / return_requested /
+      returned / refunded, shown on the dashboard and order detail page.
+      `shipped` and `refunded` are derivable from existing email types;
+      `return_requested` and `returned` require a new manual user action.
+      `Order.status` is an internal state machine (completed / expired /
+      return_started) and must NOT be conflated with this — new user-facing
+      field, not a rename. Real design conversation before any code. [needs clarification]
+- [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
+      backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
+      per Milestone 10 is the user-authored review note. If `[auto]`-prefixed
+      entries accumulate, user notes become indistinguishable from system notes
+      in queries and the admin dashboard. Needs a proper field or audit log.
+      Spawned by `2cb5de2`.
 
 ## ⚪ Someday
 - [ ] Closet Window (wardrobe intelligence) — only after Return Window has
       retention data
 - [ ] Window Shopping (pre-purchase / price tracking) — same gate
 - [ ] Holding-company structure ("Window") — not now
+- [ ] **Rotate Postmark inbound webhook URL** — still points at
+      `returns-assistant.vercel.app/api/inbound`. Deliberately deferred in
+      Milestone 20 (both URLs serve the same app); worth rotating eventually
+      for consistency once there's a low-risk window. See BUILD.md Milestone 20
+      Prompt 32.
+- [ ] **Extraction quality: retailer name specificity** — AI extracts different
+      precision from different email types for the same retailer (Proenza vs
+      Proenza Schouler from shipping vs order-confirmation templates). A
+      prompt-level fix could reduce reliance on the retailer-prefix fallback.
+      Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
 - [x] Magic-link login fixed in production — root cause was Auth.js **v5** env var
