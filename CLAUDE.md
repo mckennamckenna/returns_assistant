@@ -4,9 +4,20 @@ Project context for Claude Code. This file is auto-loaded every session.
 
 ## TASK TRACKING — NON-NEGOTIABLE
 - Before doing anything else in any session, read `TASKS.md`.
-- When given any new request, add it to `TASKS.md` as Pending BEFORE starting work.
-- Move to In Progress when starting, Done only after verifying live in production.
-- If a session ends mid-task, it stays In Progress — never auto-mark Done.
+- When given any new request, add it to `TASKS.md` under "Now" or "Next" BEFORE
+  starting work.
+- Move to Done only after verifying live in production. Never delete completed
+  items — move them to the Done section so `TASKS.md` doubles as a lightweight
+  decision log between BUILD.md milestones.
+- If a session ends mid-task, it stays in Now — never auto-mark Done.
+- **Proactive capture — non-negotiable:** whenever I mention a bug, follow-up,
+  or feature during conversation — even mid-task, even if I don't ask — append
+  it to `TASKS.md` immediately. Don't wait for an explicit "add this." If it
+  belongs to the current milestone, put it in Now. If it's follow-up or later
+  work, put it in Next or Someday.
+- If a captured item is ambiguous, capture it anyway with a `[needs clarification]`
+  tag rather than pausing to ask — clarification can happen when the item is
+  picked up.
 - At the end of every session, update `TASKS.md` to reflect actual current state.
 
 **DONE MEANS DEPLOYED — NON-NEGOTIABLE:**
@@ -42,7 +53,7 @@ Return Window matters until it has happy users.
   parses any forwarded email generically (retailer, order number, dates,
   totals, return policy). Not retailer-specific code; the same prompt
   handles every retailer.
-- **Hosting:** Vercel — production at `https://returns-assistant.vercel.app`
+- **Hosting:** Vercel — production at `https://app.myreturnwindow.com`
 - **Return data source:** any retailer's order-confirmation, shipping,
   delivery, return-label, or refund email the user forwards. Extraction is
   generic (see "AI extraction" above) — Mango was an early real test case

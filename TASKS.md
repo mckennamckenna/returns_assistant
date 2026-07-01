@@ -1,14 +1,17 @@
 # Return Window — Task Board
 
-> Single source of truth for what's being worked on. Claude Code reads this at the
-> start of a session and updates it at the end of each task.
-> Priority tags: 🔴 ship-blocker (do now) · 🟡 next · ⚪ later
-> Rule: only 🔴 items get worked right now. Everything is measured against
-> "does this get a real user on it today."
+> Single source of truth for what's being worked on. Read at session start,
+> updated immediately when any bug, follow-up, or feature comes up in conversation.
+>
+> **Entry format:** one-line summary · optional 1–2 lines of context · optional
+> link to the session or BUILD.md milestone that spawned it.
+>
+> Rule: work items in Now only. Everything is measured against "does this get a
+> real user on it today."
 
 ---
 
-## 🔴 Now — ship-blockers
+## 🔴 Now
 - [ ] **Mango order matching** — `F4VLSF` (order confirmation) vs `F4VLSF00`
       (ReBOUND return confirmation) create two separate Order records instead of
       linking. Fix in `lib/linkOrder.ts` with fuzzy prefix matching. *(in progress)*
@@ -22,7 +25,7 @@
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
 
-## ⚪ Later
+## ⚪ Someday
 - [ ] Closet Window (wardrobe intelligence) — only after Return Window has
       retention data
 - [ ] Window Shopping (pre-purchase / price tracking) — same gate
