@@ -187,7 +187,7 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
 export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
-    select: { displayStatus: true },
+    select: { displayStatus: true, returnedAt: true },
   });
   const emails = await prisma.email.findMany({
     where: { orderId },
@@ -196,7 +196,13 @@ export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   const emailTypes = emails.map((e) => e.emailType).filter((t): t is string => t != null);
   const next = deriveDisplayStatus(emailTypes, order.displayStatus);
   if (next !== order.displayStatus) {
-    await prisma.order.update({ where: { id: orderId }, data: { displayStatus: next } });
+    const data: { displayStatus: string; returnedAt?: Date } = { displayStatus: next };
+    // Record the first time an order transitions to "returned" — used by the
+    // refund check-in reminder cron to compute when to send.
+    if (next === "returned" && !order.returnedAt) {
+      data.returnedAt = new Date();
+    }
+    await prisma.order.update({ where: { id: orderId }, data });
   }
 }
 

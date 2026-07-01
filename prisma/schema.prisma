@@ -161,6 +161,11 @@ model Order {
   returnTrackingNumber String?
   returnTrackingUrl    String?
 
+  // Timestamp of the first transition to displayStatus = "returned". Set once,
+  // never reset. Used to compute refund check-in reminder send time (5 or 10
+  // days later depending on whether return tracking is present).
+  returnedAt DateTime?
+
   // Soft-state fields: null = active; non-null = hidden from all normal views.
   // archivedAt — reversible, user-initiated hiding (no confirm required).
   // deletedAt  — soft delete; hard-deleted by cron after HARD_DELETE_DAYS.

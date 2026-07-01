@@ -4,6 +4,7 @@ import { reminderTypeForOrder, isEligibleForReminder, daysUntil, type OrderForRe
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { activeOrderFilter, hardDeleteCutoff } from "@/lib/orderFilters";
+import { runRefundCheckinReminders } from "@/lib/refundCheckin";
 
 export const dynamic = "force-dynamic";
 
@@ -227,6 +228,10 @@ export async function GET(request: NextRequest) {
     await notifyAdmin("Return Window: reminder run summary", buildAdminSummary(sent, failed));
   }
 
+  // Refund check-in reminders: fires 5 days after returned (with return tracking)
+  // or 10 days (without). Separate from the deadline reminder loop above.
+  const refundCheckin = await runRefundCheckinReminders(today, fromEmail);
+
   return NextResponse.json({
     ranAt: today.toISOString(),
     force,
@@ -235,6 +240,7 @@ export async function GET(request: NextRequest) {
     sent,
     skippedAlreadySent,
     failed,
+    refundCheckin,
   });
 }
 

@@ -34,7 +34,7 @@ export async function PATCH(
 
   const order = await prisma.order.findUnique({
     where: { id },
-    select: { userId: true, displayStatus: true },
+    select: { userId: true, displayStatus: true, returnedAt: true },
   });
 
   if (!order || order.userId !== session.user.id) {
@@ -51,9 +51,14 @@ export async function PATCH(
     );
   }
 
+  const data: { displayStatus: string; returnedAt?: Date } = { displayStatus: status };
+  if (status === "returned" && !order.returnedAt) {
+    data.returnedAt = new Date();
+  }
+
   const updated = await prisma.order.update({
     where: { id },
-    data: { displayStatus: status },
+    data,
     select: { displayStatus: true },
   });
 
