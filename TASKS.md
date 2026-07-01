@@ -12,6 +12,9 @@
 - [ ] **Mango order matching** — `F4VLSF` (order confirmation) vs `F4VLSF00`
       (ReBOUND return confirmation) create two separate Order records instead of
       linking. Fix in `lib/linkOrder.ts` with fuzzy prefix matching. *(in progress)*
+- [ ] **Re-forward H&M "Your return package has arrived"** — email was discarded
+      by the old classify gate (now fixed). Row is absent from DB; needs manual
+      re-forward to land it.
 
 ## 🟡 Next
 - [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
@@ -61,13 +64,24 @@
       filled with CSS boilerplate and were discarded as NOT_COMMERCE. Fixed by
       routing through `resolveBodyText()` (shared with extraction) and truncating
       the clean plain text. Confirmed via DB + DiscardLog: H&M "Your return package
-      has arrived" was the single discard on record; row is absent. Deployed
-      `ffb42be`. **Action: re-forward the H&M email to land it.**
+      has arrived" was the single discard on record; row is absent. Deployed `ffb42be`.
+- [x] Retailer-name mismatch order-linking fixed — AI extracted "Proenza" from
+      the shipping email but "Proenza Schouler" from the order confirmation; exact
+      retailer match failed and a duplicate Order was created. Added retailer-prefix
+      fallback in `lib/linkOrder.ts` (MIN_RETAILER_PREFIX_LENGTH=4, exact order
+      number required, needsReview + userNote audit log on every prefix merge).
+      6 unit tests in `__tests__/linkOrder.test.ts`. Backfill merged the shipping
+      email into the correct order and deleted the empty stub (`2cb5de2`).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
 - Order-number normalization is brittle across retailers (Mango is the first
   case; expect more retailer-specific suffix quirks).
+- Retailer-name prefix matching has a known collision risk: "American" (8 chars)
+  is a prefix of "American Eagle", "American Vintage", etc. — two orders from
+  different "American X" retailers with the same order number would be wrongly
+  merged. Accepted trade-off; every such merge is flagged needsReview + logged
+  in Order.userNote (`lib/linkOrder.ts`).
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
@@ -82,3 +96,9 @@
   iPhone/Apple Mail forwards, which are HTML-only.
 - Forwarded-header orderDate fallback handles Apple Mail format + reads
   htmlBody for HTML-only iPhone forwards.
+- Retailer-prefix fallback added to order linking — "Proenza" / "Proenza Schouler"
+  was the first real case; MIN_RETAILER_PREFIX_LENGTH=4, exact order number
+  required, every merge flagged needsReview + logged.
+- Outbound mail consolidated onto myreturnwindow.com — reminders from
+  `reminders@myreturnwindow.com`, logins from `hello@myreturnwindow.com`
+  (LOGIN_FROM_EMAIL ?? REMINDER_FROM_EMAIL fallback in auth.ts).
