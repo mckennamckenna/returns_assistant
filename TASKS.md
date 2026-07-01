@@ -55,12 +55,13 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
-- [x] **displayStatus backfill + delivery→shipped logic fix** — `deriveDisplayStatus` now
-      treats `delivery` emails as equivalent to `shipping_confirmation` for advancing
-      to `"shipped"` (delivery implies shipped; no separate "delivered" value in
-      displayStatus). Backfill via `scripts/backfill-display-status.ts` corrected 9 orders
-      stuck at migration-default `"ordered"`. MANGO #F4VLSF correctly skipped (return_label
-      only, no shipping/delivery — needs manual dashboard advance). 3 new tests. `e9ab352`.
+- [x] **displayStatus backfill + logic fixes** — `deriveDisplayStatus` now: (1) treats
+      `delivery` as equivalent to `shipping_confirmation` for `"shipped"` advancement;
+      (2) auto-advances to `"return_requested"` when a `return_label` email is present
+      (return label = unambiguous evidence of return initiation). Backfill fixed 9 orders
+      stuck at `"ordered"` (shipping/delivery present) and 2 orders at `"shipped"` or
+      `"ordered"` with return labels (Shopbop + MANGO #F4VLSF → `"return_requested"`).
+      7 new tests total. `e9ab352`, `18a5b95`.
 - [x] **Return-shipment tracking fields** — `returnCarrier`, `returnTrackingNumber`,
       `returnTrackingUrl` on `Order` (migration `20260701164738`). `applyReturnTracking`
       in `lib/linkOrder.ts` scrapes `return_label` emails using the same carrier-pattern
