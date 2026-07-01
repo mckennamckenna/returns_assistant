@@ -1446,3 +1446,36 @@ No metaxmoda.com address sends on behalf of Return Window. No user-visible URL i
 > In Postmark's inbound stream settings, update the webhook URL from `https://returns-assistant.vercel.app/api/inbound` to `https://app.myreturnwindow.com/api/inbound`. No code changes needed — both URLs already serve the same deployed app. Verify by forwarding a real test email after the change and confirming it lands on the dashboard. Do this during a low-traffic window and be ready to revert immediately if any mail is lost.
 
 ---
+
+## User-facing displayStatus and shipment tracking (feature, added post-Milestone 20)
+
+**The problem:** The existing `Order.status` field is an internal state machine (`ordered` / `shipped` / `delivered` / `returnable` / `return_started` / `refund_pending` / `completed` / `expired` / `needs_review`) designed around deadline and reminder logic, not user communication. Users had no way to see or record where their return actually stood — whether they'd shipped it back, whether it was received, whether a refund had come through — and there was no API surface for future features (refund check-in reminders, return-shipment tracking links) to write to.
+
+**The design:** A new `displayStatus` field on `Order`, fully separate from `status`, with user-facing values: `ordered` / `shipped` / `return_requested` / `returned` / `refunded`. The two fields are deliberately kept separate: `status` drives deadlines and reminders and must not be renamed or repurposed; `displayStatus` is what the user sees and acts on. Key design decisions:
+
+- **"shipped" auto-derives; the others are API-only for now.** When a `shipping_confirmation` email links to an order, `recomputeDisplayStatus()` advances `displayStatus` to `"shipped"`. `return_requested`, `returned`, and `refunded` require a manual signal via `PATCH /api/orders/:id/status` — auto-derivation from return-confirmation and refund emails is deferred to a later prompt.
+- **Precedence enforced in both directions.** A helper constant `DISPLAY_STATUS_RANK` (`ordered=1 … refunded=5`) gates every write: auto-derivation only ever advances, never downgrades (a manually-set `return_requested` must survive a new shipping email arriving later); the PATCH endpoint also rejects backwards movement.
+- **Tracking info scraped at link time, not at extraction time.** Carrier/tracking-number/URL are scraped from the shipping email's body the moment it links to the order, via a dedicated `lib/trackingParser.ts`. Detection runs in two phases: (1) scan raw HTML `href` attributes for known carrier tracking domains — most reliable, uses the actual link the retailer embedded; (2) regex fallback on plain text for UPS (`1Z` + 16 alphanumeric), USPS (20-22 digits starting `9[2-9]`), FedEx (12 or 15 digits), DHL (10-11 digits). Carrier order in both phases is UPS → USPS → FedEx → DHL, prioritizing the most-distinctive patterns first. If nothing matches, `carrier`/`trackingNumber`/`trackingUrl` stay null — "shipped" status is never blocked on a successful tracking parse.
+- **Tracking fields do not overwrite existing data.** If an order already has a `trackingNumber` (e.g. from an earlier shipping email), a second shipping email leaves those fields alone.
+
+**New files:**
+- `lib/displayStatus.ts` — `DISPLAY_STATUS_RANK`, `DISPLAY_STATUS_LABELS`, `ALLOWED_MANUAL_STATUSES`, and the exported pure function `deriveDisplayStatus(emailTypes, currentDisplayStatus)` which encodes the never-downgrade rule without touching the database.
+- `lib/trackingParser.ts` — `parseTracking(plainText, rawHtml)` returning `{ carrier, trackingNumber, trackingUrl }`, all nullable.
+- `app/api/orders/[id]/status/route.ts` — `PATCH` endpoint. Auth + ownership gated. Accepts `return_requested` / `returned` / `refunded` only (400 otherwise). Enforces rank precedence (rejects backwards movement with 400).
+
+**Changes to existing files:**
+- `prisma/schema.prisma` — added `displayStatus String @default("ordered")`, `carrier String?`, `trackingNumber String?`, `trackingUrl String?` to `Order`. Migration `20260701152725_add_display_status_tracking_fields`.
+- `lib/linkOrder.ts` — added `recomputeDisplayStatus(orderId)` (exported, used by linkEmailToOrder and future backfill scripts) and `applyShippingTracking(orderId, email)` (private, only runs when `emailType === "shipping_confirmation"`). Both called from `linkEmailToOrder` after `recomputeOrderStatus`.
+
+**Dashboard:** status badge on order cards (mobile + desktop table), status filter dropdown updated (Shipped / Return requested / Returned / Refunded), "I'm returning this" / "Mark as returned" buttons on order cards and detail page, "Track package" link when `trackingNumber` is present. These are in `app/page.tsx`, `app/orders/[id]/page.tsx`, `app/SearchFilterBar.tsx`, `app/actions.ts`, and the new `app/DisplayStatusBadge.tsx`.
+
+**Backfill:** existing orders defaulted to `"ordered"` via the schema default. `recomputeDisplayStatus` is idempotent and will self-correct on the next `linkEmailToOrder` call; no separate backfill script was needed since the field's auto-derivation is forward-going only (the existing `status` field already captures what the internal state machine knows).
+
+**Tests:** 22 new tests in `__tests__/trackingParser.test.ts` (all four carriers, URL vs. plain-text priority, null case) and `__tests__/displayStatus.test.ts` (derivation, never-downgrade rule, idempotence, rank ordering). 34 total passing.
+
+**How to know it works:** forward a shipping confirmation email and confirm `Order.displayStatus` advances to `"shipped"` and (if the email contains a tracking link) `trackingNumber` populates. Call `PATCH /api/orders/:id/status` with `{ "status": "return_requested" }` and confirm the field advances. Call again with `{ "status": "ordered" }` and confirm a 400 response. Forward another shipping email to the same order and confirm `displayStatus` stays at `"return_requested"` (not downgraded back to `"shipped"`).
+
+**Prompt 33 — user-facing displayStatus and shipment tracking**
+> Per BUILD.md's "User-facing displayStatus and shipment tracking" addendum: add displayStatus (ordered/shipped/return_requested/returned/refunded, default "ordered"), carrier, trackingNumber, and trackingUrl to the Order model and migrate. Create lib/displayStatus.ts with DISPLAY_STATUS_RANK and a pure deriveDisplayStatus() function. Create lib/trackingParser.ts with URL-based href detection first, then regex fallback for UPS/USPS/FedEx/DHL. Update lib/linkOrder.ts to call recomputeDisplayStatus() and applyShippingTracking() from linkEmailToOrder. Add PATCH /api/orders/:id/status accepting return_requested/returned/refunded only, enforcing rank precedence. Add dashboard badge, filter, and return buttons. Write tests for tracking regex and status transition logic.
+
+---
