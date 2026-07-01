@@ -20,17 +20,6 @@
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
-- [ ] **User-visible order status (`displayStatus`)** — new `displayStatus` field on
-      Order, fully separate from internal `Order.status`. Values: `ordered` / `shipped` /
-      `return_requested` / `returned` / `refunded`. `shipped` auto-derives when a
-      `shipping_confirmation` email lands or carrier tracking is scraped.
-      `return_requested` and `returned` can be auto-derived via new email
-      classification categories OR set manually via `PATCH /api/orders/:id/status`.
-      `refunded` is dashboard-only, never auto-derived. Recompute precedence:
-      `refunded > returned > return_requested > shipped > ordered` — never
-      auto-downgrade a manually-advanced status.
-- [ ] **Return-shipment tracking** — separate `returnCarrier` / `returnTrackingNumber` /
-      `returnTrackingUrl` fields on Order, scraped from return-confirmation emails.
 - [ ] **Refund check-in reminder** — one-way email, no CTA. Fires 5 days after
       `returned` if `returnTrackingNumber` present, 10 days if not.
 - [ ] **Archive + delete for orders** — soft-delete via `archivedAt` / `deletedAt`.
@@ -69,6 +58,13 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **User-facing `displayStatus` field** — `ordered` / `shipped` / `return_requested` /
+      `returned` / `refunded` on Order, separate from internal `Order.status`. `shipped`
+      auto-derives from `shipping_confirmation` emails + scrapes carrier tracking info
+      (UPS/USPS/FedEx/DHL). Manual advancement via `PATCH /api/orders/:id/status` and
+      "I'm returning this" / "Mark as returned" dashboard buttons. Status badge + filter
+      on dashboard and order detail page. Never auto-downgrades a manually-advanced status.
+      22 new tests. Deployed `1d00cae`.
 - [x] Magic-link login fixed in production — root cause was Auth.js **v5** env var
       mismatch. Removed `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_TRUST_HOST`
       (v5 uses `AUTH_SECRET` / `AUTH_URL`; Vercel sets trust host automatically),
