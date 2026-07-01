@@ -12,35 +12,45 @@
 ---
 
 ## 🔴 Now
-- [ ] **Mango order matching** — `F4VLSF` (order confirmation) vs `F4VLSF00`
-      (ReBOUND return confirmation) create two separate Order records instead of
-      linking. Fix in `lib/linkOrder.ts` with fuzzy prefix matching. *(in progress)*
-- [ ] **Re-forward H&M "Your return package has arrived"** — email was discarded
-      by the old classify gate (now fixed). Row is absent from DB; needs manual
-      re-forward to land it.
-- [ ] **Approve auto-merged Proenza Schouler order in Needs Review** — retailer-prefix
-      fix (`2cb5de2`) merged the shipping email into the order confirmation order and
-      set `needsReview: true`. Visually confirm both emails are linked, extraction data
-      intact, then approve via the dashboard review flow.
+- [x] **Re-forward H&M "Your return package has arrived"** — email was discarded
+      by the old classify gate (now fixed). Re-forwarded; landed correctly.
 
 ## 🟡 Next
 - [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
-- [ ] **User-visible order status** — ordered / shipped / return_requested /
-      returned / refunded, shown on the dashboard and order detail page.
-      `shipped` and `refunded` are derivable from existing email types;
-      `return_requested` and `returned` require a new manual user action.
-      `Order.status` is an internal state machine (completed / expired /
-      return_started) and must NOT be conflated with this — new user-facing
-      field, not a rename. Real design conversation before any code. [needs clarification]
+- [ ] **User-visible order status (`displayStatus`)** — new `displayStatus` field on
+      Order, fully separate from internal `Order.status`. Values: `ordered` / `shipped` /
+      `return_requested` / `returned` / `refunded`. `shipped` auto-derives when a
+      `shipping_confirmation` email lands or carrier tracking is scraped.
+      `return_requested` and `returned` can be auto-derived via new email
+      classification categories OR set manually via `PATCH /api/orders/:id/status`.
+      `refunded` is dashboard-only, never auto-derived. Recompute precedence:
+      `refunded > returned > return_requested > shipped > ordered` — never
+      auto-downgrade a manually-advanced status.
+- [ ] **Return-shipment tracking** — separate `returnCarrier` / `returnTrackingNumber` /
+      `returnTrackingUrl` fields on Order, scraped from return-confirmation emails.
+- [ ] **Refund check-in reminder** — one-way email, no CTA. Fires 5 days after
+      `returned` if `returnTrackingNumber` present, 10 days if not.
+- [ ] **Archive + delete for orders** — soft-delete via `archivedAt` / `deletedAt`.
+      Archive is reversible, no confirm required. Delete requires confirmation and
+      hard-deletes after 30 days via cron.
+- [ ] **Sunday weekly digest** — orders due in the next 7 days, excludes
+      returned / refunded / archived / deleted. Not `ALPHA_MODE`-gated (unlike
+      the Friday coverage check, which is).
 - [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
       backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
       per Milestone 10 is the user-authored review note. If `[auto]`-prefixed
       entries accumulate, user notes become indistinguishable from system notes
       in queries and the admin dashboard. Needs a proper field or audit log.
       Spawned by `2cb5de2`.
+
+## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Mango order-number mismatch** (`F4VLSF` vs `F4VLSF00`, ReBOUND suffix) —
+      Do NOT fix yet. Watch whether third-party return services (ReBOUND, Narvar,
+      Happy Returns, etc.) consistently append suffixes across multiple retailers.
+      If the pattern recurs, build fuzzy suffix-strip matching in `lib/linkOrder.ts`.
 
 ## ⚪ Someday
 - [ ] Closet Window (wardrobe intelligence) — only after Return Window has
@@ -102,6 +112,9 @@
       number required, needsReview + userNote audit log on every prefix merge).
       6 unit tests in `__tests__/linkOrder.test.ts`. Backfill merged the shipping
       email into the correct order and deleted the empty stub (`2cb5de2`).
+- [x] **Approve auto-merged Proenza Schouler order in Needs Review** — confirmed
+      both emails linked correctly (order confirmation + shipping), extraction data
+      intact; approved via dashboard review flow.
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
