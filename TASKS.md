@@ -25,9 +25,6 @@
 - [ ] **Archive + delete for orders** — soft-delete via `archivedAt` / `deletedAt`.
       Archive is reversible, no confirm required. Delete requires confirmation and
       hard-deletes after 30 days via cron.
-- [ ] **Sunday weekly digest** — orders due in the next 7 days, excludes
-      returned / refunded / archived / deleted. Not `ALPHA_MODE`-gated (unlike
-      the Friday coverage check, which is).
 - [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
       backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
       per Milestone 10 is the user-authored review note. If `[auto]`-prefixed
@@ -58,6 +55,11 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **Sunday weekly digest** — `app/api/cron/weekly-digest/route.ts`, fires every Sunday
+      at 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`. One email
+      per user, sorted by deadline. Zero-orders variant included. Deduped via Reminder table
+      (`reminderType: "weekly_digest"`, lookback 7 days). Not `ALPHA_MODE`-gated.
+      `archivedAt`/`deletedAt` filter deferred — fields don't exist yet; noted in route and BUILD.md.
 - [x] **Subject-line `orderNumber` fix** — extraction prompt now reads the email subject
       for `orderNumber` (but never `retailer`). Proenza Schouler shipping email
       (subject "A shipment from order #86864 is on the way") now resolves correctly:

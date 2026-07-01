@@ -1479,3 +1479,17 @@ No metaxmoda.com address sends on behalf of Return Window. No user-visible URL i
 > Per BUILD.md's "User-facing displayStatus and shipment tracking" addendum: add displayStatus (ordered/shipped/return_requested/returned/refunded, default "ordered"), carrier, trackingNumber, and trackingUrl to the Order model and migrate. Create lib/displayStatus.ts with DISPLAY_STATUS_RANK and a pure deriveDisplayStatus() function. Create lib/trackingParser.ts with URL-based href detection first, then regex fallback for UPS/USPS/FedEx/DHL. Update lib/linkOrder.ts to call recomputeDisplayStatus() and applyShippingTracking() from linkEmailToOrder. Add PATCH /api/orders/:id/status accepting return_requested/returned/refunded only, enforcing rank precedence. Add dashboard badge, filter, and return buttons. Write tests for tracking regex and status transition logic.
 
 ---
+
+## Addendum — Sunday weekly digest email
+
+**Route:** `app/api/cron/weekly-digest/route.ts`. Cron schedule: `0 16 * * 0` (Sundays 16:00 UTC, matching the Friday coverage-check schedule). Not `ALPHA_MODE`-gated — this is a standard user-facing feature, unlike the Friday check-in which is an alpha-only feedback tool.
+
+**What it does:** For each user, queries orders where `returnDeadline` is within the next 7 days and `displayStatus` is not `"returned"` or `"refunded"` (i.e. still actionable). Sorted by `returnDeadline` ascending. Sends a single email per user with one line per order (retailer, order number, status, deadline, days remaining, link to the order detail page). Zero-orders variant: "Nothing due this week — you're all caught up."
+
+**Subject:** `🗓 What's due this week from Return Window`
+
+**Dedup:** Same pattern as the Friday coverage check — `reminderType: "weekly_digest"`, no `orderId`, so the `@@unique` constraint doesn't apply. Instead, a lookback query checks for a `Reminder` row with this type sent in the past 7 days before sending. `force=true` bypasses the dedup check (for test sends).
+
+**archivedAt / deletedAt note:** These fields don't exist on `Order` yet. The filter will need `NOT archivedAt` and `NOT deletedAt` once the archive/delete feature lands; see TASKS.md.
+
+**Admin notification:** sends a summary to `notifyAdmin` when any sends or failures occurred (same pattern as the daily reminder cron and weekly coverage check).
