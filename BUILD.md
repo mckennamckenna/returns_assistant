@@ -1493,3 +1493,17 @@ No metaxmoda.com address sends on behalf of Return Window. No user-visible URL i
 **archivedAt / deletedAt note:** These fields don't exist on `Order` yet. The filter will need `NOT archivedAt` and `NOT deletedAt` once the archive/delete feature lands; see TASKS.md.
 
 **Admin notification:** sends a summary to `notifyAdmin` when any sends or failures occurred (same pattern as the daily reminder cron and weekly coverage check).
+
+---
+
+## Addendum — Return-shipment tracking fields
+
+**Schema:** Three new nullable fields added to `Order`: `returnCarrier`, `returnTrackingNumber`, `returnTrackingUrl`. Parallel to the existing outbound `carrier`/`trackingNumber`/`trackingUrl` fields. Migration: `20260701164738_add_return_tracking_fields`.
+
+**Logic:** `applyReturnTracking(orderId, email)` in `lib/linkOrder.ts` — mirrors `applyShippingTracking` exactly, but fires on `return_label` emails instead of `shipping_confirmation` emails. Uses the same `parseTracking()` from `lib/trackingParser.ts` (URL-based href detection first, then regex fallback for UPS/USPS/FedEx/DHL). First return label wins — skips if `returnTrackingNumber` is already populated. Never blocks `return_requested` status; null result is always safe.
+
+**Classification:** `return_label` already existed as an `EmailType` before this change — it's been in the extraction prompt and `computeOrderStatus`'s internal state machine since early milestones. No new classification work was needed. The displayStatus work correctly kept `return_requested` as manual-only (not auto-derived from `return_label`); that's unchanged.
+
+**Wiring:** `applyReturnTracking` is called from `linkEmailToOrder` immediately after `applyShippingTracking`, before `recomputeDisplayStatus`.
+
+**Not in this pass:** carrier status polling, webhooks, EasyPost/Shippo integration, and UI display of return tracking info. Those are a separate future milestone.

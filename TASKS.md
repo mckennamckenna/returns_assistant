@@ -55,6 +55,11 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **Return-shipment tracking fields** — `returnCarrier`, `returnTrackingNumber`,
+      `returnTrackingUrl` on `Order` (migration `20260701164738`). `applyReturnTracking`
+      in `lib/linkOrder.ts` scrapes `return_label` emails using the same carrier-pattern
+      logic as outbound tracking. `return_label` classification already existed;
+      no new EmailType added. No UI in this pass.
 - [x] **Sunday weekly digest** — `app/api/cron/weekly-digest/route.ts`, fires every Sunday
       at 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`. One email
       per user, sorted by deadline. Zero-orders variant included. Deduped via Reminder table

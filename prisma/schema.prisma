@@ -155,6 +155,12 @@ model Order {
   trackingNumber String?
   trackingUrl    String?
 
+  // Return shipment tracking, scraped from return_label email bodies.
+  // Null if no carrier info found — never blocks return_requested status.
+  returnCarrier        String?
+  returnTrackingNumber String?
+  returnTrackingUrl    String?
+
   // --- Milestone 10 addition --- the user's (or admin's) own explanation
   // when resolving a needsReview flag, via "Looks correct" or "Split into
   // separate order". Not encrypted: it's a note about the user's own

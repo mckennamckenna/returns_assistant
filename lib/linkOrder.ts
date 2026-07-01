@@ -228,6 +228,35 @@ async function applyShippingTracking(orderId: string, email: Email): Promise<voi
   }
 }
 
+// Scrapes return carrier info from a return_label email body, using the same
+// carrier-pattern logic as applyShippingTracking. Skips if tracking info is
+// already present (first return label wins) or if the email is not a return_label.
+// Never blocks return_requested status — null result is always safe.
+async function applyReturnTracking(orderId: string, email: Email): Promise<void> {
+  if (email.emailType !== "return_label") return;
+
+  const existing = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { returnTrackingNumber: true },
+  });
+  if (existing?.returnTrackingNumber) return;
+
+  const textBody = email.textBody ? decrypt(email.textBody) : null;
+  const htmlBody = email.htmlBody ? decrypt(email.htmlBody) : null;
+  const tracking = parseTracking(textBody, htmlBody);
+
+  if (tracking.carrier || tracking.trackingNumber || tracking.trackingUrl) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        returnCarrier: tracking.carrier,
+        returnTrackingNumber: tracking.trackingNumber,
+        returnTrackingUrl: tracking.trackingUrl,
+      },
+    });
+  }
+}
+
 function isPrefixMatch(a: string, b: string): boolean {
   const lowerA = a.toLowerCase();
   const lowerB = b.toLowerCase();
@@ -461,6 +490,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   await applyFallbackOrderDate(orderId);
   await recomputeOrderStatus(orderId);
   await applyShippingTracking(orderId, email);
+  await applyReturnTracking(orderId, email);
   await recomputeDisplayStatus(orderId);
 
   // recomputeOrderStatus derives needsReview from data completeness, which
