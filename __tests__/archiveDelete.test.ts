@@ -70,3 +70,50 @@ describe("activeOrderFilter", () => {
     expect(isVisible({ archivedAt: new Date(), deletedAt: new Date() })).toBe(false);
   });
 });
+
+// ── "Mark as refunded" button visibility ──────────────────────────────────────
+// The button must appear only when displayStatus is "returned" — not before
+// (nothing to refund yet) and not after (already refunded).
+
+describe("'Mark as refunded' button visibility", () => {
+  const show = (displayStatus: string) => displayStatus === "returned";
+
+  it("is visible for 'returned'", () => {
+    expect(show("returned")).toBe(true);
+  });
+
+  it("is not visible for 'ordered'", () => {
+    expect(show("ordered")).toBe(false);
+  });
+
+  it("is not visible for 'shipped'", () => {
+    expect(show("shipped")).toBe(false);
+  });
+
+  it("is not visible for 'return_requested'", () => {
+    expect(show("return_requested")).toBe(false);
+  });
+
+  it("is not visible once already 'refunded'", () => {
+    expect(show("refunded")).toBe(false);
+  });
+});
+
+// ── Archive / Unarchive button visibility ─────────────────────────────────────
+// The label flips based on archivedAt. An active order shows "Archive";
+// an already-archived order shows "Unarchive".
+
+describe("archive / unarchive button label", () => {
+  const showArchive = (archivedAt: Date | null) => archivedAt === null;
+  const showUnarchive = (archivedAt: Date | null) => archivedAt !== null;
+
+  it("shows 'Archive' when order is active (archivedAt is null)", () => {
+    expect(showArchive(null)).toBe(true);
+    expect(showUnarchive(null)).toBe(false);
+  });
+
+  it("shows 'Unarchive' when order has been archived (archivedAt is set)", () => {
+    expect(showUnarchive(new Date("2026-07-01"))).toBe(true);
+    expect(showArchive(new Date("2026-07-01"))).toBe(false);
+  });
+});

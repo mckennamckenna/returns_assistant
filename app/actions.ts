@@ -64,7 +64,7 @@ async function advanceDisplayStatus(orderId: string, nextStatus: string): Promis
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { userId: true, displayStatus: true },
+    select: { userId: true, displayStatus: true, returnedAt: true },
   });
   if (!order || order.userId !== session.user.id) return;
 
@@ -72,7 +72,12 @@ async function advanceDisplayStatus(orderId: string, nextStatus: string): Promis
   const nextRank = DISPLAY_STATUS_RANK[nextStatus] ?? 0;
   if (nextRank <= currentRank) return;
 
-  await prisma.order.update({ where: { id: orderId }, data: { displayStatus: nextStatus } });
+  const data: { displayStatus: string; returnedAt?: Date } = { displayStatus: nextStatus };
+  if (nextStatus === "returned" && !order.returnedAt) {
+    data.returnedAt = new Date();
+  }
+
+  await prisma.order.update({ where: { id: orderId }, data });
   revalidatePath("/");
   revalidatePath(`/orders/${orderId}`);
 }
@@ -83,4 +88,8 @@ export async function markReturnRequestedAction(orderId: string): Promise<void> 
 
 export async function markReturnedAction(orderId: string): Promise<void> {
   await advanceDisplayStatus(orderId, "returned");
+}
+
+export async function markRefundedAction(orderId: string): Promise<void> {
+  await advanceDisplayStatus(orderId, "refunded");
 }

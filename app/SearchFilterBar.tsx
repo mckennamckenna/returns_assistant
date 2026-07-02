@@ -15,6 +15,7 @@ const STATUS_OPTIONS = [
   { value: "return_requested", label: "Return requested" },
   { value: "returned", label: "Returned" },
   { value: "refunded", label: "Refunded" },
+  { value: "archived", label: "Archived" },
 ];
 
 export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery: string; initialStatus: string }) {

@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, markReturnRequestedAction, markReturnedAction } from "@/app/actions";
+import { deleteEmail, markReturnRequestedAction, markReturnedAction, markRefundedAction } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
+import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
 import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
 import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 
@@ -176,6 +177,16 @@ export default async function OrderDetail({
               Track package &rarr;
             </a>
           )}
+          {order.returnTrackingNumber && order.returnTrackingUrl && (
+            <a
+              href={order.returnTrackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block bg-stone-100 text-stone-700 text-sm font-medium rounded px-4 py-2 hover:bg-stone-200"
+            >
+              Track your return &rarr;
+            </a>
+          )}
           {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.return_requested && (
             <form action={markReturnRequestedAction.bind(null, order.id)}>
               <button
@@ -196,6 +207,21 @@ export default async function OrderDetail({
               </button>
             </form>
           )}
+          {order.displayStatus === "returned" && (
+            <form action={markRefundedAction.bind(null, order.id)}>
+              <button
+                type="submit"
+                className="bg-emerald-50 text-emerald-700 text-sm font-medium rounded px-4 py-2 hover:bg-emerald-100 border border-emerald-200"
+              >
+                Mark as refunded
+              </button>
+            </form>
+          )}
+          <ArchiveOrderButton
+            orderId={order.id}
+            isArchived={order.archivedAt !== null}
+            className="bg-stone-100 text-stone-600 text-sm font-medium rounded px-4 py-2 hover:bg-stone-200"
+          />
         </div>
 
         {isLineItemArray(order.lineItems) && order.lineItems.length > 0 && (

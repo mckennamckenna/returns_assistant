@@ -2,9 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction } from "./actions";
+import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction, markRefundedAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
 import { SoftDeleteOrderButton } from "./SoftDeleteOrderButton";
+import { ArchiveOrderButton } from "./ArchiveOrderButton";
 import { DisplayStatusBadge } from "./DisplayStatusBadge";
 import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 import { ReviewCard } from "./ReviewCard";
@@ -91,7 +92,9 @@ export default async function Home({
 
   const [allOrders, rawOrphanedEmails, reviewOrders] = await Promise.all([
     prisma.order.findMany({
-      where: { userId, ...activeOrderFilter },
+      // includes archived orders so the "Archived" filter tab can show them;
+      // soft-deleted orders are still excluded
+      where: { userId, deletedAt: null },
       include: { _count: { select: { emails: true } } },
     }),
     prisma.email.findMany({
@@ -109,10 +112,14 @@ export default async function Home({
 
   const orphanedEmails = rawOrphanedEmails.map(decryptEmailContent);
 
+  // Stats only count active (non-archived) orders — archived orders are hidden
+  // from the dashboard until the user explicitly opens the Archived tab.
+  const activeOrders = allOrders.filter((o) => o.archivedAt === null);
+
   const isClosingSoon = (order: (typeof allOrders)[number]) =>
     order.returnDeadline != null && daysUntil(order.returnDeadline, now) >= 0 && daysUntil(order.returnDeadline, now) <= CLOSING_SOON_DAYS;
 
-  const openOrders = allOrders.filter((o) => OPEN_STATUSES.includes(o.status));
+  const openOrders = activeOrders.filter((o) => OPEN_STATUSES.includes(o.status));
   const openValue = openOrders.reduce((sum, o) => sum + (o.orderTotal ?? 0), 0);
   const closingSoonOrders = openOrders.filter(isClosingSoon);
   const valueAtRisk = closingSoonOrders.reduce((sum, o) => sum + (o.orderTotal ?? 0), 0);
@@ -124,6 +131,9 @@ export default async function Home({
       const haystack = `${order.retailer ?? ""} ${order.orderNumber ?? ""}`.toLowerCase();
       if (!haystack.includes(q)) return false;
     }
+    // "Archived" tab is the only place archived orders are visible
+    if (statusFilter === "archived") return order.archivedAt !== null;
+    if (order.archivedAt !== null) return false; // hide from all other views
     if (statusFilter === "all") return true;
     if (statusFilter === "open") return OPEN_STATUSES.includes(order.status);
     if (statusFilter === "closing_soon") return isClosingSoon(order);
@@ -284,6 +294,16 @@ export default async function Home({
                         Track package →
                       </a>
                     )}
+                    {order.returnTrackingNumber && order.returnTrackingUrl && (
+                      <a
+                        href={order.returnTrackingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        Track your return →
+                      </a>
+                    )}
                     {order.returnPortalUrl && (
                       <a
                         href={order.returnPortalUrl}
@@ -308,7 +328,21 @@ export default async function Home({
                         </button>
                       </form>
                     )}
-                    <SoftDeleteOrderButton orderId={order.id} className="ml-auto" />
+                    {order.displayStatus === "returned" && (
+                      <form action={markRefundedAction.bind(null, order.id)}>
+                        <button type="submit" className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline">
+                          Mark as refunded
+                        </button>
+                      </form>
+                    )}
+                    <div className="ml-auto flex items-center gap-1">
+                      <ArchiveOrderButton
+                        orderId={order.id}
+                        isArchived={order.archivedAt !== null}
+                        className="text-xs font-medium text-stone-500 hover:text-stone-800"
+                      />
+                      <SoftDeleteOrderButton orderId={order.id} />
+                    </div>
                   </div>
                 </div>
               );
@@ -361,6 +395,16 @@ export default async function Home({
                             Track package →
                           </a>
                         )}
+                        {order.returnTrackingNumber && order.returnTrackingUrl && (
+                          <a
+                            href={order.returnTrackingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            Track your return →
+                          </a>
+                        )}
                         {order.returnPortalUrl && (
                           <a
                             href={order.returnPortalUrl}
@@ -388,7 +432,21 @@ export default async function Home({
                         <DaysLeftChip returnDeadline={order.returnDeadline} />
                       </td>
                       <td className="py-3 pr-4 text-right">
-                        <SoftDeleteOrderButton orderId={order.id} />
+                        <div className="flex items-center justify-end gap-2">
+                          {order.displayStatus === "returned" && (
+                            <form action={markRefundedAction.bind(null, order.id)}>
+                              <button type="submit" className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline whitespace-nowrap">
+                                Mark as refunded
+                              </button>
+                            </form>
+                          )}
+                          <ArchiveOrderButton
+                            orderId={order.id}
+                            isArchived={order.archivedAt !== null}
+                            className="text-xs font-medium text-stone-500 hover:text-stone-800"
+                          />
+                          <SoftDeleteOrderButton orderId={order.id} />
+                        </div>
                       </td>
                     </tr>
                   );
