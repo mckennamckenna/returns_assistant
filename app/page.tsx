@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteOrder, deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction } from "./actions";
+import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
+import { SoftDeleteOrderButton } from "./SoftDeleteOrderButton";
 import { DisplayStatusBadge } from "./DisplayStatusBadge";
 import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 import { ReviewCard } from "./ReviewCard";
@@ -307,9 +308,7 @@ export default async function Home({
                         </button>
                       </form>
                     )}
-                    <form action={deleteOrder.bind(null, order.id)} className="ml-auto">
-                      <DeleteButton label="Delete order" />
-                    </form>
+                    <SoftDeleteOrderButton orderId={order.id} className="ml-auto" />
                   </div>
                 </div>
               );
@@ -389,9 +388,7 @@ export default async function Home({
                         <DaysLeftChip returnDeadline={order.returnDeadline} />
                       </td>
                       <td className="py-3 pr-4 text-right">
-                        <form action={deleteOrder.bind(null, order.id)}>
-                          <DeleteButton label="Delete order" />
-                        </form>
+                        <SoftDeleteOrderButton orderId={order.id} />
                       </td>
                     </tr>
                   );

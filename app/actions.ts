@@ -6,25 +6,6 @@ import { auth, signOut } from "@/auth";
 import { approveOrder, splitOrder } from "@/lib/orderReview";
 import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 
-export async function deleteOrder(orderId: string): Promise<void> {
-  const session = await auth();
-  if (!session?.user) return;
-
-  // Ownership check, independent of whatever page linked to this action —
-  // server actions are directly invocable, so a crafted request with
-  // someone else's orderId must not be able to delete it.
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { userId: true } });
-  if (!order || order.userId !== session.user.id) return;
-
-  // Reminder rows reference Order with no cascade — delete dependents first
-  // or the Order delete fails on the foreign key constraint.
-  await prisma.reminder.deleteMany({ where: { orderId } });
-  await prisma.email.deleteMany({ where: { orderId } });
-  await prisma.order.delete({ where: { id: orderId } });
-
-  revalidatePath("/");
-}
-
 export async function deleteEmail(emailId: string): Promise<void> {
   const session = await auth();
   if (!session?.user) return;
