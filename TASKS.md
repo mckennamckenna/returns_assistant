@@ -27,6 +27,12 @@
       by the old classify gate (now fixed). Re-forwarded; landed correctly.
 
 ## 🟡 Next
+- [ ] **Manual UX review of today's changes** — nothing shipped today was hand-tested
+      in production. Open `app.myreturnwindow.com` and verify: (1) Archive/Unarchive
+      button on an order, (2) "Archived" filter tab shows archived orders and hides
+      them from All, (3) delete button shows the confirm dialog before acting, (4)
+      "Mark as refunded" appears on a returned order and advances its status, (5)
+      "Track your return →" link appears on any order where a return label was forwarded.
 - [ ] **Marketing homepage at myreturnwindow.com + beta signup** — public-facing
       homepage at the root domain (not app.) explaining what Return Window is, with a
       way for people to sign up for the beta. Followed by cleaning up your own account
