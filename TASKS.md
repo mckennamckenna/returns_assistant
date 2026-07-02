@@ -8,6 +8,17 @@
 >
 > Rule: work items in Now only. Everything is measured against "does this get a
 > real user on it today."
+>
+> **Done split:** TASKS.md Done = one line, plain English, no commit hash or backfill
+> numbers. HISTORY.md = full detail (commit hash, root cause, what was verified). If
+> BUILD.md's data model or invariants change, update BUILD.md in the same commit.
+>
+> **Scope control:** Claude Code works only on (a) items in 🔴 Now, or (b) the explicit
+> task given in the current session — and in case (b), 🔴 Now must be updated to reflect
+> it BEFORE work starts. Scope expansions mid-session ("while I was in there I also
+> fixed X") must be added to Now or confirmed before proceeding — no silent scope creep.
+> At session close, state explicitly: committed? pushed? deployed? "Tests passed" does
+> not mean deployed. If any of those three didn't happen, say so plainly.
 
 ---
 
@@ -34,8 +45,7 @@
       every email. Once real Gmail-filter forwarding replaces manual forwarding, delivery-only
       orders should become rare. If still common post-beta, investigate the discard gate
       and extraction pipeline for dropped `shipping_confirmation` emails — don't assume
-      "user didn't forward it" anymore. See BUILD.md Milestone 3 "Known matching
-      limitations" → "Delivery-only orders during alpha."
+      "user didn't forward it" anymore.
 - [ ] **Mango order-number mismatch** (`F4VLSF` vs `F4VLSF00`, ReBOUND suffix) —
       Do NOT fix yet. Watch whether third-party return services (ReBOUND, Narvar,
       Happy Returns, etc.) consistently append suffixes across multiple retailers.
@@ -49,8 +59,7 @@
 - [ ] **Rotate Postmark inbound webhook URL** — still points at
       `returns-assistant.vercel.app/api/inbound`. Deliberately deferred in
       Milestone 20 (both URLs serve the same app); worth rotating eventually
-      for consistency once there's a low-risk window. See BUILD.md Milestone 20
-      Prompt 32.
+      for consistency once there's a low-risk window.
 - [ ] **Extraction quality: retailer name specificity** — AI extracts different
       precision from different email types for the same retailer (Proenza vs
       Proenza Schouler from shipping vs order-confirmation templates). A
@@ -58,100 +67,19 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
-- [x] **Soft-delete wired to dashboard UI** — Both order delete buttons (mobile card +
-      desktop table) now call `PATCH /api/orders/:id/delete` (sets `deletedAt`; recoverable
-      for 30 days via nightly cron) instead of the old `deleteOrder` hard-delete server
-      action. `window.confirm()` gate added. `deleteOrder` removed from `app/actions.ts`.
-      `SoftDeleteOrderButton` client component in `app/SoftDeleteOrderButton.tsx`. `7aa6e6c`.
-- [x] **Refund check-in reminder** — `lib/refundCheckin.ts`. Fires 5 days after
-      `returnedAt` if `returnTrackingNumber` set, 10 days otherwise. One-way nudge,
-      no CTA. Stored as `reminderType: "refund_checkin"` (@@unique dedup). Archived/
-      deleted orders excluded via `activeOrderFilter`. `returnedAt` set on first
-      transition to `"returned"` via both `recomputeDisplayStatus` and PATCH endpoint.
-      15 new tests. Piggybacked on daily cron. `d133c8c`.
-- [x] **Archive + soft-delete for orders** — `archivedAt`/`deletedAt` on Order
-      (migration `20260701212145`). `PATCH /api/orders/:id/archive` (reversible),
-      `PATCH /api/orders/:id/delete` (soft). `activeOrderFilter` in `lib/orderFilters.ts`
-      spreads into dashboard, weekly digest, and daily reminder cron. Hard-delete cron
-      step added: removes rows where `deletedAt ≤ 30 days ago`; `hardDeleteCutoff()`
-      exported and tested. Digest TODO comment removed. 8 new tests. No UI in this pass.
-      `d35b19e`.
-- [x] **displayStatus backfill + logic fixes** — `deriveDisplayStatus` now: (1) treats
-      `delivery` as equivalent to `shipping_confirmation` for `"shipped"` advancement;
-      (2) auto-advances to `"return_requested"` when a `return_label` email is present
-      (return label = unambiguous evidence of return initiation). Backfill fixed 9 orders
-      stuck at `"ordered"` (shipping/delivery present) and 2 orders at `"shipped"` or
-      `"ordered"` with return labels (Shopbop + MANGO #F4VLSF → `"return_requested"`).
-      7 new tests total. `e9ab352`, `18a5b95`.
-- [x] **Return-shipment tracking fields** — `returnCarrier`, `returnTrackingNumber`,
-      `returnTrackingUrl` on `Order` (migration `20260701164738`). `applyReturnTracking`
-      in `lib/linkOrder.ts` scrapes `return_label` emails using the same carrier-pattern
-      logic as outbound tracking. `return_label` classification already existed;
-      no new EmailType added. No UI in this pass.
-- [x] **Sunday weekly digest** — `app/api/cron/weekly-digest/route.ts`, fires every Sunday
-      at 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`. One email
-      per user, sorted by deadline. Zero-orders variant included. Deduped via Reminder table
-      (`reminderType: "weekly_digest"`, lookback 7 days). Not `ALPHA_MODE`-gated.
-      `archivedAt`/`deletedAt` filter deferred — fields don't exist yet; noted in route and BUILD.md.
-- [x] **Subject-line `orderNumber` fix** — extraction prompt now reads the email subject
-      for `orderNumber` (but never `retailer`). Proenza Schouler shipping email
-      (subject "A shipment from order #86864 is on the way") now resolves correctly:
-      `orderNumber: "86864"`, `needsReview: false`. Backfill re-extracted 5 affected
-      rows; 1 fixed, 4 legitimately remain (no order number in subject or body).
-      Deployed `22975f7`.
-- [x] **User-facing `displayStatus` field** — `ordered` / `shipped` / `return_requested` /
-      `returned` / `refunded` on Order, separate from internal `Order.status`. `shipped`
-      auto-derives from `shipping_confirmation` emails + scrapes carrier tracking info
-      (UPS/USPS/FedEx/DHL). Manual advancement via `PATCH /api/orders/:id/status` and
-      "I'm returning this" / "Mark as returned" dashboard buttons. Status badge + filter
-      on dashboard and order detail page. Never auto-downgrades a manually-advanced status.
-      22 new tests. Deployed `1d00cae`.
-- [x] Magic-link login fixed in production — root cause was Auth.js **v5** env var
-      mismatch. Removed `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_TRUST_HOST`
-      (v5 uses `AUTH_SECRET` / `AUTH_URL`; Vercel sets trust host automatically),
-      redeployed clean.
-- [x] Admin onboarding view added (`app/admin/onboarding/page.tsx`) listing every
-      real user's forwarding address, gated on `ADMIN_USER_EMAIL` — verified
-      against live data (`e1111e3`).
-- [x] Custom inbound domain piloted on one account (`mail.myreturnwindow.com`),
-      verified end-to-end with a real forwarded order email before rollout
-      (`83a7a15`).
-- [x] Custom inbound domain rolled out to every user — old `+tag` addresses still
-      work unchanged; verified live on a non-pilot account (`3eb005a`).
-- [x] Extraction now falls back to htmlBody (converted to plain text) when
-      textBody is empty/whitespace-only — `lib/runExtraction.ts` was sending
-      Claude nothing for HTML-only forwards (e.g. iPhone/Apple Mail). Verified
-      against the real Coyuchi order email (`cmqyqtb5e0001ji04u78l8ny2`): now
-      extracts retailer, order number, dates, and total correctly. Backfill
-      scan found no other affected rows in the current dataset.
-- [x] Forwarded-header `orderDate` fallback (`lib/linkOrder.ts`) now reads the
-      same `textBody`-or-`htmlText` body (shared via new `lib/emailBodyText.ts`)
-      and recognizes both Gmail's and Apple Mail/iPhone's forwarded-header
-      formats. Also fixed a real bug found in the process: `html-to-text`
-      renders Apple's forwarded block as a blockquote (each line prefixed
-      `"> "`), which the old regex never matched. Verified against the real
-      Coyuchi email's actual htmlBody — correctly parses its Apple-format
-      `Date:` line. Diagnosis + re-run found 0 currently-affected orders (the
-      3 orders missing `orderDate` have no linked `order_confirmation` email,
-      so the fallback correctly leaves them untouched); re-linking Coyuchi
-      itself confirmed no regression.
-- [x] Commerce gate (`lib/classify.ts`) false-negative fixed — `isCommerceEmail()`
-      was using a home-rolled `stripHtml` that left `<style>`/`<head>` CSS content
-      as raw text, so large retailer HTML emails (H&M 130KB) had their Haiku window
-      filled with CSS boilerplate and were discarded as NOT_COMMERCE. Fixed by
-      routing through `resolveBodyText()` (shared with extraction) and truncating
-      the clean plain text. Confirmed via DB + DiscardLog: H&M "Your return package
-      has arrived" was the single discard on record; row is absent. Deployed `ffb42be`.
-- [x] Retailer-name mismatch order-linking fixed — AI extracted "Proenza" from
-      the shipping email but "Proenza Schouler" from the order confirmation; exact
-      retailer match failed and a duplicate Order was created. Added retailer-prefix
-      fallback in `lib/linkOrder.ts` (MIN_RETAILER_PREFIX_LENGTH=4, exact order
-      number required, needsReview + userNote audit log on every prefix merge).
-      6 unit tests in `__tests__/linkOrder.test.ts`. Backfill merged the shipping
-      email into the correct order and deleted the empty stub (`2cb5de2`).
-- [x] **Approve auto-merged Proenza Schouler order in Needs Review** — confirmed
-      both emails linked correctly (order confirmation + shipping), extraction data
-      intact; approved via dashboard review flow.
+- [x] Documentation restructured — BUILD.md trimmed to current-state reference; HISTORY.md created with full chronological detail; TASKS.md Done section reformatted to one-liners.
+- [x] Dashboard UI additions — "Track your return" link, "Mark as refunded" button, Archive/Unarchive button, and Archived filter tab added to dashboard and order detail page.
+- [x] Soft-delete wired to dashboard delete buttons — both buttons now hit the soft-delete endpoint with a confirm gate; old hard-delete server action removed.
+- [x] Refund check-in reminder added — fires 5 or 10 days after returnedAt depending on whether return tracking is present.
+- [x] Archive + soft-delete fields added to Order — PATCH endpoints, activeOrderFilter helper, hard-delete cron step.
+- [x] displayStatus logic fixed — delivery emails advance to "shipped"; return_label emails auto-advance to "return_requested".
+- [x] Return-shipment tracking fields added — returnCarrier, returnTrackingNumber, returnTrackingUrl scraped from return_label emails.
+- [x] Sunday weekly digest shipped.
+- [x] Subject-line order number extraction fixed — shipping emails that state the order number only in the subject now link correctly.
+- [x] User-facing displayStatus field shipped — badge, filter dropdown, manual advancement buttons, tracking link.
+- [x] Magic-link login fixed in production — Auth.js v5 env var mismatch resolved.
+- [x] Admin onboarding view added — lists all users' forwarding addresses, session-gated.
+- [x] Custom inbound domain (mail.myreturnwindow.com) piloted and rolled out to all users.
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
