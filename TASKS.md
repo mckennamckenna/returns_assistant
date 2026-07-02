@@ -58,6 +58,11 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] **Soft-delete wired to dashboard UI** — Both order delete buttons (mobile card +
+      desktop table) now call `PATCH /api/orders/:id/delete` (sets `deletedAt`; recoverable
+      for 30 days via nightly cron) instead of the old `deleteOrder` hard-delete server
+      action. `window.confirm()` gate added. `deleteOrder` removed from `app/actions.ts`.
+      `SoftDeleteOrderButton` client component in `app/SoftDeleteOrderButton.tsx`. `7aa6e6c`.
 - [x] **Refund check-in reminder** — `lib/refundCheckin.ts`. Fires 5 days after
       `returnedAt` if `returnTrackingNumber` set, 10 days otherwise. One-way nudge,
       no CTA. Stored as `reminderType: "refund_checkin"` (@@unique dedup). Archived/
