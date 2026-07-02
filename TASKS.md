@@ -27,6 +27,10 @@
       by the old classify gate (now fixed). Re-forwarded; landed correctly.
 
 ## 🟡 Next
+- [ ] **Marketing homepage at myreturnwindow.com + beta signup** — public-facing
+      homepage at the root domain (not app.) explaining what Return Window is, with a
+      way for people to sign up for the beta. Followed by cleaning up your own account
+      (the test/dev data) so it reflects what a real first-time user would see.
 - [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
