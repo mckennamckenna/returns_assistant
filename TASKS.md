@@ -23,8 +23,12 @@
 ---
 
 ## 🔴 Now
-- [x] **Re-forward H&M "Your return package has arrived"** — email was discarded
-      by the old classify gate (now fixed). Re-forwarded; landed correctly.
+- [ ] **Marketing homepage at myreturnwindow.com + beta signup** — public-facing
+      homepage at the root domain (not app.) explaining what Return Window is, with a
+      way for people to sign up for the beta. (Moved up from Next.)
+- [ ] **Fix account bugs found in manual review** — bugs observed in owner's account;
+      list to be enumerated this session before fixes start. Related: the pending
+      manual UX review item in Next — fold any findings from it in here.
 
 ## 🟡 Next
 - [ ] **Manual UX review of today's changes** — nothing shipped today was hand-tested
@@ -33,10 +37,8 @@
       them from All, (3) delete button shows the confirm dialog before acting, (4)
       "Mark as refunded" appears on a returned order and advances its status, (5)
       "Track your return →" link appears on any order where a return label was forwarded.
-- [ ] **Marketing homepage at myreturnwindow.com + beta signup** — public-facing
-      homepage at the root domain (not app.) explaining what Return Window is, with a
-      way for people to sign up for the beta. Followed by cleaning up your own account
-      (the test/dev data) so it reflects what a real first-time user would see.
+- [ ] **Clean up owner account test/dev data** so it reflects what a real first-time
+      user would see. (Split out of the homepage item; do after homepage ships.)
 - [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
@@ -77,6 +79,7 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — landed correctly.
 - [x] Documentation restructured — BUILD.md trimmed to current-state reference; HISTORY.md created with full chronological detail; TASKS.md Done section reformatted to one-liners.
 - [x] Dashboard UI additions — "Track your return" link, "Mark as refunded" button, Archive/Unarchive button, and Archived filter tab added to dashboard and order detail page.
 - [x] Soft-delete wired to dashboard delete buttons — both buttons now hit the soft-delete endpoint with a confirm gate; old hard-delete server action removed.
