@@ -220,3 +220,11 @@ model DiscardLog {
   reason     String // "non_commerce" for now; room to add more reasons later
   occurredAt DateTime @default(now())
 }
+
+// Marketing-page beta signups, collected pre-auth from myreturnwindow.com.
+// Unrelated to User — these are prospects, not accounts.
+model BetaSignup {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}

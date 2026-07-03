@@ -211,6 +211,18 @@ model DiscardLog {
 }
 ```
 
+### BetaSignup
+
+```prisma
+model BetaSignup {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+```
+
+Collected pre-auth from the public marketing page at `myreturnwindow.com`. Unrelated to `User` — these are prospects, not accounts.
+
 ---
 
 ## Key files
@@ -243,6 +255,8 @@ model DiscardLog {
 | `app/api/orders/[id]/status/route.ts` | PATCH endpoint for manual displayStatus advancement |
 | `app/api/orders/[id]/archive/route.ts` | PATCH `{archived: bool}` — sets/clears archivedAt |
 | `app/api/orders/[id]/delete/route.ts` | PATCH soft-delete — sets deletedAt |
+| `app/marketing/layout.tsx`, `app/marketing/page.tsx` | Public marketing page (host-routed, no auth) |
+| `app/api/beta-signup/route.ts` | POST — upserts `BetaSignup`, notifies admin |
 
 ---
 
@@ -341,6 +355,12 @@ The no-buffer rule for order-date-anchored policies is intentional and was a rea
 - **Friday alpha coverage check:** `ALPHA_MODE=true` only. Per-user, lookback 7 days.
 - **Refund check-in:** 5 days after `returnedAt` when `returnTrackingNumber` is set; 10 days otherwise. Deduped by `@@unique([orderId, "refund_checkin"])`. Excludes archived/deleted.
 - All sends go to `order.user.email`. No global `REMINDER_EMAIL` anywhere in active code.
+
+### Marketing page routing (`proxy.ts`)
+- `MARKETING_HOSTNAMES = ["myreturnwindow.com", "www.myreturnwindow.com"]` — both already alias to this same Vercel deployment.
+- Host check runs before the `req.auth` check. A matching host rewrites `/` to `/marketing` and returns immediately — no session lookup, no login redirect.
+- Every other hostname (`app.myreturnwindow.com`, `returns-assistant.vercel.app`, previews, localhost) falls through to the existing auth-gated dashboard behavior, unchanged.
+- `/api/beta-signup` is public by omission — it's not in the `matcher` array, same pattern as `/api/inbound` and `/api/cron/*`.
 
 ### Tracking (`lib/trackingParser.ts`)
 - `parseTracking(plainText, rawHtml)` → `{ carrier, trackingNumber, trackingUrl }`.
