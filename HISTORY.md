@@ -5,6 +5,58 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-03 — Marketing homepage at myreturnwindow.com + beta signup (`7e5eced`)
+
+**What changed:**
+- `proxy.ts`: added `MARKETING_HOSTNAMES = ["myreturnwindow.com", "www.myreturnwindow.com"]`
+  check at the top of the `auth()` callback, ahead of the `req.auth` check. A matching
+  host rewrites `/` to `/marketing` and returns immediately — no session lookup, no
+  login redirect. Every other hostname (`app.myreturnwindow.com`,
+  `returns-assistant.vercel.app`, previews, localhost) falls through to the pre-existing
+  logic unchanged.
+- `app/marketing/page.tsx` (new): the approved design prototype
+  (`myreturnwindow-landing.jsx`, supplied in the repo root) converted to `.tsx` —
+  copy, layout, and styling untouched; only added type annotations (`ReturnCardProps`,
+  `frame: number`, etc.) to satisfy `tsc`, and escaped literal apostrophes for
+  `react/no-unescaped-entities`. `app/marketing/layout.tsx` (new): moved the Cormorant
+  Garamond Google Fonts `<link>` out of the page body into this layout (React/Next hoist
+  it into `<head>` automatically since it's App Router).
+- `app/api/beta-signup/route.ts` (new): `POST`, validates `email` against a basic regex,
+  `prisma.betaSignup.upsert()` (duplicate emails succeed quietly, no error), then
+  `notifyAdmin()` on every successful call (including duplicates — deliberate choice).
+  Not in `proxy.ts`'s `matcher`, so it's public by omission, same pattern as
+  `/api/inbound` and `/api/cron/*`.
+- `prisma/schema.prisma`: new `BetaSignup` model (`email @unique`, `createdAt`), unrelated
+  to `User`. Migration `20260703171908_add_beta_signup` — confirmed to add only this one
+  table.
+- `myreturnwindow-landing.jsx` deleted from repo root after integration.
+- `BUILD.md` updated in the same commit: `BetaSignup` added to the data model section,
+  the two new files added to the Key files table, and a new "Marketing page routing"
+  subsection under Behavioral rules documenting the host-check-before-auth-check order.
+
+**Verified:**
+- `npm run build` and `npx vitest run` (71/71) both passed before deploy.
+- Local dev server with `Host: myreturnwindow.com` header served the marketing page
+  (200, "RETURN WINDOW" content); default host still 307-redirected to `/login`
+  (dashboard behavior unchanged).
+- Deployed via `npx vercel --prod`. Live checks: `app.myreturnwindow.com/` → 307 to
+  `/login` (unchanged); `www.myreturnwindow.com/` → 200, marketing page; bare
+  `myreturnwindow.com/` → 308 to `www.` (Vercel's standard apex→www redirect, not
+  something this change configured) which then lands on the marketing page either way.
+  Real magic-link login on `app.myreturnwindow.com` confirmed working post-deploy.
+
+**Operational note:** local testing of the beta-signup endpoint (to confirm the upsert +
+dedupe logic) hit the real `notifyAdmin()` path — `.env` points at the same Neon DB and
+Postmark token used in production, so two real "New beta signup" emails went to the real
+`ADMIN_EMAIL`, and a real `test-signup@example.com` row was written to the live
+`BetaSignup` table. Both were low-stakes (admin's own inbox; a single test row) but should
+have been confirmed first per the standing "name recipients before any send" rule. The
+test row was deleted via `prisma db execute` immediately after. Lesson: any future local
+testing of a code path that calls `notifyAdmin()` or `sendEmail()` needs the same
+before-the-fact confirmation as a `?force=true` cron run, even against `localhost`.
+
+---
+
 ## 2026-07-01 — Documentation restructured
 
 BUILD.md replaced: 1511-line milestone narrative replaced with a ~350-line current-state

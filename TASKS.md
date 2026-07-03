@@ -23,9 +23,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **Marketing homepage at myreturnwindow.com + beta signup** — public-facing
-      homepage at the root domain (not app.) explaining what Return Window is, with a
-      way for people to sign up for the beta. (Moved up from Next.)
 - [ ] **Fix account bugs found in manual review** — bugs observed in owner's account;
       list to be enumerated this session before fixes start. Related: the pending
       manual UX review item in Next — fold any findings from it in here.
@@ -79,6 +76,7 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] Marketing homepage at myreturnwindow.com shipped with beta signup — public marketing page (host-routed, no auth), `/api/beta-signup` storing + deduping emails and notifying admin; magic-link login on app.myreturnwindow.com verified unaffected.
 - [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — landed correctly.
 - [x] Documentation restructured — BUILD.md trimmed to current-state reference; HISTORY.md created with full chronological detail; TASKS.md Done section reformatted to one-liners.
 - [x] Dashboard UI additions — "Track your return" link, "Mark as refunded" button, Archive/Unarchive button, and Archived filter tab added to dashboard and order detail page.
