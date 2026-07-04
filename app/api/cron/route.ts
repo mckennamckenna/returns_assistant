@@ -141,7 +141,11 @@ export async function GET(request: NextRequest) {
   }[] = [];
 
   for (const order of orders) {
-    const asReminderOrder: OrderForReminder = { returnDeadline: order.returnDeadline, status: order.status };
+    const asReminderOrder: OrderForReminder = {
+      returnDeadline: order.returnDeadline,
+      status: order.status,
+      displayStatus: order.displayStatus,
+    };
 
     let reminderType = reminderTypeForOrder(asReminderOrder, today);
 

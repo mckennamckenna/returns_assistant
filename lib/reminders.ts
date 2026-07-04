@@ -12,9 +12,17 @@ const DAYS_BEFORE_DEADLINE: Record<ReminderType, number> = {
 // the return.
 const SKIP_STATUSES = ["completed", "expired", "return_started"];
 
+// User-facing statuses where a deadline reminder is a silent violation of
+// the email-first principle: the user has told us this is finished
+// (returned) or fully closed out (refunded), so no more emails should
+// follow. Deliberately NOT "return_requested" — the window is still open
+// and the package may not have shipped yet, so the reminder still matters.
+const SKIP_DISPLAY_STATUSES = ["returned", "refunded"];
+
 export interface OrderForReminder {
   returnDeadline: Date | null;
   status: string;
+  displayStatus: string;
 }
 
 // Calendar-day difference, ignoring time-of-day — a deadline of "today at
@@ -31,6 +39,7 @@ export function daysUntil(deadline: Date, today: Date): number {
 // this order ever get a reminder" without also requiring an exact day match.
 export function isEligibleForReminder(order: OrderForReminder): order is OrderForReminder & { returnDeadline: Date } {
   if (SKIP_STATUSES.includes(order.status)) return false;
+  if (SKIP_DISPLAY_STATUSES.includes(order.displayStatus)) return false;
   // Covers "needsReview with no confirmed deadline" — can't remind about a
   // deadline we don't have, regardless of why it's missing.
   return order.returnDeadline != null;

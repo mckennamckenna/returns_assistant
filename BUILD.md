@@ -350,7 +350,7 @@ The no-buffer rule for order-date-anchored policies is intentional and was a rea
 - Hard-delete: `HARD_DELETE_DAYS = 30`. Nightly cron runs `prisma.order.deleteMany({ where: { deletedAt: { lte: hardDeleteCutoff(now) } } })` as its first step.
 
 ### Reminders
-- **Deadline reminders:** `7_day` / `2_day` / `1_day` / `same_day`. Deduped by `@@unique([orderId, reminderType])`.
+- **Deadline reminders:** `7_day` / `2_day` / `1_day` / `same_day`. Deduped by `@@unique([orderId, reminderType])`. Skipped when internal `status` is `completed`/`expired`/`return_started`, or when user-facing `displayStatus` is `returned`/`refunded` (`lib/reminders.ts` `isEligibleForReminder()`) — deliberately NOT skipped on `return_requested`, since the window is still open and the package may not have shipped. Query excludes archived/deleted orders via `reminderOrderWhere()` (`lib/orderFilters.ts`).
 - **Weekly digest:** Sundays 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`, excludes `archivedAt`/`deletedAt`. Per-user dedup via lookback query (no `orderId` on this row type).
 - **Friday alpha coverage check:** `ALPHA_MODE=true` only. Per-user, lookback 7 days.
 - **Refund check-in:** 5 days after `returnedAt` when `returnTrackingNumber` is set; 10 days otherwise. Deduped by `@@unique([orderId, "refund_checkin"])`. Excludes archived/deleted.
