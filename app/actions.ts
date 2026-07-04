@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { auth, signOut } from "@/auth";
 import { approveOrder, splitOrder } from "@/lib/orderReview";
-import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
+import { DISPLAY_STATUS_RANK, buildStatusTransitionData } from "@/lib/displayStatus";
 
 export async function deleteEmail(emailId: string): Promise<void> {
   const session = await auth();
@@ -64,7 +64,7 @@ async function advanceDisplayStatus(orderId: string, nextStatus: string): Promis
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { userId: true, displayStatus: true, returnedAt: true },
+    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true },
   });
   if (!order || order.userId !== session.user.id) return;
 
@@ -72,10 +72,7 @@ async function advanceDisplayStatus(orderId: string, nextStatus: string): Promis
   const nextRank = DISPLAY_STATUS_RANK[nextStatus] ?? 0;
   if (nextRank <= currentRank) return;
 
-  const data: { displayStatus: string; returnedAt?: Date } = { displayStatus: nextStatus };
-  if (nextStatus === "returned" && !order.returnedAt) {
-    data.returnedAt = new Date();
-  }
+  const data = buildStatusTransitionData(nextStatus, order);
 
   await prisma.order.update({ where: { id: orderId }, data });
   revalidatePath("/");

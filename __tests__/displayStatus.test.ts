@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { deriveDisplayStatus, DISPLAY_STATUS_RANK } from "../lib/displayStatus";
+import {
+  deriveDisplayStatus,
+  DISPLAY_STATUS_RANK,
+  buildStatusTransitionData,
+  requiresConfirmBeforeStatusChange,
+} from "../lib/displayStatus";
 
 describe("deriveDisplayStatus", () => {
   // ── Basic derivation ──────────────────────────────────────────────────────
@@ -77,5 +82,62 @@ describe("DISPLAY_STATUS_RANK", () => {
     expect(DISPLAY_STATUS_RANK.shipped).toBeLessThan(DISPLAY_STATUS_RANK.return_requested);
     expect(DISPLAY_STATUS_RANK.return_requested).toBeLessThan(DISPLAY_STATUS_RANK.returned);
     expect(DISPLAY_STATUS_RANK.returned).toBeLessThan(DISPLAY_STATUS_RANK.refunded);
+  });
+});
+
+// ── buildStatusTransitionData: the refunded-misclick fix ────────────────────
+// Refunded auto-archives in the same write as the status change — both
+// fields must come from a single object passed to one prisma.order.update()
+// call, so the two writes are atomic by construction (not a follow-up write
+// from a hook/subscriber/cron).
+
+describe("buildStatusTransitionData", () => {
+  it("sets both displayStatus and a fresh archivedAt when transitioning to refunded (not yet archived)", () => {
+    const data = buildStatusTransitionData("refunded", { returnedAt: new Date("2026-06-30T00:00:00Z"), archivedAt: null });
+    expect(data.displayStatus).toBe("refunded");
+    expect(data.archivedAt).toBeInstanceOf(Date);
+  });
+
+  it("does NOT overwrite an existing archivedAt when the order was already archived before refunding", () => {
+    const existingArchivedAt = new Date("2026-06-20T00:00:00Z");
+    const data = buildStatusTransitionData("refunded", { returnedAt: new Date("2026-06-30T00:00:00Z"), archivedAt: existingArchivedAt });
+    expect(data.displayStatus).toBe("refunded");
+    expect(data.archivedAt).toBeUndefined(); // omitted entirely — update() won't touch the column
+  });
+
+  it("does not set archivedAt when transitioning to returned (only refunded auto-archives)", () => {
+    const data = buildStatusTransitionData("returned", { returnedAt: null, archivedAt: null });
+    expect(data.displayStatus).toBe("returned");
+    expect(data.archivedAt).toBeUndefined();
+  });
+
+  it("sets returnedAt once on first arrival at returned (existing behavior, unchanged)", () => {
+    const data = buildStatusTransitionData("returned", { returnedAt: null, archivedAt: null });
+    expect(data.returnedAt).toBeInstanceOf(Date);
+  });
+
+  it("does not reset returnedAt if already set", () => {
+    const existingReturnedAt = new Date("2026-06-25T00:00:00Z");
+    const data = buildStatusTransitionData("returned", { returnedAt: existingReturnedAt, archivedAt: null });
+    expect(data.returnedAt).toBeUndefined();
+  });
+});
+
+// ── requiresConfirmBeforeStatusChange: the confirm-dialog gate ──────────────
+// "Mark as refunded" needs a confirm (irreversible in the UI, auto-archives).
+// "Mark as returned" / "Mark as return-requested" must NOT — this is the
+// regression guard for the misclick fix: only refunded should ever gate.
+
+describe("requiresConfirmBeforeStatusChange", () => {
+  it("requires confirmation before transitioning to refunded", () => {
+    expect(requiresConfirmBeforeStatusChange("refunded")).toBe(true);
+  });
+
+  it("does NOT require confirmation before transitioning to returned (regression guard)", () => {
+    expect(requiresConfirmBeforeStatusChange("returned")).toBe(false);
+  });
+
+  it("does NOT require confirmation before transitioning to return_requested", () => {
+    expect(requiresConfirmBeforeStatusChange("return_requested")).toBe(false);
   });
 });

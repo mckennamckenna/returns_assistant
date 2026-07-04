@@ -23,6 +23,11 @@
 ---
 
 ## 🔴 Now
+- [ ] **Fix refunded-misclick problem** — confirm dialog on "Mark as refunded" (teaching
+      copy), auto-archive on refunded transition (atomic write, same handler), backfill
+      existing refunded orders, fix the one real H&M order (`66993117803`) accidentally
+      refunded today (2026-07-03) back to returned. New rule from last session applies:
+      not ✅ Done until owner hand-tests and confirms in production.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 

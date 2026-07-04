@@ -2,10 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction, markRefundedAction } from "./actions";
+import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
 import { SoftDeleteOrderButton } from "./SoftDeleteOrderButton";
 import { ArchiveOrderButton } from "./ArchiveOrderButton";
+import { MarkRefundedButton } from "./MarkRefundedButton";
 import { DisplayStatusBadge } from "./DisplayStatusBadge";
 import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 import { ReviewCard } from "./ReviewCard";
@@ -329,11 +330,10 @@ export default async function Home({
                       </form>
                     )}
                     {order.displayStatus === "returned" && (
-                      <form action={markRefundedAction.bind(null, order.id)}>
-                        <button type="submit" className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline">
-                          Mark as refunded
-                        </button>
-                      </form>
+                      <MarkRefundedButton
+                        orderId={order.id}
+                        className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline"
+                      />
                     )}
                     <div className="ml-auto flex items-center gap-1">
                       <ArchiveOrderButton
@@ -434,11 +434,10 @@ export default async function Home({
                       <td className="py-3 pr-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {order.displayStatus === "returned" && (
-                            <form action={markRefundedAction.bind(null, order.id)}>
-                              <button type="submit" className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline whitespace-nowrap">
-                                Mark as refunded
-                              </button>
-                            </form>
+                            <MarkRefundedButton
+                              orderId={order.id}
+                              className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline whitespace-nowrap"
+                            />
                           )}
                           <ArchiveOrderButton
                             orderId={order.id}

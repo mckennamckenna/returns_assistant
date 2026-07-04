@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { ALLOWED_MANUAL_STATUSES, DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
+import { ALLOWED_MANUAL_STATUSES, DISPLAY_STATUS_RANK, buildStatusTransitionData } from "@/lib/displayStatus";
 
 export async function PATCH(
   req: NextRequest,
@@ -34,7 +34,7 @@ export async function PATCH(
 
   const order = await prisma.order.findUnique({
     where: { id },
-    select: { userId: true, displayStatus: true, returnedAt: true },
+    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true },
   });
 
   if (!order || order.userId !== session.user.id) {
@@ -51,16 +51,13 @@ export async function PATCH(
     );
   }
 
-  const data: { displayStatus: string; returnedAt?: Date } = { displayStatus: status };
-  if (status === "returned" && !order.returnedAt) {
-    data.returnedAt = new Date();
-  }
+  const data = buildStatusTransitionData(status, order);
 
   const updated = await prisma.order.update({
     where: { id },
     data,
-    select: { displayStatus: true },
+    select: { displayStatus: true, archivedAt: true },
   });
 
-  return NextResponse.json({ displayStatus: updated.displayStatus });
+  return NextResponse.json({ displayStatus: updated.displayStatus, archivedAt: updated.archivedAt });
 }

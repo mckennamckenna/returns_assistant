@@ -2,9 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, markReturnRequestedAction, markReturnedAction, markRefundedAction } from "@/app/actions";
+import { deleteEmail, markReturnRequestedAction, markReturnedAction } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
+import { MarkRefundedButton } from "@/app/MarkRefundedButton";
 import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
 import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
 
@@ -208,14 +209,10 @@ export default async function OrderDetail({
             </form>
           )}
           {order.displayStatus === "returned" && (
-            <form action={markRefundedAction.bind(null, order.id)}>
-              <button
-                type="submit"
-                className="bg-emerald-50 text-emerald-700 text-sm font-medium rounded px-4 py-2 hover:bg-emerald-100 border border-emerald-200"
-              >
-                Mark as refunded
-              </button>
-            </form>
+            <MarkRefundedButton
+              orderId={order.id}
+              className="bg-emerald-50 text-emerald-700 text-sm font-medium rounded px-4 py-2 hover:bg-emerald-100 border border-emerald-200"
+            />
           )}
           <ArchiveOrderButton
             orderId={order.id}

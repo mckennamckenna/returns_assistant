@@ -342,6 +342,9 @@ The no-buffer rule for order-date-anchored policies is intentional and was a rea
 - Auto-advance rules (in `deriveDisplayStatus`): `return_label` → `return_requested`; `shipping_confirmation` or `delivery` → `shipped`; else → `ordered`. No auto-advance past `return_requested`.
 - `PATCH /api/orders/:id/status` accepts `return_requested`/`returned`/`refunded`. Rejects backwards movement (400). Sets `returnedAt` on the first transition to `"returned"`.
 - `advanceDisplayStatus()` in `app/actions.ts` also sets `returnedAt` when advancing to `"returned"` for the first time.
+- Both of the above build their `prisma.order.update()` data via the shared `buildStatusTransitionData()` (`lib/displayStatus.ts`), so the two implementations of the same transition contract can't drift apart.
+- **Refunded auto-archives, atomically:** transitioning to `"refunded"` sets `archivedAt = now()` in the *same* `update()` call as `displayStatus` — refunded is "chapter closed," same as a manual archive. If the order is already archived, `archivedAt` is left untouched (not overwritten). Unarchiving a refunded order does not reverse `displayStatus` — refunded stays one-way; archive is just visibility.
+- **Confirm gate:** the dashboard/detail-page "Mark as refunded" button (`app/MarkRefundedButton.tsx`) shows a native `window.confirm()` with teaching copy before submitting — refunded is irreversible in the UI and has the archiving side effect, both surprising enough to warrant explanation, not just "are you sure?". `requiresConfirmBeforeStatusChange()` gates only `"refunded"` — `"return_requested"` and `"returned"` stay frictionless.
 
 ### Active order filter (`lib/orderFilters.ts`)
 - `activeOrderFilter = { archivedAt: null, deletedAt: null }` — spread into all queries that should exclude archived/deleted orders: digest, daily reminder cron, refund check-in.
@@ -353,7 +356,7 @@ The no-buffer rule for order-date-anchored policies is intentional and was a rea
 - **Deadline reminders:** `7_day` / `2_day` / `1_day` / `same_day`. Deduped by `@@unique([orderId, reminderType])`. Skipped when internal `status` is `completed`/`expired`/`return_started`, or when user-facing `displayStatus` is `returned`/`refunded` (`lib/reminders.ts` `isEligibleForReminder()`) — deliberately NOT skipped on `return_requested`, since the window is still open and the package may not have shipped. Query excludes archived/deleted orders via `reminderOrderWhere()` (`lib/orderFilters.ts`).
 - **Weekly digest:** Sundays 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`, excludes `archivedAt`/`deletedAt`. Per-user dedup via lookback query (no `orderId` on this row type).
 - **Friday alpha coverage check:** `ALPHA_MODE=true` only. Per-user, lookback 7 days.
-- **Refund check-in:** 5 days after `returnedAt` when `returnTrackingNumber` is set; 10 days otherwise. Deduped by `@@unique([orderId, "refund_checkin"])`. Excludes archived/deleted.
+- **Refund check-in:** 5 days after `returnedAt` when `returnTrackingNumber` is set; 10 days otherwise. Deduped by `@@unique([orderId, "refund_checkin"])`. Excludes archived/deleted. `refundCheckinOrderWhere()` (`lib/refundCheckin.ts`) requires `displayStatus: "returned"` exactly — once an order transitions to `"refunded"` it no longer matches this query at all, independent of archive state. Auto-archiving a refunded order is a second, redundant layer of exclusion here (via `activeOrderFilter`), not the mechanism that suppresses it — the `displayStatus` mismatch alone already does that.
 - All sends go to `order.user.email`. No global `REMINDER_EMAIL` anywhere in active code.
 
 ### Marketing page routing (`proxy.ts`)
