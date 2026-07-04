@@ -23,11 +23,11 @@
 ---
 
 ## 🔴 Now
-- [ ] **Fix refunded-misclick problem** — confirm dialog on "Mark as refunded" (teaching
-      copy), auto-archive on refunded transition (atomic write, same handler), backfill
-      existing refunded orders, fix the one real H&M order (`66993117803`) accidentally
-      refunded today (2026-07-03) back to returned. New rule from last session applies:
-      not ✅ Done until owner hand-tests and confirms in production.
+- [ ] **Fix returnPortalUrl scheme bug** — "Start return" 404'd on the MANGO order
+      because the stored/rendered URL had no `https://`, so the browser treated it as a
+      relative path. Diagnose data-layer vs render-layer, fix the actual broken layer,
+      add `normalizeReturnPortalUrl()` at all write points, backfill existing rows. Not
+      ✅ Done until owner hand-tests and confirms in production.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
@@ -89,6 +89,7 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] Refunded-misclick fix: confirm dialog on "Mark as refunded", auto-archive on refunded (atomic), H&M order corrected — owner hand-tested and confirmed in production.
 - [x] Bug 1+6: Archive/Unarchive UI made visible; deadline reminders now respect displayStatus.
 - [x] Marketing homepage at myreturnwindow.com shipped with beta signup — public marketing page (host-routed, no auth), `/api/beta-signup` storing + deduping emails and notifying admin; magic-link login on app.myreturnwindow.com verified unaffected.
 - [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — landed correctly.

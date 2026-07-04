@@ -80,8 +80,10 @@ at that point it was still `"refunded"`). After: `displayStatus: "returned"`,
 `returnedAt` — 10-day delay applies (no `returnTrackingNumber`), due 2026-07-13.
 
 **Verified:** `npm run build` + `npx vitest run` (85/85) before deploy. Deployed via
-`npx vercel --prod`, aliased to `app.myreturnwindow.com`. **Awaiting owner hand-test**
-before marking ✅ Done in TASKS.md, per the standing rule from the prior session.
+`npx vercel --prod`, aliased to `app.myreturnwindow.com`. Owner hand-tested and
+confirmed in production: refunded lands in Archived, H&M order showed as Returned, and
+owner re-triggered the refunded transition on the H&M order as a deliberate test of the
+new confirm dialog + auto-archive flow — worked as expected.
 
 ---
 
