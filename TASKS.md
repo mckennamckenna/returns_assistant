@@ -94,9 +94,11 @@
 - [ ] Cost / token efficiency pass (post-beta) — Anthropic prompt caching on the
       extraction API call (biggest lever, ~1 session of work, drops input cost ~80%, no
       quality risk). Cache return policies by retailer domain (compounds with user
-      growth). Move classify step to Haiku 4.5, keep extraction on Sonnet 4.6.
-      Retailer-specific template parsers for the top ~10 retailers as short-circuit
-      before AI extraction (higher effort, needs monitoring for template drift). Batch
+      growth). Move any remaining Sonnet calls that don't need Sonnet-quality to Haiku
+      4.5 (audit which calls actually need extraction-grade reasoning vs.
+      classification-grade). Retailer-specific template parsers for the top ~10
+      retailers as short-circuit before AI extraction (higher effort, needs monitoring
+      for template drift). Batch
       API for non-urgent backend work. None urgent at current volume — but revisit
       before >20 real users, or when a monthly Anthropic bill first makes you flinch.
       Prompt caching alone can be pulled forward from Someday if pre-beta AI cost
