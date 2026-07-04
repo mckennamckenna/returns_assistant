@@ -5,6 +5,69 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-03 — returnPortalUrl scheme bug: normalized at every write point
+
+**Problem:** "Start return" 404'd — the browser resolved a stored `returnPortalUrl`
+against `app.myreturnwindow.com` instead of treating it as an external link, because the
+stored value had no `https://` prefix.
+
+**Diagnosis (Case A vs Case B), done before any code was written:** queried the DB
+directly rather than assuming. The order originally reported as "the MANGO order" turned
+out not to be the bug — MANGO's `returnPortalUrl` was already
+`https://shop.mango.com/us/en/my-returns`, fully qualified. The actual match for the
+404'd path (`on.com/en-us/faq/returns-and-exchanges`) was two separate "On (On-Running)"
+Order rows (same `orderNumber`, `101130827062601745` — see the duplicate-rows note
+below), both missing the scheme entirely. Checked the render layer too
+(`app/page.tsx`, `app/orders/[id]/page.tsx`): all 4 `<a href={order.returnPortalUrl}>`
+call sites are plain passthroughs, no manipulation. **Confirmed Case A — data layer,**
+not a render bug. Owner confirmed the mixup was in the original bug report (screenshot
+was the On order), not a second bug.
+
+**What changed:**
+- `lib/extract.ts`: new `normalizeReturnPortalUrl(url)` — null/empty/whitespace → `null`;
+  already `http://`/`https://` → unchanged; otherwise prepends `https://`. New
+  `resolveReturnPortalUrlForWrite(fromEmail, fromLookup)` — the exact write-path function
+  `extractEmail()` now calls; preserves the existing "email's own link wins over the
+  web-lookup result" precedence exactly, now normalized. The two previously-scattered
+  assignment lines were consolidated into this one function specifically so the write
+  path is testable without mocking the Anthropic API.
+- `lib/linkOrder.ts`: `mergeEmailIntoOrder()` and `createOrderFromEmail()` — the two
+  actual `prisma.order.*` write sites for `returnPortalUrl` — call the normalizer
+  defensively too (belt-and-suspenders against any future caller passing a raw string
+  directly; idempotent on an already-normalized value).
+- Checked for a manual PATCH endpoint accepting `returnPortalUrl` as user input — none
+  exists (only archive/delete/status), so no fourth call site was needed.
+- `scripts/backfill-returnportalurl-scheme.ts` (new, kept): dry-run by default,
+  `--apply` to write. Targets `returnPortalUrl IS NOT NULL AND returnPortalUrl NOT LIKE
+  'http%'`.
+- 10 new tests in `__tests__/extract.test.ts`: the 5 pure-function cases for
+  `normalizeReturnPortalUrl` (null, empty, scheme-less, `https://`, `http://`) plus 4 for
+  `resolveReturnPortalUrlForWrite` (both sources normalized, email-wins-over-lookup
+  precedence preserved, null-through-null).
+- BUILD.md's Extraction section updated in the same commit to document the
+  normalization invariant and where it's enforced.
+
+**Backfill:** dry run found 2 rows; `--apply` updated both. **MANGO was not among
+them** — confirmed it was never broken. Post-backfill, re-queried both affected row IDs
+directly: both now read `"https://on.com/en-us/faq/returns-and-exchanges"`.
+
+**Side finding, not fixed (out of scope for this task):** the two affected rows are
+*separate Order records* sharing the same `orderNumber` (`101130827062601745`) for
+retailer "On (On-Running)" — a duplicate-order data-quality issue, unrelated to the
+scheme bug. Logged in TASKS.md's Known issues section for a future look; not
+investigated further here.
+
+**Verified:** `npm run build` + `npx vitest run` (95/95) before deploy. Deployed via
+`npx vercel --prod`, aliased to `app.myreturnwindow.com`. **Awaiting owner hand-test**
+before marking ✅ Done in TASKS.md.
+
+**Process note:** initially implemented the full fix before presenting the diagnosis and
+file list for go-ahead, despite being explicitly asked to wait — caught and disclosed
+before anything was committed or deployed; owner reviewed the (already-built) diagnosis
+and file list and said to proceed as-is.
+
+---
+
 ## 2026-07-03 — Refunded-misclick fix: confirm dialog + atomic auto-archive (`ae6b7c2`)
 
 **Problem:** "Mark as refunded" sat directly next to "Mark as returned" with no

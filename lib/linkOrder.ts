@@ -1,6 +1,6 @@
 import type { Order, Email } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { computeDeadline } from "@/lib/extract";
+import { computeDeadline, normalizeReturnPortalUrl } from "@/lib/extract";
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyText } from "@/lib/emailBodyText";
 import { deriveDisplayStatus } from "@/lib/displayStatus";
@@ -365,7 +365,7 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
       orderTotal: mergedOrderTotal,
       orderCurrency: email.orderCurrency ?? existing.orderCurrency,
       lineItems: mergedLineItems as object,
-      returnPortalUrl: returnPortalUrl ?? existing.returnPortalUrl,
+      returnPortalUrl: normalizeReturnPortalUrl(returnPortalUrl) ?? normalizeReturnPortalUrl(existing.returnPortalUrl),
     },
   });
   return updated.id;
@@ -395,7 +395,7 @@ export async function createOrderFromEmail(
       orderTotal: email.orderTotal,
       orderCurrency: email.orderCurrency,
       lineItems: asLineItemArray(email.lineItems) as object,
-      returnPortalUrl,
+      returnPortalUrl: normalizeReturnPortalUrl(returnPortalUrl),
     },
   });
   return created.id;

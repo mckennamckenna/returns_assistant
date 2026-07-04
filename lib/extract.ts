@@ -254,6 +254,30 @@ export function computeDeadline(parsed: {
   return { returnDeadline: null, deadlineIsEstimated: false };
 }
 
+// Pure function — safe to test without DB, mocks, or an API call.
+// The AI (both the email-body extraction and the web-search policy lookup)
+// sometimes returns a bare domain/path instead of a fully-qualified URL
+// (e.g. "on.com/en-us/faq/returns-and-exchanges" — a real extracted value).
+// Stored or rendered as-is, the browser treats that as a relative path
+// against the current origin and 404s. Call this at every point
+// returnPortalUrl enters the DB.
+export function normalizeReturnPortalUrl(url: string | null): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+// Resolves the returnPortalUrl that will be persisted: the email's own
+// stated link wins when present; otherwise falls back to the web-lookup
+// result. Exported so this write-path shape — including normalization —
+// is testable without calling the Anthropic API.
+export function resolveReturnPortalUrlForWrite(
+  fromEmail: string | null,
+  fromLookup: string | null,
+): string | null {
+  return normalizeReturnPortalUrl(fromEmail ?? fromLookup);
+}
+
 export async function extractEmail(textBody: string, subject: string | null): Promise<ExtractionResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
@@ -268,17 +292,15 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
 
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
-  // The email's own link wins when present — only fall back to the web
-  // lookup's URL (which only runs at all when returnWindowDays is still
-  // null) when the email itself didn't link to one.
-  let returnPortalUrl: string | null = parsed.returnPortalUrlFromEmail ?? null;
+  const returnPortalUrlFromEmail: string | null = parsed.returnPortalUrlFromEmail ?? null;
+  let returnPortalUrlFromLookup: string | null = null;
 
   if (parsed.returnWindowDays != null) {
     policySource = "email";
   } else if (parsed.retailer) {
     try {
       const lookup = await lookupReturnPolicy(parsed.retailer);
-      returnPortalUrl = returnPortalUrl ?? lookup.returnPortalUrl;
+      returnPortalUrlFromLookup = lookup.returnPortalUrl;
 
       if (lookup.returnWindowDays != null && lookup.confidence !== "low") {
         parsed.returnWindowDays = lookup.returnWindowDays;
@@ -296,6 +318,7 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
   }
 
   const { returnDeadline, deadlineIsEstimated } = computeDeadline(parsed);
+  const returnPortalUrl = resolveReturnPortalUrlForWrite(returnPortalUrlFromEmail, returnPortalUrlFromLookup);
 
   const isCommerceEmail = parsed.emailType !== "other";
   const needsReview =

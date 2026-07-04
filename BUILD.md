@@ -14,6 +14,31 @@ the return-window deadline and sends reminders before it passes.
 
 ---
 
+## Email-first principle
+
+The product's core promise is a reminder landing at the right moment — every state
+transition is judged by what it does to that promise, not just what it does to the UI.
+Two states are "chapter closed, no more emails," and every code path that can reach them
+must independently agree:
+
+- **Archived** means the order is put away. No deadline reminder, no refund check-in —
+  enforced at the query level everywhere (`activeOrderFilter` / `reminderOrderWhere()` /
+  `refundCheckinOrderWhere()`, all in `lib/orderFilters.ts` / `lib/refundCheckin.ts`).
+- **Refunded** means the user told us the loop is closed. It auto-archives in the same
+  atomic write (`buildStatusTransitionData()`, `lib/displayStatus.ts`) and is independently
+  excluded from deadline reminders by `displayStatus` (`isEligibleForReminder()`,
+  `lib/reminders.ts`) and from refund check-in by `displayStatus` alone
+  (`refundCheckinOrderWhere()` requires exactly `"returned"` — `"refunded"` never matches,
+  archived or not). Two independent reasons converge on the same silence — not one
+  mechanism wearing two hats.
+
+Because "no more emails" is a promise, not just a filter, any new state or transition
+that can plausibly mean "this order is done" should be checked against both the deadline
+cron and the refund check-in query before it ships — a state that's silently excluded
+from one but not the other is exactly the bug class this section exists to prevent.
+
+---
+
 ## Stack
 
 - **Framework:** Next.js (App Router) + TypeScript
@@ -306,6 +331,7 @@ These apply to every code path, at every milestone.
 - **Return `null` for any field not clearly present.** Null + low confidence is always better than a wrong answer. A wrong deadline is worse than a missing one.
 - When `returnWindowDays` is null and `retailer` is known: run the web-search policy lookup (`buildPolicyLookupPrompt`). Set `policySource: "web_lookup"` on success; leave null + `needsReview: true` on ambiguous result.
 - `order_confirmation` totals are authoritative once present (`resolveOrderTotal()`) — no other email type can override them.
+- **`returnPortalUrl` is always normalized before it reaches the DB** via `normalizeReturnPortalUrl()` (`lib/extract.ts`): the AI (both email-body extraction and the web-search policy lookup) sometimes returns a bare domain/path instead of a fully-qualified URL — stored or rendered as-is, the browser treats that as a relative path against the current origin and 404s. `resolveReturnPortalUrlForWrite(fromEmail, fromLookup)` is the exact write-path function `extractEmail()` calls (email's own link wins over the lookup's); `lib/linkOrder.ts`'s `mergeEmailIntoOrder()` and `createOrderFromEmail()` call the normalizer again defensively at their `prisma.order.*` writes.
 
 ### `computeDeadline()` (exported from `lib/extract.ts`)
 

@@ -19,15 +19,18 @@
 > fixed X") must be added to Now or confirmed before proceeding — no silent scope creep.
 > At session close, state explicitly: committed? pushed? deployed? "Tests passed" does
 > not mean deployed. If any of those three didn't happen, say so plainly.
+>
+> **No ✅ in Done until the user has hand-verified in production — not just tests passing.**
+> Claude Code reports "awaiting user verification" instead of ✅.
 
 ---
 
 ## 🔴 Now
-- [ ] **Fix returnPortalUrl scheme bug** — "Start return" 404'd on the MANGO order
-      because the stored/rendered URL had no `https://`, so the browser treated it as a
-      relative path. Diagnose data-layer vs render-layer, fix the actual broken layer,
-      add `normalizeReturnPortalUrl()` at all write points, backfill existing rows. Not
-      ✅ Done until owner hand-tests and confirms in production.
+- [ ] **Fix returnPortalUrl scheme bug** — diagnosed as Case A (data layer): the actual
+      404'd order was "On (On-Running)" (`101130827062601745`), not MANGO as first
+      reported — MANGO's URL already had `https://`. `normalizeReturnPortalUrl()` added
+      at every write point (`lib/extract.ts`, `lib/linkOrder.ts`); backfill applied, 2
+      rows fixed (both "On" rows). Awaiting user verification before ✅.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
@@ -41,12 +44,11 @@
       dedicated entry points (Sidebar nav + Settings link, added by Bug 1 fix) — likely
       remove for clarity, but verify after Bug 1 ships. Deliberately not done in the
       same commit as the Bug 1 fix (scope control).
-- [ ] **Manual UX review of today's changes** — nothing shipped today was hand-tested
-      in production. Open `app.myreturnwindow.com` and verify: (1) Archive/Unarchive
-      button on an order, (2) "Archived" filter tab shows archived orders and hides
-      them from All, (3) delete button shows the confirm dialog before acting, (4)
-      "Mark as refunded" appears on a returned order and advances its status, (5)
-      "Track your return →" link appears on any order where a return label was forwarded.
+- [ ] **Manual UX review, remaining items** — (1) Archive/Unarchive and (2) Archived
+      filter confirmed via the Bug 1 hand-test; "Mark as refunded" confirm dialog +
+      auto-archive confirmed via the refunded-misclick hand-test. Still unverified: (3)
+      delete button shows the confirm dialog before acting, (4) "Track your return →"
+      link appears on any order where a return label was forwarded.
 - [ ] **Clean up owner account test/dev data** so it reflects what a real first-time
       user would see. (Split out of the homepage item; do after homepage ships.)
 - [ ] Get **one friend** logged in and using it end-to-end (the real milestone)
@@ -109,6 +111,10 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Duplicate "On (On-Running)" order rows** — two separate Order records with the same
+  `orderNumber` (`101130827062601745`), found while diagnosing the returnPortalUrl scheme
+  bug (`lib/linkOrder.ts` matching). Not investigated further — out of scope for that fix.
+  Worth a look: likely a linking/matching gap, not a user action.
 - Order-number normalization is brittle across retailers (Mango is the first
   case; expect more retailer-specific suffix quirks).
 - Retailer-name prefix matching has a known collision risk: "American" (8 chars)
@@ -136,3 +142,14 @@
 - Outbound mail consolidated onto myreturnwindow.com — reminders from
   `reminders@myreturnwindow.com`, logins from `hello@myreturnwindow.com`
   (LOGIN_FROM_EMAIL ?? REMINDER_FROM_EMAIL fallback in auth.ts).
+- Marketing homepage host-routed at the proxy layer — `myreturnwindow.com` /
+  `www.myreturnwindow.com` serve `/marketing`, `app.myreturnwindow.com` keeps the
+  dashboard; host check runs before the auth check, not after.
+- Archive is the general-purpose "hide, but keep, and stop emailing" primitive; refunded
+  is the one manual displayStatus transition that auto-archives, atomically, in the same
+  write — not via a hook/cron/subscriber. See BUILD.md's Email-first principle.
+- "Mark as refunded" is the only manual status button with a confirm gate (native
+  `window.confirm`, teaching-copy message) — it's irreversible in the UI and has the
+  archiving side effect. "Mark as returned" and "I'm returning this" stay frictionless.
+- `returnPortalUrl` is normalized (scheme prepended if missing) at every DB write point —
+  belt-and-suspenders against the AI extracting a bare domain/path instead of a full URL.
