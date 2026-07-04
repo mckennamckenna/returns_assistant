@@ -28,12 +28,10 @@
 
 ## 🟡 Next
 - [ ] **Verify in production: archived orders with upcoming deadlines don't get
-      reminders** — pending real data.
-- [ ] **Verify in production: archived + returned/refunded orders don't get deadline
-      reminders** — Bug 1+6 shipped and unit tests pass, but no live orders were in
-      these states at verification time. Confirm when real data exists. [duplicate of
-      the item above — same underlying gap, added verbatim per two separate requests;
-      consolidate into one when either is picked up]
+      reminders** — pending real data (no order is currently both archived and has an
+      active deadline). The returned/refunded half of this check is now confirmed
+      against real data (MANGO #F4VLSF) — see HISTORY.md. Only the archived case is
+      still open.
 - [ ] **Reconsider Archived dropdown option in SearchFilterBar** now that there are two
       dedicated entry points (Sidebar nav + Settings link, added by Bug 1 fix) — likely
       remove for clarity, but verify after Bug 1 ships. Deliberately not done in the

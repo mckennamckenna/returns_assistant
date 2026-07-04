@@ -109,6 +109,25 @@ basis. **Still open:** live-data confirmation once a real order exists in one of
 states — tracked in TASKS.md 🟡 Next ("Verify in production: archived orders with
 upcoming deadlines don't get reminders — pending real data").
 
+**Update — real-data verification found:** MANGO #F4VLSF in production is
+`displayStatus: "returned"`, `returnDeadline: 2026-07-05T12:04:00.000Z` (2 days out —
+would otherwise be a `2_day` reminder). Called the real, shipped `reminderTypeForOrder`
+(not a reimplementation) via a temporary vitest file, then deleted it:
+- As actually stored (`status: "return_started"`, `displayStatus: "returned"`) →
+  `reminderTypeForOrder` returns `null`. But `"return_started"` was already in the
+  pre-existing `SKIP_STATUSES` list before Bug 6 existed, so this result alone is
+  overdetermined — it doesn't prove the new `displayStatus` check is what's doing the
+  work.
+- Isolated the Bug 6 code path specifically: same `displayStatus`/`returnDeadline`, but
+  `status` forced to `"shipped"` (not in `SKIP_STATUSES`) → `isEligibleForReminder`
+  still returns `false`, `reminderTypeForOrder` still returns `null`. Confirms the
+  `displayStatus` check is independently sufficient to suppress the reminder, not just
+  riding along on the pre-existing status check.
+
+This closes the "returned/refunded-with-deadline" half of the pending live-data item
+against real production data. The "archived-with-upcoming-deadline" half remains open —
+no production order is currently archived with an active deadline to test against.
+
 ---
 
 ## 2026-07-03 — Marketing homepage at myreturnwindow.com + beta signup (`7e5eced`)
