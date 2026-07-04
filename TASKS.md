@@ -26,20 +26,17 @@
 ---
 
 ## 🔴 Now
-- [ ] **Fix returnPortalUrl scheme bug** — diagnosed as Case A (data layer): the actual
-      404'd order was "On (On-Running)" (`101130827062601745`), not MANGO as first
-      reported — MANGO's URL already had `https://`. `normalizeReturnPortalUrl()` added
-      at every write point (`lib/extract.ts`, `lib/linkOrder.ts`); backfill applied, 2
-      rows fixed (both "On" rows). Awaiting user verification before ✅.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
 ## 🟡 Next
 - [ ] **Verify in production: archived orders with upcoming deadlines don't get
       reminders** — pending real data (no order is currently both archived and has an
-      active deadline). The returned/refunded half of this check is now confirmed
-      against real data (MANGO #F4VLSF) — see HISTORY.md. Only the archived case is
-      still open.
+      active deadline). The returned/refunded half of this check was confirmed via an
+      isolated pure-function test against MANGO #F4VLSF's real data (see HISTORY.md) —
+      MANGO's actual deadline (Jul 5) passing over the next 48 hours with no reminder
+      sent is the natural live, end-to-end confirmation of that same behavior. Only the
+      archived-with-deadline case has no real candidate order yet.
 - [ ] **Reconsider Archived dropdown option in SearchFilterBar** now that there are two
       dedicated entry points (Sidebar nav + Settings link, added by Bug 1 fix) — likely
       remove for clarity, but verify after Bug 1 ships. Deliberately not done in the
@@ -61,6 +58,11 @@
       entries accumulate, user notes become indistinguishable from system notes
       in queries and the admin dashboard. Needs a proper field or audit log.
       Spawned by `2cb5de2`.
+- [ ] Archive page tidy-up — strip to essentials: archived orders + static chrome (nav,
+      menus) only. No filter dropdowns, no cross-bucket counts, no nudges toward active
+      orders. Archive is a quiet room, not another dashboard.
+- [ ] Investigate duplicate Order rows for On order 101130827062601745. LinkOrder merge
+      bug, or intentional? Cheap check, not urgent.
 
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **Post-beta: delivery-only orders (no `shipping_confirmation`)** — during alpha,
@@ -89,8 +91,19 @@
       Proenza Schouler from shipping vs order-confirmation templates). A
       prompt-level fix could reduce reliance on the retailer-prefix fallback.
       Surfaced by today's `2cb5de2`.
+- [ ] Cost / token efficiency pass (post-beta) — Anthropic prompt caching on the
+      extraction API call (biggest lever, ~1 session of work, drops input cost ~80%, no
+      quality risk). Cache return policies by retailer domain (compounds with user
+      growth). Move classify step to Haiku 4.5, keep extraction on Sonnet 4.6.
+      Retailer-specific template parsers for the top ~10 retailers as short-circuit
+      before AI extraction (higher effort, needs monitoring for template drift). Batch
+      API for non-urgent backend work. None urgent at current volume — but revisit
+      before >20 real users, or when a monthly Anthropic bill first makes you flinch.
+      Prompt caching alone can be pulled forward from Someday if pre-beta AI cost
+      becomes noticeable.
 
 ## ✅ Done
+- [x] returnPortalUrl scheme normalization: fixed 2 On order rows, added normalization helper called at every write path.
 - [x] Refunded-misclick fix: confirm dialog on "Mark as refunded", auto-archive on refunded (atomic), H&M order corrected — owner hand-tested and confirmed in production.
 - [x] Bug 1+6: Archive/Unarchive UI made visible; deadline reminders now respect displayStatus.
 - [x] Marketing homepage at myreturnwindow.com shipped with beta signup — public marketing page (host-routed, no auth), `/api/beta-signup` storing + deduping emails and notifying admin; magic-link login on app.myreturnwindow.com verified unaffected.
@@ -153,3 +166,14 @@
   archiving side effect. "Mark as returned" and "I'm returning this" stay frictionless.
 - `returnPortalUrl` is normalized (scheme prepended if missing) at every DB write point —
   belt-and-suspenders against the AI extracting a bare domain/path instead of a full URL.
+- "Mark as refunded" stays gated to returned status only. Skipping to refunded from
+  earlier states would bypass the returnedAt timestamp and silently kill the refund
+  check-in reminder. Two clicks (returned → refunded) is the price of the reminder chain
+  staying intact.
+- Component testing philosophy: no jsdom / testing-library. Extract UI decision logic
+  into pure functions and test those; keep the codebase's existing pure-function unit
+  test shape until there's a deliberate reason to change it.
+- Diagnostic-first debugging: verify the reported symptom against DB/code state before
+  writing a fix. If the diagnostic contradicts the report, ask before proceeding rather
+  than fixing the wrong thing. Pattern proven today by the MANGO→On mixup catch (Bug 3)
+  and last session's "was Bug 1 even deployed?" catch.
