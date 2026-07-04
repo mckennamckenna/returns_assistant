@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { reminderTypeForOrder, isEligibleForReminder, daysUntil, type OrderForReminder, type ReminderType } from "@/lib/reminders";
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
-import { activeOrderFilter, hardDeleteCutoff } from "@/lib/orderFilters";
+import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
 import { runRefundCheckinReminders } from "@/lib/refundCheckin";
 
 export const dynamic = "force-dynamic";
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
   // Each order's reminder goes to its own owner now, not a single global
   // recipient — see BUILD.md Milestone 8. Archived/deleted orders are excluded.
   const orders = await prisma.order.findMany({
-    where: { ...activeOrderFilter },
+    where: reminderOrderWhere(),
     include: { user: { select: { email: true } } },
   });
 

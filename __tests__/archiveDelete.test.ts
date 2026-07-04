@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hardDeleteCutoff, activeOrderFilter, HARD_DELETE_DAYS } from "../lib/orderFilters";
+import { hardDeleteCutoff, activeOrderFilter, reminderOrderWhere, HARD_DELETE_DAYS } from "../lib/orderFilters";
 
 // ── hardDeleteCutoff ──────────────────────────────────────────────────────────
 // The nightly cron permanently removes orders whose deletedAt is older than
@@ -68,6 +68,28 @@ describe("activeOrderFilter", () => {
 
   it("excludes an order that is both archived and soft-deleted", () => {
     expect(isVisible({ archivedAt: new Date(), deletedAt: new Date() })).toBe(false);
+  });
+});
+
+// ── reminderOrderWhere (daily deadline-reminder cron) ────────────────────────
+// Archive is a hard invariant under the email-first product principle:
+// "chapter closed, no more emails." This locks the cron's own order query to
+// the same active-order rule so a future edit can't silently start
+// reminding archived/deleted orders again.
+
+describe("reminderOrderWhere", () => {
+  it("matches activeOrderFilter exactly", () => {
+    expect(reminderOrderWhere()).toEqual(activeOrderFilter);
+  });
+
+  it("excludes an archived order from deadline reminders", () => {
+    const where = reminderOrderWhere();
+    expect(where.archivedAt).toBe(null);
+  });
+
+  it("excludes a soft-deleted order from deadline reminders", () => {
+    const where = reminderOrderWhere();
+    expect(where.deletedAt).toBe(null);
   });
 });
 

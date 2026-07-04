@@ -36,6 +36,16 @@ export default async function SettingsPage() {
         </div>
       </div>
 
+      <div className="border border-stone-200 rounded-lg p-4 mb-6">
+        <h2 className="font-semibold text-stone-800 mb-2">Archived orders</h2>
+        <p className="text-sm text-stone-500 mb-3">
+          Orders you&apos;ve archived are hidden from the dashboard and stop sending reminders.
+        </p>
+        <Link href="/?status=archived" className="text-sm text-stone-700 underline">
+          View archived orders
+        </Link>
+      </div>
+
       <div className="border border-red-200 rounded-lg p-4">
         <h2 className="font-semibold text-red-700 mb-2">Delete all my data</h2>
         <DeleteAllDataForm />

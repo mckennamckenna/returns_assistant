@@ -23,11 +23,21 @@
 ---
 
 ## 🔴 Now
-- [ ] **Fix account bugs found in manual review** — bugs observed in owner's account;
-      list to be enumerated this session before fixes start. Related: the pending
-      manual UX review item in Next — fold any findings from it in here.
+- [ ] **Bug 1: Archive/Unarchive UI not visible in production** — marked ✅ Done last
+      session (`9c9027e`) but not actually visible/working per owner's hand-test.
+      Diagnosing + fixing now. Acceptance: Archive button on every non-archived order
+      (list + detail), Unarchive on every archived order, "Archived" filter shows only
+      archived+non-deleted orders and excludes them from all other tabs, archived orders
+      fire zero reminders (cron + activeOrderFilter), build+tests pass, deployed. New
+      rule: do not mark ✅ Done until owner hand-tests and confirms in production.
+- [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
+      enumerated here. [needs clarification: full list]
 
 ## 🟡 Next
+- [ ] **Reconsider Archived dropdown option in SearchFilterBar** now that there are two
+      dedicated entry points (Sidebar nav + Settings link, added by Bug 1 fix) — likely
+      remove for clarity, but verify after Bug 1 ships. Deliberately not done in the
+      same commit as the Bug 1 fix (scope control).
 - [ ] **Manual UX review of today's changes** — nothing shipped today was hand-tested
       in production. Open `app.myreturnwindow.com` and verify: (1) Archive/Unarchive
       button on an order, (2) "Archived" filter tab shows archived orders and hides

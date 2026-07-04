@@ -26,6 +26,12 @@ export function Sidebar({ alertCount, accountLabel }: { alertCount: number; acco
         >
           Dashboard
         </Link>
+        <Link
+          href="/?status=archived"
+          className="flex items-center px-3 py-2 rounded-lg text-sm text-stone-600 hover:bg-stone-50"
+        >
+          Archived
+        </Link>
         <ComingSoonItem label="Returns" />
         <ComingSoonItem label="Purchases" />
         <ComingSoonItem label="Insights" />
