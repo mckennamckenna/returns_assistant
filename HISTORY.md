@@ -5,6 +5,86 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-03 — Refunded-misclick fix: confirm dialog + atomic auto-archive (`ae6b7c2`)
+
+**Problem:** "Mark as refunded" sat directly next to "Mark as returned" with no
+confirmation, so an accidental click silently killed the refund check-in reminder
+cycle for that order (refund check-in only targets `displayStatus: "returned"`, so a
+misclick to "refunded" drops it out of that query permanently) and made the order feel
+gone from the dashboard, since nothing else changed about it.
+
+**What changed:**
+- `lib/displayStatus.ts`: new `buildStatusTransitionData(nextStatus, current)` — the
+  single source of truth for what a manual status-transition `prisma.order.update()`
+  writes. Both `app/actions.ts`'s `advanceDisplayStatus()` (the actual live path the
+  dashboard buttons use — they're server-action form submissions, not fetches to the
+  PATCH route) and `PATCH /api/orders/:id/status` (a parallel, currently UI-unused
+  implementation of the same contract) now call it, so the two can't silently drift
+  apart. On `"refunded"`, it adds `archivedAt: new Date()` to the same data object —
+  one `update()` call, both fields, atomic by construction. If `archivedAt` is already
+  set, the key is omitted from the object entirely (mirrors the existing `returnedAt`
+  once-only pattern), so an existing archive timestamp is never overwritten.
+- `app/MarkRefundedButton.tsx` (new): client component gating "Mark as refunded" behind
+  a native `window.confirm()` (matches the existing delete-confirm pattern — owner chose
+  native over a custom modal; the teaching copy is in the message, button labels are the
+  browser's default OK/Cancel, not literal "Mark refunded"/"Cancel"). Calls the same
+  `markRefundedAction` server action directly rather than a form submission, so the
+  confirm can gate it. `requiresConfirmBeforeStatusChange()` in `lib/displayStatus.ts`
+  is the actual pure decision the button calls — `true` only for `"refunded"`. "Mark as
+  returned" and "I'm returning this" are untouched, still plain `<form action>` — no
+  confirm.
+- Replaced the 3 call sites of the old plain-form refunded button with
+  `<MarkRefundedButton>`: `app/page.tsx` (mobile card + desktop table),
+  `app/orders/[id]/page.tsx` (detail page).
+- `scripts/backfill-refunded-archive.ts` (new, kept — matches the existing
+  `scripts/backfill-*.ts` convention): dry-run by default, `--apply` to write. Targets
+  `displayStatus = 'refunded' AND archivedAt IS NULL`.
+- 8 new tests in `__tests__/displayStatus.test.ts`: atomic-write shape for both fields,
+  the already-archived-not-overwritten edge case, `returnedAt`'s existing once-only
+  behavior (unchanged, re-asserted), and the confirm-gate (`true` for refunded, `false`
+  for returned and return_requested — the regression guard).
+- BUILD.md updated in the same commit: documents the atomic auto-archive invariant, the
+  confirm gate, and the reminder-cascade tracing below.
+
+**Reminder-cascade traced explicitly (not assumed):**
+- **Deadline reminders:** already doubly protected. `reminderOrderWhere()`
+  (`lib/orderFilters.ts`) excludes archived orders at the query level
+  (`activeOrderFilter`), so an auto-archived-refunded order is never even fetched by the
+  cron. Separately, `isEligibleForReminder()` (`lib/reminders.ts`, from the prior
+  session's Bug 6 fix) already skips `displayStatus === "refunded"` regardless of
+  archive state. Auto-archive is a second, redundant layer here.
+- **Refund check-in:** `refundCheckinOrderWhere()` (`lib/refundCheckin.ts`) requires
+  `displayStatus: "returned"` **exactly**. The moment `displayStatus` becomes
+  `"refunded"`, the order stops matching this query — independent of `archivedAt`
+  entirely. This was already true before today's fix (it's why the original misclick
+  bug caused a *silent* problem rather than an error: the check-in simply stopped
+  considering the order, with no signal that anything had changed). Auto-archiving a
+  refunded order does not change this query's result — it was already excluded by the
+  `displayStatus` mismatch. Confirmed by re-running the actual `refundCheckinOrderWhere()`
+  shape against production data (see H&M verification below): the corrected order
+  (`displayStatus: "returned"`) matches; a `"refunded"` order would not, archived or not.
+
+**Backfill:** ran `scripts/backfill-refunded-archive.ts --apply` after deploying.
+**1 order updated** — H&M `#66993117803` (the misclick order below), the only order in
+the DB that was `displayStatus: "refunded"` with `archivedAt: null` at the time.
+
+**H&M data correction** (done after deploy, so it went through the fixed logic):
+identified unambiguously — the only H&M order in the database, `returnedAt` and
+`updatedAt` both 2026-07-03 seconds apart (consistent with a returned→refunded misclick
+same day). Before: `displayStatus: "refunded"`, `returnedAt: 2026-07-03T17:28:22.440Z`,
+`archivedAt: 2026-07-04T02:58:45.923Z` (set by the backfill run moments earlier, since
+at that point it was still `"refunded"`). After: `displayStatus: "returned"`,
+`returnedAt` unchanged, `archivedAt: null`. Verified against the real
+`refundCheckinOrderWhere()` query post-fix: the order matches (has zero existing
+`Reminder` rows for it), confirming it will re-enter the check-in cycle off its original
+`returnedAt` — 10-day delay applies (no `returnTrackingNumber`), due 2026-07-13.
+
+**Verified:** `npm run build` + `npx vitest run` (85/85) before deploy. Deployed via
+`npx vercel --prod`, aliased to `app.myreturnwindow.com`. **Awaiting owner hand-test**
+before marking ✅ Done in TASKS.md, per the standing rule from the prior session.
+
+---
+
 ## 2026-07-03 — Bug 1: Archive/Unarchive UI unreachable in production (`7ad0f5d`, `8d31036`)
 
 **What happened:** last session's dashboard UI work (`9c9027e`, 2026-07-01) — Archive/
