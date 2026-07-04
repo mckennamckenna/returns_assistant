@@ -28,8 +28,35 @@
 ## 🔴 Now
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
+- [ ] **Bug 7** — Southbank Centre event ticket got past the discard gate. Fixed
+      `lib/classify.ts` Haiku prompt to exclude event tickets, tours, memberships,
+      donations, subscriptions. Verified against the real stored email (not just
+      a mocked unit test) — re-ran `isCommerceEmail` live against the decrypted
+      Southbank body and it now returns `NOT_COMMERCE`. Stray Order
+      (`cmr5dhodt0003jv04bq8oargl`) soft-deleted. Tests (96) + build pass.
+      Committed and pushed; **awaiting deploy + owner hand-verification in
+      production** before moving to Done.
+- [ ] **Bugs 9+10+11 (combined)** — linkOrder fallback + refund-status transition.
+      Shopbop and H&M refund emails are orphaned (no order number in the email —
+      needs fallback: retailer + line items, retailer + total, retailer + recency).
+      Lola Blankets linked but didn't advance to `refunded`. New rule (supersedes
+      BUILD.md's "refunded is never auto-derived"): refund emails advance
+      `displayStatus` to `refunded`, trigger the refund check-in reminder, follow
+      auto-archive behavior. Design decision to confirm with owner before
+      implementing.
+- [ ] **Bug 8** — Amazon (and any retailer) never provides purchase date. General
+      fix: when no order date extracted, fall back to the email `Date:` header
+      (present on every forwarded email); flag `orderDateEstimated: true`.
 
 ## 🟡 Next
+- [ ] **"I'm keeping this" status + button** — new `displayStatus: kept` value, one-way
+      transition, auto-archives on transition (like refunded), stops reminders. Appears
+      as a button next to "I'm returning this" on any order still within its return
+      window. Distinct from refunded (money didn't come back) and from archive (a
+      terminal-state destination, not a semantic decision). Under one-tap-from-email,
+      becomes the third option in reminder emails alongside "I'm returning this" and
+      "Remind me later." **Data model change — spec in BUILD.md before Claude Code
+      touches it.**
 - [ ] **Verify in production: archived orders with upcoming deadlines don't get
       reminders** — pending real data (no order is currently both archived and has an
       active deadline). The returned/refunded half of this check was confirmed via an

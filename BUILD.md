@@ -323,6 +323,7 @@ These apply to every code path, at every milestone.
 - Body is resolved via `resolveBodyText()` (html-to-text, drops `<style>`/`<head>`) — not a home-rolled tag-stripper. Large HTML emails' first 8,000 chars after naive stripping are CSS, not commerce content. This was a real bug.
 - Classifier errors fail open. `NOT_COMMERCE` (or no classifiable body) discards and writes nothing.
 - Gmail forwarding-verification emails (`forwarding-noreply@google.com`) are intercepted before classification and never stored.
+- Event tickets, tours, memberships, donations, and subscriptions are explicitly excluded from COMMERCE — they're real purchases but not returnable ones, which the old "product or service" wording didn't rule out (Bug 7: a Southbank Centre exhibition e-ticket passed the gate and got stored as an Order).
 
 ### Extraction (`lib/extract.ts`)
 - **Model:** `claude-sonnet-4-6`.

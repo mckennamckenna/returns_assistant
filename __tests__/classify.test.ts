@@ -93,6 +93,23 @@ describe("isCommerceEmail", () => {
     errorSpy.mockRestore();
   });
 
+  it("returns false for an event ticket (Bug 7: Southbank Centre got past the gate)", async () => {
+    const eventTicketBody =
+      "Your booking is confirmed. Southbank Centre presents: An Evening of Jazz. " +
+      "Date: Saturday 12 July 2026, 7:30pm. Venue: Royal Festival Hall. " +
+      "Booking reference: SBC-department-5521. 2 tickets, Stalls, Row F.";
+
+    mockCreate.mockResolvedValueOnce(makeResponse("NOT_COMMERCE"));
+
+    const result = await isCommerceEmail(eventTicketBody, undefined);
+
+    expect(result).toBe(false);
+    expect(mockCreate).toHaveBeenCalledOnce();
+
+    const calledPrompt: string = mockCreate.mock.calls[0][0].messages[0].content;
+    expect(calledPrompt).toContain("event tickets");
+  });
+
   it("returns false without calling the API when both bodies are absent", async () => {
     const result = await isCommerceEmail(undefined, undefined);
 

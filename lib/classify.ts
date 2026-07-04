@@ -10,7 +10,7 @@ const MODEL = "claude-haiku-4-5-20251001";
 function buildPrompt(text: string): string {
   return `You are a privacy filter for a shopping-returns app. Decide whether this forwarded email is RETAIL/COMMERCE related: an online or in-store purchase, shipping, delivery, return, or refund of a physical or digital product or service.
 
-It is NOT commerce if it's about: pharmacy or prescriptions, medical records or appointments, financial statements or banking, personal correspondence, or anything else unrelated to a retail purchase.
+It is NOT commerce if it's about: pharmacy or prescriptions, medical records or appointments, financial statements or banking, personal correspondence, event tickets, tours, memberships, donations, subscriptions, or anything else unrelated to a retail purchase of a physical or digital product that could plausibly be returned.
 
 If you're not sure, answer NOT_COMMERCE — when in doubt, we discard rather than keep.
 
