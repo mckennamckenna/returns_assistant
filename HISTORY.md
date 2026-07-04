@@ -81,6 +81,36 @@ exception) as a current invariant, not just a changelog note.
 
 ---
 
+## 2026-07-03 — Bug 1+6 closed: verified by targeted test run, live-data check pending
+
+Owner hand-tested the visibility fixes in production directly (Sidebar link, Settings
+link, archive/unarchive round-trip, dropdown option still present — see the Bug 1 entry
+above). Two acceptance checks couldn't be hand-tested because no production order
+currently exists in either state: an archived order with an upcoming deadline, and a
+returned/refunded order with a deadline in the next 7 days.
+
+For those two, owner asked for the exact tests and live `vitest` output rather than
+accepting the commit message at face value:
+
+- `__tests__/archiveDelete.test.ts` → `describe("reminderOrderWhere")`: `matches
+  activeOrderFilter exactly`, `excludes an archived order from deadline reminders`
+  (`where.archivedAt` is `null`), `excludes a soft-deleted order from deadline reminders`
+  (`where.deletedAt` is `null`). Ran isolated via `npx vitest run
+  __tests__/archiveDelete.test.ts -t "reminderOrderWhere"` — 3 passed, 0 failed.
+- `__tests__/reminders.test.ts` → `describe("deadline reminders vs. displayStatus")`:
+  `suppresses the reminder when displayStatus is 'returned'`, `suppresses ... 'refunded'`
+  (`isEligibleForReminder` → `false`, `reminderTypeForOrder` → `null` in both), `still
+  fires the reminder when displayStatus is 'return_requested'` (`isEligibleForReminder`
+  → `true`, `reminderTypeForOrder` → `"7_day"`). Ran isolated via `npx vitest run
+  __tests__/reminders.test.ts` — 3 passed, 0 failed.
+
+Owner accepted this as verification-by-test and approved marking Bug 1+6 ✅ Done on that
+basis. **Still open:** live-data confirmation once a real order exists in one of these
+states — tracked in TASKS.md 🟡 Next ("Verify in production: archived orders with
+upcoming deadlines don't get reminders — pending real data").
+
+---
+
 ## 2026-07-03 — Marketing homepage at myreturnwindow.com + beta signup (`7e5eced`)
 
 **What changed:**

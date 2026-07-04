@@ -27,6 +27,13 @@
       enumerated here. [needs clarification: full list]
 
 ## 🟡 Next
+- [ ] **Verify in production: archived orders with upcoming deadlines don't get
+      reminders** — pending real data.
+- [ ] **Verify in production: archived + returned/refunded orders don't get deadline
+      reminders** — Bug 1+6 shipped and unit tests pass, but no live orders were in
+      these states at verification time. Confirm when real data exists. [duplicate of
+      the item above — same underlying gap, added verbatim per two separate requests;
+      consolidate into one when either is picked up]
 - [ ] **Reconsider Archived dropdown option in SearchFilterBar** now that there are two
       dedicated entry points (Sidebar nav + Settings link, added by Bug 1 fix) — likely
       remove for clarity, but verify after Bug 1 ships. Deliberately not done in the
@@ -79,7 +86,7 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
-- [x] Bug 1 fixed: Archive/Unarchive UI now reachable in production (Sidebar + Settings links added), owner hand-tested and confirmed. Also fixed a related email-first violation found in the same area: deadline reminders now stop once displayStatus is returned/refunded (return_requested still fires).
+- [x] Bug 1+6: Archive/Unarchive UI made visible; deadline reminders now respect displayStatus.
 - [x] Marketing homepage at myreturnwindow.com shipped with beta signup — public marketing page (host-routed, no auth), `/api/beta-signup` storing + deduping emails and notifying admin; magic-link login on app.myreturnwindow.com verified unaffected.
 - [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — landed correctly.
 - [x] Documentation restructured — BUILD.md trimmed to current-state reference; HISTORY.md created with full chronological detail; TASKS.md Done section reformatted to one-liners.
