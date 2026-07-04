@@ -23,13 +23,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **Bug 1: Archive/Unarchive UI not visible in production** — marked ✅ Done last
-      session (`9c9027e`) but not actually visible/working per owner's hand-test.
-      Diagnosing + fixing now. Acceptance: Archive button on every non-archived order
-      (list + detail), Unarchive on every archived order, "Archived" filter shows only
-      archived+non-deleted orders and excludes them from all other tabs, archived orders
-      fire zero reminders (cron + activeOrderFilter), build+tests pass, deployed. New
-      rule: do not mark ✅ Done until owner hand-tests and confirms in production.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
@@ -86,6 +79,7 @@
       Surfaced by today's `2cb5de2`.
 
 ## ✅ Done
+- [x] Bug 1 fixed: Archive/Unarchive UI now reachable in production (Sidebar + Settings links added), owner hand-tested and confirmed. Also fixed a related email-first violation found in the same area: deadline reminders now stop once displayStatus is returned/refunded (return_requested still fires).
 - [x] Marketing homepage at myreturnwindow.com shipped with beta signup — public marketing page (host-routed, no auth), `/api/beta-signup` storing + deduping emails and notifying admin; magic-link login on app.myreturnwindow.com verified unaffected.
 - [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — landed correctly.
 - [x] Documentation restructured — BUILD.md trimmed to current-state reference; HISTORY.md created with full chronological detail; TASKS.md Done section reformatted to one-liners.

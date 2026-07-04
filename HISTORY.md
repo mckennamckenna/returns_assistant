@@ -5,6 +5,82 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-03 — Bug 1: Archive/Unarchive UI unreachable in production (`7ad0f5d`, `8d31036`)
+
+**What happened:** last session's dashboard UI work (`9c9027e`, 2026-07-01) — Archive/
+Unarchive button, Archived filter — was marked ✅ Done in TASKS.md, but the owner's
+hand-test this session found neither actually visible/working in production.
+
+**Diagnosis:** read the actual code rather than trusting the prior session's commit
+message. `app/ArchiveOrderButton.tsx`, its rendering in `app/page.tsx` (list, mobile +
+desktop) and `app/orders/[id]/page.tsx` (detail), `app/api/orders/[id]/archive/route.ts`,
+and the `activeOrderFilter` exclusion in both the cron and `refundCheckinOrderWhere()`
+were all already correct and already covered by passing tests. No code bug found.
+Likely root cause: this project's Vercel deploys are manual CLI uploads with no git
+integration — confirmed via `vercel inspect --format json` that no deployment (past or
+present) carries git-commit metadata, so there's no way to forensically prove what was
+live when. Last session's final commit explicitly flagged that nothing shipped that day
+had been hand-tested, a strong signal the session ended without ever running
+`vercel --prod`. The unrelated marketing-homepage deploy earlier this same session (built
+from current `main`, with `9c9027e` as an ancestor) likely shipped this code for the
+first time.
+
+**What changed:**
+- `app/Sidebar.tsx`: new "Archived" nav link → `/?status=archived`.
+- `app/settings/page.tsx`: new "Archived orders" section linking to the same URL
+  (reachable on mobile via the existing Settings tab in `BottomNav.tsx` — no BottomNav
+  change needed).
+- `app/SearchFilterBar.tsx`'s "Archived" dropdown option deliberately left in place this
+  session (owner flagged removing it as a separate UX judgment call, not part of this bug
+  fix — logged as a TASKS.md Next item instead, to avoid conflating three simultaneous
+  changes to the same surface).
+- `lib/orderFilters.ts`: extracted `reminderOrderWhere()`, mirroring the existing
+  `refundCheckinOrderWhere()` pattern, so the daily cron's own order query is a named,
+  tested function instead of an inlined `{ ...activeOrderFilter }` spread. `app/api/cron/
+  route.ts` now calls it. New tests in `__tests__/archiveDelete.test.ts` assert it matches
+  `activeOrderFilter` and excludes archived/deleted orders.
+- **Verified behavior-neutral**: wrote a throwaway script enabling Prisma query-event
+  logging, ran the pre-refactor inline where-clause and the post-refactor helper against
+  the real DB (read-only `SELECT`s), and confirmed the generated SQL and params were
+  byte-identical in both cases before committing.
+
+**Scope note:** the owner explicitly asked that removing the dropdown option NOT happen
+in this session, to isolate whether any post-deploy issue came from the new entry points,
+the removal, or their interaction. Correctly deferred, not silently done.
+
+**Verified:** `npm run build` + `npx vitest run` (74/74) before deploy. Deployed via
+`npx vercel --prod`, aliased to `app.myreturnwindow.com`. Owner hand-tested in production
+and confirmed: Sidebar link, Settings link, archive/unarchive round-trip, dropdown option
+still present.
+
+---
+
+## 2026-07-03 — Deadline reminders now stop on returned/refunded displayStatus (`8d31036`)
+
+**Root cause:** `lib/reminders.ts`'s `isEligibleForReminder()` only checked the internal
+`status` state machine (`completed`/`expired`/`return_started` skip), never the
+user-facing `displayStatus` a user sets by hand via "Mark as returned" / "Mark as
+refunded." Found while closing out Bug 1, in the same reminder-eligibility code path —
+an order the user had already marked returned or refunded could still receive deadline
+reminders, a silent violation of the email-first principle ("archived means no more
+emails" was enforced; "user told us this is done" was not).
+
+**Fix:** added `SKIP_DISPLAY_STATUSES = ["returned", "refunded"]`, checked in
+`isEligibleForReminder()` alongside the existing `SKIP_STATUSES` check.
+`OrderForReminder` gained a required `displayStatus: string` field; the one call site
+(`app/api/cron/route.ts`) now passes `order.displayStatus` through. Deliberately does
+**not** skip `return_requested` — the return window is still open and the package may
+not have shipped yet, so that reminder still matters.
+
+**Tests:** new `__tests__/reminders.test.ts` — three cases: `returned` suppresses,
+`refunded` suppresses, `return_requested` still fires (`7_day` in the test fixture).
+
+**Docs:** BUILD.md's Reminders section updated in the same commit to document the
+skip rule (internal status skip, displayStatus skip, and the `return_requested`
+exception) as a current invariant, not just a changelog note.
+
+---
+
 ## 2026-07-03 — Marketing homepage at myreturnwindow.com + beta signup (`7e5eced`)
 
 **What changed:**
