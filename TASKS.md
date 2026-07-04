@@ -28,14 +28,6 @@
 ## 🔴 Now
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
-- [ ] **Bug 7** — Southbank Centre event ticket got past the discard gate. Fixed
-      `lib/classify.ts` Haiku prompt to exclude event tickets, tours, memberships,
-      donations, subscriptions. Verified against the real stored email (not just
-      a mocked unit test) — re-ran `isCommerceEmail` live against the decrypted
-      Southbank body and it now returns `NOT_COMMERCE`. Stray Order
-      (`cmr5dhodt0003jv04bq8oargl`) soft-deleted. Tests (96) + build pass.
-      Committed and pushed; **awaiting deploy + owner hand-verification in
-      production** before moving to Done.
 - [ ] **Bugs 9+10+11 (combined)** — linkOrder fallback + refund-status transition.
       Shopbop and H&M refund emails are orphaned (no order number in the email —
       needs fallback: retailer + line items, retailer + total, retailer + recency).
@@ -132,6 +124,7 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] Bug 7: event tickets/tours/memberships/donations/subscriptions excluded from commerce gate — Southbank Centre e-ticket stray order soft-deleted, owner hand-verified in production.
 - [x] returnPortalUrl scheme normalization: fixed 2 On order rows, added normalization helper called at every write path.
 - [x] Refunded-misclick fix: confirm dialog on "Mark as refunded", auto-archive on refunded (atomic), H&M order corrected — owner hand-tested and confirmed in production.
 - [x] Bug 1+6: Archive/Unarchive UI made visible; deadline reminders now respect displayStatus.
