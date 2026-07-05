@@ -5,6 +5,105 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-05 — Bugs 9+10+11: refund-amount-aware status branching + linkOrder fallback (`b91354f`)
+
+**Design shift — explicit:** BUILD.md's original rule was "refunded is never
+auto-derived" — only a manual "Mark as refunded" click could reach that status. This is
+now superseded. Retailer refund emails turned out to be inconsistent about what they
+actually confirm: "your refund is processed" often means "we received your package" or
+"we started the refund," not "the money is in your account." Since catching exactly that
+kind of vagueness is the product's reason to exist, treating every refund email as
+equally trustworthy would have been the wrong call. The new rule branches on whether the
+email states a *confirmed* dollar amount:
+- **Confirmed amount** (e.g. Shopbop's "$123.05" stated as the refund total) → advances
+  straight to `"refunded"` — chapter closed, auto-archives, no further reminders.
+- **No confirmed amount** (e.g. H&M's "we're processing your refund," no dollar figure
+  anywhere in the body) → advances only to `"returned"` — deliberately **not**
+  archived, so the pre-existing refund check-in reminder (cron-driven off
+  `displayStatus === "returned"`, unchanged) naturally nudges the user later to verify
+  the money actually landed. No new "scheduling" code was needed for this — the
+  check-in cron's own query already covers it once an order lands in this state.
+
+**Problem, three symptoms of the same root cause:** Lola Blankets was linked correctly
+but stuck at `displayStatus: "ordered"` despite having a refund email — `deriveDisplayStatus()`
+had no case for `refund` emailType at all. Shopbop and H&M refund emails were orphaned
+(`orderId: null`) because their bodies had no order number, and the linking gate required
+one unconditionally for every email type.
+
+**Diagnosis, done before any code was written** (`scripts/diagnose-refund-orphans.mjs`,
+read-only against production): the H&M refund email had no `lineItems`/`orderTotal`
+either — a generic "how your refund method works" email with zero itemized signal — but
+exactly one existing H&M order for that retailer. Shopbop's refund email had a real
+`orderTotal` ($123.05) and `lineItems`, but there was no existing Shopbop order at all —
+checked and ruled out a retailer-name-mismatch theory against the known duplicate
+"On (On-Running)" order rows first (`scripts/diagnose-shopbop-on.mjs`) — the original
+purchase confirmation for this Shopbop order was simply never forwarded.
+
+**What changed:**
+- `lib/extract.ts`: new `refundAmount`/`refundAmountConfidence` extraction fields,
+  distinct from `orderTotal` — only set when a dollar figure is unambiguously labeled as
+  the refund/credit amount; the prompt explicitly forbids reusing `orderTotal` as a
+  stand-in. New `Email.refundAmount`/`refundAmountConfidence` columns (migration
+  `20260705154212_add_refund_amount`); `runExtraction.ts` persists them.
+- `lib/displayStatus.ts`: `deriveDisplayStatus()` takes a new `hasConfirmedRefundAmount`
+  param — a `refund` emailType now routes to `"refunded"` or `"returned"` depending on
+  it, checked *before* the return_requested-or-higher early-return that gates the rest
+  of the ladder (a refund email is the one auto-derivation signal allowed to move an
+  order past that point on its own; the final rank comparison, not the early-return,
+  still protects against downgrade in both branches). `buildStatusTransitionData()`
+  generalized to backfill `returnedAt` on the direct-to-`"refunded"` jump too, not just
+  `"returned"` — needed since these orders can now skip `"returned"` entirely, unlike
+  the two manual endpoints which always gate `"refunded"` behind an existing `"returned"`
+  status first.
+- `lib/linkOrder.ts`: `recomputeDisplayStatus()` now queries `refundAmount`/
+  `refundAmountConfidence` alongside `emailType`, computes the confirmed-amount flag
+  across all linked refund emails, and switches to building its update via the shared
+  `buildStatusTransitionData()` (a third caller, alongside both manual endpoints) instead
+  of its own ad-hoc object — this is what makes auto-archive apply on the refunded branch
+  and *not* apply on the returned branch, for free, with no duplicated logic.
+- `lib/linkOrder.ts`: new `findRefundFallbackOrder()` — scoped strictly to
+  `emailType === "refund"` with a missing `orderNumber` (does not loosen the
+  `orderNumber` requirement for any other email type). Tiered, most specific first: (1)
+  line-item name overlap against candidate orders for the same retailer, (2) `orderTotal`
+  soft match (loose `<=`, not exact equality — refunds are frequently partial), (3)
+  recency (the retailer's only order, or its most recently created one). Every fallback
+  match sets `needsReview: true` + a `userNote` audit line, matching the existing
+  retailer-prefix-match convention. When there's no candidate order for that retailer at
+  all, falls through to `createOrderFromEmail()` (unmodified) rather than leaving the
+  email permanently orphaned.
+- BUILD.md updated in the same commit: Email-first principle section, the `displayStatus`
+  behavioral-rules section, and the Order linking section all describe the new rule.
+- 14 new tests in `__tests__/displayStatus.test.ts`: the refund branching (confirmed vs.
+  no-confirmed-amount, from every starting rank, no-downgrade in both directions, a
+  refund email evaluated alongside other signals) and `buildStatusTransitionData()`'s
+  `returnedAt` backfill on the direct-to-refunded jump.
+
+**Backfill** (`scripts/backfill-refund-status.ts`, dry-run reviewed and confirmed before
+`--apply`) — reused the existing, already-tested `runExtraction()` directly rather than
+duplicating its logic, since a single call re-extracts *and* re-links *and* re-derives
+status. Scoped to `emailType: "refund"` (exactly 3 rows). Real outcomes, confirming the
+design worked exactly as intended:
+- **H&M** — refund email states no dollar figure at all → no confirmed amount. The order
+  was already manually `refunded` from an earlier workaround (the refunded-misclick fix,
+  2026-07-03) — since the nominal target here is only `"returned"` (a lower rank), the
+  never-downgrade rule correctly left it untouched. Net effect: the previously-orphaned
+  email now links correctly (fixing the orphan), no status change.
+- **Shopbop** — refund email states "$123.05" as the refund total → confirmed amount,
+  high confidence. No existing order for this retailer → a new, deliberately sparse
+  Order was created directly from the refund email (no `orderDate`, no prior line-item
+  pricing history — expected, not a bug, given no purchase confirmation was ever seen) →
+  `refunded`, auto-archived.
+- **Lola Blankets** — refund email states "Total amount refunded: $541.41" → confirmed
+  amount, high confidence → advanced from `ordered` straight to `refunded`, auto-archived,
+  `returnedAt` backfilled.
+
+**Verified:** `npx vitest run` (111/111) + `npm run build` before deploy. Deployed via
+`npx vercel --prod` (`dpl_YpVggqytjeHyU9w4QQRbq9xhunPa`), aliased to
+`app.myreturnwindow.com`. **Owner hand-verified in production** — confirmed all three
+orders show the expected status/archive state on the dashboard.
+
+---
+
 ## 2026-07-04 — Bug 8: orderDate fallback generalized, orderDateEstimated flag (`92c6161`)
 
 **Problem:** Amazon orders were permanently stuck with `orderDate: null` — no return
@@ -366,6 +465,15 @@ would otherwise be a `2_day` reminder). Called the real, shipped `reminderTypeFo
 This closes the "returned/refunded-with-deadline" half of the pending live-data item
 against real production data. The "archived-with-upcoming-deadline" half remains open —
 no production order is currently archived with an active deadline to test against.
+
+**Final live confirmation, Jul 4–5, 2026:** beyond the isolated function-call checks
+above, the real thing actually happened — MANGO #F4VLSF's deadline (Jul 5) passed
+through both the 1-day-out (Jul 4) and same-day (Jul 5) reminder thresholds with the
+real daily cron running on schedule, and no deadline reminder fired at either one.
+Owner confirmed live in production. This is the strongest form of verification for the
+returned/refunded half (true end-to-end cron behavior, not a targeted test run) and
+closes that half of the pending live-data item for good. The archived-with-deadline
+half remains the only open piece — still no real candidate order to test against.
 
 ---
 

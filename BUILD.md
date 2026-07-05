@@ -24,13 +24,17 @@ must independently agree:
 - **Archived** means the order is put away. No deadline reminder, no refund check-in —
   enforced at the query level everywhere (`activeOrderFilter` / `reminderOrderWhere()` /
   `refundCheckinOrderWhere()`, all in `lib/orderFilters.ts` / `lib/refundCheckin.ts`).
-- **Refunded** means the user told us the loop is closed. It auto-archives in the same
-  atomic write (`buildStatusTransitionData()`, `lib/displayStatus.ts`) and is independently
-  excluded from deadline reminders by `displayStatus` (`isEligibleForReminder()`,
-  `lib/reminders.ts`) and from refund check-in by `displayStatus` alone
-  (`refundCheckinOrderWhere()` requires exactly `"returned"` — `"refunded"` never matches,
-  archived or not). Two independent reasons converge on the same silence — not one
-  mechanism wearing two hats.
+- **Refunded** means the loop is closed — either the user told us directly, or a refund
+  email stated a confirmed dollar amount (Bugs 9+10+11, `deriveDisplayStatus()`,
+  `lib/displayStatus.ts` — this superseded the original "refunded is never auto-derived"
+  rule; a refund email with no confirmed amount advances only to `"returned"` instead,
+  deliberately not "chapter closed," so the refund check-in reminder still has a chance
+  to nudge the user). Either path auto-archives in the same atomic write
+  (`buildStatusTransitionData()`) and is independently excluded from deadline reminders by
+  `displayStatus` (`isEligibleForReminder()`, `lib/reminders.ts`) and from refund check-in
+  by `displayStatus` alone (`refundCheckinOrderWhere()` requires exactly `"returned"` —
+  `"refunded"` never matches, archived or not). Two independent reasons converge on the
+  same silence — not one mechanism wearing two hats.
 
 Because "no more emails" is a promise, not just a filter, any new state or transition
 that can plausibly mean "this order is done" should be checked against both the deadline

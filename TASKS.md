@@ -28,27 +28,21 @@
 ## 🔴 Now
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
-- [ ] **Bugs 9+10+11 (combined)** — Fixed: new `Email.refundAmount` +
-      `refundAmountConfidence` extraction fields (distinct from `orderTotal`);
-      `deriveDisplayStatus()` branches refund emails by confirmed amount —
-      confirmed → `refunded` (auto-archives, chapter closed), no confirmed
-      amount → `returned` (not archived, existing refund check-in cron
-      naturally nudges the user later — no new scheduling code needed);
-      `buildStatusTransitionData()` backfills `returnedAt` on the direct-to-
-      refunded jump; `recomputeDisplayStatus()` is now a third caller of that
-      shared function. New `findRefundFallbackOrder()` in `lib/linkOrder.ts`
-      (tiered: line-item overlap → soft total match → recency) links orphaned
-      refund emails missing an order number, scoped strictly to
-      `emailType === "refund"`; falls through to creating a new Order when no
-      candidate exists at all. Tests (111) + build pass. Backfilled the 3 real
-      refund emails (dry-run reviewed and confirmed before `--apply`): H&M
-      stayed `refunded` (no downgrade — was already manually corrected),
-      Shopbop got a new sparse Order created and immediately `refunded`,
-      Lola Blankets advanced from `ordered` to `refunded`. Committed and
-      pushed; **awaiting deploy + owner hand-verification in production**
-      before moving to Done.
 
 ## 🟡 Next
+- [ ] **Refund verification loop** — "did the money actually land?" close-the-loop
+      email. Today's rule (Bugs 9+10+11) advances status to `refunded` and skips the
+      check-in reminder when the retailer's refund email states a specific dollar
+      amount — that trusts the retailer, but doesn't confirm the money actually posted
+      to the user's card. Two options: (A) always fire a check-in 3–5 business days
+      after the `refunded` transition, with the specific amount in the email copy —
+      easy, ~1 hour of work, minor UX cost; (B) build proper refund verification into
+      the check-in email as a signed-token one-tap flow ("Yes, it landed" / "No, still
+      missing") that creates a `refundVerifiedAt` timestamp and, on "No," surfaces
+      retailer contact info or a snooze — depends on the signed-token infrastructure
+      (see the "I'm keeping this" spec below) landing first. Right sequence is
+      probably: signed tokens → Option B. Ship Option A only if there's a meaningful
+      gap between now and signed tokens landing.
 - [ ] **Watching: Amazon extraction quality** — Amazon is likely to be the most
       common retailer for our users and has structural quirks (no
       `order_confirmation` email type, variable formats, category-dependent
@@ -66,12 +60,11 @@
       "Remind me later." **Data model change — spec in BUILD.md before Claude Code
       touches it.**
 - [ ] **Verify in production: archived orders with upcoming deadlines don't get
-      reminders** — pending real data (no order is currently both archived and has an
-      active deadline). The returned/refunded half of this check was confirmed via an
-      isolated pure-function test against MANGO #F4VLSF's real data (see HISTORY.md) —
-      MANGO's actual deadline (Jul 5) passing over the next 48 hours with no reminder
-      sent is the natural live, end-to-end confirmation of that same behavior. Only the
-      archived-with-deadline case has no real candidate order yet.
+      reminders** — the returned/refunded half is now fully closed: MANGO #F4VLSF
+      (`displayStatus: "returned"`, deadline Jul 5) got no deadline reminder at either
+      the 1-day-out (Jul 4) or same-day (Jul 5) threshold, confirmed live in production
+      (see HISTORY.md). Only the archived-with-upcoming-deadline half remains open — no
+      real candidate order exists yet to test against.
 - [ ] **Reconsider Archived dropdown option in SearchFilterBar** now that there are two
       dedicated entry points (Sidebar nav + Settings link, added by Bug 1 fix) — likely
       remove for clarity, but verify after Bug 1 ships. Deliberately not done in the
@@ -148,6 +141,7 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] Bugs 9+10+11: linkOrder fallback for orphaned refund emails; refund emails now advance status: refunded when confirmed amount extracted, returned otherwise; refundAmount field added to extraction schema — owner hand-verified in production.
 - [x] Bug 8: Order date fallback to email receivedAt when extraction returns null; new orderDateEstimated flag; 3 Amazon orders backfilled — owner hand-verified in production.
 - [x] Bug 7: event tickets/tours/memberships/donations/subscriptions excluded from commerce gate — Southbank Centre e-ticket stray order soft-deleted, owner hand-verified in production.
 - [x] returnPortalUrl scheme normalization: fixed 2 On order rows, added normalization helper called at every write path.
@@ -224,3 +218,8 @@
   writing a fix. If the diagnostic contradicts the report, ask before proceeding rather
   than fixing the wrong thing. Pattern proven today by the MANGO→On mixup catch (Bug 3)
   and last session's "was Bug 1 even deployed?" catch.
+- "Refunded is never auto-derived" (the original rule) is superseded (Bugs 9+10+11):
+  a refund email now auto-advances to `refunded` when it states a confirmed dollar
+  amount, or only to `returned` when it doesn't. Retailer refund emails are frequently
+  vague about whether the money actually moved, and catching that ambiguity is the
+  product's job — trusting every refund email equally would have been the wrong call.
