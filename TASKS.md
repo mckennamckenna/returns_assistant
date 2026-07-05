@@ -36,11 +36,28 @@
       `displayStatus` to `refunded`, trigger the refund check-in reminder, follow
       auto-archive behavior. Design decision to confirm with owner before
       implementing.
-- [ ] **Bug 8** — Amazon (and any retailer) never provides purchase date. General
-      fix: when no order date extracted, fall back to the email `Date:` header
-      (present on every forwarded email); flag `orderDateEstimated: true`.
+- [ ] **Bug 8** — Amazon (and any retailer) never provides purchase date. Fixed:
+      `resolveFallbackOrderDate` in `lib/linkOrder.ts` generalized from
+      order_confirmation-only to the earliest linked email of any type (root
+      cause: Amazon never produces an order_confirmation emailType), tiered
+      forwarded-header-parse → `receivedAt` fallback, new `orderDateEstimated`
+      flag (schema migration `20260704204310_add_order_date_estimated`),
+      `mergeEmailIntoOrder` clears the flag if a real orderDate later
+      supersedes it, UI shows "(est.)" next to orderDate in the dashboard and
+      order detail page. Tests (100) + build pass. 3 real Amazon orders
+      backfilled (dry-run reviewed and confirmed by owner before `--apply`).
+      Committed and pushed; **awaiting deploy + owner hand-verification in
+      production** before moving to Done.
 
 ## 🟡 Next
+- [ ] **Watching: Amazon extraction quality** — Amazon is likely to be the most
+      common retailer for our users and has structural quirks (no
+      `order_confirmation` email type, variable formats, category-dependent
+      return policies). Today's `receivedAt` fallback (Bug 8) solves the
+      missing-order-date case. If Amazon orders keep showing up in
+      `needsReview` or extraction quality is noticeably worse than other
+      retailers after we have 10+ real users, revisit as a candidate for
+      retailer-specific parsing. Don't build until real usage data justifies it.
 - [ ] **"I'm keeping this" status + button** — new `displayStatus: kept` value, one-way
       transition, auto-archives on transition (like refunded), stops reminders. Appears
       as a button next to "I'm returning this" on any order still within its return
@@ -71,6 +88,14 @@
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
+- [ ] **Non-Amazon orders still stuck with `orderDate: null`** — Bug 8's
+      backfill was deliberately scoped to Amazon only. Found while running its
+      dry-run: H&M #66993117803 and Tuckernuck #TNK6772725 (both delivery-only,
+      no shipping_confirmation — same root cause as the "Post-beta:
+      delivery-only orders" 👀 Watching item) and Lola Blankets #1158308
+      (refund-only, already tracked under Bugs 9+10+11). Same
+      `applyFallbackOrderDate` fallback would likely resolve these too, but
+      wasn't run against them without a separate go-ahead.
 - [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
       backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
       per Milestone 10 is the user-authored review note. If `[auto]`-prefixed

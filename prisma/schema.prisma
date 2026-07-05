@@ -121,6 +121,7 @@ model Order {
   orderNumber String?
 
   orderDate           DateTime?
+  orderDateEstimated  Boolean   @default(false) // true when orderDate was inferred (forwarded-header parse or receivedAt fallback), not stated in the email
   deliveryDate        DateTime? // best available across all linked emails
   returnDeadline       DateTime?
   deadlineIsEstimated  Boolean   @default(false)

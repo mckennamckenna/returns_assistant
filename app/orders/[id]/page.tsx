@@ -133,7 +133,10 @@ export default async function OrderDetail({
       <div className="border border-zinc-200 rounded-lg p-4 mt-4">
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Field label="Order number" value={order.orderNumber} />
-          <Field label="Order date" value={formatDate(order.orderDate)} />
+          <Field
+            label="Order date"
+            value={order.orderDate ? `${formatDate(order.orderDate)}${order.orderDateEstimated ? " (estimated)" : ""}` : "—"}
+          />
           <Field label="Delivery date" value={formatDate(order.deliveryDate)} />
           <Field
             label="Return deadline"

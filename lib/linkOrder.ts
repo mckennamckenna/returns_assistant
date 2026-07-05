@@ -55,12 +55,8 @@ function asLineItemArray(value: unknown): unknown[] {
 
 // A forwarded-message block embeds the ORIGINAL email's send date as plain
 // text — Gmail: "Date: Tue, May 19, 2026 at 4:21 PM"; Apple Mail/iPhone:
-// "Date: April 22, 2026 at 9:07:10 PM PDT". That's the retailer's actual
-// send time — unlike receivedAt/rawJson.Date, which is when the customer
-// forwarded it (could be weeks later). Only valid as an orderDate proxy for
-// order_confirmation emails specifically: an order confirmation is normally
-// sent right when the order is placed, but a shipping/delivery/return
-// email's send date has no such relationship to the order date.
+// "Date: April 22, 2026 at 9:07:10 PM PDT". When present, that's the most
+// precise orderDate proxy available short of the email actually stating one.
 //
 // Operates on resolveBodyText's output (textBody, or htmlBody converted to
 // plain text when textBody is empty), not raw textBody — Apple/iPhone
@@ -69,7 +65,7 @@ function asLineItemArray(value: unknown): unknown[] {
 // required or the Date line never matches at all for that format. The
 // unicode normalization handles Apple's narrow no-break space (U+202F)
 // before AM/PM, which plain whitespace handling can miss.
-function parseForwardedHeaderDate(bodyText: string | null): Date | null {
+export function parseForwardedHeaderDate(bodyText: string | null): Date | null {
   if (!bodyText) return null;
   const match = bodyText.match(/^(?:>\s*)*Date:\s*(.+)$/m);
   if (!match) return null;
@@ -78,24 +74,41 @@ function parseForwardedHeaderDate(bodyText: string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-// Finds the earliest order_confirmation email linked to this order and
-// parses its forwarded-header date as an orderDate proxy.
+// Finds the earliest email linked to this order and derives an orderDate
+// proxy from it, in two tiers:
+//   1. Parse a forwarded-header "Date:" line out of its body, when present
+//      (most precise — that's the retailer's actual send time, not when the
+//      customer got around to forwarding it, which could be weeks later).
+//   2. Otherwise fall back to the email's own receivedAt (Postmark's parsed
+//      Date header, app/api/inbound/route.ts) — always present, and a good
+//      proxy for auto-forwarded/directly-relayed transactional mail (e.g.
+//      Amazon, which relays via SES with no forwarded quote block at all —
+//      Bug 8). Weaker for a genuinely manually-forwarded email with no
+//      parseable Date line, since receivedAt is then just "whenever the
+//      customer forwarded it" — but better than no orderDate at all.
+// Not scoped to order_confirmation: Amazon's transactional mail never
+// produces that emailType (only shipping_confirmation), so restricting to
+// it would leave Amazon orders with no fallback candidate at all. The
+// earliest linked email of any type is the best available proxy for order
+// placement time.
 async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
-  const confirmationEmail = await prisma.email.findFirst({
-    where: { orderId, emailType: "order_confirmation" },
+  const earliestEmail = await prisma.email.findFirst({
+    where: { orderId },
     orderBy: { receivedAt: "asc" },
   });
-  if (!confirmationEmail) return null;
+  if (!earliestEmail) return null;
 
-  const textBody = confirmationEmail.textBody ? decrypt(confirmationEmail.textBody) : null;
-  const htmlBody = confirmationEmail.htmlBody ? decrypt(confirmationEmail.htmlBody) : null;
-  return parseForwardedHeaderDate(resolveBodyText(textBody, htmlBody));
+  const textBody = earliestEmail.textBody ? decrypt(earliestEmail.textBody) : null;
+  const htmlBody = earliestEmail.htmlBody ? decrypt(earliestEmail.htmlBody) : null;
+  const parsed = parseForwardedHeaderDate(resolveBodyText(textBody, htmlBody));
+  return parsed ?? earliestEmail.receivedAt;
 }
 
 // If an order is missing orderDate after normal extraction/merging, try the
-// forwarded-header fallback and recompute returnDeadline from it. The
-// resulting deadline is always marked estimated — the date it's based on
-// is inferred, not stated, regardless of whether deliveryDate is known.
+// fallback and recompute returnDeadline from it. Both orderDateEstimated and
+// deadlineIsEstimated are always set — the order date itself is inferred,
+// not stated, so any deadline computed from it is estimated too regardless
+// of whether deliveryDate is known.
 export async function applyFallbackOrderDate(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order || order.orderDate) return;
@@ -114,6 +127,7 @@ export async function applyFallbackOrderDate(orderId: string): Promise<void> {
     where: { id: orderId },
     data: {
       orderDate: fallbackOrderDate,
+      orderDateEstimated: true,
       returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
       deadlineIsEstimated: true,
     },
@@ -356,6 +370,11 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
     where: { id: existing.id },
     data: {
       orderDate: mergedOrderDate,
+      // A genuinely-extracted orderDate on the new email always supersedes a
+      // prior fallback guess (mergedOrderDate above already prefers it) —
+      // so the estimated flag must clear in the same case, or it goes stale
+      // and keeps flagging a now-real date as inferred.
+      orderDateEstimated: email.orderDate ? false : existing.orderDateEstimated,
       deliveryDate: mergedDeliveryDate,
       returnWindowDays: mergedReturnWindowDays,
       returnWindowStartsFrom: mergedReturnWindowStartsFrom,
@@ -418,6 +437,7 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
     where: { id: orderId },
     data: {
       orderDate: first.orderDate,
+      orderDateEstimated: false, // rebuilding from scratch; re-derived below if still missing
       deliveryDate: first.deliveryDate,
       returnWindowDays: first.returnWindowDays,
       returnWindowStartsFrom: first.returnWindowStartsFrom,

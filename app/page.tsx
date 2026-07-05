@@ -422,7 +422,10 @@ export default async function Home({
                       <td className={`py-3 pr-4 whitespace-nowrap ${isHighValue ? "font-semibold text-stone-900" : "text-stone-700"}`}>
                         {formatCurrency(order.orderTotal, order.orderCurrency)}
                       </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">{formatDate(order.orderDate)}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
+                        {formatDate(order.orderDate)}
+                        {order.orderDateEstimated ? <span className="text-stone-400"> (est.)</span> : ""}
+                      </td>
                       <td className="py-3 pr-4 whitespace-nowrap text-stone-600">{formatDate(order.deliveryDate)}</td>
                       <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
                         {formatDate(order.returnDeadline)}

@@ -16,7 +16,7 @@ vi.mock("@/lib/trackingParser", () => ({
   parseTracking: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
 }));
 
-const { isRetailerPrefixMatch } = await import("../lib/linkOrder");
+const { isRetailerPrefixMatch, parseForwardedHeaderDate } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
   // ── Real fixture ──────────────────────────────────────────────────────────
@@ -79,5 +79,28 @@ describe("isRetailerPrefixMatch", () => {
     expect(isRetailerPrefixMatch("American", "American Eagle")).toBe(true);
     expect(isRetailerPrefixMatch("American", "American Vintage")).toBe(true);
     // Both return true. Any merge they produce is needsReview + logged.
+  });
+});
+
+describe("parseForwardedHeaderDate", () => {
+  it("parses a Gmail-style forwarded header", () => {
+    const body = "---------- Forwarded message ---------\nFrom: Retailer <hi@retailer.com>\nDate: Tue, May 19, 2026 at 4:21 PM\nSubject: Your order\n\nThanks for your order.";
+    const parsed = parseForwardedHeaderDate(body);
+    expect(parsed?.toISOString().slice(0, 10)).toBe("2026-05-19");
+  });
+
+  it("parses an Apple Mail-style forwarded header quoted with '> '", () => {
+    const body = "> Begin forwarded message:\n>\n> From: Retailer <hi@retailer.com>\n> Date: April 22, 2026 at 3:07:10 PM PDT\n> Subject: Your order\n>\n> Thanks for your order.";
+    const parsed = parseForwardedHeaderDate(body);
+    expect(parsed?.toISOString().slice(0, 10)).toBe("2026-04-22");
+  });
+
+  it("returns null when there's no forwarded-header Date line (Bug 8: Amazon relays directly, no quote block)", () => {
+    const body = "Your Orders\n\nThanks for your order!\nOrdered\nShipped\nOut for delivery\nDelivered\n\nOrder #\n114-4807161-9433864";
+    expect(parseForwardedHeaderDate(body)).toBeNull();
+  });
+
+  it("returns null for an empty body", () => {
+    expect(parseForwardedHeaderDate(null)).toBeNull();
   });
 });
