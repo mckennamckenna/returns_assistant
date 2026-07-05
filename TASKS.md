@@ -36,18 +36,6 @@
       `displayStatus` to `refunded`, trigger the refund check-in reminder, follow
       auto-archive behavior. Design decision to confirm with owner before
       implementing.
-- [ ] **Bug 8** — Amazon (and any retailer) never provides purchase date. Fixed:
-      `resolveFallbackOrderDate` in `lib/linkOrder.ts` generalized from
-      order_confirmation-only to the earliest linked email of any type (root
-      cause: Amazon never produces an order_confirmation emailType), tiered
-      forwarded-header-parse → `receivedAt` fallback, new `orderDateEstimated`
-      flag (schema migration `20260704204310_add_order_date_estimated`),
-      `mergeEmailIntoOrder` clears the flag if a real orderDate later
-      supersedes it, UI shows "(est.)" next to orderDate in the dashboard and
-      order detail page. Tests (100) + build pass. 3 real Amazon orders
-      backfilled (dry-run reviewed and confirmed by owner before `--apply`).
-      Committed and pushed; **awaiting deploy + owner hand-verification in
-      production** before moving to Done.
 
 ## 🟡 Next
 - [ ] **Watching: Amazon extraction quality** — Amazon is likely to be the most
@@ -149,6 +137,7 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] Bug 8: Order date fallback to email receivedAt when extraction returns null; new orderDateEstimated flag; 3 Amazon orders backfilled — owner hand-verified in production.
 - [x] Bug 7: event tickets/tours/memberships/donations/subscriptions excluded from commerce gate — Southbank Centre e-ticket stray order soft-deleted, owner hand-verified in production.
 - [x] returnPortalUrl scheme normalization: fixed 2 On order rows, added normalization helper called at every write path.
 - [x] Refunded-misclick fix: confirm dialog on "Mark as refunded", auto-archive on refunded (atomic), H&M order corrected — owner hand-tested and confirmed in production.

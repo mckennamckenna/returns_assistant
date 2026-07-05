@@ -5,6 +5,100 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-04 — Bug 8: orderDate fallback generalized, orderDateEstimated flag (`92c6161`)
+
+**Problem:** Amazon orders were permanently stuck with `orderDate: null` — no return
+deadline could ever be computed for them.
+
+**Diagnosis, done before any code was written:** a read-only script
+(`scripts/diagnose-amazon-orderdate.mjs`) against the 3 real Amazon orders in production
+found both linked emails per order (subjects "Ordered: ..." and "Shipped: ...")
+classified as `shipping_confirmation` — Amazon never produces an `order_confirmation`
+emailType at all. The existing fallback (`resolveFallbackOrderDate` in
+`lib/linkOrder.ts`) only searched for `emailType: "order_confirmation"`, so it never
+found a candidate. Checked further (`scripts/inspect-amazon-rawjson.mjs`): neither the
+text nor HTML body of these emails contains a forwarded-header "Date:" text line either
+(Amazon relays directly via SES, no manually-forwarded quote block) — so even
+broadening the emailType filter alone wouldn't have helped. Confirmed Postmark's own
+parsed `Date` header for the email is already captured faithfully as `Email.receivedAt`
+(`app/api/inbound/route.ts:135`) — exact match against the raw Postmark payload's `Date`
+field for the email checked.
+
+**What changed:**
+- `lib/linkOrder.ts`: `resolveFallbackOrderDate()` generalized from
+  `order_confirmation`-only to the earliest linked email of any type. Two tiers: (1)
+  `parseForwardedHeaderDate()` on the body, when a real forwarded-header Date line
+  exists (still the more precise source); (2) otherwise the email's own `receivedAt`.
+  `parseForwardedHeaderDate` exported for direct unit testing (previously module-private).
+- `prisma/schema.prisma`: new `Order.orderDateEstimated` (migration
+  `20260704204310_add_order_date_estimated`) — distinct from `deadlineIsEstimated`, so
+  the UI can indicate the order date itself was inferred, not stated.
+- `mergeEmailIntoOrder()`: clears `orderDateEstimated` back to `false` if a later email
+  supplies a genuinely-extracted `orderDate` that supersedes the fallback value (a
+  latent staleness gap found while making this change — previously the flag, once set,
+  never cleared even after a real date arrived).
+- `rebuildOrderFromRemainingEmails()`: explicit `orderDateEstimated: false` in its
+  from-scratch reset step, re-derived by the trailing `applyFallbackOrderDate()` call if
+  still missing.
+- UI: `app/page.tsx` (dashboard table row) and `app/orders/[id]/page.tsx` (order detail)
+  now show "(est.)" next to `orderDate`, mirroring the existing `deadlineIsEstimated`
+  pattern exactly.
+- BUILD.md's Order linking section updated to describe the generalized fallback.
+- 5 new tests in `__tests__/linkOrder.test.ts` for `parseForwardedHeaderDate` (Gmail
+  format, Apple Mail format including the narrow no-break space before AM/PM, the
+  Amazon no-forwarded-header case returning `null`, empty body).
+
+**Backfill:** `scripts/backfill-amazon-orderdate.ts` (new, kept), scoped deliberately to
+`retailer contains "amazon"` — dry run surfaced 6 total orders with `orderDate: null`,
+but only the 3 Amazon ones were in scope for today (H&M, Tuckernuck, and Lola Blankets
+are separate, already-tracked issues — flagged in TASKS.md, not swept up here). Dry run
+reviewed and confirmed by owner; `--apply` updated all 3: `orderDate` set from each
+order's earliest `shipping_confirmation` email's `receivedAt` (none had a parseable
+forwarded-header Date line), `orderDateEstimated: true`, `returnDeadline` recomputed
+(orderDate + 7-day shipping buffer + 30-day window, since `deliveryDate` was also null).
+
+**Verified:** `npx vitest run` (100/100) + `npm run build` before deploy. Deployed via
+`npx vercel --prod` (`dpl_76GagvFjJagNFvEUJDMiYR8NmUJa`), aliased to
+`app.myreturnwindow.com`. **Owner hand-verified in production** — confirmed all 3 Amazon
+orders now show an estimated order date with "(est.)" and accurate-looking dates.
+
+---
+
+## 2026-07-04 — Bug 7: event tickets excluded from commerce gate (`636ed7c`)
+
+**Problem:** A Southbank Centre exhibition e-ticket (Anish Kapoor, Hayward Gallery)
+passed the Haiku commerce-gate classifier and got stored as a real Order — it's a
+genuine purchase, just not a returnable one, and the gate's "product or service"
+wording didn't rule that out.
+
+**Diagnosis:** confirmed the actual stored email (`scripts/diagnose-southbank.mjs`,
+read-only against production) — `emailType: order_confirmation`, subject "Thank you for
+your order with the Southbank Centre", body an e-ticket order confirmation for an
+exhibition timeslot.
+
+**What changed:**
+- `lib/classify.ts`: `buildPrompt()`'s NOT-commerce exclusion list extended to include
+  event tickets, tours, memberships, donations, and subscriptions.
+- BUILD.md's Commerce gate section updated with the same exclusion + the Southbank
+  example as the motivating case.
+- 1 new test in `__tests__/classify.test.ts`: an event-ticket-style body, asserting
+  `isCommerceEmail` returns `false` and the prompt sent to the model contains the new
+  exclusion wording.
+
+**Verified against real data, not just the mocked test:** re-ran `isCommerceEmail` live
+(`scripts/verify-southbank-classify.ts`) against the actual decrypted Southbank email
+body with the fix in place — confirmed it now classifies `NOT_COMMERCE`.
+
+**Cleanup:** the stray Southbank Order (`cmr5dhodt0003jv04bq8oargl`) soft-deleted via a
+one-off script (`scripts/soft-delete-southbank.mjs`), owner confirmed.
+
+**Verified:** `npx vitest run` (96/96, then 97 after the new test) + `npm run build`
+before deploy. Deployed via `npx vercel --prod`
+(`dpl_CnBSPzrBWVa3NJAjzKQF55EUcbZH`), aliased to `app.myreturnwindow.com`. **Owner
+hand-verified in production.**
+
+---
+
 ## 2026-07-03 — returnPortalUrl scheme bug: normalized at every write point
 
 **Problem:** "Start return" 404'd — the browser resolved a stored `returnPortalUrl`
