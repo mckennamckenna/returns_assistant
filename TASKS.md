@@ -28,14 +28,25 @@
 ## 🔴 Now
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
-- [ ] **Bugs 9+10+11 (combined)** — linkOrder fallback + refund-status transition.
-      Shopbop and H&M refund emails are orphaned (no order number in the email —
-      needs fallback: retailer + line items, retailer + total, retailer + recency).
-      Lola Blankets linked but didn't advance to `refunded`. New rule (supersedes
-      BUILD.md's "refunded is never auto-derived"): refund emails advance
-      `displayStatus` to `refunded`, trigger the refund check-in reminder, follow
-      auto-archive behavior. Design decision to confirm with owner before
-      implementing.
+- [ ] **Bugs 9+10+11 (combined)** — Fixed: new `Email.refundAmount` +
+      `refundAmountConfidence` extraction fields (distinct from `orderTotal`);
+      `deriveDisplayStatus()` branches refund emails by confirmed amount —
+      confirmed → `refunded` (auto-archives, chapter closed), no confirmed
+      amount → `returned` (not archived, existing refund check-in cron
+      naturally nudges the user later — no new scheduling code needed);
+      `buildStatusTransitionData()` backfills `returnedAt` on the direct-to-
+      refunded jump; `recomputeDisplayStatus()` is now a third caller of that
+      shared function. New `findRefundFallbackOrder()` in `lib/linkOrder.ts`
+      (tiered: line-item overlap → soft total match → recency) links orphaned
+      refund emails missing an order number, scoped strictly to
+      `emailType === "refund"`; falls through to creating a new Order when no
+      candidate exists at all. Tests (111) + build pass. Backfilled the 3 real
+      refund emails (dry-run reviewed and confirmed before `--apply`): H&M
+      stayed `refunded` (no downgrade — was already manually corrected),
+      Shopbop got a new sparse Order created and immediately `refunded`,
+      Lola Blankets advanced from `ordered` to `refunded`. Committed and
+      pushed; **awaiting deploy + owner hand-verification in production**
+      before moving to Done.
 
 ## 🟡 Next
 - [ ] **Watching: Amazon extraction quality** — Amazon is likely to be the most

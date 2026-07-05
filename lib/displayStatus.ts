@@ -23,12 +23,44 @@ export const DISPLAY_STATUS_LABELS: Record<string, string> = {
 // has already been manually advanced (return_requested or higher).
 //
 // Auto-derivation ladder (highest wins):
+//   refund (confirmed amount) → "refunded" (money's actually back — see below)
+//   refund (no confirmed amount) → "returned"
 //   return_label  → "return_requested" (retailer issued a label = return initiated)
 //   delivery      → "shipped" (delivery is a strict superset of having shipped)
 //   shipping_confirmation → "shipped"
 //   otherwise     → "ordered"
-export function deriveDisplayStatus(emailTypes: string[], currentDisplayStatus: string): string {
+//
+// hasConfirmedRefundAmount: whether any linked "refund" email states an
+// explicit, confidently-identified refund amount (Email.refundAmount +
+// refundAmountConfidence, distinct from orderTotal — lib/extract.ts).
+// Retailers are frequently vague about refunds ("we're processing your
+// refund") without confirming the money actually moved — that ambiguity is
+// exactly what the product exists to catch, so it branches the target
+// status instead of treating every refund email the same:
+//   - confirmed amount → "refunded": chapter closed, auto-archives (via
+//     buildStatusTransitionData), no further reminders.
+//   - no confirmed amount → "returned": NOT archived, so the existing
+//     refund check-in reminder (lib/refundCheckin.ts, cron-driven off
+//     displayStatus === "returned") naturally nudges the user later to
+//     verify the money actually landed. No extra "scheduling" code needed
+//     — the cron's own query already covers this once the order is here.
+//
+// This check runs before the return_requested-or-higher early-return below
+// (unlike the rest of the ladder) — a refund email must be able to advance
+// an order past return_requested/returned, which no other auto-derivation
+// signal is allowed to do. The final rank comparison (not the early-return)
+// is what still protects against downgrade in both branches.
+export function deriveDisplayStatus(
+  emailTypes: string[],
+  currentDisplayStatus: string,
+  hasConfirmedRefundAmount: boolean = false,
+): string {
   const currentRank = DISPLAY_STATUS_RANK[currentDisplayStatus] ?? 0;
+
+  if (emailTypes.includes("refund")) {
+    const target = hasConfirmedRefundAmount ? "refunded" : "returned";
+    return DISPLAY_STATUS_RANK[target] > currentRank ? target : currentDisplayStatus;
+  }
 
   // If a user has manually advanced to return_requested/returned/refunded,
   // auto-derivation must never pull it back down.
@@ -62,6 +94,13 @@ export function deriveDisplayStatus(emailTypes: string[], currentDisplayStatus: 
 //   If the order is already archived, archivedAt is left out of the
 //   returned object entirely (the caller's update() then doesn't touch the
 //   column), so an existing archive timestamp is never overwritten.
+//   Also backfills returnedAt if still null — the two manual endpoints
+//   always gate "refunded" behind an existing "returned" status first, so
+//   returnedAt is already set by the time they call this. But auto-derived
+//   refunds (a confirmed-amount refund email, lib/displayStatus.ts's
+//   deriveDisplayStatus) can jump straight here from an earlier status
+//   without ever passing through "returned" — without this, returnedAt
+//   would stay null forever for those orders.
 export function buildStatusTransitionData(
   nextStatus: string,
   current: { returnedAt: Date | null; archivedAt: Date | null },
@@ -70,7 +109,7 @@ export function buildStatusTransitionData(
     displayStatus: nextStatus,
   };
 
-  if (nextStatus === "returned" && !current.returnedAt) {
+  if ((nextStatus === "returned" || nextStatus === "refunded") && !current.returnedAt) {
     data.returnedAt = new Date();
   }
 

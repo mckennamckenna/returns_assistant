@@ -76,6 +76,55 @@ describe("deriveDisplayStatus", () => {
   });
 });
 
+// ── Refund branching (Bugs 9+10+11) ─────────────────────────────────────────
+// Retailer refund emails are frequently vague ("we're processing your
+// refund") without confirming the money actually moved — that's exactly what
+// the product exists to catch. A refund email with a confirmed amount
+// advances to "refunded" (chapter closed); without one, it advances only to
+// "returned" so the existing refund check-in reminder can nudge the user
+// later to verify. This is the one auto-derivation signal allowed to move
+// an order past return_requested/returned on its own.
+
+describe("deriveDisplayStatus — refund branching", () => {
+  it("advances to 'refunded' when a refund email has a confirmed amount (Lola Blankets / Shopbop shape)", () => {
+    expect(deriveDisplayStatus(["refund"], "ordered", true)).toBe("refunded");
+  });
+
+  it("advances only to 'returned' when a refund email has no confirmed amount (H&M shape)", () => {
+    expect(deriveDisplayStatus(["refund"], "ordered", false)).toBe("returned");
+  });
+
+  it("defaults hasConfirmedRefundAmount to false when the argument is omitted", () => {
+    expect(deriveDisplayStatus(["refund"], "ordered")).toBe("returned");
+  });
+
+  it("a confirmed-amount refund can advance an order already at return_requested straight to refunded", () => {
+    expect(deriveDisplayStatus(["refund"], "return_requested", true)).toBe("refunded");
+  });
+
+  it("a no-amount refund can still advance an order already at return_requested to returned", () => {
+    expect(deriveDisplayStatus(["refund"], "return_requested", false)).toBe("returned");
+  });
+
+  it("does not downgrade an already-refunded order when a later refund email has no confirmed amount", () => {
+    // The H&M real-world case: order was already manually corrected to
+    // "refunded"; a since-linked vague refund email must not undo that.
+    expect(deriveDisplayStatus(["refund"], "refunded", false)).toBe("refunded");
+  });
+
+  it("does not downgrade an already-returned order when a refund email has no confirmed amount", () => {
+    expect(deriveDisplayStatus(["refund"], "returned", false)).toBe("returned");
+  });
+
+  it("a confirmed-amount refund still advances an already-returned order to refunded", () => {
+    expect(deriveDisplayStatus(["refund"], "returned", true)).toBe("refunded");
+  });
+
+  it("a refund email is evaluated even when other signals (return_label) are also present", () => {
+    expect(deriveDisplayStatus(["return_label", "refund"], "shipped", true)).toBe("refunded");
+  });
+});
+
 describe("DISPLAY_STATUS_RANK", () => {
   it("has strictly increasing ranks: ordered < shipped < return_requested < returned < refunded", () => {
     expect(DISPLAY_STATUS_RANK.ordered).toBeLessThan(DISPLAY_STATUS_RANK.shipped);
@@ -119,6 +168,23 @@ describe("buildStatusTransitionData", () => {
   it("does not reset returnedAt if already set", () => {
     const existingReturnedAt = new Date("2026-06-25T00:00:00Z");
     const data = buildStatusTransitionData("returned", { returnedAt: existingReturnedAt, archivedAt: null });
+    expect(data.returnedAt).toBeUndefined();
+  });
+
+  // ── Auto-derived refund jumping straight to "refunded" (Bugs 9+10+11) ──────
+  // Manual "Mark as refunded" is always gated behind an existing "returned"
+  // status, so returnedAt is already set by the time it calls this. But a
+  // confirmed-amount refund email can auto-derive straight from an earlier
+  // status to "refunded" without ever passing through "returned" — without
+  // this backfill, returnedAt would stay null forever for those orders.
+  it("backfills returnedAt when transitioning straight to refunded with no prior returnedAt", () => {
+    const data = buildStatusTransitionData("refunded", { returnedAt: null, archivedAt: null });
+    expect(data.returnedAt).toBeInstanceOf(Date);
+  });
+
+  it("does not overwrite returnedAt when transitioning to refunded if already set", () => {
+    const existingReturnedAt = new Date("2026-06-25T00:00:00Z");
+    const data = buildStatusTransitionData("refunded", { returnedAt: existingReturnedAt, archivedAt: null });
     expect(data.returnedAt).toBeUndefined();
   });
 });

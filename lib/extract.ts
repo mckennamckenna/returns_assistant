@@ -37,6 +37,18 @@ interface RawExtraction {
   returnWindowStartsFrom: "order_date" | "delivery_date" | null;
   orderTotal: number | null;
   orderCurrency: string | null;
+  // Distinct from orderTotal: the dollar figure explicitly identified as
+  // the amount being refunded/credited back, not the original purchase
+  // price. Retailer refund emails are often vague ("your refund is being
+  // processed") — refundAmount stays null unless a specific figure is
+  // unambiguously labeled as the refund. Drives the refunded-vs-returned
+  // branch in lib/displayStatus.ts: a confirmed amount means the money is
+  // actually back, so the order can auto-advance straight to "refunded";
+  // no confirmed amount means the retailer only confirmed *something*
+  // happened, so the order advances to "returned" instead and the existing
+  // refund check-in reminder nudges the user to verify later.
+  refundAmount: number | null;
+  refundAmountConfidence: Confidence | null; // null iff refundAmount is null
   lineItems: LineItem[];
   // Distinct from ExtractionResult.returnPortalUrl below: this is only
   // ever set when the email itself links to a returns page — the final
@@ -91,6 +103,8 @@ From the email subject and body below, extract:
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
 - orderTotal (number or null — see ORDER TOTAL below)
 - orderCurrency (string or null — e.g. "USD", only if determinable)
+- refundAmount (number or null — see REFUND AMOUNT below)
+- refundAmountConfidence ("high" | "medium" | "low" | null — null iff refundAmount is null; see REFUND AMOUNT below)
 - lineItems (array of {name, price, quantity} — see LINE ITEMS below)
 - returnPortalUrlFromEmail (string or null — see RETURN POLICY LINK below)
 - confidence ("high" | "medium" | "low")
@@ -109,6 +123,8 @@ ORDER TOTAL — look harder before returning null:
 - If the email shows a subtotal plus separate charges (shipping, tax, discount) that combine into a total, compute that sum.
 - If no total is stated anywhere but individual line items with prices are listed, sum the line item prices as an estimate — and say so in notes. This estimate may not match the real charged total (it can miss tax, shipping, or discounts), so don't report confidence higher than "medium" when the total is derived this way rather than read directly.
 - Still NEVER invent a number with no basis in the email at all. Trying harder means reading more carefully and computing sums that are actually present in the text — not guessing.
+
+REFUND AMOUNT — only for the dollar figure explicitly identified as the amount being refunded or credited back, e.g. "You will be refunded $123.05", "Refund total: $45.00", "$29.99 has been credited to your original payment method". This is NOT the same as orderTotal (the original purchase price) — never reuse orderTotal, or any other total in the email, as a stand-in for refundAmount. Retailers are often vague about refunds ("we're processing your refund", "we've received your return") without ever stating a specific dollar figure — when that's all the email says, leave refundAmount null. Set refundAmountConfidence "high" only when the figure is unambiguously labeled as the refund amount; "medium" if it's stated but derived (e.g. summed from several itemized partial refunds) or the labeling is slightly ambiguous; "low" if there's a dollar figure that might be the refund amount but it's genuinely unclear which figure that is. refundAmountConfidence must be null when refundAmount is null.
 
 LINE ITEMS — extract from any email type that lists them, not just order confirmations. Shipping and delivery confirmations frequently list "what's in this shipment" with names and prices — extract those exactly the same way you would from an order confirmation.
 

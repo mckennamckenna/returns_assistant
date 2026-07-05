@@ -96,6 +96,8 @@ model Email {
   emailType           String? // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
   orderTotal          Float? // total order amount, from the email body
   orderCurrency       String? // e.g. "USD"
+  refundAmount           Float?  // dollar figure explicitly labeled as the refund amount — distinct from orderTotal; null unless unambiguously stated
+  refundAmountConfidence String? // "high" | "medium" | "low" — null iff refundAmount is null
   lineItems           Json? // array of {name, price, quantity}, from the email body
   needsReview         Boolean   @default(false)
   extractionNotes     String?   @db.Text // AI's one-line reasoning, esp. for uncertainty

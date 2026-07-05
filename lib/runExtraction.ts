@@ -34,6 +34,8 @@ export async function runExtraction(emailId: string): Promise<void> {
         policySource: result.policySource,
         orderTotal: result.orderTotal,
         orderCurrency: result.orderCurrency,
+        refundAmount: result.refundAmount,
+        refundAmountConfidence: result.refundAmountConfidence,
         lineItems: result.lineItems as object,
         confidence: result.confidence,
         needsReview: result.needsReview,

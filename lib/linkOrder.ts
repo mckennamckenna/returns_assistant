@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { computeDeadline, normalizeReturnPortalUrl } from "@/lib/extract";
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyText } from "@/lib/emailBodyText";
-import { deriveDisplayStatus } from "@/lib/displayStatus";
+import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displayStatus";
 import { parseTracking } from "@/lib/trackingParser";
 
 // If a return label was issued this long ago with no refund email since,
@@ -197,25 +197,32 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
 // Derives and persists the user-facing displayStatus from the email types
 // linked to this order. Never auto-downgrades a status that was manually
 // advanced (return_requested or higher) — those can only move forward via
-// the PATCH /api/orders/:id/status endpoint.
+// the PATCH /api/orders/:id/status endpoint. The one auto-derivation signal
+// allowed to move an order past return_requested/returned on its own is a
+// refund email (see deriveDisplayStatus) — whether that lands on "refunded"
+// or "returned" depends on hasConfirmedRefundAmount, computed here from
+// every linked refund email's extracted refundAmount/refundAmountConfidence.
+//
+// Builds its update via the shared buildStatusTransitionData() — the same
+// function both manual transition endpoints use — so this third caller
+// can't drift from their atomic-write contract: auto-archive on "refunded",
+// returnedAt backfilled on first arrival at either "returned" or "refunded".
 export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
-    select: { displayStatus: true, returnedAt: true },
+    select: { displayStatus: true, returnedAt: true, archivedAt: true },
   });
   const emails = await prisma.email.findMany({
     where: { orderId },
-    select: { emailType: true },
+    select: { emailType: true, refundAmount: true, refundAmountConfidence: true },
   });
   const emailTypes = emails.map((e) => e.emailType).filter((t): t is string => t != null);
-  const next = deriveDisplayStatus(emailTypes, order.displayStatus);
+  const hasConfirmedRefundAmount = emails.some(
+    (e) => e.emailType === "refund" && e.refundAmount != null && e.refundAmountConfidence !== "low",
+  );
+  const next = deriveDisplayStatus(emailTypes, order.displayStatus, hasConfirmedRefundAmount);
   if (next !== order.displayStatus) {
-    const data: { displayStatus: string; returnedAt?: Date } = { displayStatus: next };
-    // Record the first time an order transitions to "returned" — used by the
-    // refund check-in reminder cron to compute when to send.
-    if (next === "returned" && !order.returnedAt) {
-      data.returnedAt = new Date();
-    }
+    const data = buildStatusTransitionData(next, { returnedAt: order.returnedAt, archivedAt: order.archivedAt });
     await prisma.order.update({ where: { id: orderId }, data });
   }
 }
@@ -319,6 +326,70 @@ async function findRetailerPrefixMatchOrder(
     where: { userId, orderNumber: { equals: orderNumber, mode: "insensitive" } },
   });
   return candidates.find((c) => c.retailer != null && isRetailerPrefixMatch(c.retailer, retailer)) ?? null;
+}
+
+export type RefundFallbackTier = "line_item_overlap" | "total_match" | "recency";
+
+export interface RefundFallbackMatch {
+  order: Order;
+  tier: RefundFallbackTier;
+}
+
+function normalizeItemName(name: string | null | undefined): string {
+  return (name ?? "").toLowerCase().trim();
+}
+
+function lineItemsOverlap(refundItems: unknown[], orderItems: unknown[]): boolean {
+  const refundNames = (refundItems as Array<{ name?: string }>)
+    .map((i) => normalizeItemName(i.name))
+    .filter((n) => n.length > 0);
+  const orderNames = (orderItems as Array<{ name?: string }>)
+    .map((i) => normalizeItemName(i.name))
+    .filter((n) => n.length > 0);
+
+  return refundNames.some((rn) => orderNames.some((on) => on.includes(rn) || rn.includes(on)));
+}
+
+// A refund email with no order number in the body (Bugs 9+10: Shopbop and
+// H&M both did this) can't use the exact/prefix match paths above, which
+// all require one. Only called for emailType === "refund" — never loosens
+// the orderNumber requirement for any other email type.
+//
+// Scoped to candidate orders for the same retailer + userId, then narrowed
+// by whichever signal the refund email actually has, most specific first:
+//   1. line-item name overlap — the refund email names the same product(s)
+//      as an existing order.
+//   2. orderTotal match — soft signal only (refunds are frequently partial,
+//      so this is a loose <= comparison, not exact equality).
+//   3. recency — the single candidate if there's exactly one, otherwise the
+//      most recently created one. Weakest signal, last resort.
+// Returns null when there's no candidate order for that retailer at all —
+// callers should create a new Order from the refund email itself in that
+// case (there's nothing to merge into), not treat it as a failed match.
+// Exported so the backfill dry-run script can preview which tier would
+// fire (a read-only query itself — no writes happen until the caller
+// actually merges/creates).
+export async function findRefundFallbackOrder(
+  userId: string,
+  retailer: string,
+  refundLineItems: unknown[],
+  refundTotal: number | null,
+): Promise<RefundFallbackMatch | null> {
+  const candidates = await prisma.order.findMany({
+    where: { userId, retailer: { equals: retailer, mode: "insensitive" }, deletedAt: null },
+  });
+  if (candidates.length === 0) return null;
+
+  const overlapMatch = candidates.find((c) => lineItemsOverlap(refundLineItems, asLineItemArray(c.lineItems)));
+  if (overlapMatch) return { order: overlapMatch, tier: "line_item_overlap" };
+
+  if (refundTotal != null) {
+    const totalMatch = candidates.find((c) => c.orderTotal != null && refundTotal <= c.orderTotal + 0.01);
+    if (totalMatch) return { order: totalMatch, tier: "total_match" };
+  }
+
+  const mostRecent = [...candidates].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  return { order: mostRecent, tier: "recency" };
 }
 
 // An order_confirmation describes the WHOLE order; a shipping or delivery
@@ -467,47 +538,80 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   const email = await prisma.email.findUnique({ where: { id: emailId } });
   if (!email) return;
 
-  if (!email.retailer || !email.orderNumber) {
+  // A refund email with no order number (Bugs 9+10: Shopbop and H&M both
+  // did this) still gets a shot at linking via findRefundFallbackOrder
+  // below, instead of the blanket needsReview-and-stop every other
+  // email type gets when orderNumber is missing. Scoped strictly to
+  // emailType === "refund" — this does not loosen the orderNumber
+  // requirement for order_confirmation/shipping_confirmation/delivery/
+  // return_label emails, which still need one.
+  const isOrphanedRefund = email.emailType === "refund" && !!email.retailer && !email.orderNumber;
+
+  if (!email.retailer || (!email.orderNumber && !isOrphanedRefund)) {
     await prisma.email.update({ where: { id: emailId }, data: { needsReview: true } });
     return;
   }
 
-  // userId scoping here is load-bearing, not optional: without it, two
-  // different users who both happen to shop at the same retailer with a
-  // matching order-number format could have their orders merged together,
-  // leaking one user's purchase data onto another's dashboard.
-  const existing = await prisma.order.findFirst({
-    where: {
-      userId: email.userId,
-      retailer: { equals: email.retailer, mode: "insensitive" },
-      orderNumber: { equals: email.orderNumber, mode: "insensitive" },
-    },
-  });
-
   let orderId: string;
   let isPrefixMatchedOrder = false;
   let retailerPrefixNote: string | null = null;
+  let isRefundFallbackMatch = false;
+  let refundFallbackNote: string | null = null;
 
-  if (existing) {
-    orderId = await mergeEmailIntoOrder(existing, email, returnPortalUrl);
-  } else {
-    const prefixMatch = await findPrefixMatchOrder(email.userId, email.retailer, email.orderNumber);
+  if (isOrphanedRefund) {
+    const refundFallback = await findRefundFallbackOrder(
+      email.userId,
+      email.retailer!,
+      asLineItemArray(email.lineItems),
+      email.orderTotal,
+    );
 
-    if (prefixMatch) {
-      orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
-      isPrefixMatchedOrder = true;
+    if (refundFallback) {
+      orderId = await mergeEmailIntoOrder(refundFallback.order, email, returnPortalUrl);
+      isRefundFallbackMatch = true;
+      refundFallbackNote = `[auto] refund fallback match (${refundFallback.tier}): no order number on refund email; matched to "${refundFallback.order.retailer}" #${refundFallback.order.orderNumber ?? "(none)"}`;
     } else {
-      const retailerPrefixMatch = await findRetailerPrefixMatchOrder(
-        email.userId,
-        email.retailer,
-        email.orderNumber,
-      );
-      if (retailerPrefixMatch) {
-        orderId = await mergeEmailIntoOrder(retailerPrefixMatch, email, returnPortalUrl);
+      // No candidate order for this retailer at all — the original
+      // purchase was never forwarded. Create a new Order from the refund
+      // email alone rather than leaving it permanently orphaned.
+      orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
+      isRefundFallbackMatch = true;
+      refundFallbackNote = `[auto] order created from refund email alone: no prior purchase record for retailer "${email.retailer}"`;
+    }
+  } else {
+    // userId scoping here is load-bearing, not optional: without it, two
+    // different users who both happen to shop at the same retailer with a
+    // matching order-number format could have their orders merged together,
+    // leaking one user's purchase data onto another's dashboard.
+    const existing = await prisma.order.findFirst({
+      where: {
+        userId: email.userId,
+        retailer: { equals: email.retailer, mode: "insensitive" },
+        orderNumber: { equals: email.orderNumber!, mode: "insensitive" },
+      },
+    });
+
+    if (existing) {
+      orderId = await mergeEmailIntoOrder(existing, email, returnPortalUrl);
+    } else {
+      const prefixMatch = await findPrefixMatchOrder(email.userId, email.retailer, email.orderNumber!);
+
+      if (prefixMatch) {
+        orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
         isPrefixMatchedOrder = true;
-        retailerPrefixNote = `[auto] retailer prefix match: "${retailerPrefixMatch.retailer}" ← "${email.retailer}"`;
       } else {
-        orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
+        const retailerPrefixMatch = await findRetailerPrefixMatchOrder(
+          email.userId,
+          email.retailer,
+          email.orderNumber!,
+        );
+        if (retailerPrefixMatch) {
+          orderId = await mergeEmailIntoOrder(retailerPrefixMatch, email, returnPortalUrl);
+          isPrefixMatchedOrder = true;
+          retailerPrefixNote = `[auto] retailer prefix match: "${retailerPrefixMatch.retailer}" ← "${email.retailer}"`;
+        } else {
+          orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
+        }
       }
     }
   }
@@ -521,17 +625,18 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
 
   // recomputeOrderStatus derives needsReview from data completeness, which
   // would happily clear it the moment the order looks complete — but any
-  // prefix match needs a human to confirm it wasn't two different orders
-  // that happened to share a prefix, regardless of how complete the data
-  // looks. Force it true after recompute, not before.
-  // For a retailer-prefix merge, also append an audit note to userNote so
-  // the merge reason is visible without having to diff order records.
-  if (isPrefixMatchedOrder) {
+  // prefix match (or refund-fallback match) needs a human to confirm it
+  // wasn't two different orders that happened to line up by inference,
+  // regardless of how complete the data looks. Force it true after
+  // recompute, not before. Also append an audit note to userNote so the
+  // merge reason is visible without having to diff order records.
+  if (isPrefixMatchedOrder || isRefundFallbackMatch) {
+    const note = retailerPrefixNote ?? refundFallbackNote;
     const noteUpdate: { needsReview: boolean; userNote?: string } = { needsReview: true };
-    if (retailerPrefixNote) {
+    if (note) {
       const merged = await prisma.order.findUnique({ where: { id: orderId }, select: { userNote: true } });
       const prior = merged?.userNote ?? null;
-      noteUpdate.userNote = prior ? `${prior}\n${retailerPrefixNote}` : retailerPrefixNote;
+      noteUpdate.userNote = prior ? `${prior}\n${note}` : note;
     }
     await prisma.order.update({ where: { id: orderId }, data: noteUpdate });
   }
