@@ -26,6 +26,15 @@
 ---
 
 ## 🔴 Now
+- [ ] **Signed-token infra + Archive-from-email (first one-tap-from-email slice)** —
+      TOKEN_SIGNING_SECRET + HMAC-SHA256 sign/verify helpers, TokenRedemption +
+      ActionLog tables (migrations), token issuance helper, Archive action endpoint
+      (confirmation-page flow — POST only, never GET), failure-mode pages (expired/
+      used/invalid/order-state-changed), reminder email + Sunday digest updated with
+      an Archive button. Per Friday's Section A/B spec — this slice is
+      infrastructure + Archive only; `kept` and every other action (Mark returned,
+      Mark refunded, Mark kept, Unarchive) are separate future sessions. Phased into
+      3–5 commits, each independently reviewable — see session for phase breakdown.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
