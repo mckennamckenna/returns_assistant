@@ -312,6 +312,48 @@ These apply to every code path, at every milestone.
 
 ---
 
+## Signed action token invariants (one-tap-from-email — in progress)
+
+These govern `TOKEN_SIGNING_SECRET` and the signed-token system being built across
+Phases 1–5 (Archive-from-email slice). Documented ahead of the code landing because
+the operational risk they describe exists the moment the secret is generated, not just
+once the token endpoints ship.
+
+- **Startup check:** the app refuses to boot if `TOKEN_SIGNING_SECRET` is missing or
+  shorter than 32 bytes. A weak or absent signing secret is a silent security hole —
+  fail loud at startup, not quietly at the first forged token.
+- **Timing-safe comparison:** signature verification uses `crypto.timingSafeEqual`,
+  never a plain `===` string comparison — a naive comparison leaks signature bytes
+  through response-time differences.
+- **Rotation:** do not rotate `TOKEN_SIGNING_SECRET` without a plan. Rotating this
+  secret invalidates every outstanding action token in every user's inbox — up to 14
+  days of Archive/Return/Refund/Kept buttons in reminder and digest emails will
+  silently fail after rotation. If rotation becomes necessary (secret leak, key
+  compromise), the operational plan is: (a) rotate immediately, (b) email affected
+  users acknowledging their inbox buttons will no longer work and directing them to
+  the app for the next 14 days, (c) monitor `ActionLog` for a spike in expired/invalid
+  token failures during the tail. A two-secret system that supports rotation without
+  breaking outstanding tokens is out of scope for the initial build but noted as
+  future work if rotation becomes routine.
+- **Rollback plan:** the initial build has no master-invalidate mechanism for
+  outstanding tokens. Any code change after Phase 5 ships must stay backwards-compatible
+  with previously-issued tokens (the same signature/payload shape, or a versioned
+  payload that old verifiers can still read) rather than assume every outstanding token
+  can be invalidated on demand. This is a deliberate acceptance of a 14-day tail of
+  live-but-superseded tokens in exchange for not building invalidation infrastructure
+  the initial build doesn't otherwise need — consistent with the rotation plan above,
+  which is the actual recovery path if that tradeoff is ever violated (e.g. a real
+  compromise forces an immediate break of backwards compatibility).
+- **Mark refunded is available from email, with a two-tap confirmation.** This accepts
+  the risk that a compromised email account could permanently archive an order in a
+  state that stops all reminders. Rationale: the target user shouldn't be forced into
+  the app to close a loop, and the compromised-inbox threat model already exposes worse
+  actions (magic-link login gives full dashboard access). If misuse surfaces, the
+  mitigation ladder is: better confirmation-page copy → require a distinct in-app
+  confirmation for refunded → remove refunded from email entirely.
+
+---
+
 ## Auth invariants
 
 - **`AUTH_SECRET` is the only required Auth.js env var.** Never introduce `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AUTH_URL`, or `AUTH_TRUST_HOST`. Each of these is either not read by Auth.js v5 or actively breaks auth when set to a stale or incorrect value.

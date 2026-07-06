@@ -148,6 +148,14 @@
       If the pattern recurs, build fuzzy suffix-strip matching in `lib/linkOrder.ts`.
 
 ## ⚪ Someday
+- [ ] **Confirmation page state** — if a user opens the same confirmation link in two
+      tabs, tab A confirms, tab B still shows a confirm button that errors ambiguously
+      ("already used"). Cosmetic UX polish, not a security issue. Consider a
+      client-side check that pings the endpoint on mount to detect already-redeemed
+      state.
+- [ ] **ActionLog growth policy** — every failed verification writes a row. At current
+      volume this is a non-issue; at scale it's a rate-limiting and retention
+      question. Consider retention policy + rate-limiting once we have real users.
 - [ ] Closet Window (wardrobe intelligence) — only after Return Window has
       retention data
 - [ ] Window Shopping (pre-purchase / price tracking) — same gate
@@ -213,6 +221,13 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- Mark refunded is available from email, with a two-tap confirmation. This accepts
+  the risk that a compromised email account could permanently archive an order in a
+  state that stops all reminders. Rationale: the target user shouldn't be forced into
+  the app to close a loop, and the compromised-inbox threat model already exposes worse
+  actions (magic-link login gives full dashboard access). If misuse surfaces, the
+  mitigation ladder is: better confirmation-page copy → require a distinct in-app
+  confirmation for refunded → remove refunded from email entirely.
 - Brand family: **Return Window** (wedge) → **Closet Window** → **Window Shopping**,
   unified "Window" metaphor. Build/validate Return Window first; expansions wait
   for retention data.
