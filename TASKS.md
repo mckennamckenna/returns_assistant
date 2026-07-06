@@ -40,10 +40,11 @@
       `instrumentation.ts` (refuses to boot without a valid `TOKEN_SIGNING_SECRET`).
       `TOKEN_SIGNING_SECRET` confirmed set in all 3 Vercel environments before deploy;
       deployed, `/login` returns 200 post-deploy (boot check didn't crash the app).
-      **Phase 2 done:** `TokenRedemption` + `ActionLog` migrations applied and
-      confirmed against production Neon (0 rows each, existing Order data untouched —
-      23 rows, unaffected). `lib/actionLinks.ts` (`buildActionLink()` issuance
-      helper). 130 tests pass, build passes. Not yet deployed.
+      **Phase 2 done + deployed + verified:** `TokenRedemption` + `ActionLog`
+      migrations applied and confirmed against production Neon (0 rows each,
+      existing Order data untouched — 23 rows, unaffected). `lib/actionLinks.ts`
+      (`buildActionLink()` issuance helper). 130 tests pass, build passes. Deployed,
+      `/login` returns 200 post-deploy. **Awaiting owner review before Phase 3.**
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
