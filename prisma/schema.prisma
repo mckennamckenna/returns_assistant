@@ -28,11 +28,12 @@ model User {
   // be derived from it. See BUILD.md Milestone 8.
   inboundToken String @unique @default(cuid())
 
-  accounts  Account[]
-  sessions  Session[]
-  orders    Order[]
-  emails    Email[]
-  reminders Reminder[]
+  accounts   Account[]
+  sessions   Session[]
+  orders     Order[]
+  emails     Email[]
+  reminders  Reminder[]
+  actionLogs ActionLog[]
 }
 
 model Account {
@@ -186,8 +187,10 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  emails    Email[]
-  reminders Reminder[]
+  emails           Email[]
+  reminders        Reminder[]
+  tokenRedemptions TokenRedemption[]
+  actionLogs       ActionLog[]
 }
 
 // --- Milestone 4: tracks which reminder emails have already been sent,
@@ -212,6 +215,41 @@ model Reminder {
   sentAt       DateTime @default(now())
 
   @@unique([orderId, reminderType])
+}
+
+// One-tap-from-email (signed action tokens) — enforces single-use. tokenHash
+// (not the raw token) is what's stored and uniquely constrained, so the
+// single-use check is an atomic DB-level guarantee (a unique-violation on
+// insert), not a check-then-write race. orderId is nullable + SetNull on
+// delete, same pattern as Reminder above — a hard-deleted Order shouldn't
+// block on this audit trail, just orphan it.
+model TokenRedemption {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  action    String // "archive" | "returned" | "refunded" | "kept" | "unarchive"
+  orderId   String?
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  redeemedAt DateTime @default(now())
+}
+
+// Every token issue/redemption attempt, successful or failed — expired,
+// already-used, invalid signature, order-state-changed. userId/orderId are
+// both nullable: a sufficiently garbled token may not decode far enough to
+// know who or what it was for, and that's still a real event worth logging,
+// not a reason to drop the row. Both relations are SetNull on delete, same
+// reasoning as TokenRedemption — an audit trail should survive its subject
+// being deleted, not silently vanish or block the deletion.
+model ActionLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orderId   String?
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  action    String
+  outcome   String // "success" | "expired" | "already_used" | "invalid" | "order_state_changed"
+  ipAddress String?
+  userAgent String?
+  at        DateTime @default(now())
 }
 
 // --- Milestone 10: aggregate-only record of non-commerce discards at

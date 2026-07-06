@@ -35,13 +35,15 @@
       infrastructure + Archive only; `kept` and every other action (Mark returned,
       Mark refunded, Mark kept, Unarchive) are separate future sessions. Phased into
       3–5 commits, each independently reviewable — see session for phase breakdown.
-      **Phase 1 done:** `lib/actionToken.ts` (sign/verify, HMAC-SHA256, base64url,
-      timing-safe comparison, `ACTION_TOKEN_TTL_DAYS = 14`), `instrumentation.ts`
-      (refuses to boot without a valid `TOKEN_SIGNING_SECRET`). 127 tests pass, build
-      passes. **Not yet deployed** — `TOKEN_SIGNING_SECRET` isn't set in any Vercel
-      environment yet; deploying `instrumentation.ts` first would crash the entire app
-      on next cold start, not just token features. Waiting on owner to set the env var
-      before any `vercel --prod`.
+      **Phase 1 done + deployed + verified:** `lib/actionToken.ts` (sign/verify,
+      HMAC-SHA256, base64url, timing-safe comparison, `ACTION_TOKEN_TTL_DAYS = 14`),
+      `instrumentation.ts` (refuses to boot without a valid `TOKEN_SIGNING_SECRET`).
+      `TOKEN_SIGNING_SECRET` confirmed set in all 3 Vercel environments before deploy;
+      deployed, `/login` returns 200 post-deploy (boot check didn't crash the app).
+      **Phase 2 done:** `TokenRedemption` + `ActionLog` migrations applied and
+      confirmed against production Neon (0 rows each, existing Order data untouched —
+      23 rows, unaffected). `lib/actionLinks.ts` (`buildActionLink()` issuance
+      helper). 130 tests pass, build passes. Not yet deployed.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 

@@ -229,6 +229,33 @@ model Reminder {
 }
 ```
 
+### TokenRedemption (one-tap-from-email — in progress)
+
+```prisma
+model TokenRedemption {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique // hash of the token, not the raw token — DB unique constraint enforces single-use atomically
+  action     String
+  orderId    String?  // nullable + SetNull on delete, same pattern as Reminder — a hard-deleted Order shouldn't block or erase this audit trail
+  redeemedAt DateTime @default(now())
+}
+```
+
+### ActionLog (one-tap-from-email — in progress)
+
+```prisma
+model ActionLog {
+  id        String   @id @default(cuid())
+  userId    String?  // nullable — a sufficiently garbled token may not decode far enough to know who
+  orderId   String?  // nullable — same reasoning, and SetNull on delete like TokenRedemption
+  action    String
+  outcome   String   // "success" | "expired" | "already_used" | "invalid" | "order_state_changed"
+  ipAddress String?
+  userAgent String?
+  at        DateTime @default(now())
+}
+```
+
 ### DiscardLog
 
 ```prisma
