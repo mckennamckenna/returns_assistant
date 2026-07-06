@@ -39,6 +39,9 @@
       enumerated here. [needs clarification: full list]
 
 ## 🟡 Next
+- [ ] **Watching: Jul 12 Sunday digest** — verify actual scheduled fire produces
+      Reminder rows. If clean, Jul 5 was likely a Vercel platform hiccup. If also
+      silent, real runtime bug needing dashboard log investigation.
 - [ ] **Coverage-check dedup should key off scheduled-run-week, not rolling 7-day
       lookback**, so test invocations don't perturb production cadence — currently a
       stray Jun 27 test send caused three users (owner, kathleen, alexandra) to be

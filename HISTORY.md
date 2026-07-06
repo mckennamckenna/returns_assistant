@@ -5,6 +5,28 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-06 — Weekly digest: Jul 5 silent fire diagnosed, make-up digest sent
+
+**Weekly digest — Jul 5 scheduled cron did not fire; cause not conclusively
+identified.** Code inspection found no material difference from the working Friday
+`weekly_coverage_check` cron (identical `GET` handler, identical `CRON_SECRET` auth,
+identical await ordering, identical unfiltered user query — direct diff, not
+assumption). Deployment confirmed live since Jul 1 (the commit adding the digest cron,
+`92be597`, landed in a production deployment at 2026-07-01T22:26:10 UTC, well before
+Jul 5's scheduled 16:00 UTC fire) — so this wasn't a case of the cron never having been
+registered. Vercel's log retention didn't reach back far enough (via CLI) to see the
+actual Jul 5 invocation attempt directly.
+
+Jul 6 make-up digest force-sent successfully: `GET
+/api/cron/weekly-digest?force=true` returned `200`, all 7 users `sent` (0 failed, 0
+skipped), 7 new `weekly_digest` Reminder rows confirmed written in the DB immediately
+after. Confirms the route itself works correctly end-to-end as currently deployed.
+
+Jul 12 will be the first real scheduled fire since Jul 5. See TASKS.md 🟡 Next for the
+follow-up watch item.
+
+---
+
 ## 2026-07-05 — Bugs 9+10+11: refund-amount-aware status branching + linkOrder fallback (`b91354f`)
 
 **Design shift — explicit:** BUILD.md's original rule was "refunded is never
