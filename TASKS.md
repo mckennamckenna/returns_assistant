@@ -39,6 +39,13 @@
       enumerated here. [needs clarification: full list]
 
 ## 🟡 Next
+- [ ] **Coverage-check dedup should key off scheduled-run-week, not rolling 7-day
+      lookback**, so test invocations don't perturb production cadence — currently a
+      stray Jun 27 test send caused three users (owner, kathleen, alexandra) to be
+      deduped from the Jul 3 real run.
+- [ ] **Verify whether the coverage-check route on `?force=true` writes the Reminder
+      row identically to a scheduled run** — if so, tests will keep affecting the
+      schedule. Consider not writing a Reminder row on force invocations.
 - [ ] **Refund verification loop** — "did the money actually land?" close-the-loop
       email. Today's rule (Bugs 9+10+11) advances status to `refunded` and skips the
       check-in reminder when the retailer's refund email states a specific dollar
