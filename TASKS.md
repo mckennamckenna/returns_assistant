@@ -44,7 +44,17 @@
       migrations applied and confirmed against production Neon (0 rows each,
       existing Order data untouched — 23 rows, unaffected). `lib/actionLinks.ts`
       (`buildActionLink()` issuance helper). 130 tests pass, build passes. Deployed,
-      `/login` returns 200 post-deploy. **Awaiting owner review before Phase 3.**
+      `/login` returns 200 post-deploy.
+      **Phase 3 done:** `POST /api/action/archive` — signed-token verified, CSRF
+      verified, single-use enforced atomically (`TokenRedemption.tokenHash` unique
+      constraint), `Order.userId === token.userId` checked (internal-bug defense),
+      `TokenRedemption` + `Order.update` + `ActionLog` in one transaction. IP via
+      `x-vercel-forwarded-for`. Already-used path writes `ActionLog` with one retry +
+      console fallback outside the rolled-back transaction. Also corrected Phase 1's
+      `verifyToken` signature (dropped `orderId` from `expected` — structural
+      scoping via `payload.orderId` alone, no external orderId to compare against
+      given the real link shape) and added `signCsrfToken`/`verifyCsrfToken`. 141
+      tests pass, build passes.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 

@@ -17,7 +17,12 @@ export interface ActionTokenPayload {
 
 export type VerifyResult =
   | { valid: true; payload: ActionTokenPayload }
-  | { valid: false; reason: "invalid" | "expired" };
+  | { valid: false; reason: "invalid" }
+  // The signature already checked out by the time expiry is the only
+  // problem — the payload is known-good, just too old. Carrying it lets
+  // callers log which order/user an expired attempt was actually for,
+  // instead of a blank ActionLog row.
+  | { valid: false; reason: "expired"; payload: ActionTokenPayload };
 
 // TOKEN_SIGNING_SECRET is hex-encoded, same convention as ENCRYPTION_KEY
 // (lib/crypto.ts) — generate via `openssl rand -hex 32`. Decoded byte length
@@ -64,11 +69,15 @@ export function signToken(payload: Omit<ActionTokenPayload, "issuedAt">): string
   return `${encodedPayload}.${signature}`;
 }
 
-// Scoped to one action on one order by construction — expected.action and
-// expected.orderId are checked here, inside verification itself, not left
-// for each caller to remember. A token issued to archive Order X can't be
-// replayed to archive Order Y or to refund Order X.
-export function verifyToken(token: string, expected: { action: string; orderId: string }): VerifyResult {
+// Scoped to one action on one order by construction — not by comparing
+// against an externally-supplied orderId (the real link shape is
+// /action/{action}?token=..., with no separate orderId anywhere for a
+// caller to already know), but structurally: every endpoint acts only on
+// payload.orderId, decoded here and never taken from any other source. A
+// token issued to archive Order X can't be replayed to archive Order Y
+// (nothing ever asks "is this Order Y?" — it only ever asks "what does the
+// token say?") or to refund Order X (expected.action won't match).
+export function verifyToken(token: string, expected: { action: string }): VerifyResult {
   const parts = token.split(".");
   if (parts.length !== 2) {
     return { valid: false, reason: "invalid" };
@@ -113,13 +122,41 @@ export function verifyToken(token: string, expected: { action: string; orderId: 
     return { valid: false, reason: "invalid" };
   }
 
-  if (payload.action !== expected.action || payload.orderId !== expected.orderId) {
+  if (payload.action !== expected.action) {
     return { valid: false, reason: "invalid" };
   }
 
   if (Date.now() - payload.issuedAt > ACTION_TOKEN_TTL_MS) {
-    return { valid: false, reason: "expired" };
+    return { valid: false, reason: "expired", payload };
   }
 
   return { valid: true, payload };
+}
+
+// Derived from the action token itself — no separate storage or expiry
+// needed, since if the action token is later found invalid or expired,
+// verification fails there regardless of what the CSRF check would say.
+// Purpose: prove the POST actually came from a page load of the
+// confirmation page (which calls signCsrfToken when rendering), not a
+// bot/scanner/link-previewer replaying the action token directly against
+// the endpoint — these confirmation pages have no session to protect in
+// the traditional CSRF sense (redeeming a token never logs anyone in), so
+// this is closer to a form nonce than classic session CSRF protection.
+export function signCsrfToken(actionToken: string): string {
+  return createHmac("sha256", getSecret()).update(actionToken).digest("base64url");
+}
+
+export function verifyCsrfToken(actionToken: string, csrfToken: string): boolean {
+  let expected: Buffer;
+  try {
+    expected = Buffer.from(signCsrfToken(actionToken), "base64url");
+  } catch {
+    return false;
+  }
+  const provided = Buffer.from(csrfToken, "base64url");
+
+  if (provided.length !== expected.length) {
+    return false;
+  }
+  return timingSafeEqual(provided, expected);
 }

@@ -19,10 +19,11 @@ describe("buildActionLink", () => {
     const link = buildActionLink({ orderId: "order_1", userId: "user_1", action: "archive" });
     const token = decodeURIComponent(new URL(link).searchParams.get("token")!);
 
-    const result = verifyToken(token, { action: "archive", orderId: "order_1" });
+    const result = verifyToken(token, { action: "archive" });
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.payload.userId).toBe("user_1");
+      expect(result.payload.orderId).toBe("order_1");
     }
   });
 
