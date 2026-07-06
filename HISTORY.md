@@ -17,10 +17,20 @@ Jul 5's scheduled 16:00 UTC fire) — so this wasn't a case of the cron never ha
 registered. Vercel's log retention didn't reach back far enough (via CLI) to see the
 actual Jul 5 invocation attempt directly.
 
-Jul 6 make-up digest force-sent successfully: `GET
-/api/cron/weekly-digest?force=true` returned `200`, all 7 users `sent` (0 failed, 0
-skipped), 7 new `weekly_digest` Reminder rows confirmed written in the DB immediately
-after. Confirms the route itself works correctly end-to-end as currently deployed.
+**Weekly digest — Jul 5 scheduled cron did not fire; cause not conclusively
+identified. Code inspection found no material difference from working Friday cron;
+deployment confirmed live since Jul 1. Jul 6 make-up digest force-sent successfully to
+owner + 3 alpha users; Jul 12 will be first real scheduled fire since Jul 5.**
+
+Full detail: `GET /api/cron/weekly-digest?force=true` returned `200`, all 7 users
+`sent` (0 failed, 0 skipped) — owner (Step 1, confirmed received in inbox) and the
+3 alpha users Caroline/Jennifer/Susan (Step 2) all included in that single invocation.
+Per-user outcome for the 3 alpha users: all three got the zero-orders fallback content
+("Nothing due this week — you're all caught up"), not a real itemized digest — none of
+the three currently have any order with a `returnDeadline` in the next 7 days. All
+three sends succeeded (no errors, no skips). 7 new `weekly_digest` Reminder rows
+confirmed written in the DB immediately after the call. Confirms the route itself
+works correctly end-to-end as currently deployed.
 
 Jul 12 will be the first real scheduled fire since Jul 5. See TASKS.md 🟡 Next for the
 follow-up watch item.

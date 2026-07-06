@@ -42,6 +42,21 @@
 - [ ] **Watching: Jul 12 Sunday digest** — verify actual scheduled fire produces
       Reminder rows. If clean, Jul 5 was likely a Vercel platform hiccup. If also
       silent, real runtime bug needing dashboard log investigation.
+- [ ] **Cron failure alerting** — set up Vercel notifications so a missed cron
+      invocation is discovered proactively, not by accident. Trigger for this: the
+      Jul 5 digest silence was only surfaced because the owner noticed her inbox was
+      quiet. Sunday check-ins probably won't scale to that discovery mechanism.
+- [ ] **Sunday digest subject line + tone pass** — current subject is functional but
+      generic. Owner preference is something like "What returns do you HAVE to send
+      back this week — xoxo your friends at Return Window." Subject line determines
+      open rate, so highest-leverage copy change on the digest. Not urgent; worth
+      writing 3-5 options and picking carefully. Revisit once digest has real cadence
+      with real users.
+- [ ] **Zero-returns-this-week digest — rethink fallback content.** Current "nothing
+      due, all caught up" wastes the touchpoint. Options: list active-but-not-due
+      orders as "here's what we're watching," show recent 30-day refund wins, or skip
+      the email on zero-return weeks. Under email-first every email should earn its
+      place.
 - [ ] **Coverage-check dedup should key off scheduled-run-week, not rolling 7-day
       lookback**, so test invocations don't perturb production cadence — currently a
       stray Jun 27 test send caused three users (owner, kathleen, alexandra) to be
