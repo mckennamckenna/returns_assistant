@@ -5,6 +5,7 @@ import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
 import { runRefundCheckinReminders } from "@/lib/refundCheckin";
+import { buildActionLink } from "@/lib/actionLinks";
 
 export const dynamic = "force-dynamic";
 
@@ -53,21 +54,22 @@ function formatDate(date: Date): string {
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function buildSubject(reminderType: ReminderType, retailer: string | null, orderTotal: number | null, orderCurrency: string | null): string {
+export function buildSubject(reminderType: ReminderType, retailer: string | null, orderTotal: number | null, orderCurrency: string | null): string {
   const label = DAYS_LEFT_LABEL[reminderType];
   const retailerName = retailer || "your order";
   const total = formatCurrency(orderTotal, orderCurrency);
   return total ? `${label} to return: ${retailerName} · ${total}` : `${label} to return: ${retailerName}`;
 }
 
-function buildBody(
-  order: { id: string; retailer: string | null; orderNumber: string | null; returnDeadline: Date; deadlineIsEstimated: boolean; orderTotal: number | null; orderCurrency: string | null },
+export function buildBody(
+  order: { id: string; retailer: string | null; orderNumber: string | null; returnDeadline: Date; deadlineIsEstimated: boolean; orderTotal: number | null; orderCurrency: string | null; userId: string },
   reminderType: ReminderType,
 ): string {
   const retailer = order.retailer || "your order";
   const orderRef = order.orderNumber ? ` (order ${order.orderNumber})` : "";
   const deadline = `${formatDate(order.returnDeadline)}${order.deadlineIsEstimated ? " (estimated)" : ""}`;
   const total = formatCurrency(order.orderTotal, order.orderCurrency);
+  const archiveLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "archive" });
 
   return [
     `Your return window for ${retailer}${orderRef} ${CLOSES_PHRASE[reminderType]}.`,
@@ -76,6 +78,7 @@ function buildBody(
     total ? `Order total: ${total}` : null,
     "",
     `View details: ${APP_URL}/orders/${order.id}`,
+    `Archive this order (stops all reminders): ${archiveLink}`,
     "",
     "— Return Window",
   ]
@@ -198,6 +201,7 @@ export async function GET(request: NextRequest) {
           deadlineIsEstimated: order.deadlineIsEstimated,
           orderTotal: order.orderTotal,
           orderCurrency: order.orderCurrency,
+          userId: order.userId,
         },
         reminderType,
       );

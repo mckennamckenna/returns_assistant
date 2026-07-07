@@ -4,6 +4,7 @@ import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { DISPLAY_STATUS_LABELS } from "@/lib/displayStatus";
 import { activeOrderFilter } from "@/lib/orderFilters";
+import { buildActionLink } from "@/lib/actionLinks";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ function daysLabel(days: number): string {
   return `${days} days`;
 }
 
-interface DigestOrder {
+export interface DigestOrder {
   id: string;
   retailer: string | null;
   orderNumber: string | null;
@@ -36,7 +37,7 @@ interface DigestOrder {
   displayStatus: string;
 }
 
-function buildOrderLine(order: DigestOrder, now: Date): string {
+export function buildOrderLine(order: DigestOrder, now: Date, userId: string): string {
   const retailer = order.retailer || "Unknown retailer";
   const orderRef = order.orderNumber ? ` #${order.orderNumber}` : "";
   const deadline = formatDate(order.returnDeadline);
@@ -44,18 +45,19 @@ function buildOrderLine(order: DigestOrder, now: Date): string {
   const timeLeft = days <= 0 ? "due today" : `due in ${daysLabel(days)}`;
   const status = DISPLAY_STATUS_LABELS[order.displayStatus] ?? order.displayStatus;
   const link = `${APP_URL}/orders/${order.id}`;
+  const archiveLink = buildActionLink({ orderId: order.id, userId, action: "archive" });
 
-  return `${retailer}${orderRef} — ${status} — ${deadline} (${timeLeft})\n${link}`;
+  return `${retailer}${orderRef} — ${status} — ${deadline} (${timeLeft})\n${link}\nArchive this order (stops all reminders): ${archiveLink}`;
 }
 
-function buildBody(orders: DigestOrder[], now: Date): string {
+export function buildBody(orders: DigestOrder[], now: Date, userId: string): string {
   if (orders.length === 0) {
     return `Nothing due this week — you're all caught up.
 
 — Return Window`;
   }
 
-  const lines = orders.map((o) => buildOrderLine(o, now));
+  const lines = orders.map((o) => buildOrderLine(o, now, userId));
   return `Here's what's due in your return windows this week:
 
 ${lines.join("\n\n")}
@@ -130,7 +132,7 @@ export async function GET(request: NextRequest) {
       // The where clause guarantees returnDeadline is non-null here.
       const orders: DigestOrder[] = rawOrders.filter((o) => o.returnDeadline != null) as DigestOrder[];
 
-      const body = buildBody(orders, now);
+      const body = buildBody(orders, now, user.id);
       await sendEmail({
         to: user.email,
         from: fromEmail,

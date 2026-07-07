@@ -31,10 +31,17 @@
       helper), Phase 3 (Archive redemption endpoint), and Phase 4 (confirmation
       page + failure-mode pages, enriched with order context after owner's browser
       pass caught the first version being too thin) all shipped, deployed, and
-      owner-verified — full detail in HISTORY.md. **Phase 5 next:** wire into the
-      reminder email and Sunday digest templates. `kept` and every other action
-      (Mark returned, Mark refunded, Mark kept, Unarchive) are separate future
-      sessions.
+      owner-verified — full detail in HISTORY.md. **Phase 5 in progress:**
+      reminder-cron `buildBody()` and weekly-digest `buildOrderLine()`/`buildBody()`
+      both now append an Archive link via `buildActionLink()` — threaded `userId`
+      through both (already in scope at each call site). 155 tests pass, build
+      passes. No live sends to alpha users for this phase — verification uses a
+      disposable test order + a script that calls the real exported body-builders
+      directly, bypassing the shared multi-user cron endpoints entirely (no risk of
+      emailing Caroline/Jennifer/Susan/etc; they'll get the Archive button
+      naturally on their own next real reminder/digest). `kept` and every other
+      action (Mark returned, Mark refunded, Mark kept, Unarchive) are separate
+      future sessions.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
