@@ -78,6 +78,13 @@ from one but not the other is exactly the bug class this section exists to preve
 | `ADMIN_SECRET` | Stateless query-param gate for `/admin` |
 | `ALPHA_MODE` | `"true"` enables the Friday per-user alpha coverage-check email |
 | `ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM field-level encryption |
+| `TOKEN_SIGNING_SECRET` | 32+ byte hex key, HMAC-SHA256 signing for one-tap-from-email action tokens — see Signed action token invariants below |
+
+**Local env files:** `.env.local` takes precedence over `.env` in Next.js — a var
+set in both resolves to `.env.local`'s value. Worth checking both files before
+concluding a var "isn't set" locally; a debugging session on 2026-07-06 nearly
+chased a false alarm because `TOKEN_SIGNING_SECRET` was correctly in `.env.local`
+the whole time and only `.env` was checked.
 
 ---
 

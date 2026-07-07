@@ -126,7 +126,14 @@ export async function POST(request: NextRequest) {
       return decision.outcome;
     });
 
-    return NextResponse.json({ outcome });
+    // 422: well-formed request, business rules blocked or redirected it
+    // (order_state_changed, or the userId-mismatch "invalid" case) — distinct
+    // from the 200 a real archive (fresh or idempotent no-op) gets, so
+    // monitoring can tell "business-rejected" from "successful" without
+    // parsing the body. The outcome field, not the status code, is still
+    // what Phase 4's page branches on.
+    const status = outcome === "success" ? 200 : 422;
+    return NextResponse.json({ outcome }, { status });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       // The transaction above rolled back entirely — nothing else was
