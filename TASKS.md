@@ -78,9 +78,18 @@
       response-format-only rule; the elaborate status codes now collapse to a
       uniform 303 since a real browser form-submit expects a redirect, with outcome
       signaling moving entirely into the query param + done page. 149 tests pass,
-      build passes. **Deployed and curl-verified** (HTML shape, form action/method,
-      hidden fields, redirect Location, done-page copy) — **awaiting owner's browser
-      pass (rendering/CSS/click-through) before ✅.**
+      build passes. **Deployed and curl-verified live against production**
+      (disposable test orders, cleaned up after): confirm page shows correct
+      retailer/orderNumber + form action=`/api/action/archive` method=POST + hidden
+      token/csrf fields; POST → 303 redirect to `/action/archive/done?outcome=success`,
+      order actually archived in DB; confirm page reloaded with the same
+      (now-redeemed) token correctly shows "Already done" without a second POST;
+      invalid/missing-token, expired (backdated 15 days, correct expiry date
+      computed and displayed), and order_state_changed (soft-deleted order) all show
+      the right copy on the confirm page; done page shows correct copy for all 5
+      outcomes plus a working dashboard link. **Awaiting owner's browser pass
+      (rendering/CSS/click-through) before ✅** — curl verifies HTML shape and
+      redirect behavior, not visual rendering.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
