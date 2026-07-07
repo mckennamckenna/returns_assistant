@@ -39,6 +39,17 @@
       #2 overwrites in the UI, they may paste the stale code and see it
       rejected. If we see support requests around this in alpha, add a "newer
       code available" banner. Not urgent.
+- [ ] **Carrier tracking refresh via AfterShip (tier 2)** — tier 3
+      (delivery-confirmation email → deliveredAt) catches the common case.
+      Tier 2 handles the edge cases: extraction pulled the wrong estimate,
+      carrier updated the ETA mid-transit, delivery-confirmation email never
+      arrived. Approach: AfterShip API integration ($9/month starter tier,
+      ~$30-50/month at 100-1000 users), refresh on (a) user opens order detail
+      page, (b) reminder cron is about to fire — not daily polling of
+      everything. Trigger to build: if we see 3+ orders in a week where tier 3
+      was insufficient (estimate was wrong, delivery confirmation never
+      arrived, user surprised by wrong deadline). Not urgent until real usage
+      data justifies it.
 - [ ] **Extend signed-token actions beyond Archive** — Mark returned, Mark
       refunded, Mark kept, Unarchive. Infrastructure is live and reusable; each new
       action is roughly the shape of Phase 3+4 (endpoint + confirmation page). No
