@@ -173,6 +173,15 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Login allowlist gate added** — new `AllowedSignIn` table + `auth.ts`
+      check: a magic-link email only sends if the address already has a `User`
+      row (existing users never locked out) or is in `AllowedSignIn` (manually
+      invited). Unapproved emails get the same "check your email" page but
+      genuinely receive nothing — no enumeration leak. Seeded with 3 friend
+      invites (vanessamitchener, jsweazey, aauerbuch @gmail.com). New emails
+      going forward: `npx tsx scripts/addAllowedSignIn.ts <email...>`.
+      **Awaiting owner verification**: your own login still works post-deploy,
+      and ideally one real friend completes sign-in end-to-end.
 - [ ] **Marketing landing page: mobile layout fixes + copy refresh** — committed
       (`54972aa`), pushed, deployed to production (`dpl_7hWP8RGB2MVMFBPR7kQnZwYEUxA8`),
       alias confirmed pointing at it. New feature copy + SMS footnote confirmed live at

@@ -269,3 +269,16 @@ model BetaSignup {
   email     String   @unique
   createdAt DateTime @default(now())
 }
+
+// Alpha-gating allowlist for login, checked in auth.ts before a magic-link
+// email is ever sent. Deliberately separate from BetaSignup: these are
+// manually-curated invites (e.g. friends invited outside the marketing
+// funnel), not marketing-page prospects. An email already belonging to an
+// existing User is always allowed to sign in regardless of this table —
+// this only gates the FIRST sign-in (account creation), never re-login.
+model AllowedSignIn {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  note      String? // optional context, e.g. "friend invite"
+}

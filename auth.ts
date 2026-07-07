@@ -21,7 +21,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // the rest of the app.
       server: { host: "smtp.postmarkapp.com", port: 587, auth: { user: "unused", pass: "unused" } },
       from: process.env.LOGIN_FROM_EMAIL ?? process.env.REMINDER_FROM_EMAIL,
+      // Alpha gate: an email only gets a magic link if it already belongs
+      // to an existing User (re-login, always allowed — never lock out
+      // someone who already has an account) or is in AllowedSignIn (a
+      // manually-curated invite). Anything else is silently skipped — no
+      // email sent, no error thrown — so the verify-request page looks
+      // identical either way and doesn't leak which emails are approved.
       sendVerificationRequest: async ({ identifier, url }) => {
+        const email = identifier.trim().toLowerCase();
+        const [existingUser, allowed] = await Promise.all([
+          prisma.user.findUnique({ where: { email } }),
+          prisma.allowedSignIn.findUnique({ where: { email } }),
+        ]);
+        if (!existingUser && !allowed) {
+          return;
+        }
         await sendEmail({
           to: identifier,
           from: (process.env.LOGIN_FROM_EMAIL ?? process.env.REMINDER_FROM_EMAIL)!,
