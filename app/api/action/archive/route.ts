@@ -20,6 +20,18 @@ function getClientIp(request: NextRequest): string | null {
   return request.headers.get("x-vercel-forwarded-for");
 }
 
+// Post/Redirect/Get: a real HTML form submit expects a redirect back to a
+// page, not raw JSON — 303 specifically, so a refresh on the done page
+// re-does a GET, never resubmits this POST. The done page
+// (app/action/archive/done/page.tsx) is purely a display concern reading
+// this outcome back out of the query string; nothing about the decision
+// logic below changes because of this.
+function redirectToOutcome(request: NextRequest, outcome: string): NextResponse {
+  const url = new URL("/action/archive/done", request.url);
+  url.searchParams.set("outcome", outcome);
+  return NextResponse.redirect(url, 303);
+}
+
 // Confirmation pages require an actual form submit (POST), never a GET —
 // an email client's link-previewer following a GET link must not be able
 // to redeem a token by itself. This endpoint has no GET handler at all.
@@ -31,7 +43,7 @@ export async function POST(request: NextRequest) {
   try {
     formData = await request.formData();
   } catch {
-    return NextResponse.json({ outcome: "invalid" }, { status: 400 });
+    return redirectToOutcome(request, "invalid");
   }
 
   const token = formData.get("token");
@@ -46,7 +58,7 @@ export async function POST(request: NextRequest) {
       ipAddress: ip,
       userAgent,
     });
-    return NextResponse.json({ outcome: "invalid" }, { status: 400 });
+    return redirectToOutcome(request, "invalid");
   }
 
   const verified = verifyToken(token, { action: ACTION });
@@ -64,7 +76,7 @@ export async function POST(request: NextRequest) {
       },
       hashToken(token),
     );
-    return NextResponse.json({ outcome: verified.reason }, { status: verified.reason === "expired" ? 410 : 400 });
+    return redirectToOutcome(request, verified.reason);
   }
 
   const { payload } = verified;
@@ -81,7 +93,7 @@ export async function POST(request: NextRequest) {
       },
       hashToken(token),
     );
-    return NextResponse.json({ outcome: "invalid" }, { status: 403 });
+    return redirectToOutcome(request, "invalid");
   }
 
   const tokenHash = hashToken(token);
@@ -93,10 +105,9 @@ export async function POST(request: NextRequest) {
   // concurrent requests for the same token race on this insert, and only
   // one can win it.
   //
-  // NOTE for future readers (esp. a Phase 4 refactor adapting this
-  // response into a page redirect): the outcome is fully decided by the
-  // time this function returns. Changing how the outcome is DISPLAYED
-  // (JSON vs. redirect) must never re-call verifyToken or re-run this
+  // NOTE for future readers: the outcome is fully decided by the time this
+  // function returns. Changing how the outcome is DISPLAYED (redirect
+  // target, copy, etc.) must never re-call verifyToken or re-run this
   // transaction — that would double-write ActionLog for a single real
   // redemption attempt.
   try {
@@ -126,14 +137,7 @@ export async function POST(request: NextRequest) {
       return decision.outcome;
     });
 
-    // 422: well-formed request, business rules blocked or redirected it
-    // (order_state_changed, or the userId-mismatch "invalid" case) — distinct
-    // from the 200 a real archive (fresh or idempotent no-op) gets, so
-    // monitoring can tell "business-rejected" from "successful" without
-    // parsing the body. The outcome field, not the status code, is still
-    // what Phase 4's page branches on.
-    const status = outcome === "success" ? 200 : 422;
-    return NextResponse.json({ outcome }, { status });
+    return redirectToOutcome(request, outcome);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       // The transaction above rolled back entirely — nothing else was
@@ -150,7 +154,7 @@ export async function POST(request: NextRequest) {
         },
         tokenHash,
       );
-      return NextResponse.json({ outcome: "already_used" }, { status: 409 });
+      return redirectToOutcome(request, "already_used");
     }
     throw error;
   }

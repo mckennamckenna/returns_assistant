@@ -65,6 +65,22 @@
       outcome field stays the source of truth, status code now also distinguishes
       business-rejected from successful for monitoring. `.env.local`-over-`.env`
       precedence gotcha documented in BUILD.md.
+      **Phase 4 done:** `app/action/archive/page.tsx` (GET confirm/failure page,
+      read-only — never writes `TokenRedemption`/`ActionLog`), `lib/archivePageState.ts`
+      (pure decision function, mirrors Phase 3's `decideArchiveOutcome` for the
+      pre-POST view; unit-tested including the expired-with-payload case Phase 3's
+      `VerifyResult` change enabled), `app/action/archive/done/page.tsx` (outcome →
+      copy, no DB access — accepted tradeoff: the `?outcome=` param isn't signed, so
+      a hand-crafted URL can show success copy without archiving anything; not a
+      security issue since nothing is written, just a display page). POST route's
+      response construction changed from JSON to a 303 redirect (Post/Redirect/Get) —
+      decision logic, transaction, and 422/410/etc. semantics all unchanged, per the
+      response-format-only rule; the elaborate status codes now collapse to a
+      uniform 303 since a real browser form-submit expects a redirect, with outcome
+      signaling moving entirely into the query param + done page. 149 tests pass,
+      build passes. **Deployed and curl-verified** (HTML shape, form action/method,
+      hidden fields, redirect Location, done-page copy) — **awaiting owner's browser
+      pass (rendering/CSS/click-through) before ✅.**
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 

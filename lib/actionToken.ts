@@ -4,7 +4,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 // and digest email templates) reads this too, so a future tuning of the
 // window only needs to change here.
 export const ACTION_TOKEN_TTL_DAYS = 14;
-const ACTION_TOKEN_TTL_MS = ACTION_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+export const ACTION_TOKEN_TTL_MS = ACTION_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 const MIN_SECRET_BYTES = 32;
 
