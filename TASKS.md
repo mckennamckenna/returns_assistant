@@ -26,9 +26,7 @@
 ---
 
 ## 🔴 Now
-- [ ] **Marketing landing page refresh** — apply mobile layout fixes + copy changes
-      from attached JSX (`myreturnwindow-landing.jsx`) to `app/marketing/page.tsx`,
-      preserving live beta-signup API wiring. In progress this session.
+(empty — pick a task from 🟡 Next)
 
 ## 🟡 Next
 - [ ] **Extend signed-token actions beyond Archive** — Mark returned, Mark
@@ -175,6 +173,14 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Marketing landing page: mobile layout fixes + copy refresh** — committed
+      (`54972aa`), pushed, deployed to production (`dpl_7hWP8RGB2MVMFBPR7kQnZwYEUxA8`),
+      alias confirmed pointing at it. New feature copy + SMS footnote confirmed live at
+      myreturnwindow.com. Restored real `/api/beta-signup` fetch wiring, loading state,
+      error handling, and the working Sign in link that the source design pass had
+      dropped; kept the stat band section (44%/58%/$890B) intact. **Awaiting owner
+      verification**: real signup test (BetaSignup row + admin notification email),
+      Sign in link click-through, mobile viewport check on a real device.
 - [x] **Signed-token infra + Archive-from-email slice — all 5 phases shipped, deployed, and owner-verified**, zero rollbacks: token core, TokenRedemption/ActionLog + issuance helper, Archive redemption endpoint, confirmation + failure-mode pages (enriched with order context), Archive link live in reminder + Sunday digest emails.
 - [x] Phase 5: Archive link wired into reminder + Sunday digest email templates; verified via a disposable test order and a real reminder email, clicked through from the owner's actual inbox, no live sends to alpha users.
 - [x] Phase 4: confirmation page + failure-mode pages, enriched with order context; browser-verified end-to-end including GET-safety and enriched failure pages.
