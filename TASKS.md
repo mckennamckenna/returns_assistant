@@ -180,21 +180,22 @@
       genuinely receive nothing — no enumeration leak. Seeded with 3 friend
       invites (vanessamitchener, jsweazey, aauerbuch @gmail.com). New emails
       going forward: `npx tsx scripts/addAllowedSignIn.ts <email...>`.
-      **Awaiting owner verification**: your own login still works post-deploy,
-      and ideally one real friend completes sign-in end-to-end.
-- [ ] **Waitlist hint added to login success page** — "Didn't get anything?
+      Owner's own login confirmed working post-deploy. **Still awaiting**: one
+      real friend (of the 3 seeded) completing sign-in end-to-end.
+- [x] **Waitlist hint added to login success page** — "Didn't get anything?
       You may need an invite first — request access" now shown on both
       `/login/verify` and `LoginForm.tsx`'s inline success state, identical
       copy for approved and unapproved emails alike (no enumeration leak).
-      Links to myreturnwindow.com. **Awaiting owner verification** post-deploy.
-- [ ] **Marketing landing page: mobile layout fixes + copy refresh** — committed
+      Links to myreturnwindow.com. Owner-verified: a random unapproved email
+      shows the note.
+- [x] **Marketing landing page: mobile layout fixes + copy refresh** — committed
       (`54972aa`), pushed, deployed to production (`dpl_7hWP8RGB2MVMFBPR7kQnZwYEUxA8`),
       alias confirmed pointing at it. New feature copy + SMS footnote confirmed live at
       myreturnwindow.com. Restored real `/api/beta-signup` fetch wiring, loading state,
       error handling, and the working Sign in link that the source design pass had
-      dropped; kept the stat band section (44%/58%/$890B) intact. **Awaiting owner
-      verification**: real signup test (BetaSignup row + admin notification email),
-      Sign in link click-through, mobile viewport check on a real device.
+      dropped; kept the stat band section (44%/58%/$890B) intact. Owner-verified: real
+      signup test (confirmation email received), mobile viewport, Sign in link
+      click-through (via the login test above).
 - [x] **Signed-token infra + Archive-from-email slice — all 5 phases shipped, deployed, and owner-verified**, zero rollbacks: token core, TokenRedemption/ActionLog + issuance helper, Archive redemption endpoint, confirmation + failure-mode pages (enriched with order context), Archive link live in reminder + Sunday digest emails.
 - [x] Phase 5: Archive link wired into reminder + Sunday digest email templates; verified via a disposable test order and a real reminder email, clicked through from the owner's actual inbox, no live sends to alpha users.
 - [x] Phase 4: confirmation page + failure-mode pages, enriched with order context; browser-verified end-to-end including GET-safety and enriched failure pages.
