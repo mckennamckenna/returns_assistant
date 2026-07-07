@@ -26,7 +26,9 @@
 ---
 
 ## 🔴 Now
-(empty — pick a task from 🟡 Next)
+- [ ] **Marketing landing page refresh** — apply mobile layout fixes + copy changes
+      from attached JSX (`myreturnwindow-landing.jsx`) to `app/marketing/page.tsx`,
+      preserving live beta-signup API wiring. In progress this session.
 
 ## 🟡 Next
 - [ ] **Extend signed-token actions beyond Archive** — Mark returned, Mark
@@ -60,19 +62,11 @@
 - [ ] **Verify whether the coverage-check route on `?force=true` writes the Reminder
       row identically to a scheduled run** — if so, tests will keep affecting the
       schedule. Consider not writing a Reminder row on force invocations.
-- [ ] **Refund verification loop** — "did the money actually land?" close-the-loop
-      email. Today's rule (Bugs 9+10+11) advances status to `refunded` and skips the
-      check-in reminder when the retailer's refund email states a specific dollar
-      amount — that trusts the retailer, but doesn't confirm the money actually posted
-      to the user's card. Two options: (A) always fire a check-in 3–5 business days
-      after the `refunded` transition, with the specific amount in the email copy —
-      easy, ~1 hour of work, minor UX cost; (B) build proper refund verification into
-      the check-in email as a signed-token one-tap flow ("Yes, it landed" / "No, still
-      missing") that creates a `refundVerifiedAt` timestamp and, on "No," surfaces
-      retailer contact info or a snooze. **Dependency resolved:** signed-token
-      infrastructure shipped and is owner-verified in production (see ✅ Done) — Option
-      B is now fully unblocked. Ship Option A only if there's a meaningful gap before
-      picking up Option B.
+- [ ] **Refund verification loop** — plan is complete, spec'd in
+      `REFUND_VERIFICATION_LOOP_PLAN.md` at repo root. Ready to execute. Two
+      timestamps (`refundVerifiedAt`, `refundDisputedAt`), Yes/No signed-token
+      buttons on check-in email, 7-day follow-up chain capped at 3 iterations.
+      Blocked on nothing — priority when we return to feature work.
 - [ ] **Watching: Amazon extraction quality** — Amazon is likely to be the most
       common retailer for our users and has structural quirks (no
       `order_confirmation` email type, variable formats, category-dependent
