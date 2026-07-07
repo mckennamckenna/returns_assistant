@@ -87,9 +87,17 @@
       invalid/missing-token, expired (backdated 15 days, correct expiry date
       computed and displayed), and order_state_changed (soft-deleted order) all show
       the right copy on the confirm page; done page shows correct copy for all 5
-      outcomes plus a working dashboard link. **Awaiting owner's browser pass
-      (rendering/CSS/click-through) before ✅** — curl verifies HTML shape and
-      redirect behavior, not visual rendering.
+      outcomes plus a working dashboard link. Owner's first browser pass caught a
+      real gap: confirm page was too thin, asking the user to archive an order
+      without showing what it was. **Amended:** confirm page now shows retailer
+      (prominent), order number, total, order date, return deadline + days
+      remaining, current `displayStatus` badge, and a "View in app" link — all from
+      the same read-only Order lookup already being made, no new DB calls or
+      writes. `already_used`/`order_state_changed` failure pages now also show
+      retailer + order number so the user knows which order the message refers to;
+      `expired`/`invalid` stay minimal since the token's semantic meaning is
+      limited there. 150 tests pass, build passes. **Deployed and curl-verified**
+      — **awaiting owner's second browser pass before ✅.**
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
