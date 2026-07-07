@@ -28,6 +28,15 @@ model User {
   // be derived from it. See BUILD.md Milestone 8.
   inboundToken String @unique @default(cuid())
 
+  // Gmail's forwarding-setup confirmation code, surfaced to the user in
+  // real time on the setup page (polled via GET /api/gmail-code) so they
+  // can complete verification without the owner relaying it manually.
+  // Overwritten if a second code arrives before the first is used —
+  // accepted alpha trade-off, see TASKS.md. Cleared (both fields to null)
+  // once the user confirms they've entered it into Gmail.
+  gmailVerificationCode           String?
+  gmailVerificationCodeReceivedAt DateTime?
+
   accounts   Account[]
   sessions   Session[]
   orders     Order[]

@@ -30,3 +30,31 @@ export function extractVerificationDetails(body: string | null | undefined): Ext
 
   return { code: codeLine ?? null, link };
 }
+
+export interface GmailCodeResponse {
+  code: string | null;
+  receivedAt: string | null;
+}
+
+// Shapes GET /api/gmail-code's JSON response from the raw User row —
+// separated out so the response format is unit-testable without a DB.
+export function buildGmailCodeResponse(user: {
+  gmailVerificationCode: string | null;
+  gmailVerificationCodeReceivedAt: Date | null;
+}): GmailCodeResponse {
+  return {
+    code: user.gmailVerificationCode,
+    receivedAt: user.gmailVerificationCodeReceivedAt?.toISOString() ?? null,
+  };
+}
+
+// The Prisma update payload for "I've entered this code in Gmail" —
+// pulled out as its own pure function so the clearing behavior is
+// unit-testable without a DB, and so app/settings/actions.ts and its test
+// can't drift from each other on what "cleared" means.
+export function gmailVerifiedClearFields(): {
+  gmailVerificationCode: null;
+  gmailVerificationCodeReceivedAt: null;
+} {
+  return { gmailVerificationCode: null, gmailVerificationCodeReceivedAt: null };
+}

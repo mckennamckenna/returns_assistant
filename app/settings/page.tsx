@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { getInboundAddress } from "@/lib/inboundAddress";
 import { DeleteAllDataForm } from "./DeleteAllDataForm";
 import { CopyButton } from "./CopyButton";
+import { GmailVerificationCode } from "./GmailVerificationCode";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -14,6 +15,7 @@ export default async function SettingsPage() {
   if (!user) redirect("/login");
 
   const inboundAddress = getInboundAddress(user.inboundToken);
+  const gmailSearchUrl = `https://mail.google.com/mail/u/0/#search/to:(${encodeURIComponent(inboundAddress)})`;
 
   return (
     <main className="min-h-screen p-8 max-w-2xl mx-auto w-full">
@@ -28,13 +30,27 @@ export default async function SettingsPage() {
         <p className="text-sm text-stone-500 mb-3">
           Forward your order confirmations, shipping updates, and return emails to this address. Only you can use it.
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-3">
           <code className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 break-all">
             {inboundAddress}
           </code>
           <CopyButton text={inboundAddress} />
         </div>
+        <a
+          href={gmailSearchUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block text-sm font-medium text-stone-700 border border-stone-300 rounded-lg px-3 py-1.5 hover:bg-stone-50"
+        >
+          Open Gmail with this address ready to filter
+        </a>
+        <p className="text-xs text-stone-400 mt-2">
+          Opens Gmail with your address ready to filter. From there: click the search bar&apos;s filter icon, choose
+          &quot;Create filter&quot;, then check &quot;Forward it to&quot; and paste your Return Window address.
+        </p>
       </div>
+
+      <GmailVerificationCode initialCode={user.gmailVerificationCode} />
 
       <div className="border border-stone-200 rounded-lg p-4 mb-6">
         <h2 className="font-semibold text-stone-800 mb-2">Archived orders</h2>

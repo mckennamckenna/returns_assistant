@@ -73,6 +73,18 @@ export async function POST(request: NextRequest) {
       const { code, link } = extractVerificationDetails(payload.TextBody ?? payload.HtmlBody);
       const inboundAddress = getInboundAddress(user.inboundToken);
 
+      // Surfaced to the user in real time via GET /api/gmail-code (polled
+      // from the setup page), in parallel with the admin notify below —
+      // not instead of it. Only written when a code was actually found;
+      // an unparsed email (code: null) shouldn't clobber a still-valid
+      // pending code with null.
+      if (code) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { gmailVerificationCode: code, gmailVerificationCodeReceivedAt: new Date() },
+        });
+      }
+
       await notifyAdmin(
         "New user verification needed",
         [

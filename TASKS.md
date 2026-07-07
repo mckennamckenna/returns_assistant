@@ -29,6 +29,16 @@
 (empty — pick a task from 🟡 Next)
 
 ## 🟡 Next
+- [ ] **Extend self-serve email setup to non-Gmail providers** — Outlook,
+      iCloud, ProtonMail each have their own filter/forward flow. Alpha is
+      Gmail-only; when the first non-Gmail user shows up, revisit the setup
+      page architecture to handle multiple providers cleanly rather than
+      hardcoding Gmail assumptions.
+- [ ] **Gmail confirmation code overwrite UX** — currently a second arriving
+      code silently replaces the first; if a user has code #1 copied and code
+      #2 overwrites in the UI, they may paste the stale code and see it
+      rejected. If we see support requests around this in alpha, add a "newer
+      code available" banner. Not urgent.
 - [ ] **Extend signed-token actions beyond Archive** — Mark returned, Mark
       refunded, Mark kept, Unarchive. Infrastructure is live and reusable; each new
       action is roughly the shape of Phase 3+4 (endpoint + confirmation page). No
