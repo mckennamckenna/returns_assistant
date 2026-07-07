@@ -26,8 +26,7 @@
 ---
 
 ## 🔴 Now
-- [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
-      enumerated here. [needs clarification: full list]
+(empty — pick a task from 🟡 Next)
 
 ## 🟡 Next
 - [ ] **Extend signed-token actions beyond Archive** — Mark returned, Mark
@@ -70,10 +69,10 @@
       easy, ~1 hour of work, minor UX cost; (B) build proper refund verification into
       the check-in email as a signed-token one-tap flow ("Yes, it landed" / "No, still
       missing") that creates a `refundVerifiedAt` timestamp and, on "No," surfaces
-      retailer contact info or a snooze — depends on the signed-token infrastructure
-      (see the "I'm keeping this" spec below) landing first. Right sequence is
-      probably: signed tokens → Option B. Ship Option A only if there's a meaningful
-      gap between now and signed tokens landing.
+      retailer contact info or a snooze. **Dependency resolved:** signed-token
+      infrastructure shipped and is owner-verified in production (see ✅ Done) — Option
+      B is now fully unblocked. Ship Option A only if there's a meaningful gap before
+      picking up Option B.
 - [ ] **Watching: Amazon extraction quality** — Amazon is likely to be the most
       common retailer for our users and has structural quirks (no
       `order_confirmation` email type, variable formats, category-dependent
@@ -128,8 +127,10 @@
 - [ ] Archive page tidy-up — strip to essentials: archived orders + static chrome (nav,
       menus) only. No filter dropdowns, no cross-bucket counts, no nudges toward active
       orders. Archive is a quiet room, not another dashboard.
-- [ ] Investigate duplicate Order rows for On order 101130827062601745. LinkOrder merge
-      bug, or intentional? Cheap check, not urgent.
+- [ ] **Investigate duplicate Order rows for On order 101130827062601745** — two
+      separate Order records with the same `orderNumber`, found while diagnosing the
+      returnPortalUrl scheme bug (`lib/linkOrder.ts` matching). LinkOrder merge bug, or
+      intentional? Cheap check, not urgent.
 
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **Post-beta: delivery-only orders (no `shipping_confirmation`)** — during alpha,
@@ -190,7 +191,7 @@
 - [x] Refunded-misclick fix: confirm dialog on "Mark as refunded", auto-archive on refunded (atomic), H&M order corrected — owner hand-tested and confirmed in production.
 - [x] Bug 1+6: Archive/Unarchive UI made visible; deadline reminders now respect displayStatus.
 - [x] Marketing homepage at myreturnwindow.com shipped with beta signup — public marketing page (host-routed, no auth), `/api/beta-signup` storing + deduping emails and notifying admin; magic-link login on app.myreturnwindow.com verified unaffected.
-- [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — landed correctly.
+- [x] H&M "Your return package has arrived" re-forwarded after the classify-gate fix — owner hand-verified it landed correctly.
 - [x] Documentation restructured — BUILD.md trimmed to current-state reference; HISTORY.md created with full chronological detail; TASKS.md Done section reformatted to one-liners.
 - [x] Dashboard UI additions — "Track your return" link, "Mark as refunded" button, Archive/Unarchive button, and Archived filter tab added to dashboard and order detail page.
 - [x] Soft-delete wired to dashboard delete buttons — both buttons now hit the soft-delete endpoint with a confirm gate; old hard-delete server action removed.
@@ -207,10 +208,8 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **Duplicate "On (On-Running)" order rows** — two separate Order records with the same
-  `orderNumber` (`101130827062601745`), found while diagnosing the returnPortalUrl scheme
-  bug (`lib/linkOrder.ts` matching). Not investigated further — out of scope for that fix.
-  Worth a look: likely a linking/matching gap, not a user action.
+- **Duplicate "On (On-Running)" order rows** — see 🟡 Next: "Investigate duplicate Order
+  rows for On order 101130827062601745."
 - Order-number normalization is brittle across retailers (Mango is the first
   case; expect more retailer-specific suffix quirks).
 - Retailer-name prefix matching has a known collision risk: "American" (8 chars)
