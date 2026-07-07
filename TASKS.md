@@ -183,6 +183,16 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Self-serve Gmail forwarding setup** — committed (`2c55887`), pushed,
+      deployed (`dpl_7XhxvEhxedgBWQpNwYPCY8o8NVx9`), alias confirmed. Gmail
+      deep-link button + hint on the setup page; confirmation code now surfaced
+      in real time via `GET /api/gmail-code` (polled every 3s, stops on code
+      arrival or 15-min timeout — confirmed via curl the endpoint 401s signed
+      out); "I've entered this code in Gmail" clears it via a new server
+      action. Admin notify unchanged. 3 new unit tests pass, full suite (158
+      tests) green, build clean. **Awaiting owner verification**: forward your
+      Return Window address to a Gmail test account, walk the full flow, confirm
+      the code appears within seconds and admin notify still lands.
 - [ ] **Login allowlist gate added** — new `AllowedSignIn` table + `auth.ts`
       check: a magic-link email only sends if the address already has a `User`
       row (existing users never locked out) or is in `AllowedSignIn` (manually
