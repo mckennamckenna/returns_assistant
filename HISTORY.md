@@ -5,7 +5,7 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
-## 2026-07-06/07 — Signed action tokens, Phases 1–4 (Archive-from-email slice)
+## 2026-07-06/07 — Signed action tokens, Phases 1–5 (Archive-from-email slice)
 
 First real slice of the one-tap-from-email spec (Section A/B, drafted 2026-07-04):
 shared signed-token infrastructure plus one action (Archive) built end-to-end.
@@ -128,8 +128,49 @@ and timestamps to rule out a stray redemption before writing this down. Confirms
 the read-only guarantee held through the amendment, not just at
 initial Phase 4 ship.
 
-**Owner-verified in production — Phase 4 done.** Phase 5 (wiring `buildActionLink()`
-into the reminder email and Sunday digest templates) is next.
+**Owner-verified in production — Phase 4 done.**
+
+**Phase 5 — wire into reminder + Sunday digest templates (`fa42d99`).**
+`app/api/cron/route.ts`'s `buildBody()` and `app/api/cron/weekly-digest/route.ts`'s
+`buildOrderLine()`/`buildBody()` all now append an Archive link via
+`buildActionLink()`, alongside the existing "View details" dashboard link.
+`userId` threaded through both — already in scope at each call site (the reminder
+cron already used `order.userId` for its `Reminder.create` call two lines below;
+the digest already loops per-user and calls `buildBody` once per send).
+`buildSubject`/`buildBody` (cron route) and `buildOrderLine`/`buildBody`/
+`DigestOrder` (digest route) exported — pure export-keyword additions, no
+restructuring — so both are directly unit-tested and reusable by a verification
+script without duplicating the logic.
+
+**No live sends to alpha users this phase**, deliberately. `?force=true` on either
+cron endpoint loops over every user's every eligible order — checked before doing
+anything and found the real risk was concrete, not theoretical: 18 eligible orders
+existed across Susan/Caroline/Alexandra/owner at verification time, and
+`nearestReminderType()` maps *any* future deadline to the closest threshold
+(0/1/2/7 days), not just orders exactly N days out, so force-firing either
+endpoint unscoped would very likely have emailed other real users. No per-user
+scoping param exists on either route, and adding one was considered and explicitly
+declined in favor of a safer approach: a one-off script
+(`scripts/phase5-verify-reminder.ts`, deleted after use) that imported the real
+exported `buildSubject`/`buildBody` and called `sendEmail` directly for one
+disposable test order (2-day-out deadline, matching the `2_day` reminder cadence),
+bypassing the shared multi-user endpoints entirely. Same real code path as
+production, zero risk to any other user's inbox.
+
+Verified: sent to the owner's real inbox, subject "2 days left to return: Phase 5
+Reminder Test · $38.00", body included both the dashboard link and the new
+Archive link. Owner clicked through from the real email; confirmed after: order
+`archivedAt` set, 1 `TokenRedemption` row, 1 `ActionLog(success)` row. Test order
+and verification script deleted after confirmation.
+
+**All five phases shipped in this session, deployed after each one, with zero
+rollbacks.** Every phase was curl- and/or browser-verified against production
+before moving to the next, and the one amendment needed (Phase 4's order-context
+enrichment) was caught by the owner's own browser pass and fixed forward in the
+same phase rather than requiring a revert. Caroline/Jennifer/Susan/kathleen/
+alexandra/lesleydunc will get the Archive button naturally on their own next real
+reminder or digest — the actual production behavior this slice exists to
+validate, not something that needed a forced send to prove.
 
 ---
 

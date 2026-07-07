@@ -41,6 +41,20 @@ that can plausibly mean "this order is done" should be checked against both the 
 cron and the refund check-in query before it ships — a state that's silently excluded
 from one but not the other is exactly the bug class this section exists to prevent.
 
+**One-tap-from-email is live for Archive** (Section A of the one-tap-from-email spec,
+2026-07-04) — this is no longer just a design document, it's real infrastructure with
+one real action built on it. `lib/actionToken.ts` (signed, single-use, 14-day tokens),
+`TokenRedemption`/`ActionLog` (audit + single-use enforcement), `POST
+/api/action/archive` (redemption endpoint), `app/action/archive/page.tsx` +
+`app/action/archive/done/page.tsx` (confirmation + failure-mode pages), and the
+Archive link embedded directly in reminder and Sunday digest emails (`lib/
+actionLinks.ts`'s `buildActionLink()`, called from both `app/api/cron/route.ts` and
+`app/api/cron/weekly-digest/route.ts`) are all deployed and owner-verified in
+production. The infrastructure is deliberately generic — every other spec'd action
+(Mark returned, Mark refunded, Mark kept, Unarchive) is the same shape (one
+redemption endpoint + one confirmation page) and needs no new token/audit
+infrastructure, but none of them are built yet. See TASKS.md 🟡 Next.
+
 ---
 
 ## Stack
@@ -236,7 +250,7 @@ model Reminder {
 }
 ```
 
-### TokenRedemption (one-tap-from-email — in progress)
+### TokenRedemption (one-tap-from-email — live for Archive)
 
 ```prisma
 model TokenRedemption {
@@ -248,7 +262,7 @@ model TokenRedemption {
 }
 ```
 
-### ActionLog (one-tap-from-email — in progress)
+### ActionLog (one-tap-from-email — live for Archive)
 
 ```prisma
 model ActionLog {
@@ -346,12 +360,12 @@ These apply to every code path, at every milestone.
 
 ---
 
-## Signed action token invariants (one-tap-from-email — in progress)
+## Signed action token invariants (one-tap-from-email — live for Archive)
 
-These govern `TOKEN_SIGNING_SECRET` and the signed-token system being built across
-Phases 1–5 (Archive-from-email slice). Documented ahead of the code landing because
-the operational risk they describe exists the moment the secret is generated, not just
-once the token endpoints ship.
+These govern `TOKEN_SIGNING_SECRET` and the signed-token system built across Phases
+1–5 (Archive-from-email slice, shipped 2026-07-06/07 — see HISTORY.md). Originally
+documented ahead of the code landing, since the operational risk they describe exists
+the moment the secret is generated, not just once the token endpoints ship.
 
 - **Startup check:** the app refuses to boot if `TOKEN_SIGNING_SECRET` is missing or
   shorter than 32 bytes. A weak or absent signing secret is a silent security hole —

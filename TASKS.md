@@ -26,26 +26,16 @@
 ---
 
 ## 🔴 Now
-- [ ] **Signed-token infra + Archive-from-email (first one-tap-from-email slice)** —
-      Phase 1 (token core), Phase 2 (`TokenRedemption`/`ActionLog` + issuance
-      helper), Phase 3 (Archive redemption endpoint), and Phase 4 (confirmation
-      page + failure-mode pages, enriched with order context after owner's browser
-      pass caught the first version being too thin) all shipped, deployed, and
-      owner-verified — full detail in HISTORY.md. **Phase 5 in progress:**
-      reminder-cron `buildBody()` and weekly-digest `buildOrderLine()`/`buildBody()`
-      both now append an Archive link via `buildActionLink()` — threaded `userId`
-      through both (already in scope at each call site). 155 tests pass, build
-      passes. No live sends to alpha users for this phase — verification uses a
-      disposable test order + a script that calls the real exported body-builders
-      directly, bypassing the shared multi-user cron endpoints entirely (no risk of
-      emailing Caroline/Jennifer/Susan/etc; they'll get the Archive button
-      naturally on their own next real reminder/digest). `kept` and every other
-      action (Mark returned, Mark refunded, Mark kept, Unarchive) are separate
-      future sessions.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
 ## 🟡 Next
+- [ ] **Extend signed-token actions beyond Archive** — Mark returned, Mark
+      refunded, Mark kept, Unarchive. Infrastructure is live and reusable; each new
+      action is roughly the shape of Phase 3+4 (endpoint + confirmation page). No
+      token infra work needed. Prioritize by user need — Mark returned probably
+      next since it's the most common transition. Estimate: probably 2-3 hours per
+      action once you get in a rhythm.
 - [ ] **Watching: Jul 12 Sunday digest** — verify actual scheduled fire produces
       Reminder rows. If clean, Jul 5 was likely a Vercel platform hiccup. If also
       silent, real runtime bug needing dashboard log investigation.
@@ -190,6 +180,8 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Signed-token infra + Archive-from-email slice — all 5 phases shipped, deployed, and owner-verified**, zero rollbacks: token core, TokenRedemption/ActionLog + issuance helper, Archive redemption endpoint, confirmation + failure-mode pages (enriched with order context), Archive link live in reminder + Sunday digest emails.
+- [x] Phase 5: Archive link wired into reminder + Sunday digest email templates; verified via a disposable test order and a real reminder email, clicked through from the owner's actual inbox, no live sends to alpha users.
 - [x] Phase 4: confirmation page + failure-mode pages, enriched with order context; browser-verified end-to-end including GET-safety and enriched failure pages.
 - [x] Bugs 9+10+11: linkOrder fallback for orphaned refund emails; refund emails now advance status: refunded when confirmed amount extracted, returned otherwise; refundAmount field added to extraction schema — owner hand-verified in production.
 - [x] Bug 8: Order date fallback to email receivedAt when extraction returns null; new orderDateEstimated flag; 3 Amazon orders backfilled — owner hand-verified in production.
