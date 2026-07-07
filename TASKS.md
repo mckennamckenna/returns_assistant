@@ -54,7 +54,13 @@
       `verifyToken` signature (dropped `orderId` from `expected` — structural
       scoping via `payload.orderId` alone, no external orderId to compare against
       given the real link shape) and added `signCsrfToken`/`verifyCsrfToken`. 141
-      tests pass, build passes.
+      tests pass, build passes. **Deployed and curl-verified live against
+      production** (disposable test orders, cleaned up after): fresh archive →
+      `success`, `archivedAt` set, 1 `TokenRedemption` + 1 `ActionLog(success)` row;
+      re-submit same token → `already_used` (409), no new `TokenRedemption` row,
+      confirming single-use; tampered CSRF → `invalid` (403); expired token (backdated
+      15 days) → `expired` (410); token for a soft-deleted order → `order_state_changed`
+      (200). **Awaiting owner review before Phase 4.**
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
