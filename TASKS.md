@@ -27,77 +27,14 @@
 
 ## 🔴 Now
 - [ ] **Signed-token infra + Archive-from-email (first one-tap-from-email slice)** —
-      TOKEN_SIGNING_SECRET + HMAC-SHA256 sign/verify helpers, TokenRedemption +
-      ActionLog tables (migrations), token issuance helper, Archive action endpoint
-      (confirmation-page flow — POST only, never GET), failure-mode pages (expired/
-      used/invalid/order-state-changed), reminder email + Sunday digest updated with
-      an Archive button. Per Friday's Section A/B spec — this slice is
-      infrastructure + Archive only; `kept` and every other action (Mark returned,
-      Mark refunded, Mark kept, Unarchive) are separate future sessions. Phased into
-      3–5 commits, each independently reviewable — see session for phase breakdown.
-      **Phase 1 done + deployed + verified:** `lib/actionToken.ts` (sign/verify,
-      HMAC-SHA256, base64url, timing-safe comparison, `ACTION_TOKEN_TTL_DAYS = 14`),
-      `instrumentation.ts` (refuses to boot without a valid `TOKEN_SIGNING_SECRET`).
-      `TOKEN_SIGNING_SECRET` confirmed set in all 3 Vercel environments before deploy;
-      deployed, `/login` returns 200 post-deploy (boot check didn't crash the app).
-      **Phase 2 done + deployed + verified:** `TokenRedemption` + `ActionLog`
-      migrations applied and confirmed against production Neon (0 rows each,
-      existing Order data untouched — 23 rows, unaffected). `lib/actionLinks.ts`
-      (`buildActionLink()` issuance helper). 130 tests pass, build passes. Deployed,
-      `/login` returns 200 post-deploy.
-      **Phase 3 done:** `POST /api/action/archive` — signed-token verified, CSRF
-      verified, single-use enforced atomically (`TokenRedemption.tokenHash` unique
-      constraint), `Order.userId === token.userId` checked (internal-bug defense),
-      `TokenRedemption` + `Order.update` + `ActionLog` in one transaction. IP via
-      `x-vercel-forwarded-for`. Already-used path writes `ActionLog` with one retry +
-      console fallback outside the rolled-back transaction. Also corrected Phase 1's
-      `verifyToken` signature (dropped `orderId` from `expected` — structural
-      scoping via `payload.orderId` alone, no external orderId to compare against
-      given the real link shape) and added `signCsrfToken`/`verifyCsrfToken`. 141
-      tests pass, build passes. **Deployed and curl-verified live against
-      production** (disposable test orders, cleaned up after): fresh archive →
-      `success`, `archivedAt` set, 1 `TokenRedemption` + 1 `ActionLog(success)` row;
-      re-submit same token → `already_used` (409), no new `TokenRedemption` row,
-      confirming single-use; tampered CSRF → `invalid` (403); expired token (backdated
-      15 days) → `expired` (410); token for a soft-deleted order → `order_state_changed`.
-      **Phase 3 approved and shipped.** Polish applied + deployed + re-verified live:
-      `order_state_changed`/userId-mismatch `invalid` now return 422 (was 200) —
-      outcome field stays the source of truth, status code now also distinguishes
-      business-rejected from successful for monitoring. `.env.local`-over-`.env`
-      precedence gotcha documented in BUILD.md.
-      **Phase 4 done:** `app/action/archive/page.tsx` (GET confirm/failure page,
-      read-only — never writes `TokenRedemption`/`ActionLog`), `lib/archivePageState.ts`
-      (pure decision function, mirrors Phase 3's `decideArchiveOutcome` for the
-      pre-POST view; unit-tested including the expired-with-payload case Phase 3's
-      `VerifyResult` change enabled), `app/action/archive/done/page.tsx` (outcome →
-      copy, no DB access — accepted tradeoff: the `?outcome=` param isn't signed, so
-      a hand-crafted URL can show success copy without archiving anything; not a
-      security issue since nothing is written, just a display page). POST route's
-      response construction changed from JSON to a 303 redirect (Post/Redirect/Get) —
-      decision logic, transaction, and 422/410/etc. semantics all unchanged, per the
-      response-format-only rule; the elaborate status codes now collapse to a
-      uniform 303 since a real browser form-submit expects a redirect, with outcome
-      signaling moving entirely into the query param + done page. 149 tests pass,
-      build passes. **Deployed and curl-verified live against production**
-      (disposable test orders, cleaned up after): confirm page shows correct
-      retailer/orderNumber + form action=`/api/action/archive` method=POST + hidden
-      token/csrf fields; POST → 303 redirect to `/action/archive/done?outcome=success`,
-      order actually archived in DB; confirm page reloaded with the same
-      (now-redeemed) token correctly shows "Already done" without a second POST;
-      invalid/missing-token, expired (backdated 15 days, correct expiry date
-      computed and displayed), and order_state_changed (soft-deleted order) all show
-      the right copy on the confirm page; done page shows correct copy for all 5
-      outcomes plus a working dashboard link. Owner's first browser pass caught a
-      real gap: confirm page was too thin, asking the user to archive an order
-      without showing what it was. **Amended:** confirm page now shows retailer
-      (prominent), order number, total, order date, return deadline + days
-      remaining, current `displayStatus` badge, and a "View in app" link — all from
-      the same read-only Order lookup already being made, no new DB calls or
-      writes. `already_used`/`order_state_changed` failure pages now also show
-      retailer + order number so the user knows which order the message refers to;
-      `expired`/`invalid` stay minimal since the token's semantic meaning is
-      limited there. 150 tests pass, build passes. **Deployed and curl-verified**
-      — **awaiting owner's second browser pass before ✅.**
+      Phase 1 (token core), Phase 2 (`TokenRedemption`/`ActionLog` + issuance
+      helper), Phase 3 (Archive redemption endpoint), and Phase 4 (confirmation
+      page + failure-mode pages, enriched with order context after owner's browser
+      pass caught the first version being too thin) all shipped, deployed, and
+      owner-verified — full detail in HISTORY.md. **Phase 5 next:** wire into the
+      reminder email and Sunday digest templates. `kept` and every other action
+      (Mark returned, Mark refunded, Mark kept, Unarchive) are separate future
+      sessions.
 - [ ] **Bugs 2–5 from owner's manual-review triage** — separate sessions, not yet
       enumerated here. [needs clarification: full list]
 
@@ -246,6 +183,7 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] Phase 4: confirmation page + failure-mode pages, enriched with order context; browser-verified end-to-end including GET-safety and enriched failure pages.
 - [x] Bugs 9+10+11: linkOrder fallback for orphaned refund emails; refund emails now advance status: refunded when confirmed amount extracted, returned otherwise; refundAmount field added to extraction schema — owner hand-verified in production.
 - [x] Bug 8: Order date fallback to email receivedAt when extraction returns null; new orderDateEstimated flag; 3 Amazon orders backfilled — owner hand-verified in production.
 - [x] Bug 7: event tickets/tours/memberships/donations/subscriptions excluded from commerce gate — Southbank Centre e-ticket stray order soft-deleted, owner hand-verified in production.

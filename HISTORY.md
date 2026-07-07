@@ -5,6 +5,134 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-06/07 — Signed action tokens, Phases 1–4 (Archive-from-email slice)
+
+First real slice of the one-tap-from-email spec (Section A/B, drafted 2026-07-04):
+shared signed-token infrastructure plus one action (Archive) built end-to-end.
+`kept` and every other action (Mark returned, Mark refunded, Mark kept, Unarchive)
+are deliberately out of scope — separate future sessions. Phased into 4 commits so
+far, each independently reviewed and verified before the next started.
+
+**Phase 1 — token core (`1517139`).** `lib/actionToken.ts`: `signToken`/`verifyToken`,
+HMAC-SHA256, base64url, `crypto.timingSafeEqual` for signature comparison (length
+checked first — `timingSafeEqual` throws on a length mismatch rather than returning
+false, so a truncated signature routes to the same "invalid" outcome without ever
+skipping the constant-time comparison for well-formed input). `ACTION_TOKEN_TTL_DAYS
+= 14`, exported so later phases reference the same constant. `instrumentation.ts`:
+Next.js's boot hook, refuses to start if `TOKEN_SIGNING_SECRET` is missing or under
+32 bytes. Deployed only after independently confirming the secret was set in all 3
+Vercel environments — deploying the boot check first would have crashed the entire
+app on next cold start, not just token features.
+
+**Phase 2 — data model (`265e030`).** `TokenRedemption` (tokenHash unique, action,
+orderId, redeemedAt) and `ActionLog` (userId, orderId, action, outcome, ipAddress,
+userAgent, at) migrations, both nullable-FK + `SetNull` on delete matching
+`Reminder`'s existing pattern — a hard-deleted Order shouldn't block on or erase
+these audit trails. `lib/actionLinks.ts`'s `buildActionLink()` issuance helper.
+Also fixed `vitest.config.ts` to resolve the `@/` path alias (present in tsconfig,
+absent from Vitest) so a real integration test between `actionLinks` and
+`actionToken` didn't need to mock a two-line pure function for no reason. Migration
+confirmed against production Neon: 0 rows in both new tables, existing Order data
+(23 rows) untouched.
+
+**Phase 3 — Archive redemption endpoint (`1c4261b`, polish `8a093aa`).**
+`POST /api/action/archive`: verifies the signed token, verifies a per-page CSRF
+token derived from it (`signCsrfToken`/`verifyCsrfToken`, HMAC over the action
+token itself — no separate storage or expiry needed), enforces single-use via
+`TokenRedemption.tokenHash`'s unique constraint (an atomic DB-level guarantee, not
+a check-then-write race — the insert happens first specifically so two concurrent
+requests for the same token race on it), and checks `Order.userId === token.userId`
+as a backstop against internal bugs, not just attackers. `TokenRedemption` +
+`Order.update` (when applicable) + `ActionLog` all commit in one transaction — no
+audit gap between them. IP captured via `x-vercel-forwarded-for` (Vercel's edge
+sets this itself; unlike `x-forwarded-for` it can't be altered by an intermediate
+rewrite). The already-used path writes its `ActionLog` row outside the (rolled-back)
+transaction — the only place that can happen — with one retry + a console fallback
+so a transient blip can't leave a silent audit gap for a real second-tap attempt.
+
+Found and fixed while wiring up this first real caller: Phase 1's `verifyToken`
+signature required an `expected.orderId` to check against, but the real link shape
+(`/action/{action}?token=...`) never carries an independent orderId for a caller to
+compare — the one-order scoping is already structural (the endpoint only ever acts
+on `payload.orderId`). Dropped `orderId` from `expected`; the `expired` branch of
+`VerifyResult` now also carries the decoded payload, since the signature already
+checked out by the time expiry is the only problem.
+
+Polish (`8a093aa`): `order_state_changed` and the userId-mismatch `invalid` outcome
+now return 422 instead of 200 — well-formed request, business rules blocked it —
+so monitoring can distinguish business-rejected from successful without parsing the
+body. The `outcome` field, not the status code, stayed the source of truth Phase 4
+branches on.
+
+Verified live against production with disposable test orders (created and deleted
+after each check, not real user data): fresh archive → `success`, `archivedAt` set,
+1 `TokenRedemption` + 1 `ActionLog(success)` row; re-submit same token →
+`already_used` (409), no new `TokenRedemption` row; tampered CSRF → `invalid` (403);
+backdated-15-day token → `expired` (410); token for a soft-deleted order →
+`order_state_changed` (422 after the polish).
+
+**Phase 4 — confirmation page + failure-mode pages (`6dcba62`, amended `6235a6b`).**
+`app/action/archive/page.tsx`: GET renders the confirmation form or the matching
+failure page. Read-only by construction — calls `verifyToken` (necessary for this
+page's own render decision, not a re-verification of anything Phase 3 already did)
+plus two read-only lookups (`TokenRedemption` existence, `Order` state), never
+writes `TokenRedemption` or `ActionLog`. `lib/archivePageState.ts`'s
+`decideArchivePageState()` mirrors Phase 3's `decideArchiveOutcome` for the
+pre-POST view, unit-tested including the expired-with-payload case specifically
+(confirms the function actually reads `payload.issuedAt` to compute the expiry
+date, rather than treating `expired` as payload-less). `app/action/archive/done/
+page.tsx`: outcome → copy, no DB access — accepted tradeoff, the `?outcome=` param
+isn't signed, so a hand-built URL can show success copy without anything having
+been archived; not a security issue (no state changes happen from viewing this
+page), and signing it would be over-engineering for a purely display concern.
+
+The POST route's response construction changed from JSON to a 303 redirect
+(Post/Redirect/Get, so a refresh never resubmits the POST) — per the
+response-format-only rule agreed before this phase started, the transaction, the
+decision logic, and CSRF/signature verification are all unchanged. The elaborate
+200/422/410/403/409 status codes designed for the raw JSON API in Phase 3 collapse
+to a uniform 303 here, since a real browser form-submit expects a redirect
+regardless of outcome — outcome signaling now lives entirely in the query param +
+done page's copy.
+
+**Amendment, found on the owner's first browser pass:** the confirmation page was
+too thin — asking the user to archive an order without showing what it was. Fixed
+using data the page was already fetching (no new DB calls, no new writes, no
+re-verification): confirm page now shows retailer (prominent), order number,
+total, order date, return deadline with days remaining, current `displayStatus`
+badge, and a "View in app" link to the order detail page (new tab).
+`already_used`/`order_state_changed` failure states also now show retailer + order
+number so the user knows which order the message refers to (`order_state_changed`
+shows them too when the row still exists but is soft-deleted). `expired`/`invalid`
+stay minimal — the token's semantic meaning is limited there, and for the
+userId-mismatch `invalid` case specifically, showing order details would leak
+information about an order that isn't this token's.
+
+**Verified — two rounds.** Curl pass (disposable test orders, cleaned up after):
+confirm page HTML shape, form `action`/`method`, hidden `token`/`csrf` fields,
+303 redirect `Location` header, done-page copy for all 5 outcomes. Owner's browser
+pass (desktop + mobile, real click-through) on the amended version: enriched
+fields present and legible, "View in app" opens the order detail in a new tab
+correctly, already-used page shows retailer/order number matching the amendment.
+
+**GET-safety re-verified explicitly**, since the amendment added more read-only DB
+lookups to the GET path and that's exactly the kind of change that could
+accidentally turn a page view into a redemption attempt: a fresh test order's
+confirmation page (Claude via curl, 3 reloads; owner in-browser, 3–4 reloads) held
+at zero `ActionLog` rows and zero `TokenRedemption` rows throughout — confirmed
+directly against the DB after the fact, not just by absence of errors. The
+before/after single-click comparison (one `ActionLog(success)` row appearing only
+once "Archive this order" is actually submitted) was independently confirmed on a
+separate test order from earlier in the same session — cross-checked row counts
+and timestamps to rule out a stray redemption before writing this down. Confirms
+the read-only guarantee held through the amendment, not just at
+initial Phase 4 ship.
+
+**Owner-verified in production — Phase 4 done.** Phase 5 (wiring `buildActionLink()`
+into the reminder email and Sunday digest templates) is next.
+
+---
+
 ## 2026-07-06 — Weekly digest: Jul 5 silent fire diagnosed, make-up digest sent
 
 **Weekly digest — Jul 5 scheduled cron did not fire; cause not conclusively
