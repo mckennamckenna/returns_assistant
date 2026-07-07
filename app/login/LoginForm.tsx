@@ -17,6 +17,13 @@ export function LoginForm() {
       <div className="bg-white border border-stone-200 rounded-xl p-6 text-center">
         <p className="text-stone-700 font-medium">Check your email</p>
         <p className="text-stone-500 text-sm mt-1">We sent you a magic link to sign in.</p>
+        <p className="text-stone-400 text-xs mt-4">
+          Didn&apos;t get anything? You may need an invite first —{" "}
+          <a href="https://myreturnwindow.com" className="underline hover:text-stone-600">
+            request access
+          </a>
+          .
+        </p>
       </div>
     );
   }

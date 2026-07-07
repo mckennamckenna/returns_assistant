@@ -182,6 +182,11 @@
       going forward: `npx tsx scripts/addAllowedSignIn.ts <email...>`.
       **Awaiting owner verification**: your own login still works post-deploy,
       and ideally one real friend completes sign-in end-to-end.
+- [ ] **Waitlist hint added to login success page** — "Didn't get anything?
+      You may need an invite first — request access" now shown on both
+      `/login/verify` and `LoginForm.tsx`'s inline success state, identical
+      copy for approved and unapproved emails alike (no enumeration leak).
+      Links to myreturnwindow.com. **Awaiting owner verification** post-deploy.
 - [ ] **Marketing landing page: mobile layout fixes + copy refresh** — committed
       (`54972aa`), pushed, deployed to production (`dpl_7hWP8RGB2MVMFBPR7kQnZwYEUxA8`),
       alias confirmed pointing at it. New feature copy + SMS footnote confirmed live at

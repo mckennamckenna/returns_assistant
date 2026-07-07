@@ -8,6 +8,13 @@ export default function VerifyRequestPage() {
           <p className="text-stone-500 text-sm mt-1">
             We sent you a magic link. Click it once to sign in — it only works the first time.
           </p>
+          <p className="text-stone-400 text-xs mt-4">
+            Didn&apos;t get anything? You may need an invite first —{" "}
+            <a href="https://myreturnwindow.com" className="underline hover:text-stone-600">
+              request access
+            </a>
+            .
+          </p>
         </div>
       </div>
     </main>
