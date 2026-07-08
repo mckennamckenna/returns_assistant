@@ -38,6 +38,15 @@
       `main` legitimately contained), but the deploy model documented in
       `CLAUDE.md` ("manual, not automatic on push") may be stale.
 ## 🟡 Next
+- [ ] **Tiered return policies + store credit tracking** — data model change;
+      spec in `BUILD.md` first, before any implementation.
+- [ ] **Gmail deep link Step 5 UX pass** — separate from yesterday's query
+      swap; a copy/flow pass on the walkthrough step itself.
+- [ ] **Admin dashboard follow-ups** — open questions after the new
+      `/admin/users` surface has been used for a day: replace `/admin/
+      onboarding` (now overlapping), add an email-content-reveal path if
+      actually needed, add mutation actions (e.g. resend reminder). All
+      deliberately deferred, not decided.
 - [ ] **Admin notification dashboard view** — once `AdminNotification` exists
       and is being populated, add a `/admin/notifications` page (session-gated
       to owner) showing the last 50 rows sorted by `attemptedAt`, with
@@ -225,18 +234,31 @@
       becomes noticeable.
 
 ## ✅ Done
-- [ ] **Fix backwards Gmail deep-link query on the setup page** — committed
-      (`730fc36`), pushed, deployed (`dpl_A49kcwf1xRvSgwRms6DnaUhrExT9`), alias
-      confirmed. `app/settings/page.tsx`'s deep link preloaded
-      `to:(forwarding-address)` (zero results — nothing forwarded yet);
-      replaced with a hardcoded commerce-keyword query excluding known
-      pharmacy/medical senders. Encoding verified by round-tripping
-      `decodeURIComponent` back to the exact original query string; parens
-      forced to `%28`/`%29` via an explicit `.replace()` since
-      `encodeURIComponent` leaves them literal by default. Build clean, full
-      suite (181 tests) unaffected. **Awaiting owner verification**: open the
-      setup page, click the deep link, confirm Gmail loads with the decoded
-      commerce query preloaded and non-pharmacy results showing.
+- [ ] **Read-only admin extraction-quality debugging surface** — three new
+      pages, session-gated identically to `app/admin/onboarding/page.tsx`
+      (identity check against `ADMIN_USER_EMAIL`, confirmed via matching
+      unauthenticated-response smoke test): `/admin/users` (list — forwarding
+      addresses only, no names/emails/retailers/dollar amounts, sort toggle
+      via URL query param), `/admin/users/[forwardingAddress]` (order table —
+      retailer, order number, deadline, displayStatus, needsReview,
+      orderDateEstimated, deadlineIsEstimated; includes archived/soft-deleted
+      orders with a visual "Archived"/"Deleted" indicator, no dollar
+      amounts), `/admin/users/[forwardingAddress]/orders/[orderId]` (full
+      Order row including dollar amounts/tracking; linked emails' extraction
+      fields and pretty-printed `extractionRaw`/`extractionNotes` — never
+      selects `textBody`/`htmlBody`/`fromEmail`/`fromName`/`rawJson` at the
+      query level, not just at render time). New `resolveInboundTokenFromAddress`
+      in `lib/inboundAddress.ts` mirrors `app/api/inbound/route.ts`'s existing
+      token-resolution logic without touching that route at all. Read-only,
+      no mutation endpoints. Build clean, full suite (181 tests) unaffected.
+      One field-list gap noted in Known Issues rather than silently extended.
+      **Awaiting owner verification**: list view shows no personal
+      identifiers, sort toggle works and survives refresh, clicking through
+      to a real order confirms `extractionRaw`/`extractionNotes` are visible
+      while email body content is not.
+- [x] Fix backwards Gmail deep-link query on the setup page — replaced
+      `to:(forwarding-address)` (zero results) with a hardcoded commerce-keyword
+      query excluding pharmacy/medical senders. Owner-verified in production.
 - [x] Admin notification persistence + allowlist rejection notify + auth-flow
       signup notify — every signup-adjacent event now writes a durable
       AdminNotification row and fires an admin notify email; Lauren's original
@@ -338,6 +360,14 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Admin order-detail page's per-email extraction fields omit
+  `estimatedDeliveryDate`/`deliveredAt`** (`app/admin/users/[forwardingAddress]/
+  orders/[orderId]/page.tsx`) — the task's literal field list only named
+  `deliveryDate`, predating (in spirit, if not literally) yesterday's
+  estimated/confirmed delivery-date split. The full Order dump above it does
+  show both new fields; only the per-email extraction-fields list doesn't.
+  Left out deliberately to match the literal spec rather than silently
+  extend scope — worth adding if this page gets used for that bug class again.
 - **Duplicate "On (On-Running)" order rows** — see 🟡 Next: "Investigate duplicate Order
   rows for On order 101130827062601745."
 - Order-number normalization is brittle across retailers (Mango is the first

@@ -21,3 +21,23 @@ export function getInboundAddress(inboundToken: string): string {
   }
   return `${process.env.POSTMARK_INBOUND_HASH}+${inboundToken}@inbound.postmarkapp.com`;
 }
+
+// Inverse of getInboundAddress: given a forwarding address string (e.g. an
+// admin-page route param), resolves the inboundToken that looks up its
+// owning User. Mirrors app/api/inbound/route.ts's extractInboundToken —
+// same decision (check the legacy "+tag" form first, then fall back to
+// matching the bare local part against INBOUND_DOMAIN), applied to a plain
+// address string rather than a Postmark webhook payload's already-split
+// MailboxHash/recipient fields. That route is left untouched deliberately;
+// this is a parallel reader, not a shared call site, so there's zero risk
+// to the live inbound webhook from adding it.
+export function resolveInboundTokenFromAddress(address: string): string | null {
+  const plusMatch = address.match(/\+([^@]+)@/);
+  if (plusMatch) return plusMatch[1];
+
+  const domain = process.env.INBOUND_DOMAIN;
+  const match = address.match(/^([^@]+)@([^@>]+)$/);
+  if (!domain || !match) return null;
+  const [, localPart, addressDomain] = match;
+  return addressDomain.toLowerCase() === domain.toLowerCase() ? localPart : null;
+}
