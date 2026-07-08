@@ -26,7 +26,17 @@
 ---
 
 ## 🔴 Now
-(empty — pick a task from 🟡 Next)
+- [ ] **Investigate unexplained extra Vercel production deployments** — found
+      during 2026-07-08 session close: `vercel ls returns-assistant` shows
+      several more "Ready"/Production deployments than were explicitly
+      triggered via `vercel --prod` this session, including one 4 seconds
+      after a docs-only git push. `vercel project inspect` confirms no Git
+      Repository connection (ruling out GitHub auto-deploy), so the
+      mechanism is unclear — check the Vercel dashboard directly (Settings →
+      Git, Settings → Deploy Hooks) since this isn't visible via CLI.
+      Production correctness isn't at risk (every deploy rebuilds whatever
+      `main` legitimately contained), but the deploy model documented in
+      `CLAUDE.md` ("manual, not automatic on push") may be stale.
 
 ## 🟡 Next
 - [ ] **Admin notification dashboard view** — once `AdminNotification` exists
