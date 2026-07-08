@@ -37,14 +37,6 @@
       Production correctness isn't at risk (every deploy rebuilds whatever
       `main` legitimately contained), but the deploy model documented in
       `CLAUDE.md` ("manual, not automatic on push") may be stale.
-- [ ] **Fix backwards Gmail deep-link query on the setup page** —
-      `app/settings/page.tsx`'s Gmail search deep link preloads
-      `to:(forwarding-address)`, which returns zero results (nothing's been
-      forwarded yet). Replace with a hardcoded commerce-keyword query
-      (pharmacy/medical senders excluded) so the user's inbox shows likely
-      commerce emails to build a "Forward it to" filter against. Scoped to
-      this one query-string change only.
-
 ## 🟡 Next
 - [ ] **Admin notification dashboard view** — once `AdminNotification` exists
       and is being populated, add a `/admin/notifications` page (session-gated
@@ -233,6 +225,18 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Fix backwards Gmail deep-link query on the setup page** — committed
+      (`730fc36`), pushed, deployed (`dpl_A49kcwf1xRvSgwRms6DnaUhrExT9`), alias
+      confirmed. `app/settings/page.tsx`'s deep link preloaded
+      `to:(forwarding-address)` (zero results — nothing forwarded yet);
+      replaced with a hardcoded commerce-keyword query excluding known
+      pharmacy/medical senders. Encoding verified by round-tripping
+      `decodeURIComponent` back to the exact original query string; parens
+      forced to `%28`/`%29` via an explicit `.replace()` since
+      `encodeURIComponent` leaves them literal by default. Build clean, full
+      suite (181 tests) unaffected. **Awaiting owner verification**: open the
+      setup page, click the deep link, confirm Gmail loads with the decoded
+      commerce query preloaded and non-pharmacy results showing.
 - [x] Admin notification persistence + allowlist rejection notify + auth-flow
       signup notify — every signup-adjacent event now writes a durable
       AdminNotification row and fires an admin notify email; Lauren's original
