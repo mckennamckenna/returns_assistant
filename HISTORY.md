@@ -5,6 +5,86 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-08 — Admin notification persistence + two silent signup gaps closed
+
+Surfaced diagnosing a friend's beta signup that reached the DB (`BetaSignup` row
+present, correctly timestamped) but never notified the owner. Root-caused before
+touching anything: `app/api/beta-signup/route.ts` was confirmed to call and
+`await notifyAdmin(...)` correctly — not a fire-and-forget bug. Both `ADMIN_EMAIL`
+and `REMINDER_FROM_EMAIL` were confirmed configured in production. That left
+`notifyAdmin`'s own contract as the likely failure point: it wraps `sendEmail` in a
+try/catch that only `console.error`s on failure, by design ("never let a
+notification failure break the real flow it's attached to") — but on Vercel that
+log line is ephemeral and unrecoverable after the fact, so a genuine Postmark-side
+hiccup would have left zero durable trace anywhere. Vercel's log CLI only streams
+recent/live activity (no drain configured), so the original failure reason was
+unrecoverable this time — motivating the fix below rather than further digging.
+
+**Fix 1 — `AdminNotification` persistence (`fdd851e`).** New table: `kind`,
+`subject`, `body`, `relatedEmail`, `deliveryStatus` (`sent` | `failed` |
+`skipped_not_configured` | `deduped`), `errorMessage` (populated on `failed`),
+`attemptedAt`. `deliveryStatus` kept as a plain `String`, not a Prisma enum —
+cheap to extend as new kinds/statuses show up during alpha. `notifyAdmin` now
+writes a row on every call, regardless of branch (missing-config skip, send
+success, send failure) — a swallowed failure now has a durable, queryable trace
+instead of only a log line. All 5 existing call sites (beta signup, Gmail
+forwarding verification, reminder/weekly-coverage/weekly-digest cron summaries)
+updated to pass a `kind`.
+
+**Fix 2 — allowlist-rejection notify (`fdd851e`, same commit).** `auth.ts`'s
+`sendVerificationRequest` previously handled an unallowlisted email by silently
+`return`ing — correct as an auth decision (the gate itself was working exactly as
+designed), but invisible: a friend trying to log in before being allowlisted would
+vanish without a trace anywhere. Now fires `notifyAdmin(..., "allowlist_rejection",
+email)` on rejection. Deliberately deduped per email per 24h (`hasRecentNotification`)
+rather than a global rate limit — `/login` is a public, unauthenticated,
+guessable surface, and a bot cycling the same address repeatedly shouldn't spam the
+owner's inbox. The dedup guard still writes a row (`recordDedupedNotification`,
+`deliveryStatus: "deduped"`) rather than silently dropping the attempt, so a
+pattern of many deduped rows for one email remains visible evidence of
+scanning/bot activity even though only the first real attempt actually emailed. A
+global rate limit (guarding against a bot cycling many distinct emails, a
+different attack shape) was deliberately not built — nothing suggests that
+pattern at pre-beta scale; add it if the table ever shows it.
+
+**Fix 3 — auth-flow signup notify (`fdd851e`, same commit).** New `User` rows
+created via the login flow previously triggered no admin notification at all —
+the only signal was a `bcc: ADMIN_EMAIL` on the magic-link email itself, which (a)
+reads as a normal login email, not a "new signup" signal, and (b) wouldn't fire at
+all for a gated-out email, same blind spot as Fix 2. Rather than inferring "is this
+a new signup" inside `sendVerificationRequest` (which fires before anything is
+confirmed), wired into Auth.js's `events.createUser` hook — fires exactly once,
+precisely when the Prisma adapter creates the row. Same notify shape as beta
+signup (`kind: "new_user_login"`).
+
+**Design decisions:**
+- One `AdminNotification` table, not a separate log-only table plus a
+  notification table — every proposed use case wants "log this AND notify" as one
+  atomic pair; a log-without-notify table would have had zero real callers.
+- `attemptedAt`, not `sentAt`, as the timestamp field name — a row with
+  `deliveryStatus: "failed"` and a field literally called `sentAt` would read
+  contradictorily.
+- Unified through the existing `notifyAdmin` signature (added a required `kind`
+  param and an optional `relatedEmail`) rather than introducing a second
+  `notifyAdminOfEvent`-style wrapper — `notifyAdmin` already was the one
+  call-through point every notification used; deepening its contract keeps that
+  true instead of creating a second name to remember.
+
+**Verified (owner, production):** a one-off retry script (`scripts/
+retry-lauren-notify.ts`, deleted after use per this project's established
+one-off-script discipline) re-fired the original missed notification through the
+new persisted path — it landed in the owner's inbox this time, and its
+`AdminNotification` row showed `deliveryStatus: "sent"`, pointing to a transient
+Postmark-side hiccup on the original attempt rather than a config or code bug. A
+second friend's real login attempt, made before being allowlisted, correctly
+triggered the rejection notify. A fresh beta signup through the real marketing-page
+form produced both the `BetaSignup` row and the admin notification end to end.
+Full suite (181 tests) green, build clean throughout — no test coverage existed
+for `notifyAdmin` before or after (still DB-touching, not a pure-function unit;
+consistent with this project's existing testing philosophy).
+
+---
+
 ## 2026-07-06/07 — Signed action tokens, Phases 1–5 (Archive-from-email slice)
 
 First real slice of the one-tap-from-email spec (Section A/B, drafted 2026-07-04):

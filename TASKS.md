@@ -216,21 +216,10 @@
       becomes noticeable.
 
 ## ✅ Done
-- [x] **Admin notification visibility fixes** — new `AdminNotification` table;
-      every `notifyAdmin` call now persists a row (`sent`/`failed` with
-      `errorMessage`/`skipped_not_configured`/`deduped`) regardless of
-      outcome, instead of only an ephemeral `console.error`. Login attempts
-      from unallowlisted emails now notify the owner too (previously silent
-      — the gate itself was correct, not knowing when it fired was the bug),
-      deduped per email per 24h so a bot/scanner can't spam the inbox — the
-      row is still written either way. New `User` creation via login now
-      notifies via Auth.js's `events.createUser` hook, same shape as beta
-      signup. All 5 existing `notifyAdmin` call sites updated to pass a
-      `kind`. Full suite (181 tests) green, build clean. Owner-verified: the
-      retry script's notification landed and its row showed `sent`; a
-      non-allowlisted friend's login attempt notified correctly; a fresh
-      beta signup produced both the row and the notification. One-off retry
-      script deleted after use.
+- [x] Admin notification persistence + allowlist rejection notify + auth-flow
+      signup notify — every signup-adjacent event now writes a durable
+      AdminNotification row and fires an admin notify email; Lauren's original
+      silent-failure gap closed. Full detail in `HISTORY.md`.
 - [ ] **Fix: estimated delivery dates presented as confirmed** — split
       `Order`/`Email.deliveryDate` (ambiguous — could be a carrier ETA or a
       confirmed delivery) into `estimatedDeliveryDate` (from shipping/other
