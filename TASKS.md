@@ -251,11 +251,19 @@
       in `lib/inboundAddress.ts` mirrors `app/api/inbound/route.ts`'s existing
       token-resolution logic without touching that route at all. Read-only,
       no mutation endpoints. Build clean, full suite (181 tests) unaffected.
-      One field-list gap noted in Known Issues rather than silently extended.
+      Owner caught a real gap on first use — delivery-date fields
+      (`estimatedDeliveryDate`/`deliveredAt`) were missing from both the user
+      detail table and the per-email extraction list, exactly the fields
+      needed to debug the delivery-date-anchor bug class this tool exists
+      for. Fixed same-day: user detail table gained "Est. delivery"/
+      "Delivered" columns after "Deadline"; per-email extraction list gained
+      both fields (Order-level fields already had them from the original
+      build — confirmed via diagnostic pass, no duplication added).
       **Awaiting owner verification**: list view shows no personal
-      identifiers, sort toggle works and survives refresh, clicking through
-      to a real order confirms `extractionRaw`/`extractionNotes` are visible
-      while email body content is not.
+      identifiers, sort toggle works and survives refresh, Caroline's Moda
+      Operandi row shows meaningful Est. delivery/Delivered values (or — where
+      genuinely null), and `extractionRaw`/`extractionNotes` are visible while
+      email body content is not.
 - [x] Fix backwards Gmail deep-link query on the setup page — replaced
       `to:(forwarding-address)` (zero results) with a hardcoded commerce-keyword
       query excluding pharmacy/medical senders. Owner-verified in production.
@@ -360,14 +368,6 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **Admin order-detail page's per-email extraction fields omit
-  `estimatedDeliveryDate`/`deliveredAt`** (`app/admin/users/[forwardingAddress]/
-  orders/[orderId]/page.tsx`) — the task's literal field list only named
-  `deliveryDate`, predating (in spirit, if not literally) yesterday's
-  estimated/confirmed delivery-date split. The full Order dump above it does
-  show both new fields; only the per-email extraction-fields list doesn't.
-  Left out deliberately to match the literal spec rather than silently
-  extend scope — worth adding if this page gets used for that bug class again.
 - **Duplicate "On (On-Running)" order rows** — see 🟡 Next: "Investigate duplicate Order
   rows for On order 101130827062601745."
 - Order-number normalization is brittle across retailers (Mango is the first

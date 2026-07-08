@@ -39,6 +39,8 @@ export default async function AdminUserDetailPage({
       retailer: true,
       orderNumber: true,
       returnDeadline: true,
+      estimatedDeliveryDate: true,
+      deliveredAt: true,
       displayStatus: true,
       needsReview: true,
       orderDateEstimated: true,
@@ -63,6 +65,8 @@ export default async function AdminUserDetailPage({
               <th className="py-2 pl-4 pr-4">Retailer</th>
               <th className="py-2 pr-4">Order #</th>
               <th className="py-2 pr-4">Deadline</th>
+              <th className="py-2 pr-4">Est. delivery</th>
+              <th className="py-2 pr-4">Delivered</th>
               <th className="py-2 pr-4">Status</th>
               <th className="py-2 pr-4">Needs review</th>
               <th className="py-2 pr-4">Order date est.</th>
@@ -86,6 +90,8 @@ export default async function AdminUserDetailPage({
                 </td>
                 <td className="py-2 pr-4 text-stone-500">{order.orderNumber || "—"}</td>
                 <td className="py-2 pr-4 text-stone-500">{formatDate(order.returnDeadline)}</td>
+                <td className="py-2 pr-4 text-stone-500">{formatDate(order.estimatedDeliveryDate)}</td>
+                <td className="py-2 pr-4 text-stone-500">{formatDate(order.deliveredAt)}</td>
                 <td className="py-2 pr-4 text-stone-500">{order.displayStatus}</td>
                 <td className="py-2 pr-4 text-stone-500">{order.needsReview ? "yes" : "—"}</td>
                 <td className="py-2 pr-4 text-stone-500">{order.orderDateEstimated ? "yes" : "—"}</td>
