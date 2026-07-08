@@ -29,6 +29,13 @@
 (empty — pick a task from 🟡 Next)
 
 ## 🟡 Next
+- [ ] **Admin notification dashboard view** — once `AdminNotification` exists
+      and is being populated, add a `/admin/notifications` page (session-gated
+      to owner) showing the last 50 rows sorted by `attemptedAt`, with
+      color-coded `deliveryStatus` and one-click "resend failed" for any
+      failed row. Cheap once the table exists; only worth it once
+      notification volume warrants scrolling more than Prisma Studio's
+      default view.
 - [ ] **Extend self-serve email setup to non-Gmail providers** — Outlook,
       iCloud, ProtonMail each have their own filter/forward flow. Alpha is
       Gmail-only; when the first non-Gmail user shows up, revisit the setup
@@ -209,6 +216,22 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Admin notification visibility fixes** — new `AdminNotification` table;
+      every `notifyAdmin` call now persists a row (`sent`/`failed` with
+      `errorMessage`/`skipped_not_configured`/`deduped`) regardless of
+      outcome, instead of only an ephemeral `console.error`. Login attempts
+      from unallowlisted emails now notify the owner too (previously silent
+      — the gate itself was correct, not knowing when it fired was the bug),
+      deduped per email per 24h so a bot/scanner can't spam the inbox — the
+      row is still written either way. New `User` creation via login now
+      notifies via Auth.js's `events.createUser` hook, same shape as beta
+      signup. All 5 existing `notifyAdmin` call sites updated to pass a
+      `kind`. Full suite (181 tests) green, build clean. A one-off retry
+      script for the original missed notification is sitting in `scripts/`
+      (untracked, not committed) for the owner to run during verification.
+      **Awaiting owner verification**: retry script lands + row shows
+      `sent`; a non-allowlisted friend's login attempt notifies; a fresh
+      beta signup shows both the row and the notification.
 - [ ] **Fix: estimated delivery dates presented as confirmed** — split
       `Order`/`Email.deliveryDate` (ambiguous — could be a carrier ETA or a
       confirmed delivery) into `estimatedDeliveryDate` (from shipping/other

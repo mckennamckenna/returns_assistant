@@ -3,6 +3,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import Nodemailer from "next-auth/providers/nodemailer";
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/postmark";
+import { notifyAdmin, hasRecentNotification, recordDedupedNotification } from "@/lib/adminNotify";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -34,6 +35,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           prisma.allowedSignIn.findUnique({ where: { email } }),
         ]);
         if (!existingUser && !allowed) {
+          // Visibility, not auth — the gate itself is correct; not knowing
+          // when it fires is the bug. Deduped per email per 24h so a
+          // bot/scanner hammering the same address repeatedly can't spam
+          // the owner's inbox; the row is still written either way (with
+          // deliveryStatus: "deduped" when suppressed), so a pattern of
+          // many deduped rows for one email is visible evidence of
+          // scanning even though only the first one actually emailed.
+          const subject = "Login attempt from unallowlisted email";
+          const body = `${email} tried to sign in but isn't on the allowlist yet.\n\nIf this should be allowed, run:\nnpx tsx scripts/addAllowedSignIn.ts ${email}`;
+
+          if (await hasRecentNotification("allowlist_rejection", email)) {
+            await recordDedupedNotification("allowlist_rejection", subject, body, email);
+          } else {
+            await notifyAdmin(subject, body, "allowlist_rejection", email);
+          }
           return;
         }
         await sendEmail({
@@ -55,6 +71,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     session: ({ session, user }) => {
       session.user.id = user.id;
       return session;
+    },
+  },
+  events: {
+    // Fires exactly once, precisely when the Prisma adapter creates a new
+    // User row — unlike sendVerificationRequest (which fires before the
+    // user has actually completed anything), this is the real "a new
+    // person just joined" signal. New users signing themselves up is the
+    // entire point of the marketing page; the owner needs to know when it
+    // happens the same way beta signups already notify.
+    createUser: async ({ user }) => {
+      await notifyAdmin(
+        "New user via login",
+        `New user signed up via login: ${user.email ?? "(no email)"}`,
+        "new_user_login",
+        user.email ?? null,
+      );
     },
   },
 });

@@ -302,3 +302,23 @@ model AllowedSignIn {
   createdAt DateTime @default(now())
   note      String? // optional context, e.g. "friend invite"
 }
+
+// Every notifyAdmin() call persists a row here, regardless of outcome —
+// deliveryStatus: "sent" | "failed" | "skipped_not_configured" |
+// "deduped" (allowlist_rejection notifications collapsed by the 24h dedup
+// guard in auth.ts). A String column rather than a Prisma enum: cheap to
+// extend as new notification kinds/statuses show up during alpha, and
+// nothing here needs DB-level enum enforcement.
+// kind: "beta_signup" | "allowlist_rejection" | "new_user_login" |
+// "gmail_verification" | "reminder_summary" | "weekly_coverage_summary" |
+// "weekly_digest_summary"
+model AdminNotification {
+  id             String   @id @default(cuid())
+  kind           String
+  subject        String
+  body           String   @db.Text
+  relatedEmail   String? // the email this notification is about, when there is one
+  deliveryStatus String
+  errorMessage   String? // sendEmail's caught error, when deliveryStatus is "failed"
+  attemptedAt    DateTime @default(now())
+}

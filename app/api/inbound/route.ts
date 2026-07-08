@@ -101,6 +101,8 @@ export async function POST(request: NextRequest) {
           "",
           payload.TextBody ?? payload.HtmlBody ?? "(no body)",
         ].join("\n"),
+        "gmail_verification",
+        user.email,
       );
 
       console.log("Detected Gmail forwarding verification email, notified admin, not stored");

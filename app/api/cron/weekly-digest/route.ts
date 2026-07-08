@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (sent.length > 0 || failed.length > 0) {
-    await notifyAdmin("Return Window: weekly digest summary", buildAdminSummary(sent, failed));
+    await notifyAdmin("Return Window: weekly digest summary", buildAdminSummary(sent, failed), "weekly_digest_summary");
   }
 
   return NextResponse.json({

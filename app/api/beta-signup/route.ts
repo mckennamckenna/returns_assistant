@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     create: { email },
   });
 
-  await notifyAdmin("New beta signup", `New beta signup: ${email}`);
+  await notifyAdmin("New beta signup", `New beta signup: ${email}`, "beta_signup", email);
 
   return NextResponse.json({ ok: true });
 }
