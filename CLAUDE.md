@@ -116,3 +116,21 @@ Return Window matters until it has happy users.
 - After finishing: summarize what changed in 2–3 lines and update `TASKS.md`.
 - Flag any new issue you notice into `TASKS.md` under "Known issues" even if
   it's outside the current task.
+- **Verify ownership before proposing a user-scoped record as an example.**
+  When suggesting a specific order (or any user-scoped record) as a
+  verification example, always scope the query by the current user's userId
+  before naming the record. Cross-account queries are legitimate for
+  aggregate stats, but individual rows should never be surfaced as
+  user-facing examples without confirming ownership first. This isn't just
+  a bug-avoidance rule — it's a data-scoping discipline. Verify ownership
+  first, then propose.
+- **Minimize real user data in session logs and written artifacts.**
+  Verification codes, email addresses, order specifics, personal names, and
+  dollar amounts on real orders should be minimized in session logs and
+  never appear in commit messages, `HISTORY.md` entries, or docs.
+  Diagnostic prints and test outputs that name individual users are fine
+  within the session but shouldn't propagate to committed artifacts. Use
+  retailer names and generalized shapes ("an Amazon order," "a returned
+  order at the 2-day threshold") rather than specific order numbers or user
+  emails in written records, unless the specific identifier is genuinely
+  necessary for the record.

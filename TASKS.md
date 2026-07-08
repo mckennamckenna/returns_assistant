@@ -56,6 +56,21 @@
       token infra work needed. Prioritize by user need — Mark returned probably
       next since it's the most common transition. Estimate: probably 2-3 hours per
       action once you get in a rhythm.
+- [ ] **Amazon: think it through as a first-class case, not a series of
+      patches.** Every session so far has surfaced Amazon-specific
+      adaptations: no `order_confirmation` email type (Bug 8), never provides
+      purchase date (Bug 8 `receivedAt` fallback), variable formats across
+      sub-brands (Fresh, Prime Video, marketplace, Whole Foods, digital),
+      category-dependent return policies, refund emails without dollar
+      amounts, Amazon-hosted return portals instead of retailer "start
+      return" links, likely order_date vs delivery_date anchor mismatch
+      (surfaced in tier 3 verification). Before adding another
+      Amazon-specific patch, do a spec pass: what would it look like to
+      treat Amazon as a first-class case, with its own extraction rules, its
+      own policy lookup, its own reminder cadence if warranted? Output a
+      written proposal (`AMAZON_HANDLING.md` in repo root) before any
+      implementation. Ideally by the time we have real alpha data from users
+      with a lot of Amazon volume.
 - [ ] **Watching: Jul 12 Sunday digest** — verify actual scheduled fire produces
       Reminder rows. If clean, Jul 5 was likely a Vercel platform hiccup. If also
       silent, real runtime bug needing dashboard log investigation.
@@ -209,17 +224,28 @@
       an estimate caveat. 24 new/updated tests (`computeDeadline.test.ts` new
       — this function had no direct tests before; `reminders.test.ts`
       extended), full suite (182 tests) green, build clean.
-      `scripts/backfill-estimated-delivery.ts` run against production: 4
-      orders touched — Nordstrom (order_date-anchored, unaffected as
-      designed), Old Navy + Tuckernuck (past-dated estimates, flagged
-      `deadlineIsEstimated: true` only, deadline left untouched), Proenza
-      Schouler (also landed in the past-dated bucket — real time crossed into
-      Jul 8 mid-session, so its Jul 7 estimate is now calendar-day-stale by
-      the same rule, not a live one; flagged estimated but doesn't get the
-      richer "based on shipping estimate" copy since `estimatedDeliveryDate`
-      wasn't backfilled for it). **Awaiting owner verification** — see
-      session notes on the Proenza timing wrinkle before checking the acid
-      test; Amazon-order regression spot-check still needed.
+      `scripts/backfill-estimated-delivery.ts` run against production
+      (system-wide, not scoped to one account): 4 orders touched across 2
+      users — one order-date-anchored order was correctly unaffected by
+      design; three orders' past-dated estimates got flagged
+      `deadlineIsEstimated: true` only, deadline left untouched, including
+      the order that originally surfaced this bug — real time crossed into
+      the next calendar day mid-session, so its estimate is now
+      calendar-day-stale by the same rule, not a live one, so it shows the
+      plain "(estimated)" caveat rather than the richer "based on shipping
+      estimate" copy (that copy needs `estimatedDeliveryDate` populated,
+      which only happens for still-live/future estimates). No qualifying
+      live-estimate order exists in the owner's own account to browser-check
+      the richer copy against — falling back to unit-test coverage for that
+      specific path.
+      **Reminder-suppression verified** via two disposable test orders in the
+      owner's own account (deleted after use, same discipline as the Phase 5
+      slice) at the 1-day threshold: confirmed-deadline order fired the
+      reminder normally; estimated-deadline order was correctly suppressed,
+      no email sent — both exercised via the real production decision/send
+      functions, not a reimplementation. **Still awaiting**: owner's own
+      browser check of the originally-reported order and a same-account
+      Amazon order.
 - [ ] **Self-serve Gmail forwarding setup** — committed (`2c55887`), pushed,
       deployed (`dpl_7XhxvEhxedgBWQpNwYPCY8o8NVx9`), alias confirmed. Gmail
       deep-link button + hint on the setup page; confirmation code now surfaced
