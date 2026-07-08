@@ -37,7 +37,107 @@
       Production correctness isn't at risk (every deploy rebuilds whatever
       `main` legitimately contained), but the deploy model documented in
       `CLAUDE.md` ("manual, not automatic on push") may be stale.
+- [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
+      as of session close he had verified his Return Window forwarding address
+      with Google, but not confirmed to have (a) opened the deep link successfully,
+      (b) built the Gmail filter using the preloaded commerce query, or (c) had
+      any commerce email actually forward through. Poll him tomorrow; if he
+      responds, log verbatim what he did. Step 5 UX is still unverified for
+      any non-owner user.
+
 ## 🟡 Next
+- [ ] **orderDate-fallback should gate by emailType** — `applyFallbackOrderDate`
+      (introduced with the Amazon orderDate fallback, commit see HISTORY 2026-07-01
+      area) currently fires regardless of the first-linked email's type. Should
+      only fire when first-linked is `order_confirmation`, `shipping_confirmation`,
+      or `delivery`. On `return_label`, `refund`, or `return_received`, fallback
+      should stay null and Order carries `orderDate: null` + a UI-visible "we
+      don't know when this was ordered" state. Touches BUILD.md Order-linking
+      invariant. Backfill decision needed for existing prod orders with wrong
+      fallback fire. Sub-decision: UI copy for the "no order date" state — do
+      not ship without it. Real evidence: Caroline's Moda order surfaced this;
+      every new user's first ~30 days will have this shape (mid-shopping signup
+      is the default). High trust impact. Slug for future reference:
+      `orderDate-fallback-emailtype-gate`.
+- [ ] **Retailer policy database** — for high-volume retailers where we can
+      justify curation (Moda, Shopbop, Nordstrom, J.Crew, Amazon, and the next
+      ~15-25), maintain a known-good record of return policy: window(s), tiering
+      conditions, refund vs. store credit windows, return portal URL, sale-item
+      exclusions, anchor (order date vs. delivery date). Extraction priority
+      becomes: retailer-known-policy → email → web_lookup → guess. Deeply
+      entangled with the tiered-policy schema work below (likely one shared
+      schema, one shared spec pass). Highest-quality trust upgrade for extraction
+      and the most complete answer to WNU-class stale-URL bugs. Data-model
+      change + governance question (audit cadence, ownership). Spec in BUILD.md
+      before Claude Code touches it. Real evidence: Moda + Shopbop both surfaced
+      today from a single walkthrough.
+- [ ] **Stale return-portal URLs from web_lookup — trust-tier the field** — WNU's
+      `returnsportal.co` URL was extracted from web_lookup and is a defunct
+      provider (redirects to Swap Commerce, acquired). AI-extracted portal URLs
+      can be stale from indexed-but-outdated sources. Proposal: low-confidence
+      `returnPortalUrl` values surface as "Start return at [retailer]" linking
+      to retailer's own returns landing page rather than the direct portal.
+      Bigger UX change than a prompt tweak. May become largely moot for
+      high-volume retailers once retailer policy DB ships (curated URLs). Real
+      evidence: WNU on Caroline's dashboard. Slug:
+      `returnportal-trust-tier`.
+- [ ] **`needsReview` should be a first-class field in the extraction JSON
+      schema** — surfaced today by A1: telling the AI to "set needsReview: true"
+      alone would have been silently dropped, because the extraction JSON schema
+      doesn't include it (needsReview has always been a downstream JS
+      computation). A1 works via `notesIndicateTieredWindow` string-matching the
+      AI's notes output. Fragile — any AI paraphrase of the marker phrase
+      silently breaks detection. Real fix: add `needsReview` (and
+      `needsReviewReason`?) to the AI's JSON output contract so the AI sets it
+      directly, no string-match needed. Spawned by A1 (`1216aaf`). Slug:
+      `needsreview-json-field`.
+- [ ] **Setup-page copy: warn about stale Gmail confirmation codes** — dashboard
+      currently displays whatever code arrived last; if user comes back to setup
+      page hours later, the displayed code may already be Gmail-expired (Google
+      typically ~24hr). Add: arrival timestamp ("received 47 minutes ago"), plus
+      "request a new code" affordance if it's more than an hour old.
+      Independent of the auto-email-code feature; either could ship alone. Slug:
+      `gmail-code-staleness-copy`.
+- [ ] **Admin dashboard: consolidate `lib/inboundAddress.ts` with webhook's
+      address-resolution** — currently parallel implementations of the same
+      forwarding-address→user logic. Deliberate at build time (mirrored rather
+      than reused because the webhook parses a payload object and the admin
+      path parses a route-param string), but drift risk if either changes and
+      the other doesn't. Extract to a shared helper.
+- [ ] **Admin dashboard: decide fate of `/admin/onboarding`** — overlaps with
+      new `/admin/users` list view. Either replace, or clarify distinct
+      purposes. Follow-up after owner uses new surface for a few days.
+- [ ] **Admin dashboard: email content decrypt/reveal path** — deliberately
+      deferred from initial build. Track "needed email body" cases this week
+      (running list in a note); revisit if pattern emerges. If it does emerge,
+      must be built with sanitized server logs — decrypting to a rendered page
+      means plaintext hits logs unless careful.
+- [ ] **Admin dashboard: inline review-flag surface** — during dashboard
+      walkthroughs, tag issues in-place with category enum (tiered-policy /
+      fallback-wrong / trust-erosion-visible / extraction-quality / other) +
+      free-text note. Query view for triage. Blocked on: second walkthrough to
+      validate categories. Real evidence: today's walkthrough required
+      copy-paste-to-Claude workflow; would have been meaningfully faster with
+      in-app flagging.
+- [ ] **Gmail deep link Step 5 UX pass** — query preload fixed today. Still
+      open: how the setup page explains what users do with the search results
+      (filter icon → create filter → forward to X), what happens when their
+      inbox has no matching emails, whether we show the raw query string,
+      whether users can edit it. Real evidence pending: brother's data
+      inconclusive; poll again.
+- [ ] **Post-walkthrough observation: three of four alpha users surfaced no
+      substantive extraction issues** — good baseline signal, but "no issues
+      found" ≠ "no issues exist"; walkthrough was skim for obvious wrongness,
+      not deep audit. Consider a deeper pass on one user (probably owner's
+      own account with the most volume) when there's a specific class of bug
+      to hunt for. Not urgent.
+- [ ] **Post-walkthrough observation: Caroline is forwarding manually without a
+      filter yet** — her data shape is skewed by this (return-label emails
+      creating orders, no shipping confirmations linked, every deadline
+      estimated). Once she runs the Gmail filter, dashboard should re-populate
+      with proper shipping/delivery emails and many "estimated" flags should
+      resolve on their own. Worth re-walking Caroline's dashboard *after* she
+      sets up the filter, as a check.
 - [ ] **Tiered return policies + store credit tracking** — data model change;
       spec in `BUILD.md` first, before any implementation.
 - [ ] **Gmail deep link Step 5 UX pass** — separate from yesterday's query
