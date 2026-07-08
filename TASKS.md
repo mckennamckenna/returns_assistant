@@ -216,7 +216,7 @@
       becomes noticeable.
 
 ## ✅ Done
-- [ ] **Admin notification visibility fixes** — new `AdminNotification` table;
+- [x] **Admin notification visibility fixes** — new `AdminNotification` table;
       every `notifyAdmin` call now persists a row (`sent`/`failed` with
       `errorMessage`/`skipped_not_configured`/`deduped`) regardless of
       outcome, instead of only an ephemeral `console.error`. Login attempts
@@ -226,12 +226,11 @@
       row is still written either way. New `User` creation via login now
       notifies via Auth.js's `events.createUser` hook, same shape as beta
       signup. All 5 existing `notifyAdmin` call sites updated to pass a
-      `kind`. Full suite (181 tests) green, build clean. A one-off retry
-      script for the original missed notification is sitting in `scripts/`
-      (untracked, not committed) for the owner to run during verification.
-      **Awaiting owner verification**: retry script lands + row shows
-      `sent`; a non-allowlisted friend's login attempt notifies; a fresh
-      beta signup shows both the row and the notification.
+      `kind`. Full suite (181 tests) green, build clean. Owner-verified: the
+      retry script's notification landed and its row showed `sent`; a
+      non-allowlisted friend's login attempt notified correctly; a fresh
+      beta signup produced both the row and the notification. One-off retry
+      script deleted after use.
 - [ ] **Fix: estimated delivery dates presented as confirmed** — split
       `Order`/`Email.deliveryDate` (ambiguous — could be a carrier ETA or a
       confirmed delivery) into `estimatedDeliveryDate` (from shipping/other
