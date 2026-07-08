@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { normalizeReturnPortalUrl, resolveReturnPortalUrlForWrite } from "../lib/extract";
+import {
+  normalizeReturnPortalUrl,
+  resolveReturnPortalUrlForWrite,
+  notesIndicateTieredWindow,
+  TIERED_WINDOW_NOTE_MARKER,
+} from "../lib/extract";
 
 // ── normalizeReturnPortalUrl ──────────────────────────────────────────────────
 // Real bug: the AI sometimes extracts a bare domain/path (e.g.
@@ -64,5 +69,36 @@ describe("resolveReturnPortalUrlForWrite", () => {
 
   it("returns null when neither source has a URL", () => {
     expect(resolveReturnPortalUrlForWrite(null, null)).toBe(null);
+  });
+});
+
+// ── notesIndicateTieredWindow (tiered return policy detection) ───────────────
+// Real bug: Moda Operandi states "30 days for full-priced items, 14 days for
+// discounted items and for cash-refund-vs-site-credit" — the AI picked 30 with
+// an active rationale ("the longer window is reported here"), producing a
+// deadline 16 days after the true window closes for a common case. The fix is
+// a prompt rule (always pick the shortest stated window) plus this detection:
+// extractEmail() can't call the real Anthropic API in a unit test, so this
+// tests the actual pure function that turns the AI's notes output into
+// needsReview: true — not a mocked end-to-end extraction.
+
+describe("notesIndicateTieredWindow", () => {
+  it("detects the exact marker the tiered-window prompt rule specifies (the Moda Operandi shape)", () => {
+    const notes =
+      "Multiple return windows detected: 30 days for full-priced items, 14 days for discounted items and for cash-refund-vs-site-credit. Selected shortest (14 days) per policy.";
+    expect(notesIndicateTieredWindow(notes)).toBe(true);
+  });
+
+  it("still detects the marker after being appended to prior notes text (matches extractEmail's concatenation)", () => {
+    const notes = `Order total read directly from the email. ${TIERED_WINDOW_NOTE_MARKER}: 30 days full-price, 14 days sale. Selected shortest (14 days) per policy.`;
+    expect(notesIndicateTieredWindow(notes)).toBe(true);
+  });
+
+  it("returns false for ordinary extraction notes with no tiering", () => {
+    expect(notesIndicateTieredWindow("Order total read directly from the email.")).toBe(false);
+  });
+
+  it("returns false for an empty notes string", () => {
+    expect(notesIndicateTieredWindow("")).toBe(false);
   });
 });

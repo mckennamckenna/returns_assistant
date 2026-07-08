@@ -137,6 +137,8 @@ ORDER DATE — look for it in shipping and delivery confirmations too, not just 
 
 RETURN POLICY LINK — if the email contains a link to a returns page, a return policy, a "how to return this item" section, or similar, extract that URL as returnPortalUrlFromEmail. Only extract an actual URL present in the email text — never construct or guess one.
 
+TIERED RETURN WINDOWS — when the email states multiple return windows tiered by item type (full-price vs. sale), refund method (cash refund vs. store credit), sale/promotional status, or any other condition, return the SHORTEST window mentioned as returnWindowDays, regardless of which condition triggers it. Do not attempt to resolve which tier applies to this specific order — that resolution isn't possible from the email alone, and a missed shorter deadline is worse than a redundant earlier reminder. When you do this, append to notes, in exactly this form: "Multiple return windows detected: [list every window with its stated condition]. Selected shortest ([N] days) per policy." If tiering exists but no window can be identified as the shortest with confidence (e.g. every window is stated ambiguously), return returnWindowDays: null, set confidence to "low", and explain the ambiguity in notes instead of guessing.
+
 Rules:
 - NEVER invent, guess, or infer a date, deadline, policy, price, or item that isn't written in the email (an order-total sum derived from line items that ARE in the email doesn't count as inventing — that's computing from what's there).
 - Return null for any field not clearly present. Null + low confidence is always better than a wrong answer.
@@ -167,7 +169,7 @@ Respond with ONLY valid JSON, no preamble, no markdown formatting:
 Rules:
 - Only report returnWindowDays if a current, official policy clearly states it.
 - Only report returnPortalUrl if you find an actual, specific URL on the retailer's official site for starting a return — never guess or construct a plausible-looking URL from the retailer's domain.
-- If the policy varies by item category, membership tier, or sale status, report the standard/default window and set confidence no higher than "medium".
+- If official policy states multiple return windows tiered by item type, membership tier, refund method, sale status, or any other condition, report the SHORTEST window as returnWindowDays, regardless of which condition triggers it — do NOT report the standard/default window. Note every window and its condition in notes, in exactly this form: "Multiple return windows detected: [list every window with its stated condition]. Selected shortest ([N] days) per policy." If no window can be identified as the shortest with confidence, return returnWindowDays: null, confidence "low", and explain the ambiguity in notes instead of guessing.
 - If you can't find a clear, current policy, return null for returnWindowDays and confidence "low". Never guess.`;
 }
 
@@ -315,6 +317,26 @@ export function resolveReturnPortalUrlForWrite(
   return normalizeReturnPortalUrl(fromEmail ?? fromLookup);
 }
 
+// The exact marker both prompts (TIERED RETURN WINDOWS / buildPolicyLookupPrompt)
+// are instructed to prepend to notes when they detect and resolve a tiered
+// return policy — e.g. "30 days full-price, 14 days sale." Neither
+// RawExtraction nor PolicyLookupResult's JSON schema has a needsReview
+// field of its own (that boolean has always been computed downstream in
+// extractEmail, never read from the AI's own output), so notes is the one
+// existing place this signal can travel without widening either schema.
+export const TIERED_WINDOW_NOTE_MARKER = "Multiple return windows detected";
+
+// Whether a notes string indicates the AI detected and resolved (not just
+// flagged as ambiguous) a tiered return policy — the AI already reports
+// the shortest window when it hits this case, but the choice of tier
+// always needs a human to confirm against this specific order, so this
+// forces needsReview regardless of otherwise-high confidence. Exported so
+// extractEmail's needsReview computation and this file's tests share one
+// detection point instead of two copies of the same string check.
+export function notesIndicateTieredWindow(notes: string): boolean {
+  return notes.includes(TIERED_WINDOW_NOTE_MARKER);
+}
+
 export async function extractEmail(textBody: string, subject: string | null): Promise<ExtractionResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
@@ -369,7 +391,13 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
     parsed.confidence === "low" ||
     (isCommerceEmail && (parsed.retailer == null || parsed.orderNumber == null)) ||
     (parsed.emailType === "order_confirmation" && returnDeadline == null) ||
-    policyLookupWasUnclear;
+    policyLookupWasUnclear ||
+    // Tiered window detected and resolved (shortest picked) — always needs a
+    // human to confirm which tier actually applies to this order, regardless
+    // of otherwise-high confidence. parsed.notes already carries the
+    // web-lookup's notes too by this point (appended above), so this one
+    // check covers both the email-body and web-lookup paths.
+    notesIndicateTieredWindow(parsed.notes);
 
   return {
     ...parsed,

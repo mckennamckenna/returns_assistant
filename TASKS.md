@@ -234,6 +234,27 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Tiered return policy extraction rule** — new "TIERED RETURN WINDOWS"
+      section in `buildPrompt()` (email-body path); `buildPolicyLookupPrompt()`'s
+      contradicting existing rule ("report the standard/default window" on
+      tiering) replaced, not just supplemented — the two directly conflicted.
+      Both instruct: pick the shortest stated window regardless of which
+      condition triggers it, note every window + condition in an exact format,
+      or return `null` + `confidence: "low"` if no window is identifiable with
+      confidence. One necessary wiring addition beyond pure prompt text:
+      neither JSON schema has ever had its own `needsReview` output (that's
+      always been computed downstream), so a new `notesIndicateTieredWindow()`
+      pure function detects the exact notes marker and feeds it into
+      `extractEmail()`'s existing `needsReview` boolean — covers both paths
+      via existing notes-concatenation, no new field. `BUILD.md`'s Extraction
+      section gets the matching bullet. 4 new tests on the pure detection
+      function (not a mocked end-to-end extraction, per this project's
+      testing philosophy) — full suite (185 tests) green, build clean. No
+      schema/UI changes, no backfill, `computeDeadline()`/`deriveDisplayStatus()`/
+      `linkOrder.ts`/reminder logic untouched.
+      **Awaiting owner verification**: forward a real tiered-policy test email,
+      or manually re-run extraction on Caroline's existing Moda order, and
+      confirm the corrected shortest-window + `needsReview: true` + notes format.
 - [ ] **Read-only admin extraction-quality debugging surface** — three new
       pages, session-gated identically to `app/admin/onboarding/page.tsx`
       (identity check against `ADMIN_USER_EMAIL`, confirmed via matching
@@ -368,6 +389,12 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`BUILD.md`'s `computeDeadline()` documentation block is stale** — still
+  describes the old pre-split `deliveryDate` logic ("if deliveryDate known:
+  anchor = ..."), not the `deliveredAt`/`estimatedDeliveryDate` split shipped
+  two sessions ago. Found while adding the tiered-return-policy bullet to the
+  Extraction section just above it; not fixed here (out of scope for a
+  prompt-only task).
 - **Duplicate "On (On-Running)" order rows** — see 🟡 Next: "Investigate duplicate Order
   rows for On order 101130827062601745."
 - Order-number normalization is brittle across retailers (Mango is the first
