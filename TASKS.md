@@ -37,6 +37,13 @@
       Production correctness isn't at risk (every deploy rebuilds whatever
       `main` legitimately contained), but the deploy model documented in
       `CLAUDE.md` ("manual, not automatic on push") may be stale.
+- [ ] **Fix backwards Gmail deep-link query on the setup page** —
+      `app/settings/page.tsx`'s Gmail search deep link preloads
+      `to:(forwarding-address)`, which returns zero results (nothing's been
+      forwarded yet). Replace with a hardcoded commerce-keyword query
+      (pharmacy/medical senders excluded) so the user's inbox shows likely
+      commerce emails to build a "Forward it to" filter against. Scoped to
+      this one query-string change only.
 
 ## 🟡 Next
 - [ ] **Admin notification dashboard view** — once `AdminNotification` exists
