@@ -96,7 +96,14 @@ model Email {
   retailer            String?
   orderNumber         String?
   orderDate           DateTime?
-  deliveryDate        DateTime?
+  deliveryDate        DateTime? // legacy — superseded by estimatedDeliveryDate/deliveredAt below; kept for display fallback on rows predating that split
+  // Carrier/shipping-email ETA — never confirmed. Populated whenever a
+  // non-"delivery" email states a date (routeDeliveryDate in lib/extract.ts).
+  estimatedDeliveryDate DateTime?
+  // Only set when emailType is actually "delivery" — a real confirmed
+  // delivery, not an estimate. computeDeadline() prefers this over
+  // estimatedDeliveryDate whenever both are present.
+  deliveredAt         DateTime?
   returnWindowDays    Int? // e.g. 30 — how long the return window is
   returnWindowStartsFrom String? // "order_date" | "delivery_date" | null — what the window counts from
   returnDeadline      DateTime? // computed — see deadline logic in BUILD.md
@@ -134,7 +141,11 @@ model Order {
 
   orderDate           DateTime?
   orderDateEstimated  Boolean   @default(false) // true when orderDate was inferred (forwarded-header parse or receivedAt fallback), not stated in the email
-  deliveryDate        DateTime? // best available across all linked emails
+  deliveryDate        DateTime? // legacy — best available across all linked emails; superseded by estimatedDeliveryDate/deliveredAt below, kept for display fallback on rows predating that split
+  // Merged (latest non-null wins) across linked emails — see estimatedDeliveryDate/
+  // deliveredAt on Email above for what populates these.
+  estimatedDeliveryDate DateTime?
+  deliveredAt         DateTime?
   returnDeadline       DateTime?
   deadlineIsEstimated  Boolean   @default(false)
   policySource         String? // "web_lookup" | "stated_in_email" | "user_supplied"

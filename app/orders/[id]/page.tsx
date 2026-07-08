@@ -137,12 +137,28 @@ export default async function OrderDetail({
             label="Order date"
             value={order.orderDate ? `${formatDate(order.orderDate)}${order.orderDateEstimated ? " (estimated)" : ""}` : "—"}
           />
-          <Field label="Delivery date" value={formatDate(order.deliveryDate)} />
+          <Field
+            label="Delivery date"
+            value={(() => {
+              const best = order.deliveredAt ?? order.estimatedDeliveryDate ?? order.deliveryDate;
+              if (!best) return "—";
+              const isEst = !order.deliveredAt && (order.estimatedDeliveryDate != null || order.deliveryDate != null);
+              return `${formatDate(best)}${isEst ? " (estimated)" : ""}`;
+            })()}
+          />
           <Field
             label="Return deadline"
             value={
               <>
-                {order.returnDeadline ? `${formatDate(order.returnDeadline)}${order.deadlineIsEstimated ? " (estimated)" : ""}` : "—"}
+                {order.returnDeadline
+                  ? `${formatDate(order.returnDeadline)}${
+                      order.deadlineIsEstimated
+                        ? order.estimatedDeliveryDate
+                          ? " (estimated — based on shipping estimate)"
+                          : " (estimated)"
+                        : ""
+                    }`
+                  : "—"}
                 {order.returnPortalUrl && (
                   <a
                     href={order.returnPortalUrl}

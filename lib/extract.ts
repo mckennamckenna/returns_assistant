@@ -60,6 +60,11 @@ interface RawExtraction {
 }
 
 export interface ExtractionResult extends RawExtraction {
+  // Routed from RawExtraction.deliveryDate by emailType — see
+  // routeDeliveryDate below. deliveryDate itself stays on the result
+  // unchanged (legacy display fallback).
+  estimatedDeliveryDate: string | null;
+  deliveredAt: string | null;
   returnDeadline: string | null;
   deadlineIsEstimated: boolean;
   policySource: PolicySource | null;
@@ -189,6 +194,24 @@ function addDays(date: Date, days: number): Date {
   return result;
 }
 
+// A stated delivery date only means a confirmed, already-happened delivery
+// when it comes from an actual "delivery" email — every other email type
+// (shipping confirmations most commonly) that states one is stating a
+// carrier ESTIMATE, not a confirmed delivery, even though the raw
+// extraction field (deliveryDate) is the same either way. Routing by
+// emailType keeps the AI prompt/schema unchanged and puts the
+// estimate-vs-confirmed distinction where a reliable signal already exists
+// for it — the model's own emailType classification.
+export function routeDeliveryDate(
+  emailType: EmailType,
+  deliveryDate: string | null,
+): { estimatedDeliveryDate: string | null; deliveredAt: string | null } {
+  if (!deliveryDate) return { estimatedDeliveryDate: null, deliveredAt: null };
+  return emailType === "delivery"
+    ? { estimatedDeliveryDate: null, deliveredAt: deliveryDate }
+    : { estimatedDeliveryDate: deliveryDate, deliveredAt: null };
+}
+
 async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
@@ -202,65 +225,63 @@ async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult>
 }
 
 // Priority order for computing returnDeadline:
-// 1. deliveryDate known → most accurate; anchor on orderDate instead of
-//    deliveryDate if the policy says so, but never estimate.
-// 2. orderDate known, no deliveryDate, policy counts from order date →
-//    orderDate + returnWindowDays directly. Not estimated — we have the
-//    real anchor the policy actually counts from, there's nothing to
-//    estimate. The 7-day shipping buffer would be wrong here: it exists
-//    to guess a delivery date, which is irrelevant when the window
-//    never counted from delivery in the first place.
-// 3. orderDate known, no deliveryDate, policy counts from delivery (or
-//    doesn't say) → estimate a delivery date assuming
+// 1. returnWindowStartsFrom === "order_date" and orderDate known → anchor
+//    on orderDate directly, regardless of any delivery signal. Never
+//    estimated — this is the real anchor the policy actually counts from
+//    (Amazon's path). Delivery info is irrelevant here and must stay so.
+// 2. deliveredAt known (a real "delivery" email, not an estimate) → most
+//    accurate. Never estimated.
+// 3. estimatedDeliveryDate known (a shipping-email carrier ETA, no
+//    confirmed delivery yet) → same math, but flagged deadlineIsEstimated
+//    — the whole point of this split: a carrier estimate is not a fact.
+// 4. orderDate known, no delivery signal at all, policy counts from
+//    delivery (or doesn't say) → estimate a delivery date assuming
 //    STANDARD_SHIPPING_DAYS of transit, flagged deadlineIsEstimated.
-// 4. returnWindowDays missing → leave null, caller sets needsReview.
+// 5. returnWindowDays missing, or nothing to anchor on → null, caller sets
+//    needsReview.
 export function computeDeadline(parsed: {
   orderDate: string | null;
-  deliveryDate: string | null;
+  deliveredAt: string | null;
+  estimatedDeliveryDate: string | null;
   returnWindowDays: number | null;
   returnWindowStartsFrom: "order_date" | "delivery_date" | null;
 }): {
   returnDeadline: string | null;
   deadlineIsEstimated: boolean;
 } {
-  const { orderDate, deliveryDate, returnWindowDays, returnWindowStartsFrom } = parsed;
+  const { orderDate, deliveredAt, estimatedDeliveryDate, returnWindowDays, returnWindowStartsFrom } = parsed;
 
   if (returnWindowDays == null) {
     return { returnDeadline: null, deadlineIsEstimated: false };
   }
 
-  if (deliveryDate) {
-    const deliveryParsed = new Date(deliveryDate);
-    const orderParsed = orderDate ? new Date(orderDate) : null;
-    const start =
-      returnWindowStartsFrom === "order_date" && orderParsed && !Number.isNaN(orderParsed.getTime())
-        ? orderParsed
-        : deliveryParsed;
+  const orderParsed = orderDate ? new Date(orderDate) : null;
+  const orderValid = !!orderParsed && !Number.isNaN(orderParsed.getTime());
 
-    if (Number.isNaN(start.getTime())) {
-      return { returnDeadline: null, deadlineIsEstimated: false };
-    }
+  const deliveredParsed = deliveredAt ? new Date(deliveredAt) : null;
+  const deliveredValid = !!deliveredParsed && !Number.isNaN(deliveredParsed.getTime());
 
-    return {
-      returnDeadline: addDays(start, returnWindowDays).toISOString(),
-      deadlineIsEstimated: false,
-    };
+  const estimatedParsed = estimatedDeliveryDate ? new Date(estimatedDeliveryDate) : null;
+  const estimatedValid = !!estimatedParsed && !Number.isNaN(estimatedParsed.getTime());
+
+  if ((deliveredValid || estimatedValid) && returnWindowStartsFrom === "order_date" && orderValid) {
+    return { returnDeadline: addDays(orderParsed!, returnWindowDays).toISOString(), deadlineIsEstimated: false };
   }
 
-  if (orderDate) {
-    const orderParsed = new Date(orderDate);
-    if (Number.isNaN(orderParsed.getTime())) {
-      return { returnDeadline: null, deadlineIsEstimated: false };
-    }
+  if (deliveredValid) {
+    return { returnDeadline: addDays(deliveredParsed!, returnWindowDays).toISOString(), deadlineIsEstimated: false };
+  }
 
+  if (estimatedValid) {
+    return { returnDeadline: addDays(estimatedParsed!, returnWindowDays).toISOString(), deadlineIsEstimated: true };
+  }
+
+  if (orderValid) {
     if (returnWindowStartsFrom === "order_date") {
-      return {
-        returnDeadline: addDays(orderParsed, returnWindowDays).toISOString(),
-        deadlineIsEstimated: false,
-      };
+      return { returnDeadline: addDays(orderParsed!, returnWindowDays).toISOString(), deadlineIsEstimated: false };
     }
 
-    const estimatedDelivery = addDays(orderParsed, STANDARD_SHIPPING_DAYS);
+    const estimatedDelivery = addDays(orderParsed!, STANDARD_SHIPPING_DAYS);
     return {
       returnDeadline: addDays(estimatedDelivery, returnWindowDays).toISOString(),
       deadlineIsEstimated: true,
@@ -333,7 +354,14 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
     }
   }
 
-  const { returnDeadline, deadlineIsEstimated } = computeDeadline(parsed);
+  const { estimatedDeliveryDate, deliveredAt } = routeDeliveryDate(parsed.emailType, parsed.deliveryDate);
+  const { returnDeadline, deadlineIsEstimated } = computeDeadline({
+    orderDate: parsed.orderDate,
+    deliveredAt,
+    estimatedDeliveryDate,
+    returnWindowDays: parsed.returnWindowDays,
+    returnWindowStartsFrom: parsed.returnWindowStartsFrom,
+  });
   const returnPortalUrl = resolveReturnPortalUrlForWrite(returnPortalUrlFromEmail, returnPortalUrlFromLookup);
 
   const isCommerceEmail = parsed.emailType !== "other";
@@ -343,5 +371,14 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
     (parsed.emailType === "order_confirmation" && returnDeadline == null) ||
     policyLookupWasUnclear;
 
-  return { ...parsed, returnDeadline, deadlineIsEstimated, policySource, returnPortalUrl, needsReview };
+  return {
+    ...parsed,
+    estimatedDeliveryDate,
+    deliveredAt,
+    returnDeadline,
+    deadlineIsEstimated,
+    policySource,
+    returnPortalUrl,
+    needsReview,
+  };
 }

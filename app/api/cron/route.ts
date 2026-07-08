@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { reminderTypeForOrder, isEligibleForReminder, daysUntil, type OrderForReminder, type ReminderType } from "@/lib/reminders";
+import {
+  reminderTypeForOrder,
+  isEligibleForReminder,
+  suppressForEstimatedDeadline,
+  daysUntil,
+  type OrderForReminder,
+  type ReminderType,
+} from "@/lib/reminders";
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
@@ -75,6 +82,7 @@ export function buildBody(
     `Your return window for ${retailer}${orderRef} ${CLOSES_PHRASE[reminderType]}.`,
     "",
     `Return deadline: ${deadline}`,
+    order.deadlineIsEstimated ? "Deadline based on shipping estimate — may shift with delivery." : null,
     total ? `Order total: ${total}` : null,
     "",
     `View details: ${APP_URL}/orders/${order.id}`,
@@ -148,14 +156,18 @@ export async function GET(request: NextRequest) {
       returnDeadline: order.returnDeadline,
       status: order.status,
       displayStatus: order.displayStatus,
+      deadlineIsEstimated: order.deadlineIsEstimated,
     };
 
     let reminderType = reminderTypeForOrder(asReminderOrder, today);
 
     // force bypasses the exact day-threshold match, but still respects the
-    // same status/deadline eligibility rules as a normal run.
+    // same status/deadline eligibility rules as a normal run — including
+    // estimated-deadline suppression, so a forced test send can't produce
+    // a 1-day/same-day email a real run would never send.
     if (!reminderType && force && isEligibleForReminder(asReminderOrder)) {
-      reminderType = nearestReminderType(daysUntil(asReminderOrder.returnDeadline, today));
+      const nearest = nearestReminderType(daysUntil(asReminderOrder.returnDeadline, today));
+      reminderType = suppressForEstimatedDeadline(nearest, asReminderOrder.deadlineIsEstimated);
     }
 
     if (!reminderType) continue;

@@ -27,6 +27,8 @@ export async function runExtraction(emailId: string): Promise<void> {
         orderNumber: result.orderNumber,
         orderDate: result.orderDate ? new Date(result.orderDate) : null,
         deliveryDate: result.deliveryDate ? new Date(result.deliveryDate) : null,
+        estimatedDeliveryDate: result.estimatedDeliveryDate ? new Date(result.estimatedDeliveryDate) : null,
+        deliveredAt: result.deliveredAt ? new Date(result.deliveredAt) : null,
         returnWindowDays: result.returnWindowDays,
         returnWindowStartsFrom: result.returnWindowStartsFrom,
         returnDeadline: result.returnDeadline ? new Date(result.returnDeadline) : null,

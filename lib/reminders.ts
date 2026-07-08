@@ -23,6 +23,24 @@ export interface OrderForReminder {
   returnDeadline: Date | null;
   status: string;
   displayStatus: string;
+  deadlineIsEstimated: boolean;
+}
+
+// A carrier delay on an estimated deadline shouldn't cause false urgency
+// on the two threshold types closest to it — 7_day/2_day still carry
+// enough headroom to absorb a few days' slip, but 1_day/same_day would be
+// confidently wrong if the estimate is off. Shared by the normal
+// reminderTypeForOrder path and the cron route's ?force=true test path,
+// so a forced test send can't bypass the same rule a real run respects.
+export function suppressForEstimatedDeadline(
+  reminderType: ReminderType | null,
+  deadlineIsEstimated: boolean,
+): ReminderType | null {
+  if (!reminderType) return null;
+  if (deadlineIsEstimated && (reminderType === "1_day" || reminderType === "same_day")) {
+    return null;
+  }
+  return reminderType;
 }
 
 // Calendar-day difference, ignoring time-of-day — a deadline of "today at
@@ -57,5 +75,5 @@ export function reminderTypeForOrder(order: OrderForReminder, today: Date = new 
     ([, daysBefore]) => daysBefore === days,
   );
 
-  return match ? match[0] : null;
+  return suppressForEstimatedDeadline(match ? match[0] : null, order.deadlineIsEstimated);
 }

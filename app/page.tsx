@@ -270,7 +270,7 @@ export default async function Home({
                         <div className="mt-0.5"><DisplayStatusBadge status={order.displayStatus} /></div>
                       </div>
                     </Link>
-                    <DaysLeftChip returnDeadline={order.returnDeadline} />
+                    <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
                   </div>
                   <div className="flex items-baseline justify-between mt-3">
                     <span className={`font-playfair text-xl ${isHighValue ? "font-semibold text-stone-900" : "text-stone-700"}`}>
@@ -426,13 +426,26 @@ export default async function Home({
                         {formatDate(order.orderDate)}
                         {order.orderDateEstimated ? <span className="text-stone-400"> (est.)</span> : ""}
                       </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">{formatDate(order.deliveryDate)}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
+                        {(() => {
+                          const best = order.deliveredAt ?? order.estimatedDeliveryDate ?? order.deliveryDate;
+                          if (!best) return "—";
+                          return (
+                            <>
+                              {formatDate(best)}
+                              {!order.deliveredAt && (order.estimatedDeliveryDate || order.deliveryDate) && (
+                                <span className="text-stone-400"> (est.)</span>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </td>
                       <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
                         {formatDate(order.returnDeadline)}
                         {order.deadlineIsEstimated ? <span className="text-stone-400"> (est.)</span> : ""}
                       </td>
                       <td className="py-3 pr-4 whitespace-nowrap">
-                        <DaysLeftChip returnDeadline={order.returnDeadline} />
+                        <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
                       </td>
                       <td className="py-3 pr-4 text-right">
                         <div className="flex items-center justify-end gap-2">

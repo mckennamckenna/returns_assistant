@@ -118,7 +118,8 @@ export async function applyFallbackOrderDate(orderId: string): Promise<void> {
 
   const { returnDeadline } = computeDeadline({
     orderDate: fallbackOrderDate.toISOString(),
-    deliveryDate: order.deliveryDate ? order.deliveryDate.toISOString() : null,
+    deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : null,
+    estimatedDeliveryDate: order.estimatedDeliveryDate ? order.estimatedDeliveryDate.toISOString() : null,
     returnWindowDays: order.returnWindowDays,
     returnWindowStartsFrom: order.returnWindowStartsFrom as "order_date" | "delivery_date" | null,
   });
@@ -424,6 +425,8 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
   const emailLineItems = asLineItemArray(email.lineItems);
   const mergedOrderDate = email.orderDate ?? existing.orderDate;
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
+  const mergedEstimatedDeliveryDate = email.estimatedDeliveryDate ?? existing.estimatedDeliveryDate;
+  const mergedDeliveredAt = email.deliveredAt ?? existing.deliveredAt;
   const mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays;
   const mergedReturnWindowStartsFrom = email.returnWindowStartsFrom ?? existing.returnWindowStartsFrom;
   const existingLineItems = asLineItemArray(existing.lineItems);
@@ -432,7 +435,8 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
 
   const { returnDeadline, deadlineIsEstimated } = computeDeadline({
     orderDate: mergedOrderDate ? mergedOrderDate.toISOString() : null,
-    deliveryDate: mergedDeliveryDate ? mergedDeliveryDate.toISOString() : null,
+    deliveredAt: mergedDeliveredAt ? mergedDeliveredAt.toISOString() : null,
+    estimatedDeliveryDate: mergedEstimatedDeliveryDate ? mergedEstimatedDeliveryDate.toISOString() : null,
     returnWindowDays: mergedReturnWindowDays,
     returnWindowStartsFrom: mergedReturnWindowStartsFrom as "order_date" | "delivery_date" | null,
   });
@@ -447,6 +451,8 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
       // and keeps flagging a now-real date as inferred.
       orderDateEstimated: email.orderDate ? false : existing.orderDateEstimated,
       deliveryDate: mergedDeliveryDate,
+      estimatedDeliveryDate: mergedEstimatedDeliveryDate,
+      deliveredAt: mergedDeliveredAt,
       returnWindowDays: mergedReturnWindowDays,
       returnWindowStartsFrom: mergedReturnWindowStartsFrom,
       returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
@@ -477,6 +483,8 @@ export async function createOrderFromEmail(
       orderNumber: email.orderNumber,
       orderDate: email.orderDate,
       deliveryDate: email.deliveryDate,
+      estimatedDeliveryDate: email.estimatedDeliveryDate,
+      deliveredAt: email.deliveredAt,
       returnWindowDays: email.returnWindowDays,
       returnWindowStartsFrom: email.returnWindowStartsFrom,
       returnDeadline: email.returnDeadline,
@@ -510,6 +518,8 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
       orderDate: first.orderDate,
       orderDateEstimated: false, // rebuilding from scratch; re-derived below if still missing
       deliveryDate: first.deliveryDate,
+      estimatedDeliveryDate: first.estimatedDeliveryDate,
+      deliveredAt: first.deliveredAt,
       returnWindowDays: first.returnWindowDays,
       returnWindowStartsFrom: first.returnWindowStartsFrom,
       returnDeadline: first.returnDeadline,

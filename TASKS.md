@@ -194,6 +194,32 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **Fix: estimated delivery dates presented as confirmed** — split
+      `Order`/`Email.deliveryDate` (ambiguous — could be a carrier ETA or a
+      confirmed delivery) into `estimatedDeliveryDate` (from shipping/other
+      emails) and `deliveredAt` (only from an actual "delivery" email).
+      `computeDeadline()` now prefers `deliveredAt` → `estimatedDeliveryDate`
+      → orderDate-based guess, with the `order_date`-anchored (Amazon) path
+      preserved unchanged. Reminders now suppress 1-day/same-day (not
+      7-day/2-day) when `deadlineIsEstimated`, including under `?force=true`.
+      UI: `DaysLeftChip` gains "(est.)"; order detail page's deadline shows
+      "(estimated — based on shipping estimate)" when driven by a real
+      shipping ETA, plain "(estimated)" otherwise; delivery-date fields
+      (dashboard table + detail page) now show the best available date with
+      an estimate caveat. 24 new/updated tests (`computeDeadline.test.ts` new
+      — this function had no direct tests before; `reminders.test.ts`
+      extended), full suite (182 tests) green, build clean.
+      `scripts/backfill-estimated-delivery.ts` run against production: 4
+      orders touched — Nordstrom (order_date-anchored, unaffected as
+      designed), Old Navy + Tuckernuck (past-dated estimates, flagged
+      `deadlineIsEstimated: true` only, deadline left untouched), Proenza
+      Schouler (also landed in the past-dated bucket — real time crossed into
+      Jul 8 mid-session, so its Jul 7 estimate is now calendar-day-stale by
+      the same rule, not a live one; flagged estimated but doesn't get the
+      richer "based on shipping estimate" copy since `estimatedDeliveryDate`
+      wasn't backfilled for it). **Awaiting owner verification** — see
+      session notes on the Proenza timing wrinkle before checking the acid
+      test; Amazon-order regression spot-check still needed.
 - [ ] **Self-serve Gmail forwarding setup** — committed (`2c55887`), pushed,
       deployed (`dpl_7XhxvEhxedgBWQpNwYPCY8o8NVx9`), alias confirmed. Gmail
       deep-link button + hint on the setup page; confirmation code now surfaced
