@@ -349,60 +349,34 @@
       becomes noticeable.
 
 ## ✅ Done
-- [ ] **Tiered return policy extraction rule** — new "TIERED RETURN WINDOWS"
-      section in `buildPrompt()` (email-body path); `buildPolicyLookupPrompt()`'s
-      contradicting existing rule ("report the standard/default window" on
-      tiering) replaced, not just supplemented — the two directly conflicted.
-      Both instruct: pick the shortest stated window regardless of which
-      condition triggers it, note every window + condition in an exact format,
-      or return `null` + `confidence: "low"` if no window is identifiable with
-      confidence. One necessary wiring addition beyond pure prompt text:
-      neither JSON schema has ever had its own `needsReview` output (that's
-      always been computed downstream), so a new `notesIndicateTieredWindow()`
-      pure function detects the exact notes marker and feeds it into
-      `extractEmail()`'s existing `needsReview` boolean — covers both paths
-      via existing notes-concatenation, no new field. `BUILD.md`'s Extraction
-      section gets the matching bullet. 4 new tests on the pure detection
-      function (not a mocked end-to-end extraction, per this project's
-      testing philosophy) — full suite (185 tests) green, build clean. No
-      schema/UI changes, no backfill, `computeDeadline()`/`deriveDisplayStatus()`/
-      `linkOrder.ts`/reminder logic untouched.
-      **Awaiting owner verification**: forward a real tiered-policy test email,
-      or manually re-run extraction on Caroline's existing Moda order, and
-      confirm the corrected shortest-window + `needsReview: true` + notes format.
-- [ ] **Read-only admin extraction-quality debugging surface** — three new
-      pages, session-gated identically to `app/admin/onboarding/page.tsx`
-      (identity check against `ADMIN_USER_EMAIL`, confirmed via matching
-      unauthenticated-response smoke test): `/admin/users` (list — forwarding
-      addresses only, no names/emails/retailers/dollar amounts, sort toggle
-      via URL query param), `/admin/users/[forwardingAddress]` (order table —
-      retailer, order number, deadline, displayStatus, needsReview,
-      orderDateEstimated, deadlineIsEstimated; includes archived/soft-deleted
-      orders with a visual "Archived"/"Deleted" indicator, no dollar
-      amounts), `/admin/users/[forwardingAddress]/orders/[orderId]` (full
-      Order row including dollar amounts/tracking; linked emails' extraction
-      fields and pretty-printed `extractionRaw`/`extractionNotes` — never
-      selects `textBody`/`htmlBody`/`fromEmail`/`fromName`/`rawJson` at the
-      query level, not just at render time). New `resolveInboundTokenFromAddress`
-      in `lib/inboundAddress.ts` mirrors `app/api/inbound/route.ts`'s existing
-      token-resolution logic without touching that route at all. Read-only,
-      no mutation endpoints. Build clean, full suite (181 tests) unaffected.
-      Owner caught a real gap on first use — delivery-date fields
-      (`estimatedDeliveryDate`/`deliveredAt`) were missing from both the user
-      detail table and the per-email extraction list, exactly the fields
-      needed to debug the delivery-date-anchor bug class this tool exists
-      for. Fixed same-day: user detail table gained "Est. delivery"/
-      "Delivered" columns after "Deadline"; per-email extraction list gained
-      both fields (Order-level fields already had them from the original
-      build — confirmed via diagnostic pass, no duplication added).
-      **Awaiting owner verification**: list view shows no personal
-      identifiers, sort toggle works and survives refresh, Caroline's Moda
-      Operandi row shows meaningful Est. delivery/Delivered values (or — where
-      genuinely null), and `extractionRaw`/`extractionNotes` are visible while
-      email body content is not.
-- [x] Fix backwards Gmail deep-link query on the setup page — replaced
-      `to:(forwarding-address)` (zero results) with a hardcoded commerce-keyword
-      query excluding pharmacy/medical senders. Owner-verified in production.
+- [x] A1: Tiered-return-window prompt rule — extraction picks shortest
+      applicable window when multiple are stated, sets `needsReview: true`,
+      records detection in notes. Applies to both email-body extraction and
+      `buildPolicyLookupPrompt`. Committed (`1216aaf`), pushed, deployed
+      (`dpl_EhQMify5JkYh5WEMrLVE66kEHmso`). 4 new tests, 185 passing.
+      Web_lookup path owner-verified via Shopbop live forward (15 days,
+      needsReview true, notes format correct). Email-body path owner-verified
+      via read-only re-extraction of Caroline's Moda Email row (14 days,
+      needsReview true, notes format correct). Both paths verified without
+      touching production data; Caroline's stored data corrected in a
+      separate deliberate backfill (see below).
+- [x] Admin dashboard v1 — three read-only pages (`/admin/users`,
+      `/admin/users/[fwd]`, `/admin/users/[fwd]/orders/[id]`), session-gated
+      to `ADMIN_USER_EMAIL`, no mutation endpoints, no email content
+      decryption. Layered privacy: forwarding address as opaque identifier,
+      no personal details on list view. Committed (`b498a08`), pushed,
+      deployed. Owner-verified in production.
+- [x] Admin dashboard v1.1 — added `estimatedDeliveryDate` and `deliveredAt`
+      columns to user detail table, expanded order detail per-email fields to
+      match. Committed (`ab290a5`), pushed, deployed
+      (`dpl_3JoVHd63NntbXfxFPoxPCxyCQeed`). Owner-verified in production.
+      `orderDate` column added as separate follow-up ship.
+- [x] Gmail deep-link query swap on setup page — `-from:(pharmacy domains)
+      (commerce keywords)` preloaded instead of `to:(forwarding-address)`.
+      Committed (`730fc36`), pushed, deployed
+      (`dpl_A49kcwf1xRvSgwRms6DnaUhrExT9`). Owner-verified in production.
+      Brother verified his own forwarding-address confirmation code loop; deep
+      link + filter build path still unverified for any non-owner.
 - [x] Admin notification persistence + allowlist rejection notify + auth-flow
       signup notify — every signup-adjacent event now writes a durable
       AdminNotification row and fires an admin notify email; Lauren's original
@@ -535,6 +509,28 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- Tiered return windows resolve to the shortest applicable window, always,
+  even when the user's specific tier would grant a longer window.
+  `needsReview: true` set on all tiered cases. Rationale: "a wrong deadline
+  is worse than a missing one" — a redundant early reminder is harmless, a
+  missed shorter deadline is trust-eroding. Real fix (surfacing both windows
+  to user) deferred to the tiered-policy schema pass.
+- Retailer policy database is the highest-quality data source for extraction
+  and belongs at the top of the extraction priority order (retailer-known
+  → email → web_lookup → guess). Not built yet; scoped as a 🟡 Next spec
+  pass, entangled with tiered-policy schema work.
+- A1 detects tiered-window cases via string-match on AI notes output
+  (`notesIndicateTieredWindow` reads for a specific marker phrase).
+  Deliberate scope call for A1; long-term needs `needsReview` promoted to a
+  first-class field in the AI's JSON output contract.
+- Bug naming going forward uses human-readable slugs, not sequential numeric
+  IDs. Historical Bugs 1-11 preserved in HISTORY.md as-is; not renamed.
+- Gmail confirmation code will be delivered to users via email (in addition
+  to dashboard surfacing), with owner BCC'd. Rationale: user's mental context
+  during Gmail forwarding setup is Gmail itself, not the Return Window
+  dashboard; email meets them where they are. Codes are also time-sensitive
+  (Google ~24hr expiration) and dashboard-only surfacing risks stale codes on
+  return visits.
 - Mark refunded is available from email, with a two-tap confirmation. This accepts
   the risk that a compromised email account could permanently archive an order in a
   state that stops all reminders. Rationale: the target user shouldn't be forced into
