@@ -299,6 +299,21 @@
       If the pattern recurs, build fuzzy suffix-strip matching in `lib/linkOrder.ts`.
 
 ## ⚪ Someday
+- [ ] **Extraction: infer `orderTotal` from `refundAmount` + line items** — when
+      the AI has high-confidence line item prices and a refund amount but not an
+      original order total, it currently leaves `orderTotal: null`. Prompt-quality
+      improvement: allow inference when the data supports it. Low priority.
+- [ ] **Extraction: verify AI source attributions in notes** — WNU's extraction
+      claimed `returnsportal.co/r/withnothingunderneath` was found on WNU's
+      international returns page. Manual check suggests the URL doesn't appear
+      there at all; possibly the AI hallucinated the source attribution. Open
+      question because it affects how much we trust `extractionNotes` as diagnostic
+      data. Small research task.
+- [ ] **Broader onboarding audit: where else do we assume the user is in our
+      dashboard when they aren't?** — surfaced today by the Gmail confirmation code
+      discussion. Any setup step where the user's mental context isn't our app
+      should probably have an email touchpoint by default, because that's where
+      their attention actually is.
 - [ ] **Confirmation page state** — if a user opens the same confirmation link in two
       tabs, tab A confirms, tab B still shows a confirm button that errors ambiguously
       ("already used"). Cosmetic UX polish, not a security issue. Consider a
@@ -489,6 +504,19 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Bug naming going forward uses slugs, not numeric IDs** — historical Bugs
+  1-11 preserved as-is in HISTORY.md, but new bugs get human-readable slug
+  names (e.g., `orderDate-fallback-emailtype-gate`, `returnportal-trust-tier`)
+  so TASKS/BUILD entries stand alone without a lookup. Rationale: HISTORY
+  already has "Bugs 9+10+11" collated into one entry; numeric IDs don't scale
+  and require grep to resolve.
+- **A1 tiered-window detection is string-match on AI notes output** —
+  `notesIndicateTieredWindow` reads the notes for "Multiple return windows
+  detected:" marker. If the AI ever paraphrases ("Multiple return windows
+  found:", "Several windows detected:", etc.), detection silently fails and
+  `needsReview` stays false. Worth adding one test with slightly-varied
+  phrasing to see if detection is too brittle. Long-term fix is
+  `needsreview-json-field` in 🟡 Next.
 - **`BUILD.md`'s `computeDeadline()` documentation block is stale** — still
   describes the old pre-split `deliveryDate` logic ("if deliveryDate known:
   anchor = ..."), not the `deliveredAt`/`estimatedDeliveryDate` split shipped
