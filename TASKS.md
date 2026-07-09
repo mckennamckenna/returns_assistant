@@ -26,6 +26,19 @@
 ---
 
 ## 🔴 Now
+- [ ] **[TOMORROW #1, Phase 2: implement] orderDate-fallback emailType gate**
+      — Phase 1 diagnostic complete (found: 16 prod orders with
+      `orderDateEstimated: true`, 5 with earliest-linked email in the
+      excluded set, 0 currently trust-erosion-visible; confirmed
+      `return_received` isn't a real emailType — real set is
+      `order_confirmation | shipping_confirmation | delivery | return_label
+      | refund | other`; confirmed nothing reads `orderDateEstimated: false`
+      as proof of a real date). Phase 2 (this entry): gate
+      `applyFallbackOrderDate` in `lib/linkOrder.ts` to fire only when the
+      earliest-linked email is `order_confirmation`/`shipping_confirmation`/
+      `delivery`; update BUILD.md (Order linking section + Decisions log);
+      add tests. No UI changes, no backfill — both deferred to follow-up
+      phases. Slug: `orderDate-fallback-emailtype-gate`.
 - [ ] **Investigate unexplained extra Vercel production deployments** — found
       during 2026-07-08 session close: `vercel ls returns-assistant` shows
       several more "Ready"/Production deployments than were explicitly

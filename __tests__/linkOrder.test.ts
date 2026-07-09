@@ -1,10 +1,19 @@
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeEach } from "vitest";
 
 // Prevent module-level Prisma client construction from failing in a test
-// environment that has no real DATABASE_URL. The DB-touching functions in
-// linkOrder.ts are not exercised by these tests; only the exported pure
-// function isRetailerPrefixMatch is tested here.
-vi.mock("@/lib/db", () => ({ prisma: {} }));
+// environment that has no real DATABASE_URL. isRetailerPrefixMatch and
+// parseForwardedHeaderDate are pure functions and don't touch this mock at
+// all; applyFallbackOrderDate does, via the vi.fn()s below.
+const mockPrisma = {
+  order: {
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
+  email: {
+    findFirst: vi.fn(),
+  },
+};
+vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/crypto", () => ({ decrypt: (x: string) => x }));
 vi.mock("@/lib/emailBodyText", () => ({ resolveBodyText: () => null }));
 vi.mock("@/lib/extract", () => ({ computeDeadline: () => ({ returnDeadline: null, deadlineIsEstimated: false }) }));
@@ -16,7 +25,7 @@ vi.mock("@/lib/trackingParser", () => ({
   parseTracking: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
 }));
 
-const { isRetailerPrefixMatch, parseForwardedHeaderDate } = await import("../lib/linkOrder");
+const { isRetailerPrefixMatch, parseForwardedHeaderDate, applyFallbackOrderDate } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
   // ── Real fixture ──────────────────────────────────────────────────────────
@@ -102,5 +111,74 @@ describe("parseForwardedHeaderDate", () => {
 
   it("returns null for an empty body", () => {
     expect(parseForwardedHeaderDate(null)).toBeNull();
+  });
+});
+
+describe("applyFallbackOrderDate", () => {
+  const baseOrder = {
+    id: "order1",
+    orderDate: null,
+    deliveredAt: null,
+    estimatedDeliveryDate: null,
+    returnWindowDays: null,
+    returnWindowStartsFrom: null,
+  };
+  const receivedAt = new Date("2026-06-01T00:00:00.000Z");
+
+  beforeEach(() => {
+    mockPrisma.order.findUnique.mockReset();
+    mockPrisma.order.update.mockReset();
+    mockPrisma.email.findFirst.mockReset();
+  });
+
+  // ── Allowed types: fallback fires ───────────────────────────────────────
+  it.each(["order_confirmation", "shipping_confirmation", "delivery"])(
+    "fires when the earliest-linked email is %s",
+    async (emailType) => {
+      mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+      mockPrisma.email.findFirst
+        .mockResolvedValueOnce({ emailType }) // gate check
+        .mockResolvedValueOnce({ receivedAt, textBody: null, htmlBody: null }); // resolveFallbackOrderDate
+
+      await applyFallbackOrderDate("order1");
+
+      expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(receivedAt);
+      expect(data.orderDateEstimated).toBe(true);
+    },
+  );
+
+  // ── Excluded types: fallback stays null ─────────────────────────────────
+  it.each(["return_label", "refund", "other"])(
+    "does NOT fire when the earliest-linked email is %s",
+    async (emailType) => {
+      mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+      mockPrisma.email.findFirst.mockResolvedValueOnce({ emailType }); // gate check only
+
+      await applyFallbackOrderDate("order1");
+
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
+    },
+  );
+
+  // ── Edge case: Order has no linked emails at all ────────────────────────
+  it("does NOT fire when the order has no linked emails", async () => {
+    mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+    mockPrisma.email.findFirst.mockResolvedValueOnce(null);
+
+    await applyFallbackOrderDate("order1");
+
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
+  });
+
+  // ── Early-return path: Order already has a real orderDate ───────────────
+  it("does NOT fire when the order already has a non-null orderDate, regardless of emailType", async () => {
+    mockPrisma.order.findUnique.mockResolvedValueOnce({ ...baseOrder, orderDate: new Date("2026-05-01") });
+
+    await applyFallbackOrderDate("order1");
+
+    expect(mockPrisma.email.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
   });
 });

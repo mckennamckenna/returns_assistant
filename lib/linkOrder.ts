@@ -86,11 +86,18 @@ export function parseForwardedHeaderDate(bodyText: string | null): Date | null {
 //      Bug 8). Weaker for a genuinely manually-forwarded email with no
 //      parseable Date line, since receivedAt is then just "whenever the
 //      customer forwarded it" — but better than no orderDate at all.
-// Not scoped to order_confirmation: Amazon's transactional mail never
-// produces that emailType (only shipping_confirmation), so restricting to
-// it would leave Amazon orders with no fallback candidate at all. The
-// earliest linked email of any type is the best available proxy for order
-// placement time.
+// Not scoped to order_confirmation internally — this function resolves the
+// best available date from whatever the earliest linked email turns out to
+// be. Amazon's transactional mail never produces an order_confirmation
+// emailType (only shipping_confirmation), so hard-coding that type here
+// would leave Amazon orders with no fallback candidate at all.
+//
+// Whether the fallback should fire at all for a given earliest-email type is
+// decided by the caller, applyFallbackOrderDate, via its allowed-type gate
+// below — return_label/refund/other-typed earliest emails never reach this
+// function, because their receivedAt has no defined relationship to the
+// true order date (see applyFallbackOrderDate's comment and BUILD.md's
+// Decisions log).
 async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
   const earliestEmail = await prisma.email.findFirst({
     where: { orderId },
@@ -105,13 +112,33 @@ async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
 }
 
 // If an order is missing orderDate after normal extraction/merging, try the
-// fallback and recompute returnDeadline from it. Both orderDateEstimated and
-// deadlineIsEstimated are always set — the order date itself is inferred,
-// not stated, so any deadline computed from it is estimated too regardless
-// of whether deliveryDate is known.
+// fallback and recompute returnDeadline from it — but only when the
+// earliest-linked email is one of the types where receivedAt (or its
+// forwarded-header Date line) is actually a meaningful proxy for order
+// placement time: order_confirmation, shipping_confirmation, delivery.
+// return_label, refund, and other-typed earliest emails are excluded —
+// their receivedAt reflects a later point in the post-purchase loop (or,
+// for other, unrelated marketing mail), with no defined relationship to
+// when the order was actually placed. Inventing an orderDate from one of
+// those produced a visibly-wrong deadline in production (Caroline's Moda
+// order, 2026-07-08) — see BUILD.md's Decisions log. New emailType values
+// must be explicitly added to one bucket or the other; there's no default.
+// Both orderDateEstimated and deadlineIsEstimated are always set when the
+// fallback does fire — the order date itself is inferred, not stated, so
+// any deadline computed from it is estimated too regardless of whether
+// deliveryDate is known.
+const ALLOWED_FALLBACK_EMAIL_TYPES = new Set(["order_confirmation", "shipping_confirmation", "delivery"]);
+
 export async function applyFallbackOrderDate(orderId: string): Promise<void> {
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   if (!order || order.orderDate) return;
+
+  const earliestEmail = await prisma.email.findFirst({
+    where: { orderId },
+    orderBy: { receivedAt: "asc" },
+    select: { emailType: true },
+  });
+  if (!earliestEmail || !ALLOWED_FALLBACK_EMAIL_TYPES.has(earliestEmail.emailType ?? "")) return;
 
   const fallbackOrderDate = await resolveFallbackOrderDate(orderId);
   if (!fallbackOrderDate) return;
