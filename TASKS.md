@@ -47,6 +47,13 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **Runtime validation on the AI's extraction JSON response** — `lib/extract.ts`
+      currently does `JSON.parse(...) as RawExtraction`/`as PolicyLookupResult`
+      with no runtime schema check. Was low-stakes when every field was
+      informational; now that `needsReview` is behavior-critical, a silently
+      omitted field degrades to falsy rather than being caught or logged.
+      Add real validation (e.g. zod) at the parse boundary. Slug:
+      `extraction-runtime-validation`.
 - [ ] **User notification policy for data corrections** — surfaced by
       Caroline's Moda backfill: her return deadline moved from Aug 13 to
       Jul 28 (a real, meaningful shift) via a one-off admin backfill, and she
@@ -514,6 +521,12 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **A1 Phase 2 verification could not cleanly isolate AI-set `needsReview`
+  vs. fallback contribution** — both fire in the tiered-window case because
+  notes text naturally contains the fallback marker phrase. Qualitative
+  evidence (AI narrating its own reasoning) is the current proxy. Cleaner
+  proof would require temporarily disabling `notesIndicateTieredWindow` on a
+  test run.
 - **No runtime validation on the AI's JSON response** (`lib/extract.ts`,
   `JSON.parse(...) as RawExtraction` / `as PolicyLookupResult`) — pre-existing
   pattern for every field, but newly relevant now that `needsReview` is
@@ -522,7 +535,8 @@
   `||`-evaluates as falsy rather than being caught or logged. The
   `notesIndicateTieredWindow` fallback still catches the tiered-window case
   specifically, but nothing would catch an omission the AI intended to flag
-  for a different reason. Not fixed here — flagging only.
+  for a different reason. Not fixed here — flagging only. Real fix tracked
+  in 🟡 Next as `extraction-runtime-validation`.
 - **Bug naming going forward uses slugs, not numeric IDs** — historical Bugs
   1-11 preserved as-is in HISTORY.md, but new bugs get human-readable slug
   names (e.g., `orderDate-fallback-emailtype-gate`, `returnportal-trust-tier`)
@@ -556,18 +570,30 @@
 <!-- One line per decision so future-you and Claude Code know WHY -->
 - Tiered return windows resolve to the shortest applicable window, always,
   even when the user's specific tier would grant a longer window.
-  `needsReview: true` set on all tiered cases. Rationale: "a wrong deadline
-  is worse than a missing one" — a redundant early reminder is harmless, a
-  missed shorter deadline is trust-eroding. Real fix (surfacing both windows
-  to user) deferred to the tiered-policy schema pass.
+  `needsReview: true` set on all tiered cases, via a first-class JSON schema
+  field as of A1 Phase 2 (not string-matching, per the entry below).
+  Rationale: "a wrong deadline is worse than a missing one" — a redundant
+  early reminder is harmless, a missed shorter deadline is trust-eroding.
+  Real fix (surfacing both windows to user) deferred to the tiered-policy
+  schema pass.
 - Retailer policy database is the highest-quality data source for extraction
   and belongs at the top of the extraction priority order (retailer-known
   → email → web_lookup → guess). Not built yet; scoped as a 🟡 Next spec
   pass, entangled with tiered-policy schema work.
-- A1 detects tiered-window cases via string-match on AI notes output
-  (`notesIndicateTieredWindow` reads for a specific marker phrase).
-  Deliberate scope call for A1; long-term needs `needsReview` promoted to a
-  first-class field in the AI's JSON output contract.
+- `notesIndicateTieredWindow` retained as an OR'd fallback after A1 Phase 2,
+  for one release cycle — belt-and-suspenders against JSON-schema-field
+  regression, not the primary signal anymore (superseded: A1 originally
+  detected tiering via string-match alone; Phase 2 promoted `needsReview` to
+  a first-class AI-set field). Remove once we've observed reliable AI
+  behavior over multiple weeks.
+- `Email.needsReview` and `Order.needsReview` serve two different jobs
+  (extraction-review vs. linking-review) with different UI treatments and
+  different human-override semantics. Extraction-quality signals
+  deliberately NOT propagated to `Order.needsReview` until a proper spec
+  pass separates the two concerns.
+- Silent correction was the right call for Caroline's Moda backfill (return
+  already in-flight, correction affects no future action). Broader user
+  notification policy needs stating before scale — tracked in 🟡 Next.
 - Bug naming going forward uses human-readable slugs, not sequential numeric
   IDs. Historical Bugs 1-11 preserved in HISTORY.md as-is; not renamed.
 - Gmail confirmation code will be delivered to users via email (in addition
