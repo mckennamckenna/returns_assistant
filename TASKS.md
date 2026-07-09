@@ -47,6 +47,15 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **User notification policy for data corrections** — surfaced by
+      Caroline's Moda backfill: her return deadline moved from Aug 13 to
+      Jul 28 (a real, meaningful shift) via a one-off admin backfill, and she
+      wasn't notified. Judgment call this time was "return already in-flight,
+      correction affects no future action she'll take" — but that reasoning
+      was ad hoc, not policy. Needs a real decision: when a backend
+      correction changes a user-facing fact (deadline, status, amount), what
+      triggers a notification vs. silent correction? Matters more as backfills
+      become more routine.
 - [ ] **orderDate-fallback should gate by emailType** — `applyFallbackOrderDate`
       (introduced with the Amazon orderDate fallback, commit see HISTORY 2026-07-01
       area) currently fires regardless of the first-linked email's type. Should
@@ -350,27 +359,22 @@
       becomes noticeable.
 
 ## ✅ Done
-- [ ] **A2: `needsReview` promoted to a first-class extraction JSON field** —
-      `RawExtraction`/`PolicyLookupResult` both gain a non-optional
-      `needsReview: boolean` the AI sets directly (NEEDS REVIEW prompt rule
-      in both `buildPrompt` and `buildPolicyLookupPrompt`), replacing
-      pure-derivation-from-notes as the primary signal. New pure
-      `computeNeedsReview()` combines the AI's flag with the existing
-      JS-side triggers (some structurally unknowable to the AI, e.g. a
-      missing deadline) and keeps `notesIndicateTieredWindow` as an OR'd
-      fallback for one release cycle — not removed, per design. Shape 2
-      only: deliberately does NOT touch `computeOrderStatus`,
-      `recomputeOrderStatus`, `orderReview.ts`, or anything that writes
-      `Order.needsReview` — extraction-quality (`Email.needsReview`) and
-      linking-quality (`Order.needsReview`) review stay two separate
-      concerns until a later spec pass. `BUILD.md` gains a new "Decisions
-      log" section (didn't exist before — flagging this, since the task
-      referenced it as if it did) with 3 entries. 6 new/updated tests, full
-      suite (191 tests) green, build clean.
-      **Awaiting owner verification**: forward a new tiered-policy email and
-      confirm `extractionRaw.needsReview` is `true` directly from the AI
-      path; re-run extraction on Caroline's Moda Email and confirm
-      `needsReview: true` reliably (the case that failed yesterday).
+- [x] A1 Phase 2: `needsReview` promoted to first-class JSON schema field —
+      surfaced when live production reliability bug: re-running extraction on
+      Caroline's Moda email produced `needsReview: false` because the AI
+      wrote lowercase "multiple" instead of uppercase "Multiple", defeating
+      the case-sensitive `notesIndicateTieredWindow` string match. Fix: AI
+      now sets `needsReview` directly via the extraction JSON schema (both
+      email-body and web_lookup prompts). `notesIndicateTieredWindow`
+      retained as OR'd fallback for one release cycle. Committed (`74507b4`),
+      pushed, deployed (`dpl_941nSRixVg7vrdeh2wsDhGAf37ss`). 6 new tests, 191
+      passing. Owner-verified via 4 consecutive independent extractions of
+      Caroline's Moda Email — all consistent `needsReview: true`, no
+      non-determinism observed. Deliberately Shape 2 only: `Order.needsReview`
+      NOT propagated from `Email.needsReview` for extraction-quality signals,
+      because Order-level UI ("Looks correct / Split into separate order") is
+      designed for linking-review, not extraction-review. Separating those
+      concerns is a 🟡 Next spec pass.
 - [x] A1: Tiered-return-window prompt rule — extraction picks shortest
       applicable window when multiple are stated, sets `needsReview: true`,
       records detection in notes. Applies to both email-body extraction and
@@ -378,10 +382,17 @@
       (`dpl_EhQMify5JkYh5WEMrLVE66kEHmso`). 4 new tests, 185 passing.
       Web_lookup path owner-verified via Shopbop live forward (15 days,
       needsReview true, notes format correct). Email-body path owner-verified
-      via read-only re-extraction of Caroline's Moda Email row (14 days,
-      needsReview true, notes format correct). Both paths verified without
-      touching production data; Caroline's stored data corrected in a
-      separate deliberate backfill (see below).
+      via read-only re-extraction of Caroline's Moda Email row.
+- [x] Caroline's Moda Order — backfilled under A1 Phase 2 extraction rules.
+      `Email.returnWindowDays: 30 → 14`, `Email.needsReview: false → true`,
+      `Email.extractionRaw` fully replaced, `Email.extractedAt` bumped.
+      `Order.returnWindowDays: 30 → 14`, `Order.returnDeadline:
+      Aug 13, 2026 → Jul 28, 2026` (recomputed via `computeDeadline()`, not
+      hand-written), `Order.needsReview` deliberately untouched (Shape 2
+      no-propagation). One-off script deleted after use per project
+      convention. Caroline not notified — return already in-flight, deadline
+      correction affects no future action she'll take (see 🟡 Next: user
+      notification policy for data corrections).
 - [x] Admin dashboard v1 — three read-only pages (`/admin/users`,
       `/admin/users/[fwd]`, `/admin/users/[fwd]/orders/[id]`), session-gated
       to `ADMIN_USER_EMAIL`, no mutation endpoints, no email content
@@ -392,13 +403,16 @@
       columns to user detail table, expanded order detail per-email fields to
       match. Committed (`ab290a5`), pushed, deployed
       (`dpl_3JoVHd63NntbXfxFPoxPCxyCQeed`). Owner-verified in production.
-      `orderDate` column added as separate follow-up ship.
-- [x] Gmail deep-link query swap on setup page — `-from:(pharmacy domains)
-      (commerce keywords)` preloaded instead of `to:(forwarding-address)`.
-      Committed (`730fc36`), pushed, deployed
-      (`dpl_A49kcwf1xRvSgwRms6DnaUhrExT9`). Owner-verified in production.
-      Brother verified his own forwarding-address confirmation code loop; deep
-      link + filter build path still unverified for any non-owner.
+      `orderDate` column still missing on the user detail table — deferred to
+      next admin-dash session; not urgent since order date is visible on the
+      order detail page.
+- [x] Gmail deep-link query preload swap — commerce query with pharmacy
+      exclusion now preloaded in setup page Step 5, replacing the reversed
+      `to:(forwarding-address)` query. Committed (`730fc36`), pushed, deployed
+      (`dpl_A49kcwf1xRvSgwRms6DnaUhrExT9`). Owner-verified in production;
+      brother verified the forwarding-address confirmation code loop
+      end-to-end but deep-link + filter-build path still unverified for any
+      non-owner (see 🟡 Next: Gmail Step 5 UX pass).
 - [x] Admin notification persistence + allowlist rejection notify + auth-flow
       signup notify — every signup-adjacent event now writes a durable
       AdminNotification row and fires an admin notify email; Lauren's original
