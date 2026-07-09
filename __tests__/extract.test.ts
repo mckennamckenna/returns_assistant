@@ -3,6 +3,7 @@ import {
   normalizeReturnPortalUrl,
   resolveReturnPortalUrlForWrite,
   notesIndicateTieredWindow,
+  computeNeedsReview,
   TIERED_WINDOW_NOTE_MARKER,
 } from "../lib/extract";
 
@@ -72,17 +73,25 @@ describe("resolveReturnPortalUrlForWrite", () => {
   });
 });
 
-// ── notesIndicateTieredWindow (tiered return policy detection) ───────────────
+// ── notesIndicateTieredWindow (tiered return policy detection — FALLBACK path) ─
 // Real bug: Moda Operandi states "30 days for full-priced items, 14 days for
 // discounted items and for cash-refund-vs-site-credit" — the AI picked 30 with
 // an active rationale ("the longer window is reported here"), producing a
-// deadline 16 days after the true window closes for a common case. The fix is
-// a prompt rule (always pick the shortest stated window) plus this detection:
-// extractEmail() can't call the real Anthropic API in a unit test, so this
-// tests the actual pure function that turns the AI's notes output into
-// needsReview: true — not a mocked end-to-end extraction.
+// deadline 16 days after the true window closes for a common case. The
+// original fix (2026-07-08 morning) was a prompt rule (always pick the
+// shortest stated window) plus this notes-string-match detection.
+//
+// As of 2026-07-08 afternoon, this is no longer the PRIMARY needsReview
+// signal — a live production check found the AI's non-deterministic notes
+// capitalization ("multiple" vs "Multiple") could silently defeat a
+// case-sensitive match. needsReview is now a first-class field the AI sets
+// directly (see computeNeedsReview below); this function is kept as a
+// belt-and-suspenders FALLBACK for one release cycle, not removed. These
+// tests still cover that fallback path directly — extractEmail() can't call
+// the real Anthropic API in a unit test, so this tests the actual pure
+// function, not a mocked end-to-end extraction.
 
-describe("notesIndicateTieredWindow", () => {
+describe("notesIndicateTieredWindow (fallback path)", () => {
   it("detects the exact marker the tiered-window prompt rule specifies (the Moda Operandi shape)", () => {
     const notes =
       "Multiple return windows detected: 30 days for full-priced items, 14 days for discounted items and for cash-refund-vs-site-credit. Selected shortest (14 days) per policy.";
@@ -100,5 +109,52 @@ describe("notesIndicateTieredWindow", () => {
 
   it("returns false for an empty notes string", () => {
     expect(notesIndicateTieredWindow("")).toBe(false);
+  });
+});
+
+// ── computeNeedsReview (PRIMARY path, as of 2026-07-08 afternoon) ────────────
+// The AI now sets needsReview directly in its own JSON output (both the
+// email-body and web-lookup paths) instead of it being purely derived from a
+// notes string match. This is the actual pure function extractEmail() calls
+// — proves the AI's own flag drives the result, with the existing JS-side
+// triggers and the notesIndicateTieredWindow fallback still contributing.
+
+describe("computeNeedsReview", () => {
+  const base = {
+    aiNeedsReview: false,
+    lookupNeedsReview: false,
+    confidence: "high" as const,
+    emailType: "order_confirmation" as const,
+    retailer: "Moda Operandi",
+    orderNumber: "456603272478",
+    returnDeadline: "2026-08-01T00:00:00.000Z",
+    policyLookupWasUnclear: false,
+    notes: "Order total read directly from the email.",
+  };
+
+  it("is true when the AI sets needsReview directly, with no tiered-notes marker and no other trigger — the primary path", () => {
+    expect(computeNeedsReview({ ...base, aiNeedsReview: true })).toBe(true);
+  });
+
+  it("is true when the AI sets needsReview: false but notes still contain the tiered-window marker — the fallback catches what the AI's own flag missed", () => {
+    const notes =
+      "Multiple return windows detected: 30 days full-price, 14 days sale. Selected shortest (14 days) per policy.";
+    expect(computeNeedsReview({ ...base, aiNeedsReview: false, notes })).toBe(true);
+  });
+
+  it("is true when the web-lookup path's own needsReview flag is set, independent of the email-body flag", () => {
+    expect(computeNeedsReview({ ...base, aiNeedsReview: false, lookupNeedsReview: true })).toBe(true);
+  });
+
+  it("is false when nothing — AI flag, lookup flag, JS-side triggers, or notes marker — indicates review is needed", () => {
+    expect(computeNeedsReview({ ...base })).toBe(false);
+  });
+
+  it("existing JS-side triggers still contribute independent of the AI's flag (low confidence)", () => {
+    expect(computeNeedsReview({ ...base, aiNeedsReview: false, confidence: "low" })).toBe(true);
+  });
+
+  it("existing JS-side triggers still contribute independent of the AI's flag (missing deadline on order_confirmation)", () => {
+    expect(computeNeedsReview({ ...base, aiNeedsReview: false, returnDeadline: null })).toBe(true);
   });
 });

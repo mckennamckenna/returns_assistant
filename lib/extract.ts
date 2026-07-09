@@ -56,6 +56,17 @@ interface RawExtraction {
   // so the two sources never get confused in extractEmail's merge logic.
   returnPortalUrlFromEmail: string | null;
   confidence: Confidence;
+  // AI-set directly (not derived downstream) — true for: tiered-window
+  // detection, low confidence, missing retailer/orderNumber on a commerce
+  // email, missing deadline on an order_confirmation, or any ambiguity the
+  // AI itself flagged in notes. Non-optional: the AI must always output a
+  // value. extractEmail() ORs this with its own JS-side triggers (some of
+  // which the AI structurally can't know about, e.g. an extraction
+  // exception) rather than trusting it exclusively — see TIERED RETURN
+  // WINDOWS below and BUILD.md's Extraction section for the full rationale,
+  // including the notesIndicateTieredWindow fallback kept alongside this
+  // for one release cycle.
+  needsReview: boolean;
   notes: string;
 }
 
@@ -69,7 +80,6 @@ export interface ExtractionResult extends RawExtraction {
   deadlineIsEstimated: boolean;
   policySource: PolicySource | null;
   returnPortalUrl: string | null;
-  needsReview: boolean;
 }
 
 interface PolicyLookupResult {
@@ -77,6 +87,9 @@ interface PolicyLookupResult {
   returnWindowStartsFrom: "order_date" | "delivery_date" | null;
   returnPortalUrl: string | null;
   confidence: Confidence;
+  // Same contract as RawExtraction.needsReview above — AI-set directly,
+  // primarily for tiered-window detection in the web-lookup context.
+  needsReview: boolean;
   notes: string;
 }
 
@@ -113,6 +126,7 @@ From the email subject and body below, extract:
 - lineItems (array of {name, price, quantity} — see LINE ITEMS below)
 - returnPortalUrlFromEmail (string or null — see RETURN POLICY LINK below)
 - confidence ("high" | "medium" | "low")
+- needsReview (boolean — see NEEDS REVIEW below; always output this, never omit it)
 - notes (one sentence: your reasoning, especially any assumption or uncertainty, and call out explicitly if orderTotal was derived by summing line items rather than read directly)
 
 A forwarded shopping email is rarely the ONLY email about that order a
@@ -139,6 +153,14 @@ RETURN POLICY LINK — if the email contains a link to a returns page, a return 
 
 TIERED RETURN WINDOWS — when the email states multiple return windows tiered by item type (full-price vs. sale), refund method (cash refund vs. store credit), sale/promotional status, or any other condition, return the SHORTEST window mentioned as returnWindowDays, regardless of which condition triggers it. Do not attempt to resolve which tier applies to this specific order — that resolution isn't possible from the email alone, and a missed shorter deadline is worse than a redundant earlier reminder. When you do this, append to notes, in exactly this form: "Multiple return windows detected: [list every window with its stated condition]. Selected shortest ([N] days) per policy." If tiering exists but no window can be identified as the shortest with confidence (e.g. every window is stated ambiguously), return returnWindowDays: null, set confidence to "low", and explain the ambiguity in notes instead of guessing.
 
+NEEDS REVIEW — set needsReview to true when ANY of the following apply, false otherwise:
+- You detected and resolved a tiered return window (see TIERED RETURN WINDOWS above) — a human should always confirm which tier actually applies to this order.
+- confidence is "low".
+- This is a commerce email (emailType is not "other") and you couldn't determine retailer or orderNumber.
+- emailType is "order_confirmation" and you couldn't determine a return deadline (no returnWindowDays, or nothing to anchor it to).
+- You flagged any other genuine ambiguity or uncertainty in notes.
+Always output needsReview — never omit it, and never leave it to be inferred from notes alone.
+
 Rules:
 - NEVER invent, guess, or infer a date, deadline, policy, price, or item that isn't written in the email (an order-total sum derived from line items that ARE in the email doesn't count as inventing — that's computing from what's there).
 - Return null for any field not clearly present. Null + low confidence is always better than a wrong answer.
@@ -164,13 +186,16 @@ Respond with ONLY valid JSON, no preamble, no markdown formatting:
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null)
 - returnPortalUrl (string or null — the direct URL of the specific page where a customer begins/initiates a return, e.g. a "Returns & Exchanges" or "Start a Return" page. NOT the homepage, NOT a general help-center search page — the actual page for starting a return.)
 - confidence ("high" | "medium" | "low")
+- needsReview (boolean — see NEEDS REVIEW below; always output this, never omit it)
 - notes (one sentence: what you found and roughly where, or why you couldn't find a clear answer)
 
 Rules:
 - Only report returnWindowDays if a current, official policy clearly states it.
 - Only report returnPortalUrl if you find an actual, specific URL on the retailer's official site for starting a return — never guess or construct a plausible-looking URL from the retailer's domain.
 - If official policy states multiple return windows tiered by item type, membership tier, refund method, sale status, or any other condition, report the SHORTEST window as returnWindowDays, regardless of which condition triggers it — do NOT report the standard/default window. Note every window and its condition in notes, in exactly this form: "Multiple return windows detected: [list every window with its stated condition]. Selected shortest ([N] days) per policy." If no window can be identified as the shortest with confidence, return returnWindowDays: null, confidence "low", and explain the ambiguity in notes instead of guessing.
-- If you can't find a clear, current policy, return null for returnWindowDays and confidence "low". Never guess.`;
+- If you can't find a clear, current policy, return null for returnWindowDays and confidence "low". Never guess.
+
+NEEDS REVIEW — set needsReview to true when you detected and resolved a tiered return window (the primary case here — a human should always confirm which tier applies), OR when confidence is "low", OR when you flagged any other genuine ambiguity in notes. False otherwise. Always output needsReview — never omit it.`;
 }
 
 function stripCodeFence(text: string): string {
@@ -337,6 +362,41 @@ export function notesIndicateTieredWindow(notes: string): boolean {
   return notes.includes(TIERED_WINDOW_NOTE_MARKER);
 }
 
+// Combines the AI's own needsReview signal (both the email-body and
+// web-lookup paths — see the NEEDS REVIEW prompt rule in buildPrompt and
+// buildPolicyLookupPrompt) with the existing JS-side triggers this project
+// has always computed independently. The JS-side triggers remain because
+// some of them structurally can't be known by the AI at response time
+// (e.g. a missing return deadline is only knowable after computeDeadline
+// runs, downstream of the AI's own JSON). notesIndicateTieredWindow is
+// included as a fallback, not the primary signal — belt-and-suspenders for
+// one release cycle in case the AI ever fails to set needsReview itself on
+// a tiered-window case; see BUILD.md's Extraction section and TASKS.md for
+// the removal plan. Exported so extractEmail's computation and this file's
+// tests share one implementation instead of two copies of the same logic.
+export function computeNeedsReview(params: {
+  aiNeedsReview: boolean;
+  lookupNeedsReview: boolean;
+  confidence: Confidence;
+  emailType: EmailType;
+  retailer: string | null;
+  orderNumber: string | null;
+  returnDeadline: string | null;
+  policyLookupWasUnclear: boolean;
+  notes: string;
+}): boolean {
+  const isCommerceEmail = params.emailType !== "other";
+  return (
+    params.aiNeedsReview ||
+    params.lookupNeedsReview ||
+    params.confidence === "low" ||
+    (isCommerceEmail && (params.retailer == null || params.orderNumber == null)) ||
+    (params.emailType === "order_confirmation" && params.returnDeadline == null) ||
+    params.policyLookupWasUnclear ||
+    notesIndicateTieredWindow(params.notes)
+  );
+}
+
 export async function extractEmail(textBody: string, subject: string | null): Promise<ExtractionResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
@@ -351,6 +411,7 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
 
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
+  let lookupNeedsReview = false;
   const returnPortalUrlFromEmail: string | null = parsed.returnPortalUrlFromEmail ?? null;
   let returnPortalUrlFromLookup: string | null = null;
 
@@ -366,6 +427,11 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
         parsed.returnWindowStartsFrom = lookup.returnWindowStartsFrom;
         policySource = "web_lookup";
         parsed.notes = `${parsed.notes} Return policy from web lookup: ${lookup.notes}`;
+        // The lookup's own needsReview flag (primarily tiered-window
+        // detection — see buildPolicyLookupPrompt's NEEDS REVIEW rule)
+        // only matters in this accepted branch: the "unclear" branch below
+        // already forces needsReview via policyLookupWasUnclear regardless.
+        lookupNeedsReview = lookup.needsReview;
       } else {
         policyLookupWasUnclear = true;
         parsed.notes = `${parsed.notes} Web lookup for return policy was unclear: ${lookup.notes}`;
@@ -386,18 +452,17 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
   });
   const returnPortalUrl = resolveReturnPortalUrlForWrite(returnPortalUrlFromEmail, returnPortalUrlFromLookup);
 
-  const isCommerceEmail = parsed.emailType !== "other";
-  const needsReview =
-    parsed.confidence === "low" ||
-    (isCommerceEmail && (parsed.retailer == null || parsed.orderNumber == null)) ||
-    (parsed.emailType === "order_confirmation" && returnDeadline == null) ||
-    policyLookupWasUnclear ||
-    // Tiered window detected and resolved (shortest picked) — always needs a
-    // human to confirm which tier actually applies to this order, regardless
-    // of otherwise-high confidence. parsed.notes already carries the
-    // web-lookup's notes too by this point (appended above), so this one
-    // check covers both the email-body and web-lookup paths.
-    notesIndicateTieredWindow(parsed.notes);
+  const needsReview = computeNeedsReview({
+    aiNeedsReview: parsed.needsReview,
+    lookupNeedsReview,
+    confidence: parsed.confidence,
+    emailType: parsed.emailType,
+    retailer: parsed.retailer,
+    orderNumber: parsed.orderNumber,
+    returnDeadline,
+    policyLookupWasUnclear,
+    notes: parsed.notes,
+  });
 
   return {
     ...parsed,

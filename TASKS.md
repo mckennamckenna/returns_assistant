@@ -26,6 +26,7 @@
 ---
 
 ## 🔴 Now
+(empty — pick a task from 🟡 Next)
 - [ ] **Investigate unexplained extra Vercel production deployments** — found
       during 2026-07-08 session close: `vercel ls returns-assistant` shows
       several more "Ready"/Production deployments than were explicitly
@@ -349,6 +350,27 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **A2: `needsReview` promoted to a first-class extraction JSON field** —
+      `RawExtraction`/`PolicyLookupResult` both gain a non-optional
+      `needsReview: boolean` the AI sets directly (NEEDS REVIEW prompt rule
+      in both `buildPrompt` and `buildPolicyLookupPrompt`), replacing
+      pure-derivation-from-notes as the primary signal. New pure
+      `computeNeedsReview()` combines the AI's flag with the existing
+      JS-side triggers (some structurally unknowable to the AI, e.g. a
+      missing deadline) and keeps `notesIndicateTieredWindow` as an OR'd
+      fallback for one release cycle — not removed, per design. Shape 2
+      only: deliberately does NOT touch `computeOrderStatus`,
+      `recomputeOrderStatus`, `orderReview.ts`, or anything that writes
+      `Order.needsReview` — extraction-quality (`Email.needsReview`) and
+      linking-quality (`Order.needsReview`) review stay two separate
+      concerns until a later spec pass. `BUILD.md` gains a new "Decisions
+      log" section (didn't exist before — flagging this, since the task
+      referenced it as if it did) with 3 entries. 6 new/updated tests, full
+      suite (191 tests) green, build clean.
+      **Awaiting owner verification**: forward a new tiered-policy email and
+      confirm `extractionRaw.needsReview` is `true` directly from the AI
+      path; re-run extraction on Caroline's Moda Email and confirm
+      `needsReview: true` reliably (the case that failed yesterday).
 - [x] A1: Tiered-return-window prompt rule — extraction picks shortest
       applicable window when multiple are stated, sets `needsReview: true`,
       records detection in notes. Applies to both email-body extraction and
@@ -478,6 +500,15 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **No runtime validation on the AI's JSON response** (`lib/extract.ts`,
+  `JSON.parse(...) as RawExtraction` / `as PolicyLookupResult`) — pre-existing
+  pattern for every field, but newly relevant now that `needsReview` is
+  behavior-critical: if the AI ever omits the field entirely despite the
+  prompt instruction, `parsed.needsReview` is `undefined` at runtime, which
+  `||`-evaluates as falsy rather than being caught or logged. The
+  `notesIndicateTieredWindow` fallback still catches the tiered-window case
+  specifically, but nothing would catch an omission the AI intended to flag
+  for a different reason. Not fixed here — flagging only.
 - **Bug naming going forward uses slugs, not numeric IDs** — historical Bugs
   1-11 preserved as-is in HISTORY.md, but new bugs get human-readable slug
   names (e.g., `orderDate-fallback-emailtype-gate`, `returnportal-trust-tier`)

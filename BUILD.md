@@ -424,7 +424,8 @@ the moment the secret is generated, not just once the token endpoints ship.
 - **`retailer` from body only** — never from `From` header or subject line.
 - **`orderNumber`** may be read from the subject line as well as the body.
 - **Return `null` for any field not clearly present.** Null + low confidence is always better than a wrong answer. A wrong deadline is worse than a missing one.
-- **Tiered return policies (full-price vs. sale, cash refund vs. store credit, etc.) always resolve to the SHORTEST stated window**, never the tier-resolution itself — the AI can't know which tier a given order falls into from the email/lookup alone, and a missed shorter deadline is worse than a redundant earlier reminder. Always flags `needsReview: true` even after picking the shortest, detected via a fixed marker string in `notes` (`TIERED_WINDOW_NOTE_MARKER`, `lib/extract.ts`) rather than a new field, since neither the email-body nor web-lookup JSON schema has ever had its own `needsReview` output.
+- **Tiered return policies (full-price vs. sale, cash refund vs. store credit, etc.) always resolve to the SHORTEST stated window**, never the tier-resolution itself — the AI can't know which tier a given order falls into from the email/lookup alone, and a missed shorter deadline is worse than a redundant earlier reminder. Always flags `needsReview: true` even after picking the shortest.
+- **`needsReview` is a first-class field the AI sets directly** in both the email-body (`buildPrompt`'s NEEDS REVIEW rule) and web-lookup (`buildPolicyLookupPrompt`'s NEEDS REVIEW rule) JSON schemas — as of 2026-07-08 afternoon, no longer purely derived downstream. `computeNeedsReview()` (`lib/extract.ts`) combines the AI's own flag with the existing JS-side triggers that structurally can't be known by the AI at response time (e.g. a missing deadline is only knowable after `computeDeadline` runs). `notesIndicateTieredWindow()`'s notes-string-match is kept as a belt-and-suspenders fallback for one release cycle — a live production check on 2026-07-08 found the AI's non-deterministic notes capitalization ("multiple" vs "Multiple") could silently defeat a case-sensitive match on its own; the fallback still OR's in regardless of whether the AI's own flag fired. Plan is to remove the fallback once the JSON-field path is observed reliable — see `TASKS.md`.
 - When `returnWindowDays` is null and `retailer` is known: run the web-search policy lookup (`buildPolicyLookupPrompt`). Set `policySource: "web_lookup"` on success; leave null + `needsReview: true` on ambiguous result.
 - `order_confirmation` totals are authoritative once present (`resolveOrderTotal()`) — no other email type can override them.
 - **`returnPortalUrl` is always normalized before it reaches the DB** via `normalizeReturnPortalUrl()` (`lib/extract.ts`): the AI (both email-body extraction and the web-search policy lookup) sometimes returns a bare domain/path instead of a fully-qualified URL — stored or rendered as-is, the browser treats that as a relative path against the current origin and 404s. `resolveReturnPortalUrlForWrite(fromEmail, fromLookup)` is the exact write-path function `extractEmail()` calls (email's own link wins over the lookup's); `lib/linkOrder.ts`'s `mergeEmailIntoOrder()` and `createOrderFromEmail()` call the normalizer again defensively at their `prisma.order.*` writes.
@@ -528,6 +529,15 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 | `/api/cron` | `0 14 * * *` | Daily deadline reminders + hard-delete |
 | `/api/cron/weekly-digest` | `0 16 * * 0` | Sunday return-window digest |
 | `/api/cron/weekly-coverage` | `0 16 * * 5` | Friday alpha coverage check (ALPHA_MODE only) |
+
+---
+
+## Decisions log
+<!-- One entry per non-obvious decision, so future-you knows WHY. See also TASKS.md's own Decisions log for lighter/more frequent entries — this one is for decisions substantial enough to belong in the permanent build record. -->
+
+- **Tiered-window detection and other extraction-quality signals are set by the AI directly via a `needsReview` field in the JSON schema**, not derived from a JS-side string match on notes. Case-sensitive string-match was live-observed to fail on AI capitalization variance (2026-07-08). Fallback `notesIndicateTieredWindow` retained for one release cycle.
+- **`Order.needsReview` and `Email.needsReview` serve two different jobs today**: linking-quality review (Order-level, user-facing "Looks correct / Split into separate order" UI) and extraction-quality review (Email-level, admin diagnostic). Extraction-quality signals are deliberately not propagated to `Order.needsReview` until a proper spec pass separates the two concerns.
+- **`Email.extractionRaw.needsReview` has inconsistent provenance** across old (JS-derived, pre-2026-07-08) and new (AI-set) rows. Nothing currently reads it; if a future consumer needs to distinguish, look at row `createdAt`.
 
 ---
 
