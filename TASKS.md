@@ -26,19 +26,21 @@
 ---
 
 ## 🔴 Now
-- [ ] **[TOMORROW #1, Phase 2: implement] orderDate-fallback emailType gate**
-      — Phase 1 diagnostic complete (found: 16 prod orders with
-      `orderDateEstimated: true`, 5 with earliest-linked email in the
-      excluded set, 0 currently trust-erosion-visible; confirmed
-      `return_received` isn't a real emailType — real set is
-      `order_confirmation | shipping_confirmation | delivery | return_label
-      | refund | other`; confirmed nothing reads `orderDateEstimated: false`
-      as proof of a real date). Phase 2 (this entry): gate
-      `applyFallbackOrderDate` in `lib/linkOrder.ts` to fire only when the
-      earliest-linked email is `order_confirmation`/`shipping_confirmation`/
-      `delivery`; update BUILD.md (Order linking section + Decisions log);
-      add tests. No UI changes, no backfill — both deferred to follow-up
-      phases. Slug: `orderDate-fallback-emailtype-gate`.
+- [ ] **[TOMORROW #1, Phase 2: deployed, awaiting owner verification]
+      orderDate-fallback emailType gate** — `applyFallbackOrderDate` in
+      `lib/linkOrder.ts` now fires only when the earliest-linked email is
+      `order_confirmation`/`shipping_confirmation`/`delivery`;
+      `return_label`/`refund`/`other` leave `orderDate` null. BUILD.md
+      (Order linking section + Decisions log) updated same commit. 8 new
+      tests (199 total passing), build clean. Committed (`76f4dd6`), pushed,
+      deployed (`dpl_5mopRwrpkD6nh8PyPyKHRnMBJ8aE`), alias confirmed
+      pointing at it. **Not yet owner-verified** — owner to check: (a)
+      admin dashboard shows `orderDate: —` (not an inherited date) on any
+      Order whose earliest-linked email is in the excluded set, and (b)
+      forward a fresh order_confirmation-first order to confirm the
+      allowed-side path still works. No UI changes, no backfill — both
+      deferred to follow-up phases. Slug:
+      `orderDate-fallback-emailtype-gate`.
 - [ ] **Investigate unexplained extra Vercel production deployments** — found
       during 2026-07-08 session close: `vercel ls returns-assistant` shows
       several more "Ready"/Production deployments than were explicitly
