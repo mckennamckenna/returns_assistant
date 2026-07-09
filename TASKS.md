@@ -63,20 +63,33 @@
       correction changes a user-facing fact (deadline, status, amount), what
       triggers a notification vs. silent correction? Matters more as backfills
       become more routine.
-- [ ] **orderDate-fallback should gate by emailType** — `applyFallbackOrderDate`
-      (introduced with the Amazon orderDate fallback, commit see HISTORY 2026-07-01
-      area) currently fires regardless of the first-linked email's type. Should
-      only fire when first-linked is `order_confirmation`, `shipping_confirmation`,
-      or `delivery`. On `return_label`, `refund`, or `return_received`, fallback
-      should stay null and Order carries `orderDate: null` + a UI-visible "we
-      don't know when this was ordered" state. Touches BUILD.md Order-linking
-      invariant. Backfill decision needed for existing prod orders with wrong
-      fallback fire. Sub-decision: UI copy for the "no order date" state — do
-      not ship without it. Real evidence: Caroline's Moda order surfaced this;
-      every new user's first ~30 days will have this shape (mid-shopping signup
-      is the default). High trust impact. Slug for future reference:
+- [ ] **[TOMORROW #1] orderDate-fallback should gate by emailType** —
+      `applyFallbackOrderDate` (introduced with the Amazon orderDate fallback,
+      commit see HISTORY 2026-07-01 area) currently fires regardless of the
+      first-linked email's type. Should only fire when first-linked is
+      `order_confirmation`, `shipping_confirmation`, or `delivery`. On
+      `return_label`, `refund`, or `return_received`, fallback should stay
+      null and Order carries `orderDate: null` + a UI-visible "we don't know
+      when this was ordered" state. Touches BUILD.md Order-linking invariant.
+      Backfill decision needed for existing prod orders with wrong fallback
+      fire. Sub-decision: UI copy for the "no order date" state — do not ship
+      without it. Real evidence: Caroline's Moda order surfaced this; every
+      new user's first ~30 days will have this shape (mid-shopping signup is
+      the default). High trust impact. Real bug, touches a shipped invariant
+      — fresh-morning judgment call, not a tired-afternoon one. Slug:
       `orderDate-fallback-emailtype-gate`.
-- [ ] **Retailer policy database** — for high-volume retailers where we can
+- [ ] **[TOMORROW #2, spec pass first] Auto-email Gmail confirmation code** —
+      deliver the confirmation code to the user via email (in addition to
+      dashboard surfacing), owner BCC'd — see Decisions log for the
+      "meets them where their attention actually is" rationale. Do a 15-minute
+      spec pass before writing code; ship only if the spec holds up. Not
+      urgent enough to skip the spec pass even under tomorrow's priority.
+- [ ] **[TOMORROW #3, if time] `orderDate` column on admin dashboard user
+      detail table** — small, clean addition; deferred out of admin dashboard
+      v1.1. Not urgent since order date is already visible on the order
+      detail page — only worth it if #1 and #2 leave room.
+- [ ] **Retailer policy database** — NOT tomorrow, needs its own session — for
+      high-volume retailers where we can
       justify curation (Moda, Shopbop, Nordstrom, J.Crew, Amazon, and the next
       ~15-25), maintain a known-good record of return policy: window(s), tiering
       conditions, refund vs. store credit windows, return portal URL, sale-item
@@ -98,16 +111,6 @@
       high-volume retailers once retailer policy DB ships (curated URLs). Real
       evidence: WNU on Caroline's dashboard. Slug:
       `returnportal-trust-tier`.
-- [ ] **`needsReview` should be a first-class field in the extraction JSON
-      schema** — surfaced today by A1: telling the AI to "set needsReview: true"
-      alone would have been silently dropped, because the extraction JSON schema
-      doesn't include it (needsReview has always been a downstream JS
-      computation). A1 works via `notesIndicateTieredWindow` string-matching the
-      AI's notes output. Fragile — any AI paraphrase of the marker phrase
-      silently breaks detection. Real fix: add `needsReview` (and
-      `needsReviewReason`?) to the AI's JSON output contract so the AI sets it
-      directly, no string-match needed. Spawned by A1 (`1216aaf`). Slug:
-      `needsreview-json-field`.
 - [ ] **Setup-page copy: warn about stale Gmail confirmation codes** — dashboard
       currently displays whatever code arrived last; if user comes back to setup
       page hours later, the displayed code may already be Gmail-expired (Google
@@ -155,10 +158,10 @@
       with proper shipping/delivery emails and many "estimated" flags should
       resolve on their own. Worth re-walking Caroline's dashboard *after* she
       sets up the filter, as a check.
-- [ ] **Tiered return policies + store credit tracking** — data model change;
-      spec in `BUILD.md` first, before any implementation.
-- [ ] **Gmail deep link Step 5 UX pass** — separate from yesterday's query
-      swap; a copy/flow pass on the walkthrough step itself.
+- [ ] **Tiered return policies + store credit tracking** — NOT tomorrow, needs
+      its own session — data model change; spec in `BUILD.md` first, before
+      any implementation. Entangled with the retailer policy database work
+      above (likely one shared schema, one shared spec pass).
 - [ ] **Admin dashboard follow-ups** — open questions after the new
       `/admin/users` surface has been used for a day: replace `/admin/
       onboarding` (now overlapping), add an email-content-reveal path if
@@ -543,13 +546,13 @@
   so TASKS/BUILD entries stand alone without a lookup. Rationale: HISTORY
   already has "Bugs 9+10+11" collated into one entry; numeric IDs don't scale
   and require grep to resolve.
-- **A1 tiered-window detection is string-match on AI notes output** —
-  `notesIndicateTieredWindow` reads the notes for "Multiple return windows
-  detected:" marker. If the AI ever paraphrases ("Multiple return windows
-  found:", "Several windows detected:", etc.), detection silently fails and
-  `needsReview` stays false. Worth adding one test with slightly-varied
-  phrasing to see if detection is too brittle. Long-term fix is
-  `needsreview-json-field` in 🟡 Next.
+- **RESOLVED (A1 Phase 2, `74507b4`):** ~~A1 tiered-window detection is
+  string-match on AI notes output~~ — this predicted failure mode actually
+  happened (AI wrote lowercase "multiple" instead of "Multiple",
+  `needsReview` silently stayed `false`) and was fixed same-day by promoting
+  `needsReview` to a first-class AI-set JSON field, with the string-match
+  kept only as an OR'd fallback. Leaving this entry as a record that the
+  prediction was correct, not removing it outright.
 - **`BUILD.md`'s `computeDeadline()` documentation block is stale** — still
   describes the old pre-split `deliveryDate` logic ("if deliveryDate known:
   anchor = ..."), not the `deliveredAt`/`estimatedDeliveryDate` split shipped

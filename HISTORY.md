@@ -5,6 +5,42 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-08 — Session close: one live bug fixed, four ships, one user-research pass
+
+Closed one live production reliability bug: A1's tiered-window `needsReview`
+detection was a case-sensitive string match on AI notes output, and
+non-deterministic AI capitalization defeated it on a real re-extraction of
+Caroline's Moda email (`needsReview: false` when it should have been `true`).
+Fixed same-day by promoting `needsReview` to a first-class AI-set JSON schema
+field (A1 Phase 2, `74507b4`), with the string-match retained as an OR'd
+fallback for one release cycle rather than deleted outright.
+
+Four things shipped today: the Gmail deep-link query swap on the setup page
+(`730fc36`), admin dashboard v1 and v1.1 (`b498a08`, `ab290a5`), and the A1
+tiered-return-window prompt rule across both its phases (`1216aaf`,
+`74507b4`). One live user-data correction executed cleanly: Caroline's Moda
+Order backfilled under the corrected A1 Phase 2 extraction rules (see the
+dedicated diagnostic-first entry below), with the same disposable-script
+discipline as every other backfill this project has run — verify before
+writing, dry-run before commit, delete the script after use.
+
+One user-research pass completed: walked all four alpha dashboards, surfacing
+two real extraction-quality bugs with clean diagnosis on both (Moda's tiered
+policy, WNU's possibly-hallucinated source attribution) and evidence for
+three real 🟡 Next candidates — the retailer policy database, the
+tiered-policies schema work, and `orderDate`-fallback's missing `emailType`
+gate.
+
+Discipline held throughout: every ship went through diagnostic-first
+investigation before code, stayed scoped to what was asked, and nothing was
+marked ✅ in `TASKS.md` before the owner hand-verified it in production. Two
+things deliberately deferred rather than rushed: auto-emailing the Gmail
+confirmation code (needs its own spec pass, not a bolt-on), and both the
+retailer policy database and tiered-policies schema work (each needs its own
+session, not squeezed in after other work).
+
+---
+
 ## 2026-07-08 — Admin notification persistence + two silent signup gaps closed
 
 Surfaced diagnosing a friend's beta signup that reached the DB (`BetaSignup` row
