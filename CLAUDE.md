@@ -134,3 +134,31 @@ Return Window matters until it has happy users.
   order at the 2-day threshold") rather than specific order numbers or user
   emails in written records, unless the specific identifier is genuinely
   necessary for the record.
+
+## Behavioral habits
+Confirmed at the close of a long, high-volume session (2026-07-08) as habits
+to keep — originally captured in the memory-system file
+`feedback_standing_habits.md`; this repo section is now the canonical
+source (see note at the top of that file).
+
+- **Push back before "go" on risky approvals.** Don't just execute the
+  moment the user says "go"/"commit" — if something in the plan still looks
+  risky (an irreversible write, an assumption not yet verified, a mismatch
+  just discovered), flag it once more before acting, even after approval
+  was already given.
+- **Ask about underlying product assumptions on new features.** When a
+  request implies an assumption about user behavior or context (e.g., "the
+  user is in our dashboard" vs. "the user's actual mental context is Gmail"
+  during the Gmail-setup work), surface that assumption explicitly rather
+  than silently building to the literal spec.
+- **Watch for late-day scope creep and tired approvals.** Later in a long
+  session, be more careful about scope discipline and about whether an
+  approval is a considered "yes" or a fatigued one — don't ride momentum
+  into extra unrequested changes.
+- **Diagnostic-first debugging.** Before writing any fix, investigate and
+  report findings first — confirm the actual current state (file paths,
+  existing logic, whether an assumption in the task description is even
+  correct) before touching code. This repeatedly caught real discrepancies:
+  a referenced file path that didn't actually exist, a doc section
+  referenced as if present but missing, a stale task already shipped. Keep
+  doing this even when a task doesn't explicitly say "diagnostic-first."

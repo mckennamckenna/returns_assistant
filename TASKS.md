@@ -26,7 +26,10 @@
 ---
 
 ## 🔴 Now
-(empty — pick a task from 🟡 Next)
+- [ ] **Merge memory-system standing habits into CLAUDE.md** — repo file
+      becomes single canonical source for standing habits; memory file
+      (`~/.claude/projects/.../memory/feedback_standing_habits.md`) becomes
+      a pointer back to it. Docs-only, commit but do not push/deploy.
 - [ ] **Investigate unexplained extra Vercel production deployments** — found
       during 2026-07-08 session close: `vercel ls returns-assistant` shows
       several more "Ready"/Production deployments than were explicitly
