@@ -26,10 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **Merge memory-system standing habits into CLAUDE.md** — repo file
-      becomes single canonical source for standing habits; memory file
-      (`~/.claude/projects/.../memory/feedback_standing_habits.md`) becomes
-      a pointer back to it. Docs-only, commit but do not push/deploy.
 - [ ] **Investigate unexplained extra Vercel production deployments** — found
       during 2026-07-08 session close: `vercel ls returns-assistant` shows
       several more "Ready"/Production deployments than were explicitly
@@ -372,6 +368,11 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] Merged memory-system standing habits into CLAUDE.md — repo file is now
+      the single canonical source (new "Behavioral habits" section); the
+      memory file (`feedback_standing_habits.md`) replaced with a pointer
+      back to CLAUDE.md. Docs-only, no deploy needed. Committed (`9ebe8dc`),
+      pushed — `git log origin/main..main` confirmed empty.
 - [x] A1 Phase 2: `needsReview` promoted to first-class JSON schema field —
       surfaced when live production reliability bug: re-running extraction on
       Caroline's Moda email produced `needsReview: false` because the AI
