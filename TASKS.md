@@ -26,21 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **[TOMORROW #1, Phase 2: deployed, awaiting owner verification]
-      orderDate-fallback emailType gate** — `applyFallbackOrderDate` in
-      `lib/linkOrder.ts` now fires only when the earliest-linked email is
-      `order_confirmation`/`shipping_confirmation`/`delivery`;
-      `return_label`/`refund`/`other` leave `orderDate` null. BUILD.md
-      (Order linking section + Decisions log) updated same commit. 8 new
-      tests (199 total passing), build clean. Committed (`76f4dd6`), pushed,
-      deployed (`dpl_5mopRwrpkD6nh8PyPyKHRnMBJ8aE`), alias confirmed
-      pointing at it. **Not yet owner-verified** — owner to check: (a)
-      admin dashboard shows `orderDate: —` (not an inherited date) on any
-      Order whose earliest-linked email is in the excluded set, and (b)
-      forward a fresh order_confirmation-first order to confirm the
-      allowed-side path still works. No UI changes, no backfill — both
-      deferred to follow-up phases. Slug:
-      `orderDate-fallback-emailtype-gate`.
 - [ ] **Investigate unexplained extra Vercel production deployments** — found
       during 2026-07-08 session close: `vercel ls returns-assistant` shows
       several more "Ready"/Production deployments than were explicitly
@@ -61,6 +46,71 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **orderDate-fallback Phase 3 + 4** — Phase 3: verify UI behavior with a
+      null-orderDate order (5-min eyeball, likely no code needed per Phase 1's
+      finding that null orderDate already renders as "—" correctly). Phase 4:
+      backfill 5 prod rows identified in Phase 1 as pre-gate wrong-fires
+      (return_label/refund earliest-linked emails). Small script, dry-run
+      first, delete after use — same discipline as Caroline's Moda backfill.
+      Should also provide the excluded-side verification of Phase 2 via
+      before/after diff. **Recommended tomorrow #1** — closes the orderDate
+      loop and doesn't need fresh spec work.
+- [ ] **Gmail deep-link "empty filter" bug — reproducible on mom's account,
+      root cause unknown** — owner reproduced hands-on today: clicking the
+      deep link from Return Window settings loads Gmail with essentially no
+      search applied; results are close to the full inbox. Byte-identical URL
+      to owner's own (which works correctly). Not a "user followed
+      instructions wrong" case. Deep debugging is high-cost without ability
+      to instrument the browser. Next diagnostic: reproduce on a third
+      account (husband or unrelated tester) to determine if per-account or
+      broader. Real evidence supporting OAuth prioritization. Interim
+      workaround: manual/text setup instructions bypassing the deep link.
+      Slug: `gmail-deeplink-cross-account-parsing`.
+- [ ] **Surface delivery date as first-class dashboard info** — currently
+      `estimatedDeliveryDate`, `deliveredAt`, `deliveryDate` drive deadline
+      computation and are extracted from emails, but the user-facing
+      dashboard shows them inconsistently and often as "—" even when data
+      exists. Retailer emails (e.g. an Amazon "Arriving tomorrow" window, a
+      J.Crew "Delivered on or before [date]" line) prominently feature
+      delivery info; users forwarding those emails expect Return Window to
+      show delivery info equally prominently. Real evidence: today's
+      Amazon and J.Crew tests (2026-07-09), both retailers surface
+      delivery-date info prominently in their own emails. Design question:
+      how does this affect product positioning — is Return Window primarily
+      a return-deadline reminder, or a full purchase-tracking dashboard?
+      Also: dashboard shows "—" for orders where estimatedDeliveryDate
+      exists, suggesting a display bug on top of the design question. Slug:
+      `delivery-date-first-class-surface`.
+- [ ] **Final sale / non-returnable items handling** — surfaced today by a
+      J.Crew order. Return Window currently treats return eligibility as an
+      order-level concept (returnWindowDays, returnDeadline). Real-world
+      retail has two failure modes: (1) entire order is final sale — some
+      clearance/sample-sale purchases have no returns at all; product should
+      surface "No returns" and skip reminder pipeline entirely; (2) mixed
+      order — most items returnable but specific items marked final sale,
+      monogrammed, personalized, altered, or otherwise excluded. Schema
+      change needed for per-line-item return eligibility. J.Crew's returns
+      page explicitly enumerates the exclusion categories (the AI captured
+      this in extractionNotes). Also connects to the retailer policy
+      database work — per-retailer exclusion category list is worth
+      curating. Priority: medium — this is a core promise of the product
+      ("when can I return this?"), and the answer "never" is legitimate.
+      Slug: `final-sale-nonreturnable-handling`.
+- [ ] **Admin order detail panel conflates AI-extraction values with Order
+      row values** — the "Extracted data" panel on the admin order detail
+      page shows fields as they came from `extractionRaw` (what the AI
+      found). But the Order row itself may have different values after
+      linking and fallback logic runs — e.g., an Amazon order_confirmation
+      where AI extraction returned `orderDate: null` but
+      `applyFallbackOrderDate` populated the Order's `orderDate` from
+      `receivedAt`. Currently both cases display "ORDER DATE: —" identically,
+      hiding the fallback provenance. Suggests either (a) two separate panels
+      showing "extraction result" and "final Order state" side by side, or
+      (b) surfacing fallback provenance inline ("Order date: Jul 9, 2026
+      (inferred from email receivedAt)"). Real evidence: today's Phase 2
+      verification confusion — both PM and coordinating-Claude misread the
+      extraction panel as "current state of the Order." Slug:
+      `admin-extraction-vs-order-panel-conflation`.
 - [ ] **Runtime validation on the AI's extraction JSON response** — `lib/extract.ts`
       currently does `JSON.parse(...) as RawExtraction`/`as PolicyLookupResult`
       with no runtime schema check. Was low-stakes when every field was
@@ -77,21 +127,6 @@
       correction changes a user-facing fact (deadline, status, amount), what
       triggers a notification vs. silent correction? Matters more as backfills
       become more routine.
-- [ ] **[TOMORROW #1] orderDate-fallback should gate by emailType** —
-      `applyFallbackOrderDate` (introduced with the Amazon orderDate fallback,
-      commit see HISTORY 2026-07-01 area) currently fires regardless of the
-      first-linked email's type. Should only fire when first-linked is
-      `order_confirmation`, `shipping_confirmation`, or `delivery`. On
-      `return_label`, `refund`, or `return_received`, fallback should stay
-      null and Order carries `orderDate: null` + a UI-visible "we don't know
-      when this was ordered" state. Touches BUILD.md Order-linking invariant.
-      Backfill decision needed for existing prod orders with wrong fallback
-      fire. Sub-decision: UI copy for the "no order date" state — do not ship
-      without it. Real evidence: Caroline's Moda order surfaced this; every
-      new user's first ~30 days will have this shape (mid-shopping signup is
-      the default). High trust impact. Real bug, touches a shipped invariant
-      — fresh-morning judgment call, not a tired-afternoon one. Slug:
-      `orderDate-fallback-emailtype-gate`.
 - [ ] **[TOMORROW #2, spec pass first] Auto-email Gmail confirmation code** —
       deliver the confirmation code to the user via email (in addition to
       dashboard surfacing), owner BCC'd — see Decisions log for the
@@ -369,6 +404,19 @@
       Proenza Schouler from shipping vs order-confirmation templates). A
       prompt-level fix could reduce reliance on the retailer-prefix fallback.
       Surfaced by today's `2cb5de2`.
+- [ ] **Coordinating-Claude in-session task capture** — currently the running
+      list of "add to TASKS.md" items lives in prose in coordinating-Claude's
+      messages, which is error-prone across long sessions. Explore whether
+      Claude Code can be given a "working notes" file it appends to during a
+      session, and whether coordinating-Claude can reliably read/write it.
+      Alternative: shorter sessions with more frequent TASKS.md commits.
+- [ ] **Shipping-email template uniformity hypothesis** — owner intuition
+      (2026-07-09): `shipping_confirmation` emails likely have less template
+      variety across retailers than `order_confirmation` emails. If true, has
+      implications for Gmail filter design (bias filter toward shipping-side
+      keywords) and for retailer policy DB coverage strategy. Test: sample
+      30-50 shipping emails across retailers, look at structural similarity
+      metric. Not urgent.
 - [ ] Cost / token efficiency pass (post-beta) — Anthropic prompt caching on the
       extraction API call (biggest lever, ~1 session of work, drops input cost ~80%, no
       quality risk). Cache return policies by retailer domain (compounds with user
@@ -383,11 +431,28 @@
       becomes noticeable.
 
 ## ✅ Done
-- [x] Merged memory-system standing habits into CLAUDE.md — repo file is now
-      the single canonical source (new "Behavioral habits" section); the
-      memory file (`feedback_standing_habits.md`) replaced with a pointer
-      back to CLAUDE.md. Docs-only, no deploy needed. Committed (`9ebe8dc`),
-      pushed — `git log origin/main..main` confirmed empty.
+- [x] orderDate-fallback Phase 2: `applyFallbackOrderDate` now gates by
+      earliest-linked email's emailType. Allowed types (fallback fires):
+      `order_confirmation`, `shipping_confirmation`, `delivery`. Excluded
+      types (fallback stays null): `return_label`, `refund`, `other`. Gate
+      lives inside the function itself; all three call sites
+      (`linkOrder.ts:540`, `linkOrder.ts:630`, `orderReview.ts:56`) covered
+      uniformly. Committed (`76f4dd6`), pushed, deployed
+      (`dpl_5mopRwrpkD6nh8PyPyKHRnMBJ8aE`). 8 new tests, 199 passing.
+      Allowed-side owner-verified via a fresh Amazon order_confirmation
+      forward — fallback correctly fired, `orderDate` set from `receivedAt`,
+      `orderDateEstimated: true`, deadline computed correctly. Non-regression
+      owner-verified via a fresh J.Crew order_confirmation with extracted
+      orderDate — fallback correctly early-returned, working case unchanged.
+      Excluded-side verification deferred to Phase 4 backfill (5 affected
+      prod rows, 0 currently past-deadline) or first natural wild case.
+      BUILD.md invariant + Decisions log entry shipped in same commit.
+- [x] Merged memory-system standing habits (`feedback_standing_habits.md`)
+      into CLAUDE.md at repo root — repo file now canonical, memory file is
+      a pointer. Committed (`9ebe8dc`), pushed. Fixes the drift risk of two
+      overlapping-but-different sources of truth for working habits (repo
+      Working Agreement vs. memory-system Behavioral Habits). Surfaced by
+      diagnostic during today's fresh-session boot.
 - [x] A1 Phase 2: `needsReview` promoted to first-class JSON schema field —
       surfaced when live production reliability bug: re-running extraction on
       Caroline's Moda email produced `needsReview: false` because the AI
@@ -543,6 +608,25 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Dashboard visual polish: archive column overflow** — surfaced today by
+  owner. Archive column falls off the visible page area on the main
+  dashboard. Layout needs a cleanup pass. Not urgent but real UX friction.
+  Slug: `dashboard-visual-polish-archive-overflow`.
+- **CLAUDE.md's "DONE MEANS DEPLOYED" rule is written for code, ambiguous
+  for docs** — docs-only changes have no "deploy" concept, but the spirit
+  ("done means visible on origin/main") applies via `push`. Next time
+  CLAUDE.md is touched, adjust wording to: *for code, done means deployed;
+  for docs, done means pushed*. Surfaced today when the CLAUDE.md merge
+  commit sat unpushed pending clarification.
+- **`other`-typed emails that link to an Order and carry retailer/orderNumber
+  are likely misclassifications** — surfaced during Phase 1 diagnostic
+  (2026-07-09). 1 of 15 `other`-typed rows in prod (Upway, a "Link to
+  order"-subject email) is a real transactional email typed as `other` while
+  carrying retailer, order number, and Order linkage. Likely
+  cause: extraction prompt treats "helpdesk"-toned transactional emails as
+  marketing. If pattern recurs, add a `needsReview: true` gate: any
+  `other`-typed email that gets a non-null `retailer` is prima facie
+  contradictory. Slug: `other-emailtype-transactional-misclassification`.
 - **A1 Phase 2 verification could not cleanly isolate AI-set `needsReview`
   vs. fallback contribution** — both fire in the tiered-window case because
   notes text naturally contains the fallback marker phrase. Qualitative
@@ -590,6 +674,21 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- CLAUDE.md at repo root is the canonical source for standing habits.
+  Memory-system files (`~/.claude/projects/.../memory/*`) are local
+  conveniences that must reference the repo file. When the two diverge,
+  the repo file wins. Rationale: memory system is machine-scoped and
+  invisible in version control; repo file is portable, visible, and
+  auditable.
+- `applyFallbackOrderDate` fires only when the earliest-linked email is
+  `order_confirmation`, `shipping_confirmation`, or `delivery`. Excluded
+  types (`return_label`, `refund`, `other`) leave `orderDate` null.
+  Rationale: post-purchase-loop emails' `receivedAt` has no defined
+  relationship to the true order date; inventing an anchor from them
+  produces visibly-wrong deadlines (Caroline's Moda, 2026-07-08). `other`
+  is excluded because 14/15 current rows are unlinked marketing; the 1
+  anomaly (Upway) is a classification bug tracked separately, not a case
+  for gate special-casing. (Full detail also in BUILD.md's Decisions log.)
 - Tiered return windows resolve to the shortest applicable window, always,
   even when the user's specific tier would grant a longer window.
   `needsReview: true` set on all tiered cases, via a first-class JSON schema

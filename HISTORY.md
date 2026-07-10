@@ -5,6 +5,63 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-09 — Session close: CLAUDE.md canonicalized, orderDate-fallback gate shipped, Gmail deep-link bug escalated
+
+Closed the drift risk between two overlapping-but-different sources of truth
+for standing working habits: CLAUDE.md's repo-level "Working agreement" and
+the memory-system's `feedback_standing_habits.md`. CLAUDE.md is now
+canonical (new "Behavioral habits" section); the memory file is a pointer
+back to it (`9ebe8dc`, pushed).
+
+Shipped Phase 2 of the orderDate-fallback emailType gate
+(`orderDate-fallback-emailtype-gate`): `applyFallbackOrderDate` in
+`lib/linkOrder.ts` now fires only when the earliest-linked email is
+`order_confirmation`, `shipping_confirmation`, or `delivery` — `return_label`,
+`refund`, and `other`-typed earliest emails leave `orderDate` null instead of
+inheriting an unrelated `receivedAt`. Two diagnostic-first passes (Phase 1,
+then a targeted `other`-bucket sample) caught two real issues before any code
+shipped: the originally-assumed `return_received` emailType doesn't exist in
+this codebase (real set is six values, not seven), and one `other`-typed prod
+row was a likely transactional-email misclassification (tracked separately,
+not folded into the gate). Committed (`76f4dd6`), pushed, deployed
+(`dpl_5mopRwrpkD6nh8PyPyKHRnMBJ8aE`), 8 new tests (199 total passing).
+Owner-verified on both paths post-deploy: a fresh Amazon order_confirmation
+forward correctly triggered the fallback (`orderDate` set from `receivedAt`,
+`orderDateEstimated: true`); a fresh J.Crew order_confirmation with its own
+extracted `orderDate` correctly early-returned, confirming no regression on
+the working case. Excluded-side verification (a `return_label`/`refund`-first
+order staying `orderDate: null`) deferred to the Phase 4 backfill of the 5
+affected prod rows found in Phase 1 (0 of which are currently
+trust-erosion-visible — no past-due deadlines among them).
+
+Spent significant morning time on a Gmail deep-link bug: the commerce-query
+deep link, byte-identical to the owner's own working link, loads with
+essentially no search applied when opened from a second real account (the
+owner's mother's), returning close to the full inbox instead of a filtered
+set. Not a "user followed instructions wrong" case. Root cause unresolved —
+debugging is high-cost without browser instrumentation access. Escalated to
+tomorrow: reproduce on a third account to determine whether this is
+per-account or systemic, with real evidence now supporting prioritizing
+OAuth-based setup over the deep-link approach. Interim workaround: manual/text
+setup instructions bypassing the deep link.
+
+Auto-emailing the Gmail confirmation code did **not** ship today — the spec
+pass was deliberately deferred because the deep-link discovery raised
+broader questions about setup UX that should be answered first, rather than
+spec'ing the email-code feature in isolation.
+
+Surfaced eight new 🟡 Next items and three ⚠️ Known Issues items from today's
+diagnostic work and real user testing (an Amazon order test, a J.Crew order
+test, and the Gmail deep-link reproduction): Phase 3+4 of the orderDate-fallback
+work, the Gmail deep-link bug itself, delivery-date surfacing as a possible
+first-class dashboard feature, final-sale/non-returnable item handling
+(surfaced by a J.Crew order with enumerated return exclusions), and an admin
+dashboard panel that conflates AI-extraction values with final Order state
+(source of today's own Phase 2 verification confusion, caught and corrected
+mid-session).
+
+---
+
 ## 2026-07-08 — Session close: one live bug fixed, four ships, one user-research pass
 
 Closed one live production reliability bug: A1's tiered-window `needsReview`
