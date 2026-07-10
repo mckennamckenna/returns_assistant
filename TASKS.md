@@ -46,7 +46,10 @@
       click-through NOT done: auth is magic-link-only via real email and this
       project has one production database, no seeded test account, so that check
       needs the owner. Email one-tap (`/action/kept`) explicitly out of scope —
-      future work. Not yet deployed.
+      future work. Pushed (`01189f8`) and auto-deployed
+      (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`, confirmed Ready and aliased to
+      `app.myreturnwindow.com`) — **awaiting owner browser verification**, not
+      Done until hand-verified live.
 - [ ] **Auto-archive after missed window (queued, second commit)** — nightly cron sweep,
       silent (no email/Reminder/ActionLog row), 14+ days past `returnDeadline`, scoped to
       `ordered`/`shipped`/`return_requested` (deliberately excludes `returned` — already
@@ -76,6 +79,19 @@
       Production correctness still isn't at risk (every deploy — intentional
       or not — rebuilds whatever `main` legitimately contained at push time),
       but this needs to be understood, not just tolerated.
+      **2026-07-10, second data point:** owner directed "push it, don't run
+      `vercel --prod`, GitHub integration auto-deploys on push" — pattern held:
+      a new Building deployment appeared in `vercel ls` ~35s after
+      `git push` (this run's poll interval was coarser than the ~24s-observed
+      case, so "35s" is an upper bound on the actual lag, not a claim it's
+      slower), went Ready, and the `returns-assistant.vercel.app` alias updated
+      to it (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`) with no manual deploy command
+      run. Still cannot independently confirm via CLI that this specific
+      deployment built from commit `01189f8` specifically (vs. some other
+      trigger) — `vercel inspect` still shows no Git Commit field — so this is
+      strong timing correlation, not proof. The underlying mechanism (Settings
+      → Git / Deploy Hooks / webhook) is still unconfirmed by dashboard
+      inspection; someone needs to actually open the Vercel dashboard.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
