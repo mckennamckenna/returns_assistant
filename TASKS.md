@@ -26,6 +26,36 @@
 ---
 
 ## 🔴 Now
+- [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
+      browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
+      section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
+      applied); `lib/displayStatus.ts` rank (tied with `returned`)/labels/
+      `ALLOWED_MANUAL_STATUSES`/`buildStatusTransitionData` extension/
+      `deriveDisplayStatus` refund-branch guard; `markKeptAction` in `app/actions.ts`;
+      "I'm keeping this" button + inline warning caption (no confirm dialog) on all
+      three surfaces — dashboard card view, dashboard table/list view, and order
+      detail page — same gate and caption everywhere; visibility gate covers
+      `return_requested` and treats `returnDeadline: null` as open. Table/list view
+      was added second, same commit, per owner instruction (see Decisions log below:
+      list view is the primary surface for routine actions) — initially skipped on
+      the (correct) observation that "I'm returning this" doesn't exist there either,
+      but that turned out not to be the deciding factor. New "Kept" badge; `kept`
+      added to `lib/reminders.ts` and weekly-digest exclusion lists. 18+ new/updated
+      tests, 212+ total passing; `npm run build` clean. Dev
+      server smoke-tested (boots clean, no runtime errors) — full authenticated
+      click-through NOT done: auth is magic-link-only via real email and this
+      project has one production database, no seeded test account, so that check
+      needs the owner. Email one-tap (`/action/kept`) explicitly out of scope —
+      future work. Not yet deployed.
+- [ ] **Auto-archive after missed window (queued, second commit)** — nightly cron sweep,
+      silent (no email/Reminder/ActionLog row), 14+ days past `returnDeadline`, scoped to
+      `ordered`/`shipped`/`return_requested` (deliberately excludes `returned` — already
+      user-acted, tracked separately by refund check-in). New `lib/autoArchive.ts`
+      (`AUTO_ARCHIVE_GRACE_DAYS`, `autoArchiveCutoff()`, `autoArchiveOrderWhere()`) +
+      one new step in `app/api/cron/route.ts` after the existing hard-delete sweep, no
+      new `vercel.json` cron entry. Separate commit from "Mark kept" — can't be
+      hand-verified until real orders miss their windows, so no reason to bundle it into
+      today's deploy. Report back before deploying.
 - [ ] **Investigate unexplained extra Vercel production deployments** —
       **stronger evidence 2026-07-09 session close, priority raised.**
       Directly observed in real time: within ~24 seconds of a docs-only
@@ -322,22 +352,6 @@
       `needsReview` or extraction quality is noticeably worse than other
       retailers after we have 10+ real users, revisit as a candidate for
       retailer-specific parsing. Don't build until real usage data justifies it.
-- [ ] **"I'm keeping this" status + button** — new `displayStatus: kept` value, one-way
-      transition, auto-archives on transition (like refunded), stops reminders. Distinct
-      from refunded (money didn't come back) and from archive (a terminal-state
-      destination, not a semantic decision). Under one-tap-from-email, becomes the third
-      option in reminder emails alongside "I'm returning this" and "Remind me later."
-      **Spec written 2026-07-10** (read-only pass, no code changed) — `BUILD.md`'s
-      `displayStatus` section, new `kept` status subsection: data model (`keptAt`
-      timestamp, migration needed), rank assignment (tied with `returned`, not above
-      `refunded`), the `deriveDisplayStatus()` refund-branch guard it needs, three
-      separate reminder/digest exclusion lists to update, UI button-gating fix (must
-      cover `return_requested` too, not just reuse "I'm returning this"'s narrower
-      gate). Both open questions decided same day: no blocking confirm dialog — inline
-      warning caption instead ("This will stop all reminders for this order"); button
-      hides once the return window has passed (`daysUntil(returnDeadline) >= 0` gate,
-      with a flagged null-deadline edge case still worth confirming — see BUILD.md).
-      Spec fully ready for implementation.
 - [ ] **Verify in production: archived orders with upcoming deadlines don't get
       reminders** — the returned/refunded half is now fully closed: MANGO #F4VLSF
       (`displayStatus: "returned"`, deadline Jul 5) got no deadline reminder at either
@@ -720,6 +734,9 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- List view is the primary interaction surface for routine order actions; card/detail
+  view is for orders needing attention. Buttons for routine transitions (returning,
+  keeping) belong in list view.
 - CLAUDE.md at repo root is the canonical source for standing habits.
   Memory-system files (`~/.claude/projects/.../memory/*`) are local
   conveniences that must reference the repo file. When the two diverge,

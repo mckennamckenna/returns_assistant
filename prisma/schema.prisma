@@ -167,10 +167,13 @@ model Order {
   needsReview Boolean @default(false)
 
   // User-facing order status, separate from the internal `status` state machine.
-  // Values: "ordered" | "shipped" | "return_requested" | "returned" | "refunded"
+  // Values: "ordered" | "shipped" | "return_requested" | "returned" | "refunded" | "kept"
   // "shipped" auto-derives from shipping_confirmation emails; the others are
   // set via PATCH /api/orders/:id/status or future auto-derivation from email types.
   // Precedence on recompute: refunded > returned > return_requested > shipped > ordered.
+  // "kept" is manual-only, never auto-derived, ranked alongside "returned" (see
+  // lib/displayStatus.ts) — reachable from ordered/shipped/return_requested, not
+  // from returned/refunded.
   // Auto-derivation never downgrades a manually-advanced status.
   displayStatus  String  @default("ordered")
 
@@ -189,6 +192,11 @@ model Order {
   // never reset. Used to compute refund check-in reminder send time (5 or 10
   // days later depending on whether return tracking is present).
   returnedAt DateTime?
+
+  // Timestamp of the (one-way) transition to displayStatus = "kept". Set once,
+  // never reset — parallel to returnedAt. Distinct from archivedAt: archivedAt
+  // is reversible via unarchive, keptAt is not evidence that can be undone.
+  keptAt DateTime?
 
   // Soft-state fields: null = active; non-null = hidden from all normal views.
   // archivedAt — reversible, user-initiated hiding (no confirm required).

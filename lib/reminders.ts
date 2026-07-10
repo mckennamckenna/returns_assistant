@@ -17,7 +17,11 @@ const SKIP_STATUSES = ["completed", "expired", "return_started"];
 // (returned) or fully closed out (refunded), so no more emails should
 // follow. Deliberately NOT "return_requested" — the window is still open
 // and the package may not have shipped yet, so the reminder still matters.
-const SKIP_DISPLAY_STATUSES = ["returned", "refunded"];
+// "kept" also stops reminders — a manual, terminal decision, same as
+// refunded — but relies on this explicit check same as the other two:
+// auto-archiving alone (which "kept" also does) is a redundant second layer
+// via reminderOrderWhere()'s activeOrderFilter, not the actual mechanism.
+const SKIP_DISPLAY_STATUSES = ["returned", "refunded", "kept"];
 
 export interface OrderForReminder {
   returnDeadline: Date | null;

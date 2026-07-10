@@ -34,7 +34,7 @@ export async function PATCH(
 
   const order = await prisma.order.findUnique({
     where: { id },
-    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true },
+    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true, keptAt: true },
   });
 
   if (!order || order.userId !== session.user.id) {

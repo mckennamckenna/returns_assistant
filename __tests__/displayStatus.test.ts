@@ -125,12 +125,58 @@ describe("deriveDisplayStatus — refund branching", () => {
   });
 });
 
+// ── "kept" guard ─────────────────────────────────────────────────────────
+// kept is manual-only and never auto-derived. Its rank ties with "returned",
+// which means the refund branch above — the one auto-derivation signal
+// exempt from normal downgrade protection — would otherwise treat
+// refunded(5) > kept(4) as a valid advance and silently overwrite a manual
+// kept decision. This is the regression guard for that.
+
+describe("deriveDisplayStatus — kept guard", () => {
+  it("stays 'kept' regardless of email types, including a confirmed-amount refund", () => {
+    expect(deriveDisplayStatus(["refund"], "kept", true)).toBe("kept");
+  });
+
+  it("stays 'kept' when a return_label email arrives", () => {
+    expect(deriveDisplayStatus(["return_label"], "kept")).toBe("kept");
+  });
+
+  it("stays 'kept' for an empty email list", () => {
+    expect(deriveDisplayStatus([], "kept")).toBe("kept");
+  });
+
+  it("never derives 'kept' from any email signal — only reachable manually", () => {
+    expect(deriveDisplayStatus(["return_label", "shipping_confirmation", "delivery"], "ordered")).not.toBe("kept");
+  });
+});
+
 describe("DISPLAY_STATUS_RANK", () => {
   it("has strictly increasing ranks: ordered < shipped < return_requested < returned < refunded", () => {
     expect(DISPLAY_STATUS_RANK.ordered).toBeLessThan(DISPLAY_STATUS_RANK.shipped);
     expect(DISPLAY_STATUS_RANK.shipped).toBeLessThan(DISPLAY_STATUS_RANK.return_requested);
     expect(DISPLAY_STATUS_RANK.return_requested).toBeLessThan(DISPLAY_STATUS_RANK.returned);
     expect(DISPLAY_STATUS_RANK.returned).toBeLessThan(DISPLAY_STATUS_RANK.refunded);
+  });
+
+  // "kept" is deliberately tied with "returned" (not ranked above "refunded")
+  // — this is what makes both PATCH /api/orders/:id/status and
+  // advanceDisplayStatus() enforce "reachable from ordered/shipped/
+  // return_requested, not from returned/refunded" via their existing
+  // generic rank-gate, with no bespoke branching for kept in either.
+  it("ties 'kept' with 'returned', ranked below 'refunded'", () => {
+    expect(DISPLAY_STATUS_RANK.kept).toBe(DISPLAY_STATUS_RANK.returned);
+    expect(DISPLAY_STATUS_RANK.kept).toBeLessThan(DISPLAY_STATUS_RANK.refunded);
+  });
+
+  it("kept is reachable (higher rank) from ordered, shipped, and return_requested", () => {
+    expect(DISPLAY_STATUS_RANK.kept).toBeGreaterThan(DISPLAY_STATUS_RANK.ordered);
+    expect(DISPLAY_STATUS_RANK.kept).toBeGreaterThan(DISPLAY_STATUS_RANK.shipped);
+    expect(DISPLAY_STATUS_RANK.kept).toBeGreaterThan(DISPLAY_STATUS_RANK.return_requested);
+  });
+
+  it("kept is NOT reachable (not higher rank) from returned or refunded", () => {
+    expect(DISPLAY_STATUS_RANK.kept).not.toBeGreaterThan(DISPLAY_STATUS_RANK.returned);
+    expect(DISPLAY_STATUS_RANK.kept).not.toBeGreaterThan(DISPLAY_STATUS_RANK.refunded);
   });
 });
 
@@ -187,6 +233,35 @@ describe("buildStatusTransitionData", () => {
     const data = buildStatusTransitionData("refunded", { returnedAt: existingReturnedAt, archivedAt: null });
     expect(data.returnedAt).toBeUndefined();
   });
+
+  // ── "kept" transition ────────────────────────────────────────────────────
+  // Same auto-archive shape as refunded, plus its own keptAt timestamp.
+  // Deliberately does NOT touch returnedAt — kept is a distinct terminal
+  // branch, not a stand-in for having actually returned the item.
+  it("sets displayStatus, archivedAt, and keptAt when transitioning to kept (not yet archived)", () => {
+    const data = buildStatusTransitionData("kept", { returnedAt: null, archivedAt: null, keptAt: null });
+    expect(data.displayStatus).toBe("kept");
+    expect(data.archivedAt).toBeInstanceOf(Date);
+    expect(data.keptAt).toBeInstanceOf(Date);
+    expect(data.returnedAt).toBeUndefined();
+  });
+
+  it("does NOT overwrite an existing archivedAt when transitioning to kept if already archived", () => {
+    const existingArchivedAt = new Date("2026-06-20T00:00:00Z");
+    const data = buildStatusTransitionData("kept", { returnedAt: null, archivedAt: existingArchivedAt, keptAt: null });
+    expect(data.archivedAt).toBeUndefined();
+  });
+
+  it("does not reset keptAt if already set", () => {
+    const existingKeptAt = new Date("2026-06-25T00:00:00Z");
+    const data = buildStatusTransitionData("kept", { returnedAt: null, archivedAt: new Date(), keptAt: existingKeptAt });
+    expect(data.keptAt).toBeUndefined();
+  });
+
+  it("treats a missing keptAt field the same as null (optional for backward compatibility)", () => {
+    const data = buildStatusTransitionData("kept", { returnedAt: null, archivedAt: null });
+    expect(data.keptAt).toBeInstanceOf(Date);
+  });
 });
 
 // ── requiresConfirmBeforeStatusChange: the confirm-dialog gate ──────────────
@@ -205,5 +280,9 @@ describe("requiresConfirmBeforeStatusChange", () => {
 
   it("does NOT require confirmation before transitioning to return_requested", () => {
     expect(requiresConfirmBeforeStatusChange("return_requested")).toBe(false);
+  });
+
+  it("does NOT require confirmation before transitioning to kept (inline caption instead, no dollar amount at stake)", () => {
+    expect(requiresConfirmBeforeStatusChange("kept")).toBe(false);
   });
 });

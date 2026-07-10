@@ -35,6 +35,11 @@ describe("deadline reminders vs. displayStatus", () => {
     expect(isEligibleForReminder(order("return_requested"))).toBe(true);
     expect(reminderTypeForOrder(order("return_requested"), today)).toBe("7_day");
   });
+
+  it("suppresses the reminder when displayStatus is 'kept'", () => {
+    expect(isEligibleForReminder(order("kept"))).toBe(false);
+    expect(reminderTypeForOrder(order("kept"), today)).toBe(null);
+  });
 });
 
 // ── Estimated-deadline reminder suppression ──────────────────────────────────

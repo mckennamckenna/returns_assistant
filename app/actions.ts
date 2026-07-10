@@ -64,7 +64,7 @@ async function advanceDisplayStatus(orderId: string, nextStatus: string): Promis
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true },
+    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true, keptAt: true },
   });
   if (!order || order.userId !== session.user.id) return;
 
@@ -89,4 +89,8 @@ export async function markReturnedAction(orderId: string): Promise<void> {
 
 export async function markRefundedAction(orderId: string): Promise<void> {
   await advanceDisplayStatus(orderId, "refunded");
+}
+
+export async function markKeptAction(orderId: string): Promise<void> {
+  await advanceDisplayStatus(orderId, "kept");
 }

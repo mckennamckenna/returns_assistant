@@ -6,6 +6,7 @@ const STATUS_STYLES: Record<string, string> = {
   return_requested: "bg-amber-100 text-amber-700",
   returned: "bg-green-100 text-green-700",
   refunded: "bg-purple-100 text-purple-700",
+  kept: "bg-slate-100 text-slate-600",
 };
 
 export function DisplayStatusBadge({ status }: { status: string }) {

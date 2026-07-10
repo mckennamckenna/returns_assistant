@@ -2,13 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction } from "./actions";
+import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction, markKeptAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
 import { SoftDeleteOrderButton } from "./SoftDeleteOrderButton";
 import { ArchiveOrderButton } from "./ArchiveOrderButton";
 import { MarkRefundedButton } from "./MarkRefundedButton";
 import { DisplayStatusBadge } from "./DisplayStatusBadge";
-import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
+import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { ReviewCard } from "./ReviewCard";
 import { SearchFilterBar } from "./SearchFilterBar";
 import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
@@ -322,6 +322,15 @@ export default async function Home({
                         </button>
                       </form>
                     )}
+                    {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.returned &&
+                      (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0) && (
+                        <form action={markKeptAction.bind(null, order.id)} className="flex flex-col items-start gap-0.5">
+                          <button type="submit" className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline">
+                            I&apos;m keeping this
+                          </button>
+                          <span className="text-[10px] text-stone-400">{KEPT_WARNING_CAPTION}</span>
+                        </form>
+                      )}
                     {order.displayStatus === "return_requested" && (
                       <form action={markReturnedAction.bind(null, order.id)}>
                         <button type="submit" className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline">
@@ -455,6 +464,15 @@ export default async function Home({
                               className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline whitespace-nowrap"
                             />
                           )}
+                          {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.returned &&
+                            (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0) && (
+                              <form action={markKeptAction.bind(null, order.id)} className="flex flex-col items-end gap-0.5">
+                                <button type="submit" className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline whitespace-nowrap">
+                                  I&apos;m keeping this
+                                </button>
+                                <span className="text-[10px] text-stone-400 whitespace-nowrap">{KEPT_WARNING_CAPTION}</span>
+                              </form>
+                            )}
                           <ArchiveOrderButton
                             orderId={order.id}
                             isArchived={order.archivedAt !== null}

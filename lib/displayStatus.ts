@@ -1,12 +1,19 @@
+// "kept" is deliberately tied with "returned", not ranked above "refunded" —
+// this single choice is what makes both of the generic rank-gate call sites
+// (PATCH /api/orders/:id/status and advanceDisplayStatus in app/actions.ts)
+// enforce "reachable from ordered/shipped/return_requested, not from
+// returned/refunded" for free, with no bespoke branching in either gate. See
+// BUILD.md's displayStatus section for the full reasoning.
 export const DISPLAY_STATUS_RANK: Record<string, number> = {
   ordered: 1,
   shipped: 2,
   return_requested: 3,
   returned: 4,
+  kept: 4,
   refunded: 5,
 };
 
-export const ALLOWED_MANUAL_STATUSES = ["return_requested", "returned", "refunded"] as const;
+export const ALLOWED_MANUAL_STATUSES = ["return_requested", "returned", "refunded", "kept"] as const;
 export type ManualDisplayStatus = (typeof ALLOWED_MANUAL_STATUSES)[number];
 
 export const DISPLAY_STATUS_LABELS: Record<string, string> = {
@@ -15,6 +22,7 @@ export const DISPLAY_STATUS_LABELS: Record<string, string> = {
   return_requested: "Return requested",
   returned: "Returned",
   refunded: "Refunded",
+  kept: "Kept",
 };
 
 // Pure function — safe to test without DB or mocks.
@@ -50,11 +58,21 @@ export const DISPLAY_STATUS_LABELS: Record<string, string> = {
 // an order past return_requested/returned, which no other auto-derivation
 // signal is allowed to do. The final rank comparison (not the early-return)
 // is what still protects against downgrade in both branches.
+//
+// "kept" is never auto-derived (it's a manual-only decision — nothing in the
+// ladder below ever produces it), and it needs its own guard *before* the
+// refund branch specifically: kept's rank ties with "returned", so a refund
+// email arriving after a manual "kept" would otherwise compute
+// refunded(5) > kept(4) and silently overwrite a one-way user decision — the
+// refund branch is deliberately exempt from the rank-based downgrade
+// protection that would otherwise stop this, so it needs an explicit block.
 export function deriveDisplayStatus(
   emailTypes: string[],
   currentDisplayStatus: string,
   hasConfirmedRefundAmount: boolean = false,
 ): string {
+  if (currentDisplayStatus === "kept") return "kept";
+
   const currentRank = DISPLAY_STATUS_RANK[currentDisplayStatus] ?? 0;
 
   if (emailTypes.includes("refund")) {
@@ -101,11 +119,15 @@ export function deriveDisplayStatus(
 //   deriveDisplayStatus) can jump straight here from an earlier status
 //   without ever passing through "returned" — without this, returnedAt
 //   would stay null forever for those orders.
+// - "kept": same auto-archive shape as "refunded" (chapter closed, stop
+//   reminders), plus sets keptAt once, on first arrival — parallel to
+//   returnedAt, never reset. Never backfills returnedAt: kept is a distinct
+//   terminal branch, not a stand-in for having actually returned anything.
 export function buildStatusTransitionData(
   nextStatus: string,
-  current: { returnedAt: Date | null; archivedAt: Date | null },
-): { displayStatus: string; returnedAt?: Date; archivedAt?: Date } {
-  const data: { displayStatus: string; returnedAt?: Date; archivedAt?: Date } = {
+  current: { returnedAt: Date | null; archivedAt: Date | null; keptAt?: Date | null },
+): { displayStatus: string; returnedAt?: Date; archivedAt?: Date; keptAt?: Date } {
+  const data: { displayStatus: string; returnedAt?: Date; archivedAt?: Date; keptAt?: Date } = {
     displayStatus: nextStatus,
   };
 
@@ -113,8 +135,12 @@ export function buildStatusTransitionData(
     data.returnedAt = new Date();
   }
 
-  if (nextStatus === "refunded" && !current.archivedAt) {
+  if ((nextStatus === "refunded" || nextStatus === "kept") && !current.archivedAt) {
     data.archivedAt = new Date();
+  }
+
+  if (nextStatus === "kept" && !current.keptAt) {
+    data.keptAt = new Date();
   }
 
   return data;
@@ -131,6 +157,17 @@ export const REFUND_CONFIRM_MESSAGE =
 // transition that's irreversible in the UI and has a side effect (archiving)
 // the user might not expect. "return_requested" and "returned" stay
 // frictionless: both are easily correctable if clicked by mistake.
+// "kept" shares refunded's two confirm-triggering properties (irreversible,
+// auto-archives) but deliberately does NOT get a blocking confirm — instead
+// an always-visible inline caption (KEPT_WARNING_CAPTION below) states the
+// consequence before the tap. No dollar amount is at stake the way refunded
+// has, and the owner's call was that friction there isn't worth it.
 export function requiresConfirmBeforeStatusChange(nextStatus: string): boolean {
   return nextStatus === "refunded";
 }
+
+// Inline warning shown beside/beneath the "I'm keeping this" button —
+// visible before the tap, not a blocking dialog. See
+// requiresConfirmBeforeStatusChange's comment above for why "kept" uses this
+// instead of REFUND_CONFIRM_MESSAGE's window.confirm() pattern.
+export const KEPT_WARNING_CAPTION = "This will stop all reminders for this order.";

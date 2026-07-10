@@ -12,7 +12,7 @@ const REMINDER_TYPE = "weekly_digest";
 const LOOKBACK_DAYS = 7;
 const APP_URL = "https://app.myreturnwindow.com";
 
-const EXCLUDED_STATUSES = ["returned", "refunded"];
+const EXCLUDED_STATUSES = ["returned", "refunded", "kept"];
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

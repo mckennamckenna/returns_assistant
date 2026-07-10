@@ -2,12 +2,13 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, markReturnRequestedAction, markReturnedAction } from "@/app/actions";
+import { deleteEmail, markReturnRequestedAction, markReturnedAction, markKeptAction } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
 import { MarkRefundedButton } from "@/app/MarkRefundedButton";
 import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
-import { DISPLAY_STATUS_RANK } from "@/lib/displayStatus";
+import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
+import { daysUntil } from "@/lib/reminders";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,8 @@ export default async function OrderDetail({
   if (!order) {
     notFound();
   }
+
+  const now = new Date();
 
   return (
     <main className="min-h-screen p-8 max-w-3xl mx-auto w-full">
@@ -217,6 +220,18 @@ export default async function OrderDetail({
               </button>
             </form>
           )}
+          {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.returned &&
+            (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0) && (
+              <form action={markKeptAction.bind(null, order.id)} className="flex flex-col items-start gap-1">
+                <button
+                  type="submit"
+                  className="bg-slate-50 text-slate-700 text-sm font-medium rounded px-4 py-2 hover:bg-slate-100 border border-slate-200"
+                >
+                  I&apos;m keeping this
+                </button>
+                <span className="text-xs text-stone-400">{KEPT_WARNING_CAPTION}</span>
+              </form>
+            )}
           {order.displayStatus === "return_requested" && (
             <form action={markReturnedAction.bind(null, order.id)}>
               <button
