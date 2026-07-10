@@ -26,17 +26,26 @@
 ---
 
 ## 🔴 Now
-- [ ] **Investigate unexplained extra Vercel production deployments** — found
-      during 2026-07-08 session close: `vercel ls returns-assistant` shows
-      several more "Ready"/Production deployments than were explicitly
-      triggered via `vercel --prod` this session, including one 4 seconds
-      after a docs-only git push. `vercel project inspect` confirms no Git
-      Repository connection (ruling out GitHub auto-deploy), so the
-      mechanism is unclear — check the Vercel dashboard directly (Settings →
-      Git, Settings → Deploy Hooks) since this isn't visible via CLI.
-      Production correctness isn't at risk (every deploy rebuilds whatever
-      `main` legitimately contained), but the deploy model documented in
-      `CLAUDE.md` ("manual, not automatic on push") may be stale.
+- [ ] **Investigate unexplained extra Vercel production deployments** —
+      **stronger evidence 2026-07-09 session close, priority raised.**
+      Directly observed in real time: within ~24 seconds of a docs-only
+      `git push` (TASKS.md/HISTORY.md commit, no `vercel --prod` run), a new
+      Production deployment appeared in `vercel ls` with status Building,
+      then went Ready and became the aliased live deployment — no explicit
+      deploy command was run for it. `vercel project inspect` still confirms
+      no Git Repository connection (ruling out standard GitHub auto-deploy),
+      so a push-triggered deploy is happening through some *other* mechanism
+      — check the Vercel dashboard directly (Settings → Git, Settings →
+      Deploy Hooks, and any webhook config) since this isn't visible via
+      CLI. This directly contradicts `CLAUDE.md`'s documented deploy model
+      ("manual, not automatic on push") — that doc needs correcting once the
+      mechanism is understood, not before (don't want to document a guess).
+      Practical implication: `vercel inspect <alias> | grep "Git Commit"`
+      cannot be trusted to reflect only intentional deploys anymore — every
+      push may already be live before a manual `vercel --prod` runs.
+      Production correctness still isn't at risk (every deploy — intentional
+      or not — rebuilds whatever `main` legitimately contained at push time),
+      but this needs to be understood, not just tolerated.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
