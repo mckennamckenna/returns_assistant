@@ -383,6 +383,10 @@ the moment the secret is generated, not just once the token endpoints ship.
   token failures during the tail. A two-secret system that supports rotation without
   breaking outstanding tokens is out of scope for the initial build but noted as
   future work if rotation becomes routine.
+  (Note, 2026-07-10: this bullet has always overstated current state — only Archive
+  is actually live as a one-tap email action today. "Return"/"Refund"/"Kept" here were
+  written aspirationally; Kept is now spec'd — see `kept` status below — but not built.
+  Not fixed here since correcting it would touch a line unrelated to this spec pass.)
 - **Rollback plan:** the initial build has no master-invalidate mechanism for
   outstanding tokens. Any code change after Phase 5 ships must stay backwards-compatible
   with previously-issued tokens (the same signature/payload shape, or a versioned
@@ -475,6 +479,132 @@ The no-buffer rule for order-date-anchored policies is intentional and was a rea
 - **`returnedAt` backfills on the direct-to-refunded jump too:** the two manual endpoints always gate `"refunded"` behind an existing `"returned"` status, so `returnedAt` is already set by the time they call `buildStatusTransitionData()`. But an auto-derived confirmed-amount refund can reach `"refunded"` directly from an earlier status without ever passing through `"returned"` — `buildStatusTransitionData()` backfills `returnedAt` on arrival at `"refunded"` too, not just `"returned"`, so it's never left null for these orders.
 - **Confirm gate:** the dashboard/detail-page "Mark as refunded" button (`app/MarkRefundedButton.tsx`) shows a native `window.confirm()` with teaching copy before submitting — refunded is irreversible in the UI and has the archiving side effect, both surprising enough to warrant explanation, not just "are you sure?". `requiresConfirmBeforeStatusChange()` gates only `"refunded"` — `"return_requested"` and `"returned"` stay frictionless.
 
+### `kept` status — SPEC ONLY, not built (target: `lib/displayStatus.ts`)
+
+Read-only spec pass, 2026-07-10. Nothing below is implemented — see `TASKS.md` 🟡 Next
+for the pointer. Written here rather than a standalone doc because it's entirely an
+extension of the existing `displayStatus` machinery documented just above, not a new
+subsystem.
+
+**Data model**
+- `displayStatus` gains a fourth manual value: `"kept"` — no conflict with any existing
+  value or reserved word. It's actually half-anticipated already: `TokenRedemption.action`'s
+  documentation comment (`prisma/schema.prisma`) already lists `"kept"` as a possible
+  action string, and the rotation-risk bullet above (Signed action token invariants)
+  already says "Archive/Return/Refund/Kept buttons" — inaccurately, since only Archive
+  is live today (see the note at the end of that section).
+- New field: `Order.keptAt DateTime?` — parallel to `returnedAt`, set once on first
+  transition to `"kept"`, never reset. Needed because "when was the decision made" is
+  meaningful the same way it is for `returnedAt`, and nothing else captures it (an
+  auto-archive's `archivedAt` isn't a reliable proxy — see below, kept sets both
+  atomically, so they'd usually match, but `archivedAt` is reversible via unarchive
+  while `keptAt` must not be treated as reversible evidence of the decision).
+- **Migration: yes**, but small — `displayStatus` is an unconstrained `String` column
+  (no DB-level enum), so the new *value* needs no schema change, only the new
+  `keptAt DateTime?` column does. One additive, nullable, no-backfill migration
+  (`npx prisma migrate dev --name add_kept_at_to_order`), same shape as
+  `20260707233740_add_estimated_delivery_and_delivered_at`.
+
+**Rank — the one non-obvious choice that makes everything else fall out for free**
+
+`DISPLAY_STATUS_RANK` is currently a strictly increasing ladder (`ordered=1` ...
+`refunded=5`) that TWO separate gates both key off — `PATCH /api/orders/:id/status`
+and `advanceDisplayStatus()` in `app/actions.ts` — via the same rule, `reject if
+newRank <= currentRank`. Setting `kept: 4` (tied with `returned`, not a new tier above
+`refunded`) satisfies every stated reachability rule through those two *existing*
+gates with **zero changes to either gate**:
+- from `ordered`(1) / `shipped`(2) / `return_requested`(3) → `kept`(4): `4 > currentRank` → allowed. ✅.
+- from `returned`(4) / `refunded`(5) → `kept`(4): `4 <= currentRank` → rejected. ✅ matches "NOT from returned or refunded."
+- from `kept`(4) → anywhere: any other manual target has to be a higher rank than 4 to
+  pass the same gate, and the only thing ranked higher is `refunded`(5) — see the
+  `deriveDisplayStatus` wrinkle below for why that path also needs an explicit block,
+  not just reliance on this tie.
+
+**Business logic**
+- `ALLOWED_MANUAL_STATUSES` gains `"kept"`; `DISPLAY_STATUS_LABELS["kept"] = "Kept"`.
+- **Auto-archive, atomically — extend `buildStatusTransitionData()`:** add
+  `if (nextStatus === "kept" && !current.archivedAt) data.archivedAt = new Date()` and
+  `if (nextStatus === "kept" && !current.keptAt) data.keptAt = new Date()`, same shape
+  as the existing `"refunded"` branches. Since this one function is what all three
+  write paths (`PATCH` route, `app/actions.ts`, and `recomputeDisplayStatus()`'s
+  auto-derivation path) already share, this is the single place to change for the
+  atomic-write contract — but see below, `recomputeDisplayStatus()` must never actually
+  be allowed to pass `"kept"` in.
+- **`deriveDisplayStatus()` must NEVER auto-derive `"kept"`** — trivially true as
+  written today (`"kept"` doesn't appear in any of the ladder's derived branches), so
+  there's nothing to *add*. The real risk is the other direction:
+- ⚠️ **The refund-email branch is deliberately exempt from the normal downgrade
+  guard, and as written today it would silently overwrite a manual `"kept"`.**
+  `deriveDisplayStatus()`'s refund branch is explicitly "the one auto-derivation
+  signal allowed to move an order past `return_requested`/`returned` on its own" — it
+  runs *before* the rank-based early-return that protects everything else, and only
+  checks `DISPLAY_STATUS_RANK[target] > currentRank`. With `kept` ranked 4, a `refund`
+  email arriving after a user manually marks an order `"kept"` would compute
+  `refunded(5) > kept(4)` → **true** → silently flip a one-way "terminal" decision the
+  user just made. This must be closed with an explicit early guard —
+  `if (currentDisplayStatus === "kept") return "kept";` — at the top of
+  `deriveDisplayStatus()`, before the refund branch, not merely relying on the rank tie.
+  This is the single most important correctness wrinkle in this spec.
+
+**Reminder / digest suppression — three separate spots, not one shared list**
+
+Auto-archiving alone (`archivedAt` set) already removes a `kept` order from the
+dashboard's active view and from `lib/orderFilters.ts`'s `activeOrderFilter`/
+`reminderOrderWhere()` — but the codebase's own established pattern for `refunded`
+is defense-in-depth: `displayStatus` is *also* checked directly, independent of
+archive state, in three places, none of which share a constant:
+1. `lib/reminders.ts`: `SKIP_DISPLAY_STATUSES = ["returned", "refunded"]` → needs `"kept"` added.
+2. `app/api/cron/weekly-digest/route.ts`: `EXCLUDED_STATUSES = ["returned", "refunded"]` → needs `"kept"` added.
+3. `lib/refundCheckin.ts`'s `refundCheckinOrderWhere()` requires `displayStatus === "returned"` **exactly** (an allowlist, not a denylist) — `kept` is naturally excluded here already, no change needed.
+
+Three independent lists for what should be one concept is a pre-existing shape, not
+something this feature should try to fix in passing — but it does mean a future
+"add a new terminal status" pass has to remember all three, not just `displayStatus.ts`.
+
+**UI (dashboard — `app/page.tsx`, `app/orders/[id]/page.tsx`)**
+- New "I'm keeping this" button. **Gate on `DISPLAY_STATUS_RANK[order.displayStatus] <
+  DISPLAY_STATUS_RANK.returned`** (i.e. rank < 4, covering `ordered`/`shipped`/
+  `return_requested`) — **not** the narrower `< DISPLAY_STATUS_RANK.return_requested`
+  gate the existing "I'm returning this" button uses. That narrower gate stops
+  rendering once an order reaches `return_requested` (where "Mark as returned" takes
+  over instead) — reusing it verbatim would silently violate the stated requirement
+  that kept be available from `return_requested` too. This wasn't stated as a
+  distinction in the request; flagging it here as the resolution.
+- **DECIDED (2026-07-10): "I'm keeping this" hides once the return window has passed.**
+  A new condition — no existing manual-status button gates on `returnDeadline` today
+  (`return_requested`/`returned`/`refunded` are pure rank checks). Combined gate:
+  `rank < DISPLAY_STATUS_RANK.returned && (order.returnDeadline == null ||
+  daysUntil(order.returnDeadline, now) >= 0)` — reusing the existing `daysUntil()`
+  helper (`lib/reminders.ts`, already imported this way on the Archive confirm page).
+  **Edge case not explicitly addressed by the decision, flagging rather than assuming:**
+  an order with `returnDeadline: null` (no deadline ever computed) has no "window" to
+  have passed — the rule above lets the button show for these. If the intent was
+  narrower ("only show when a deadline exists AND hasn't passed"), that's a one-line
+  change (`order.returnDeadline != null && daysUntil(...) >= 0`) — confirm before build.
+- **DECIDED (2026-07-10): inline warning caption, no confirm dialog.** Small copy
+  beneath or beside the button — e.g. "This will stop all reminders for this order" —
+  visible before the tap, no modal and no separate confirmation step. This resolves
+  the tension noted in the prior draft (kept shares refunded's two confirm-triggering
+  properties — one-way, auto-archives — but the owner's call is that always-visible
+  copy satisfies "consequence is clear before they tap" without the friction cost of a
+  blocking dialog on a no-dollar-amount-at-stake action). Note for whenever this gets
+  built: `requiresConfirmBeforeStatusChange()` should stay returning `false` for
+  `"kept"` (unchanged) — this is a rendering-layer caption, not a change to that
+  function's contract, so no new branch there.
+- New badge: `DISPLAY_STATUS_LABELS["kept"] = "Kept"` in `app/DisplayStatusBadge.tsx`,
+  plus a `STATUS_STYLES["kept"]` entry — needs a color distinct from the existing four
+  (stone/blue/amber/green/purple all taken).
+
+**Email token action — future, not this session**
+
+`/action/kept` will follow the exact Archive pattern (Phases 1-5, `TokenRedemption`/
+`ActionLog`/`lib/actionToken.ts`/`lib/actionLinks.ts` all reused unchanged) once the
+dashboard feature above ships: `buildActionLink({orderId, userId, action: "kept"})`,
+`app/action/kept/page.tsx` (confirm page), `app/api/action/kept/route.ts` (POST
+endpoint), `app/action/kept/done/page.tsx`. No new infrastructure — same shape as
+`app/action/archive/*` end to end. Listed here as a follow-on only; not scoped for
+this pass.
+
 ### Active order filter (`lib/orderFilters.ts`)
 - `activeOrderFilter = { archivedAt: null, deletedAt: null }` — spread into all queries that should exclude archived/deleted orders: digest, daily reminder cron, refund check-in.
 - Dashboard "Archived" tab fetches `{ archivedAt: { not: null }, deletedAt: null }` separately.
@@ -539,6 +669,7 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 - **`Order.needsReview` and `Email.needsReview` serve two different jobs today**: linking-quality review (Order-level, user-facing "Looks correct / Split into separate order" UI) and extraction-quality review (Email-level, admin diagnostic). Extraction-quality signals are deliberately not propagated to `Order.needsReview` until a proper spec pass separates the two concerns.
 - **`Email.extractionRaw.needsReview` has inconsistent provenance** across old (JS-derived, pre-2026-07-08) and new (AI-set) rows. Nothing currently reads it; if a future consumer needs to distinguish, look at row `createdAt`.
 - **`applyFallbackOrderDate` fires only when the earliest-linked email is `order_confirmation`, `shipping_confirmation`, or `delivery`.** Excluded types (`return_label`, `refund`, `other`) leave `orderDate` null. Rationale: post-purchase-loop emails' `receivedAt` has no defined relationship to the true order date; inventing an anchor from them produces visibly-wrong deadlines (Caroline's Moda, 2026-07-08). `other` is excluded because 14/15 current rows are unlinked marketing; the 1 anomaly is a classification bug tracked separately, not a case for gate special-casing.
+- **`kept` (spec'd 2026-07-10, not built) is a one-way terminal `displayStatus`, ranked equal to `returned` rather than above `refunded`**, so it auto-archives atomically and stays reachable only from `ordered`/`shipped`/`return_requested` — same "chapter closed, stop reminders" reasoning as `refunded`'s auto-archive. Unlike `refunded`, its rank tie alone doesn't fully protect it: `deriveDisplayStatus()`'s refund-email branch is deliberately exempt from the normal downgrade guard, so it must gain an explicit early return for `currentDisplayStatus === "kept"` or a stray refund email could silently overwrite a manual kept decision.
 
 ---
 

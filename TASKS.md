@@ -323,13 +323,21 @@
       retailers after we have 10+ real users, revisit as a candidate for
       retailer-specific parsing. Don't build until real usage data justifies it.
 - [ ] **"I'm keeping this" status + button** — new `displayStatus: kept` value, one-way
-      transition, auto-archives on transition (like refunded), stops reminders. Appears
-      as a button next to "I'm returning this" on any order still within its return
-      window. Distinct from refunded (money didn't come back) and from archive (a
-      terminal-state destination, not a semantic decision). Under one-tap-from-email,
-      becomes the third option in reminder emails alongside "I'm returning this" and
-      "Remind me later." **Data model change — spec in BUILD.md before Claude Code
-      touches it.**
+      transition, auto-archives on transition (like refunded), stops reminders. Distinct
+      from refunded (money didn't come back) and from archive (a terminal-state
+      destination, not a semantic decision). Under one-tap-from-email, becomes the third
+      option in reminder emails alongside "I'm returning this" and "Remind me later."
+      **Spec written 2026-07-10** (read-only pass, no code changed) — `BUILD.md`'s
+      `displayStatus` section, new `kept` status subsection: data model (`keptAt`
+      timestamp, migration needed), rank assignment (tied with `returned`, not above
+      `refunded`), the `deriveDisplayStatus()` refund-branch guard it needs, three
+      separate reminder/digest exclusion lists to update, UI button-gating fix (must
+      cover `return_requested` too, not just reuse "I'm returning this"'s narrower
+      gate). Both open questions decided same day: no blocking confirm dialog — inline
+      warning caption instead ("This will stop all reminders for this order"); button
+      hides once the return window has passed (`daysUntil(returnDeadline) >= 0` gate,
+      with a flagged null-deadline edge case still worth confirming — see BUILD.md).
+      Spec fully ready for implementation.
 - [ ] **Verify in production: archived orders with upcoming deadlines don't get
       reminders** — the returned/refunded half is now fully closed: MANGO #F4VLSF
       (`displayStatus: "returned"`, deadline Jul 5) got no deadline reminder at either
