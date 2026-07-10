@@ -55,15 +55,25 @@
       any non-owner user.
 
 ## 🟡 Next
-- [ ] **orderDate-fallback Phase 3 + 4** — Phase 3: verify UI behavior with a
-      null-orderDate order (5-min eyeball, likely no code needed per Phase 1's
-      finding that null orderDate already renders as "—" correctly). Phase 4:
-      backfill 5 prod rows identified in Phase 1 as pre-gate wrong-fires
-      (return_label/refund earliest-linked emails). Small script, dry-run
-      first, delete after use — same discipline as Caroline's Moda backfill.
-      Should also provide the excluded-side verification of Phase 2 via
-      before/after diff. **Recommended tomorrow #1** — closes the orderDate
-      loop and doesn't need fresh spec work.
+- [ ] **orderDate-fallback Phase 3** — verify UI behavior with a null-orderDate
+      order (5-min eyeball, likely no code needed per Phase 1's finding that
+      null orderDate already renders as "—" correctly). Phase 4 backfill is
+      done (2026-07-10, see HISTORY.md) and provided the excluded-side
+      verification of Phase 2 via before/after diff; this eyeball check on
+      one of the 5 now-null-orderDate rows (e.g. Mango #F4VLSG00 or Moda
+      Operandi #456603272478) is the one remaining piece.
+- [ ] **Gap Inc. brand-family identity** — Gap orders also surface under Old
+      Navy; one parent (Gap / Old Navy / Banana Republic / Athleta) spans
+      multiple brands with inconsistent attribution. Candidate for a
+      first-class fix like the Amazon case; connects to the retailer-prefix
+      collision risk in Known Issues and the retailer-policy DB. Evidence:
+      Gap #1R1KXD3 listed under Old Navy. Slug: `gap-inc-brand-family-identity`.
+- [ ] **Shopbop / refund matching on goods when no order number** — Shopbop's
+      refund email names the item but has no order number.
+      `findRefundFallbackOrder()` matches on retailer + amount + recency
+      today; investigate adding line-item/goods-description as another
+      signal. Needs real investigation, not a quick patch. Slug:
+      `shopbop-goods-based-matching`.
 - [ ] **Gmail deep-link "empty filter" bug — reproducible on mom's account,
       root cause unknown** — owner reproduced hands-on today: clicking the
       deep link from Return Window settings loads Gmail with essentially no
@@ -440,6 +450,23 @@
       becomes noticeable.
 
 ## ✅ Done
+- [ ] **orderDate-fallback Phase 4 backfill** — 6 prod rows matched the
+      pre-gate wrong-fire pattern (fallback fired before 76f4dd6's gate
+      existed, earliest-linked emailType now excluded); not 5 as originally
+      logged from Phase 1. Upway #US8855 excluded — it's the separate
+      `other`-classification bug already tracked in Known Issues, not a gate
+      wrong-fire; verified unchanged post-backfill. 5 backfilled: Mango
+      #F4VLSG00, Moda Operandi #456603272478, Gap Inc. #1R1KXD3, Lola
+      Blankets #1158308, Shopbop (refund, no order number) —
+      `orderDate`/`orderDateEstimated` → null/false, `returnDeadline`/
+      `deadlineIsEstimated` recomputed via real `computeDeadline()` (all
+      cascade to null — no `deliveredAt`/`estimatedDeliveryDate` to anchor
+      on). Silent correction, same test as Caroline's Moda backfill (all 5
+      are return_requested/refunded, no future reminder affected). One-off
+      diagnostic + backfill scripts deleted after use. Full before/after
+      table and reasoning in HISTORY.md — doubles as the excluded-side
+      Phase 2 verification. **Awaiting user verification (Phase 3 eyeball)**
+      — see 🟡 Next.
 - [x] orderDate-fallback Phase 2: `applyFallbackOrderDate` now gates by
       earliest-linked email's emailType. Allowed types (fallback fires):
       `order_confirmation`, `shipping_confirmation`, `delivery`. Excluded
@@ -453,8 +480,10 @@
       `orderDateEstimated: true`, deadline computed correctly. Non-regression
       owner-verified via a fresh J.Crew order_confirmation with extracted
       orderDate — fallback correctly early-returned, working case unchanged.
-      Excluded-side verification deferred to Phase 4 backfill (5 affected
-      prod rows, 0 currently past-deadline) or first natural wild case.
+      Excluded-side verification deferred to Phase 4 backfill — closed
+      2026-07-10: 6 prod rows matched the pre-gate wrong-fire pattern, not 5
+      as originally logged; 1 (Upway #US8855) excluded as a separate
+      `other`-classification bug, 5 backfilled. Full detail in HISTORY.md.
       BUILD.md invariant + Decisions log entry shipped in same commit.
 - [x] Merged memory-system standing habits (`feedback_standing_habits.md`)
       into CLAUDE.md at repo root — repo file now canonical, memory file is

@@ -5,6 +5,57 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-10 — orderDate-fallback Phase 4 backfill: 5 pre-gate wrong-fires corrected, Upway excluded
+
+Closed the excluded-side verification deferred from Phase 2 (`76f4dd6`): backfilled
+the prod rows where `applyFallbackOrderDate` had fired before the gate existed, with
+an earliest-linked emailType now on the excluded list (`return_label`/`refund`/`other`).
+
+Diagnostic-first, read-only pass first: re-querying for the pattern (orderDateEstimated:
+true AND earliest-linked emailType in the excluded set) found **6** rows, not the 5
+logged from Phase 1. The 6th, Upway US #US8855, is the same row already tracked
+separately in Known Issues as an `other`-emailType misclassification — its Decisions-log
+entry says directly: "the 1 anomaly (Upway) is a classification bug tracked separately,
+not a case for gate special-casing." Nulling its `orderDate` would have masked that
+misclassification rather than fixed a gate wrong-fire, so it was excluded and left
+untouched — verified unchanged post-backfill (`orderDate: 2026-07-09T15:48:38.000Z`,
+`orderDateEstimated: true`, `returnDeadline: 2026-07-30T15:48:38.000Z` — identical to
+its pre-backfill state).
+
+The remaining 5 were backfilled — `orderDate` and `orderDateEstimated` → `null`/`false`,
+`returnDeadline` and `deadlineIsEstimated` recomputed via the real `computeDeadline()`
+(not hand-written). None had a `deliveredAt` or `estimatedDeliveryDate` to fall back on,
+so `returnDeadline` cascades to `null` in every case — the current deadlines were
+fabricated from an unrelated return/refund email's `receivedAt`, and no deadline is more
+honest than an invented one.
+
+| Retailer / Order | earliest emailType | orderDate before → after | returnDeadline before → after |
+|---|---|---|---|
+| Mango #F4VLSG00 | return_label | 2026-07-08 → null | 2026-08-07 → null |
+| Moda Operandi #456603272478 | return_label | 2026-07-07 → null | 2026-07-28 → null |
+| Gap Inc. #1R1KXD3 | return_label | 2026-07-08 → null | 2026-08-14 → null |
+| Lola Blankets #1158308 | refund | 2026-07-03 → null | 2026-07-24 → null |
+| Shopbop (no order number) | refund | 2026-07-02 → null | 2026-08-08 → null |
+
+This table is the excluded-side verification Phase 2 deferred — confirms a
+`return_label`/`refund`-first order correctly loses its fabricated `orderDate` rather
+than keeping one, closing the loop opened in the 2026-07-09 entry below.
+
+Silent correction, no user notification — same test applied as Caroline's Moda backfill:
+all 5 orders are `return_requested` (return already shipped) or `refunded` (already
+archived), so losing the deadline affects no future reminder or user action. Re-read
+all 5 rows immediately before writing to confirm none had drifted since the dry-run
+review; none had. One-off diagnostic and backfill scripts both deleted after use per
+project convention.
+
+Surfaced two new 🟡 Next items during this session: a Gap Inc./Old Navy brand-family
+identity question (Gap #1R1KXD3 surfaced under Old Navy — same shape as the Amazon
+first-class-case question), and a Shopbop refund-matching improvement (goods/line-item
+description as a second signal alongside retailer + amount + recency, for refund emails
+with no order number).
+
+---
+
 ## 2026-07-09 — Session close: CLAUDE.md canonicalized, orderDate-fallback gate shipped, Gmail deep-link bug escalated
 
 Closed the drift risk between two overlapping-but-different sources of truth
