@@ -50,15 +50,24 @@
       (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`, confirmed Ready and aliased to
       `app.myreturnwindow.com`) — **awaiting owner browser verification**, not
       Done until hand-verified live.
-- [ ] **Auto-archive after missed window (queued, second commit)** — nightly cron sweep,
-      silent (no email/Reminder/ActionLog row), 14+ days past `returnDeadline`, scoped to
-      `ordered`/`shipped`/`return_requested` (deliberately excludes `returned` — already
-      user-acted, tracked separately by refund check-in). New `lib/autoArchive.ts`
-      (`AUTO_ARCHIVE_GRACE_DAYS`, `autoArchiveCutoff()`, `autoArchiveOrderWhere()`) +
-      one new step in `app/api/cron/route.ts` after the existing hard-delete sweep, no
-      new `vercel.json` cron entry. Separate commit from "Mark kept" — can't be
-      hand-verified until real orders miss their windows, so no reason to bundle it into
-      today's deploy. Report back before deploying.
+- [ ] **Auto-archive after missed window — code complete, not yet pushed.** Nightly
+      cron sweep, silent (no email/Reminder/ActionLog row), 14+ days past
+      `returnDeadline`, scoped to `ordered`/`shipped`/`return_requested` (deliberately
+      excludes `returned` — already user-acted, tracked separately by refund
+      check-in; `refunded`/`kept` never candidates since both already auto-archive on
+      their own manual transitions). `returnDeadline: null` excluded automatically by
+      Prisma's `lte` filter, no explicit guard. New `lib/autoArchive.ts`
+      (`AUTO_ARCHIVE_GRACE_DAYS`, `autoArchiveCutoff()`, `autoArchiveOrderWhere()`,
+      pure/unit-tested) + one new step in `app/api/cron/route.ts` right after the
+      existing hard-delete sweep, `autoArchived` count added to the route's JSON
+      summary, no new `vercel.json` cron entry. 9 new tests
+      (`__tests__/autoArchive.test.ts`, mirrors `archiveDelete.test.ts`'s pattern),
+      221 total passing; `npm run build` clean. Separate commit from "Mark kept" —
+      can't be hand-verified until real orders miss their windows in production, so
+      no reason to bundle it into an earlier deploy. Not yet deployed — this can't
+      be browser-verified at all before real orders age past the grace period;
+      verification here means watching the next scheduled cron run's `autoArchived`
+      count.
 - [ ] **Investigate unexplained extra Vercel production deployments** —
       **stronger evidence 2026-07-09 session close, priority raised.**
       Directly observed in real time: within ~24 seconds of a docs-only

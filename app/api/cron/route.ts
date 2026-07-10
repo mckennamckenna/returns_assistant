@@ -13,6 +13,7 @@ import { notifyAdmin } from "@/lib/adminNotify";
 import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
 import { runRefundCheckinReminders } from "@/lib/refundCheckin";
 import { buildActionLink } from "@/lib/actionLinks";
+import { autoArchiveOrderWhere } from "@/lib/autoArchive";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +126,18 @@ export async function GET(request: NextRequest) {
   const cutoff = hardDeleteCutoff(today);
   const { count: hardDeleted } = await prisma.order.deleteMany({
     where: { deletedAt: { lte: cutoff } },
+  });
+
+  // Silently archive orders whose return window closed AUTO_ARCHIVE_GRACE_DAYS
+  // ago or more with no user action taken — no email, no Reminder row, no
+  // ActionLog row, just archivedAt set (same shape as the manual Archive
+  // action). Runs alongside the hard-delete cleanup step, before reminder
+  // processing — doesn't interact with it either way, since reminderTypeForOrder
+  // only matches exact 7/2/1/0-day thresholds and naturally stops firing on
+  // its own well before this grace period elapses.
+  const { count: autoArchived } = await prisma.order.updateMany({
+    where: autoArchiveOrderWhere(today),
+    data: { archivedAt: new Date() },
   });
 
   // Each order's reminder goes to its own owner now, not a single global
@@ -256,6 +269,7 @@ export async function GET(request: NextRequest) {
     ranAt: today.toISOString(),
     force,
     hardDeleted,
+    autoArchived,
     totalOrders: orders.length,
     sent,
     skippedAlreadySent,

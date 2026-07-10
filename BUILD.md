@@ -592,6 +592,33 @@ this pass.
 - The dashboard main query uses `{ userId, deletedAt: null }` (includes archived so the Archived tab can work), then filters in JS: archived rows are excluded from all views except the explicit "Archived" filter tab.
 - Hard-delete: `HARD_DELETE_DAYS = 30`. Nightly cron runs `prisma.order.deleteMany({ where: { deletedAt: { lte: hardDeleteCutoff(now) } } })` as its first step.
 
+### Auto-archive after missed window (`lib/autoArchive.ts`)
+- **`AUTO_ARCHIVE_GRACE_DAYS = 14`.** Nightly cron (`/api/cron`, piggybacked on the
+  existing daily run, right after the hard-delete step) silently archives orders whose
+  `returnDeadline` is 14+ days in the past with no user action taken — no email, no
+  `Reminder` row, no `ActionLog` row, just `archivedAt` set via `updateMany`, same
+  shape as the manual Archive action but with no per-order write beyond the timestamp.
+- **Scoped to `displayStatus: { in: ["ordered", "shipped", "return_requested"] }`** —
+  deliberately excludes `"returned"`: that means the user already acted (shipped it
+  back), so there's no missed window to sweep, and it's already tracked separately by
+  the refund check-in cron (`lib/refundCheckin.ts`). `"refunded"` and `"kept"` are
+  never candidates either way — both already auto-archive on their own manual
+  transitions, so they never match `activeOrderFilter` (already-archived) by the time
+  this sweep would consider them.
+- `returnDeadline: null` orders are excluded automatically — Prisma's `lte` never
+  matches `null`, so an order with no computed deadline is never touched, no explicit
+  guard needed.
+- `autoArchiveOrderWhere(now)` spreads `activeOrderFilter` (won't re-touch an
+  already-archived/deleted order) — pure, exported, unit-tested without a DB, same
+  convention as `reminderOrderWhere()`/`refundCheckinOrderWhere()`.
+- No interaction with the reminder loop below: `reminderTypeForOrder` only matches
+  exact 7/2/1/0-day thresholds, so reminders for a given order naturally stop firing
+  well before this 14-day grace period elapses — ordering the two cron steps doesn't
+  matter functionally.
+- No audit trail beyond `archivedAt` itself — after the fact, an auto-archived-after-
+  missed-window order is indistinguishable from a manually-archived one (same
+  pre-existing gap as manual archive, not something this feature introduces).
+
 ### Reminders
 - **Deadline reminders:** `7_day` / `2_day` / `1_day` / `same_day`. Deduped by `@@unique([orderId, reminderType])`. Skipped when internal `status` is `completed`/`expired`/`return_started`, or when user-facing `displayStatus` is `returned`/`refunded`/`kept` (`lib/reminders.ts` `isEligibleForReminder()`) — deliberately NOT skipped on `return_requested`, since the window is still open and the package may not have shipped. Query excludes archived/deleted orders via `reminderOrderWhere()` (`lib/orderFilters.ts`).
 - **Weekly digest:** Sundays 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`/`kept`, excludes `archivedAt`/`deletedAt`. Per-user dedup via lookback query (no `orderId` on this row type).
@@ -637,7 +664,7 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 
 | Route | Schedule | Purpose |
 |-------|----------|---------|
-| `/api/cron` | `0 14 * * *` | Daily deadline reminders + hard-delete |
+| `/api/cron` | `0 14 * * *` | Daily deadline reminders + hard-delete + auto-archive missed windows |
 | `/api/cron/weekly-digest` | `0 16 * * 0` | Sunday return-window digest |
 | `/api/cron/weekly-coverage` | `0 16 * * 5` | Friday alpha coverage check (ALPHA_MODE only) |
 
@@ -651,6 +678,7 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 - **`Email.extractionRaw.needsReview` has inconsistent provenance** across old (JS-derived, pre-2026-07-08) and new (AI-set) rows. Nothing currently reads it; if a future consumer needs to distinguish, look at row `createdAt`.
 - **`applyFallbackOrderDate` fires only when the earliest-linked email is `order_confirmation`, `shipping_confirmation`, or `delivery`.** Excluded types (`return_label`, `refund`, `other`) leave `orderDate` null. Rationale: post-purchase-loop emails' `receivedAt` has no defined relationship to the true order date; inventing an anchor from them produces visibly-wrong deadlines (Caroline's Moda, 2026-07-08). `other` is excluded because 14/15 current rows are unlinked marketing; the 1 anomaly is a classification bug tracked separately, not a case for gate special-casing.
 - **`kept` (spec'd and built 2026-07-10) is a one-way terminal `displayStatus`, ranked equal to `returned` rather than above `refunded`**, so it auto-archives atomically and stays reachable only from `ordered`/`shipped`/`return_requested` — same "chapter closed, stop reminders" reasoning as `refunded`'s auto-archive. Unlike `refunded`, its rank tie alone doesn't fully protect it: `deriveDisplayStatus()` needed an explicit early return for `currentDisplayStatus === "kept"`, before the refund-email branch, since that branch is deliberately exempt from the normal downgrade guard and would otherwise let a stray refund email silently overwrite a manual kept decision. Ships with an inline warning caption instead of a blocking confirm dialog (owner decision) and hides once the return window is confirmed past, treating a null deadline as still-open.
+- **Auto-archive after missed window (built 2026-07-10) is scoped to `ordered`/`shipped`/`return_requested` only, deliberately excluding `returned`.** Rationale: `returned` means the user already acted (shipped the item back) — there's no missed window to sweep, and it's already tracked by the refund check-in cron. 14-day grace period (`AUTO_ARCHIVE_GRACE_DAYS`), fully silent (no email, no `Reminder`/`ActionLog` row) — same "a wrong deadline is worse than a missing one"-adjacent judgment call as elsewhere in this codebase: an unactioned order past its window is either quietly kept or genuinely missed, and in both cases continuing to surface it (or remind about it) serves nobody. Piggybacks on the existing daily `/api/cron` run rather than a new scheduled route.
 
 ---
 
