@@ -26,7 +26,7 @@
 ---
 
 ## 🔴 Now
-- [ ] **HTML emails — code complete, not pushed, awaiting review.** Action links
+- [ ] **HTML emails — pushed (`cd786da`), auto-deployed (`dpl_9WzYq7iHfsir6yScZjjQTSC4xAtK`).** Action links
       (Archive, Mark as returned, View details) now render as real `<a>` tags with
       short readable copy instead of raw URLs, across all three link-bearing
       emails: deadline reminder (`app/api/cron/route.ts`'s new `buildHtmlBody()`),
@@ -45,9 +45,9 @@
       Known Issues note below. **Not verified: actual rendering in a real email
       client** — same limitation as every prior email/UI change this session
       (no way to preview Postmark's rendered HTML without sending a real email);
-      needs a hands-on check once deployed.
-- [ ] **"Mark returned" signed-token email action — code complete, not pushed,
-      awaiting review.** Second one-tap action after Archive, following its exact
+      needs a hands-on check now that it's deployed.
+- [ ] **"Mark returned" signed-token email action — pushed (`ae360be`),
+      auto-deployed same run as HTML emails above.** Second one-tap action after Archive, following its exact
       pattern end-to-end: `"returned"` action string (already anticipated in
       `TokenRedemption.action`'s schema comment, no migration needed);
       `buildActionLink({..., action: "returned"})`, zero changes to
@@ -70,8 +70,10 @@
       same token → `already_used`) — this project doesn't unit-test DB-touching
       code, and Archive's single-use behavior was itself only ever verified live in
       production with disposable test orders. Mark returned needs the same
-      hands-on check once deployed. **Did NOT build "Mark refunded"** — next,
-      separately, per instruction. Not pushed — awaiting review before push/deploy.
+      hands-on check now that it's deployed — including a live check that the
+      "Mark as returned" link in the reminder sent earlier today (before this
+      deploy) now resolves instead of 404ing. **Did NOT build "Mark refunded"** —
+      next, separately, per instruction.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
