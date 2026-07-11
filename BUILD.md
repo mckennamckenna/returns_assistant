@@ -41,19 +41,25 @@ that can plausibly mean "this order is done" should be checked against both the 
 cron and the refund check-in query before it ships — a state that's silently excluded
 from one but not the other is exactly the bug class this section exists to prevent.
 
-**One-tap-from-email is live for Archive** (Section A of the one-tap-from-email spec,
-2026-07-04) — this is no longer just a design document, it's real infrastructure with
-one real action built on it. `lib/actionToken.ts` (signed, single-use, 14-day tokens),
-`TokenRedemption`/`ActionLog` (audit + single-use enforcement), `POST
-/api/action/archive` (redemption endpoint), `app/action/archive/page.tsx` +
-`app/action/archive/done/page.tsx` (confirmation + failure-mode pages), and the
-Archive link embedded directly in reminder and Sunday digest emails (`lib/
-actionLinks.ts`'s `buildActionLink()`, called from both `app/api/cron/route.ts` and
-`app/api/cron/weekly-digest/route.ts`) are all deployed and owner-verified in
-production. The infrastructure is deliberately generic — every other spec'd action
-(Mark returned, Mark refunded, Mark kept, Unarchive) is the same shape (one
-redemption endpoint + one confirmation page) and needs no new token/audit
-infrastructure, but none of them are built yet. See TASKS.md 🟡 Next.
+**One-tap-from-email is live for Archive and Mark returned** (Section A of the
+one-tap-from-email spec, 2026-07-04; Mark returned added 2026-07-10) — this is no
+longer just a design document, it's real infrastructure with two real actions built
+on it, proving out the "deliberately generic" claim below. `lib/actionToken.ts`
+(signed, single-use, 14-day tokens), `TokenRedemption`/`ActionLog` (audit +
+single-use enforcement), `POST /api/action/archive` + `POST /api/action/returned`
+(redemption endpoints), `app/action/archive/*` + `app/action/returned/*`
+(confirmation + failure-mode + done pages), and both links embedded directly in
+reminder and Sunday digest emails (`lib/actionLinks.ts`'s `buildActionLink()`,
+called from both `app/api/cron/route.ts` and `app/api/cron/weekly-digest/route.ts`)
+— Archive is deployed and owner-verified in production; Mark returned is built,
+tested, and pending deploy (not yet pushed as of this entry — see TASKS.md 🔴 Now).
+The infrastructure needed genuinely zero changes for the second action —
+`lib/actionToken.ts`/`lib/actionLinks.ts` untouched, confirming the "generic" design
+claim rather than just asserting it. Every remaining spec'd action (Mark refunded,
+Mark kept, Unarchive) is the same shape (one redemption endpoint + one confirmation
+page) and needs no new token/audit infrastructure either. See TASKS.md 🟡 Next.
+**Do not build Mark refunded in the same session as this entry — deliberately
+sequenced one action at a time.**
 
 ---
 
@@ -250,7 +256,7 @@ model Reminder {
 }
 ```
 
-### TokenRedemption (one-tap-from-email — live for Archive)
+### TokenRedemption (one-tap-from-email — live for Archive, Mark returned)
 
 ```prisma
 model TokenRedemption {
@@ -262,7 +268,7 @@ model TokenRedemption {
 }
 ```
 
-### ActionLog (one-tap-from-email — live for Archive)
+### ActionLog (one-tap-from-email — live for Archive, Mark returned)
 
 ```prisma
 model ActionLog {
@@ -360,7 +366,7 @@ These apply to every code path, at every milestone.
 
 ---
 
-## Signed action token invariants (one-tap-from-email — live for Archive)
+## Signed action token invariants (one-tap-from-email — live for Archive, Mark returned)
 
 These govern `TOKEN_SIGNING_SECRET` and the signed-token system built across Phases
 1–5 (Archive-from-email slice, shipped 2026-07-06/07 — see HISTORY.md). Originally
@@ -383,12 +389,13 @@ the moment the secret is generated, not just once the token endpoints ship.
   token failures during the tail. A two-secret system that supports rotation without
   breaking outstanding tokens is out of scope for the initial build but noted as
   future work if rotation becomes routine.
-  (Note, 2026-07-10: this bullet still overstates current state — only Archive is
-  actually live as a one-tap *email* action today. "Return"/"Refund"/"Kept" here were
-  written aspirationally; `kept` shipped as a dashboard-only manual status this same
-  day (see `kept` status below), but its email one-tap action is still unbuilt, same
-  as Return and Refund's. Not fixed here since correcting the wording is unrelated to
-  this pass's actual change.)
+  (Note, 2026-07-10: this bullet is now half-accurate — Archive and Return (as
+  "Mark returned") are both actually live as one-tap *email* actions as of this same
+  day. "Refund"/"Kept" here are still aspirational: `kept` shipped as a
+  dashboard-only manual status earlier this day (see `kept` status below), but its
+  email one-tap action is unbuilt, same as Refund's — deliberately not built in the
+  same session as Mark returned, one action at a time. Not fully rewritten here since
+  correcting the wording is unrelated to this pass's actual change.)
 - **Rollback plan:** the initial build has no master-invalidate mechanism for
   outstanding tokens. Any code change after Phase 5 ships must stay backwards-compatible
   with previously-issued tokens (the same signature/payload shape, or a versioned
@@ -474,12 +481,65 @@ The no-buffer rule for order-date-anchored policies is intentional and was a rea
 - **Refund emails branch by confirmed amount (Bugs 9+10+11, supersedes the original "refunded is never auto-derived" rule):** retailer refund emails are frequently vague ("we're processing your refund") without confirming the money actually moved back — catching exactly that ambiguity is the product's job, so a `refund` email doesn't uniformly mean the same thing. `deriveDisplayStatus(emailTypes, currentDisplayStatus, hasConfirmedRefundAmount)` — a confirmed amount (`Email.refundAmount` non-null with `refundAmountConfidence !== "low"`, see Extraction above) advances straight to `"refunded"`; no confirmed amount advances only to `"returned"`. This check runs *before* the return_requested-or-higher early-return that gates the rest of the ladder — the final rank comparison (not the early-return) is what still protects against downgrade in both branches.
   - Confirmed amount → `"refunded"`: chapter closed, auto-archives, no further reminders.
   - No confirmed amount → `"returned"`: **not** archived, so the existing refund check-in reminder (cron-driven off `displayStatus === "returned"`, see Reminders below) naturally nudges the user later to verify the money actually landed. No separate "scheduling" step needed — the cron's own query already covers it once the order lands here.
-- `PATCH /api/orders/:id/status` accepts `return_requested`/`returned`/`refunded`. Rejects backwards movement (400). Sets `returnedAt` on the first transition to `"returned"`.
+- `PATCH /api/orders/:id/status` accepts `return_requested`/`returned`/`refunded`/`kept`. Rejects backwards movement (400). Sets `returnedAt` on the first transition to `"returned"`.
 - `advanceDisplayStatus()` in `app/actions.ts` also sets `returnedAt` when advancing to `"returned"` for the first time.
-- Both of the above, and `recomputeDisplayStatus()` in `lib/linkOrder.ts` (the auto-derivation path), build their `prisma.order.update()` data via the shared `buildStatusTransitionData()` (`lib/displayStatus.ts`), so all three implementations of the same transition contract can't drift apart.
+- `POST /api/action/returned` (one-tap-from-email, 2026-07-10 — see below) is a fourth caller with its own gate (`lib/returnedAction.ts`'s `decideReturnedOutcome`, rank-based rather than the dashboard's downgrade-rejection HTTP error, since a stale/superseded email link should degrade gracefully to "no longer available" rather than surface a 400).
+- All of the above, and `recomputeDisplayStatus()` in `lib/linkOrder.ts` (the auto-derivation path), build their `prisma.order.update()` data via the shared `buildStatusTransitionData()` (`lib/displayStatus.ts`), so none of these implementations of the same transition contract can drift apart.
 - **Refunded auto-archives, atomically:** transitioning to `"refunded"` sets `archivedAt = now()` in the *same* `update()` call as `displayStatus` — refunded is "chapter closed," same as a manual archive. If the order is already archived, `archivedAt` is left untouched (not overwritten). Unarchiving a refunded order does not reverse `displayStatus` — refunded stays one-way; archive is just visibility.
 - **`returnedAt` backfills on the direct-to-refunded jump too:** the two manual endpoints always gate `"refunded"` behind an existing `"returned"` status, so `returnedAt` is already set by the time they call `buildStatusTransitionData()`. But an auto-derived confirmed-amount refund can reach `"refunded"` directly from an earlier status without ever passing through `"returned"` — `buildStatusTransitionData()` backfills `returnedAt` on arrival at `"refunded"` too, not just `"returned"`, so it's never left null for these orders.
 - **Confirm gate:** the dashboard/detail-page "Mark as refunded" button (`app/MarkRefundedButton.tsx`) shows a native `window.confirm()` with teaching copy before submitting — refunded is irreversible in the UI and has the archiving side effect, both surprising enough to warrant explanation, not just "are you sure?". `requiresConfirmBeforeStatusChange()` gates only `"refunded"` — `"return_requested"` and `"returned"` stay frictionless.
+
+### Mark returned — LIVE (one-tap-from-email, `lib/returnedAction.ts` + `lib/returnedPageState.ts`)
+
+Second one-tap-from-email action after Archive, built 2026-07-10 following its exact
+pattern end-to-end. Confirms the "deliberately generic" token infrastructure claim —
+`lib/actionToken.ts` and `lib/actionLinks.ts` needed zero changes to support a second
+action string.
+
+- `buildActionLink({orderId, userId, action: "returned"})` embeds a link to
+  `/action/returned?token=...` in both reminder emails (`app/api/cron/route.ts`) and
+  the weekly digest (`app/api/cron/weekly-digest/route.ts`), same placement pattern as
+  the Archive link (`"Already shipped it back? Mark as returned: ..."`, right before
+  the Archive line).
+- `app/action/returned/page.tsx` (GET, read-only confirm page) and
+  `POST /api/action/returned` (`app/api/action/returned/route.ts`) mirror
+  `app/action/archive/page.tsx`/`POST /api/action/archive` structurally line-for-line
+  — same CSRF derivation, same `TokenRedemption`-first transaction ordering for
+  atomic single-use enforcement, same P2002-catch → `already_used` path, same
+  Post/Redirect/Get 303 flow to `app/action/returned/done/page.tsx`.
+- **The one real difference from Archive: the gate isn't idempotent, it's rank-based.**
+  Archive is a boolean flag — re-archiving an already-archived order is a harmless
+  no-op treated as `"success"`. "Returned" is a forward-only ladder position, same as
+  every other manual `displayStatus` transition, so `lib/returnedAction.ts`'s
+  `decideReturnedOutcome()` reuses the same `DISPLAY_STATUS_RANK` comparison the
+  dashboard buttons and `PATCH /api/orders/:id/status` already use: valid only when
+  `currentRank < DISPLAY_STATUS_RANK.returned` (i.e. from `ordered`/`shipped`/
+  `return_requested`). If the order already reached `returned`, `refunded`, or `kept`
+  by the time the link is clicked — the user closed the loop from the dashboard, or a
+  confirmed-amount refund email auto-advanced it, or (once built) a `kept` decision
+  was made — the transition is rejected. Reported as `order_state_changed` (reusing
+  Archive's existing outcome, not a new "already_returned" state), on the reasoning
+  that "this token's assumption about the order no longer holds" already covers it;
+  the same choice is made in `lib/returnedPageState.ts`'s `decideReturnedPageState()`
+  for the pre-POST confirm-vs-dead-end page decision.
+- On success, the endpoint calls the same `buildStatusTransitionData("returned", ...)`
+  every other write path uses (see displayStatus above) — sets `returnedAt` once, on
+  first arrival, identically to the dashboard buttons. No `archivedAt` change:
+  `"returned"` alone never auto-archives, only `"refunded"`/`"kept"` do.
+- 27 new tests across `returnedAction.test.ts`, `returnedPageState.test.ts`, and
+  extensions to `cron.test.ts`/`weekly-digest.test.ts` for the new email link —
+  covering the status gate (ordered/shipped/return_requested succeed;
+  returned/refunded/kept are rejected), invalid (userId mismatch), and the
+  action-scoping invariant (a `"returned"` token must not verify as `"archive"`, and
+  vice versa). **Not independently unit-tested, matching Archive's own precedent:**
+  the actual DB-level single-use enforcement (second POST of the same token →
+  `already_used`) — this project's convention is DB-touching code isn't unit-tested,
+  only the decision logic it calls is, and Archive's own single-use behavior was
+  verified live in production with disposable test orders (see HISTORY.md), not a
+  unit test. Mark returned needs the same hands-on verification once deployed.
+- **Deliberately not built in this pass:** Mark refunded (next, separately — one
+  action at a time) and Mark kept's email one-tap action (dashboard-only for now,
+  per its own spec).
 
 ### `kept` status — LIVE (`lib/displayStatus.ts`)
 
@@ -679,6 +739,7 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 - **`applyFallbackOrderDate` fires only when the earliest-linked email is `order_confirmation`, `shipping_confirmation`, or `delivery`.** Excluded types (`return_label`, `refund`, `other`) leave `orderDate` null. Rationale: post-purchase-loop emails' `receivedAt` has no defined relationship to the true order date; inventing an anchor from them produces visibly-wrong deadlines (Caroline's Moda, 2026-07-08). `other` is excluded because 14/15 current rows are unlinked marketing; the 1 anomaly is a classification bug tracked separately, not a case for gate special-casing.
 - **`kept` (spec'd and built 2026-07-10) is a one-way terminal `displayStatus`, ranked equal to `returned` rather than above `refunded`**, so it auto-archives atomically and stays reachable only from `ordered`/`shipped`/`return_requested` — same "chapter closed, stop reminders" reasoning as `refunded`'s auto-archive. Unlike `refunded`, its rank tie alone doesn't fully protect it: `deriveDisplayStatus()` needed an explicit early return for `currentDisplayStatus === "kept"`, before the refund-email branch, since that branch is deliberately exempt from the normal downgrade guard and would otherwise let a stray refund email silently overwrite a manual kept decision. Ships with an inline warning caption instead of a blocking confirm dialog (owner decision) and hides once the return window is confirmed past, treating a null deadline as still-open.
 - **Auto-archive after missed window (built 2026-07-10) is scoped to `ordered`/`shipped`/`return_requested` only, deliberately excluding `returned`.** Rationale: `returned` means the user already acted (shipped the item back) — there's no missed window to sweep, and it's already tracked by the refund check-in cron. 14-day grace period (`AUTO_ARCHIVE_GRACE_DAYS`), fully silent (no email, no `Reminder`/`ActionLog` row) — same "a wrong deadline is worse than a missing one"-adjacent judgment call as elsewhere in this codebase: an unactioned order past its window is either quietly kept or genuinely missed, and in both cases continuing to surface it (or remind about it) serves nobody. Piggybacks on the existing daily `/api/cron` run rather than a new scheduled route.
+- **Mark returned (built 2026-07-10) is the second one-tap-from-email action, proving the token infrastructure is actually generic rather than Archive-specific** — `lib/actionToken.ts`/`lib/actionLinks.ts` needed zero changes. Its one departure from Archive's pattern: the gate is rank-based (`DISPLAY_STATUS_RANK`), not idempotent, because "returned" is a forward-only ladder position rather than a boolean flag — an order already at `returned`/`refunded`/`kept` rejects the transition (reported as `order_state_changed`, reusing Archive's existing outcome rather than inventing a new one) instead of silently no-op-succeeding. Built and reviewed one action at a time, deliberately — Mark refunded is next, not bundled into this pass.
 
 ---
 

@@ -26,6 +26,32 @@
 ---
 
 ## 🔴 Now
+- [ ] **"Mark returned" signed-token email action — code complete, not pushed,
+      awaiting review.** Second one-tap action after Archive, following its exact
+      pattern end-to-end: `"returned"` action string (already anticipated in
+      `TokenRedemption.action`'s schema comment, no migration needed);
+      `buildActionLink({..., action: "returned"})`, zero changes to
+      `lib/actionLinks.ts`/`lib/actionToken.ts` (both already fully generic on
+      action string — this is the proof they actually are); `app/action/returned/page.tsx`
+      (confirm page) + `app/api/action/returned/route.ts` (POST endpoint, single
+      transaction: `TokenRedemption` create enforces single-use, `Order.update` via
+      existing `buildStatusTransitionData("returned", ...)`, `ActionLog` create, 303
+      redirect) + `app/action/returned/done/page.tsx`. Gate: only valid when current
+      `displayStatus` rank is below `returned` (rejects if already
+      returned/refunded/kept, reported as `order_state_changed`) — new
+      `lib/returnedAction.ts`/`returnedPageState.ts` pure decision logic, mirroring
+      `lib/archiveAction.ts`/`archivePageState.ts` exactly except for this one
+      rank-based-vs-idempotent difference. Link added to reminder emails and weekly
+      digest, same placement as Archive (`"Already shipped it back? Mark as
+      returned: ..."`, right before the Archive line). 27 new tests (status gate,
+      invalid/userId-mismatch, action-scoping cross-check), 248 total passing;
+      `npm run build` clean. **Not covered by any test, matching Archive's own
+      precedent:** the actual DB-level single-use enforcement (second POST of the
+      same token → `already_used`) — this project doesn't unit-test DB-touching
+      code, and Archive's single-use behavior was itself only ever verified live in
+      production with disposable test orders. Mark returned needs the same
+      hands-on check once deployed. **Did NOT build "Mark refunded"** — next,
+      separately, per instruction. Not pushed — awaiting review before push/deploy.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
@@ -50,7 +76,7 @@
       (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`, confirmed Ready and aliased to
       `app.myreturnwindow.com`) — **awaiting owner browser verification**, not
       Done until hand-verified live.
-- [ ] **Auto-archive after missed window — code complete, not yet pushed.** Nightly
+- [ ] **Auto-archive after missed window — pushed (`a7af7df`), auto-deployed.** Nightly
       cron sweep, silent (no email/Reminder/ActionLog row), 14+ days past
       `returnDeadline`, scoped to `ordered`/`shipped`/`return_requested` (deliberately
       excludes `returned` — already user-acted, tracked separately by refund

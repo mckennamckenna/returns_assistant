@@ -77,6 +77,7 @@ export function buildBody(
   const orderRef = order.orderNumber ? ` (order ${order.orderNumber})` : "";
   const deadline = `${formatDate(order.returnDeadline)}${order.deadlineIsEstimated ? " (estimated)" : ""}`;
   const total = formatCurrency(order.orderTotal, order.orderCurrency);
+  const returnedLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "returned" });
   const archiveLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "archive" });
 
   return [
@@ -87,6 +88,7 @@ export function buildBody(
     total ? `Order total: ${total}` : null,
     "",
     `View details: ${APP_URL}/orders/${order.id}`,
+    `Already shipped it back? Mark as returned: ${returnedLink}`,
     `Archive this order (stops all reminders): ${archiveLink}`,
     "",
     "— Return Window",

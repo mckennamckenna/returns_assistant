@@ -45,9 +45,10 @@ export function buildOrderLine(order: DigestOrder, now: Date, userId: string): s
   const timeLeft = days <= 0 ? "due today" : `due in ${daysLabel(days)}`;
   const status = DISPLAY_STATUS_LABELS[order.displayStatus] ?? order.displayStatus;
   const link = `${APP_URL}/orders/${order.id}`;
+  const returnedLink = buildActionLink({ orderId: order.id, userId, action: "returned" });
   const archiveLink = buildActionLink({ orderId: order.id, userId, action: "archive" });
 
-  return `${retailer}${orderRef} — ${status} — ${deadline} (${timeLeft})\n${link}\nArchive this order (stops all reminders): ${archiveLink}`;
+  return `${retailer}${orderRef} — ${status} — ${deadline} (${timeLeft})\n${link}\nAlready shipped it back? Mark as returned: ${returnedLink}\nArchive this order (stops all reminders): ${archiveLink}`;
 }
 
 export function buildBody(orders: DigestOrder[], now: Date, userId: string): string {

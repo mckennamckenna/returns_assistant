@@ -52,3 +52,39 @@ describe("weekly digest buildOrderLine / buildBody — Archive link (Phase 5)", 
     expect(body).toContain("Nothing due this week");
   });
 });
+
+describe("weekly digest buildOrderLine / buildBody — Mark as returned link", () => {
+  it("buildOrderLine includes a Mark-as-returned link that verifies for this order's id and userId", () => {
+    const line = buildOrderLine(ORDER, new Date("2026-07-13T00:00:00Z"), "user_1");
+
+    expect(line).toContain("Already shipped it back? Mark as returned: https://app.myreturnwindow.com/action/returned?token=");
+
+    const match = line.match(/action\/returned\?token=([^\s]+)/);
+    expect(match).not.toBeNull();
+    const token = decodeURIComponent(match![1]);
+
+    const result = verifyToken(token, { action: "returned" });
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.payload.orderId).toBe("order_1");
+      expect(result.payload.userId).toBe("user_1");
+    }
+  });
+
+  it("buildBody threads userId through to each order's Mark-as-returned link", () => {
+    const body = buildBody([ORDER], new Date("2026-07-13T00:00:00Z"), "user_1");
+    const match = body.match(/action\/returned\?token=([^\s]+)/);
+    expect(match).not.toBeNull();
+
+    const token = decodeURIComponent(match![1]);
+    const result = verifyToken(token, { action: "returned" });
+    expect(result.valid).toBe(true);
+    if (result.valid) expect(result.payload.userId).toBe("user_1");
+  });
+
+  it("the zero-orders fallback body has no Mark-as-returned link (nothing to mark)", () => {
+    const body = buildBody([], new Date("2026-07-13T00:00:00Z"), "user_1");
+    expect(body).not.toContain("action/returned");
+    expect(body).toContain("Nothing due this week");
+  });
+});
