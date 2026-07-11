@@ -5,6 +5,7 @@ import { notifyAdmin } from "@/lib/adminNotify";
 import { DISPLAY_STATUS_LABELS } from "@/lib/displayStatus";
 import { activeOrderFilter } from "@/lib/orderFilters";
 import { buildActionLink } from "@/lib/actionLinks";
+import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,39 @@ export function buildBody(orders: DigestOrder[], now: Date, userId: string): str
 ${lines.join("\n\n")}
 
 — Return Window`;
+}
+
+// HTML counterpart of buildOrderLine — same content, real <a> links instead
+// of raw URLs.
+export function buildOrderLineHtml(order: DigestOrder, now: Date, userId: string): string {
+  const retailer = order.retailer || "Unknown retailer";
+  const orderRef = order.orderNumber ? ` #${order.orderNumber}` : "";
+  const deadline = formatDate(order.returnDeadline);
+  const days = daysFromNow(order.returnDeadline, new Date(now));
+  const timeLeft = days <= 0 ? "due today" : `due in ${daysLabel(days)}`;
+  const status = DISPLAY_STATUS_LABELS[order.displayStatus] ?? order.displayStatus;
+  const link = `${APP_URL}/orders/${order.id}`;
+  const returnedLink = buildActionLink({ orderId: order.id, userId, action: "returned" });
+  const archiveLink = buildActionLink({ orderId: order.id, userId, action: "archive" });
+
+  return `<div style="margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #e7e5e4;">
+    <p style="margin:0 0 4px;font-weight:600;">${escapeHtml(retailer)}${escapeHtml(orderRef)}</p>
+    <p style="margin:0 0 12px;color:#78716c;font-size:14px;">${escapeHtml(status)} — ${escapeHtml(deadline)} (${escapeHtml(timeLeft)})</p>
+    <p style="margin:0 0 6px;">${htmlLink(link, "View order details")}</p>
+    <p style="margin:0 0 6px;">${htmlLink(returnedLink, "Already shipped it back? Mark as returned →")}</p>
+    <p style="margin:0;">${htmlLink(archiveLink, "Archive this order")} <span style="color:#78716c;font-size:13px;">(stops all reminders)</span></p>
+  </div>`;
+}
+
+// HTML counterpart of buildBody — sent alongside the plain text, never in
+// place of it.
+export function buildBodyHtml(orders: DigestOrder[], now: Date, userId: string): string {
+  if (orders.length === 0) {
+    return wrapEmailHtml(`<p>Nothing due this week — you're all caught up.</p>`);
+  }
+
+  const lines = orders.map((o) => buildOrderLineHtml(o, now, userId)).join("\n");
+  return wrapEmailHtml(`<p style="margin:0 0 20px;">Here's what's due in your return windows this week:</p>\n${lines}`);
 }
 
 function isAuthorized(request: NextRequest): boolean {
@@ -134,11 +168,13 @@ export async function GET(request: NextRequest) {
       const orders: DigestOrder[] = rawOrders.filter((o) => o.returnDeadline != null) as DigestOrder[];
 
       const body = buildBody(orders, now, user.id);
+      const htmlBody = buildBodyHtml(orders, now, user.id);
       await sendEmail({
         to: user.email,
         from: fromEmail,
         subject: "🗓 What's due this week from Return Window",
         textBody: body,
+        htmlBody,
       });
       await prisma.reminder.create({ data: { userId: user.id, reminderType: REMINDER_TYPE } });
 

@@ -26,6 +26,26 @@
 ---
 
 ## 🔴 Now
+- [ ] **HTML emails — code complete, not pushed, awaiting review.** Action links
+      (Archive, Mark as returned, View details) now render as real `<a>` tags with
+      short readable copy instead of raw URLs, across all three link-bearing
+      emails: deadline reminder (`app/api/cron/route.ts`'s new `buildHtmlBody()`),
+      weekly digest (`weekly-digest/route.ts`'s new `buildOrderLineHtml()`/
+      `buildBodyHtml()`), refund check-in (`lib/refundCheckin.ts`'s new
+      `buildRefundCheckinHtmlBody()`). New infra, since none existed:
+      `lib/postmark.ts`'s `sendEmail()` gains an optional `htmlBody` param (always
+      sent alongside `TextBody`, never replacing it); new `lib/emailHtml.ts`
+      (`escapeHtml()`, `htmlLink()`, `wrapEmailHtml()`) shared by all three.
+      Copy: "View order details", "Already shipped it back? Mark as returned →",
+      "Archive this order" (reminder + digest); refund check-in gets its own "View
+      order details" link. 23 new tests (link text/href assertions, HTML-escaping
+      of retailer names, token verification out of the rendered `href`), 271 total
+      passing; `npm run build` clean. Item 2 from the same request (coverage-check
+      email scope) investigated and confirmed already correct — no fix needed, see
+      Known Issues note below. **Not verified: actual rendering in a real email
+      client** — same limitation as every prior email/UI change this session
+      (no way to preview Postmark's rendered HTML without sending a real email);
+      needs a hands-on check once deployed.
 - [ ] **"Mark returned" signed-token email action — code complete, not pushed,
       awaiting review.** Second one-tap action after Archive, following its exact
       pattern end-to-end: `"returned"` action string (already anticipated in
@@ -719,6 +739,18 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **RESOLVED, not a bug:** ~~coverage-check email showing entire order history
+  instead of "this week"~~ — `app/api/cron/weekly-coverage/route.ts` already
+  filters `Email.receivedAt >= now - 7 days` and has since Milestone 16
+  (`0f80ee5`). Read-only check against real data (2026-07-10): the filter
+  narrows results for most users (owner: 49 emails → 19 within window,
+  Caroline: 8 → 6, others → 0), but two alpha accounts (jsweazey,
+  kathleensweazey) have 100% of their data within the last 7 days simply
+  because their accounts are only ~2 days old — so a coverage email for either
+  of them legitimately shows "everything," coincidentally, not because the
+  filter is missing. Leaving this entry as a record so it isn't
+  re-investigated; if a genuinely-old order shows up in a future coverage
+  email, that's a different bug, not this one.
 - **Dashboard visual polish: archive column overflow** — surfaced today by
   owner. Archive column falls off the visible page area on the main
   dashboard. Layout needs a cleanup pass. Not urgent but real UX friction.

@@ -10,6 +10,7 @@ import {
   refundCheckinSendAfter,
   refundCheckinOrderWhere,
   buildRefundCheckinBody,
+  buildRefundCheckinHtmlBody,
   REFUND_CHECKIN_REMINDER_TYPE,
 } from "../lib/refundCheckin";
 
@@ -115,5 +116,38 @@ describe("buildRefundCheckinBody", () => {
   it("includes the order detail link", () => {
     const body = buildRefundCheckinBody(base);
     expect(body).toContain("https://app.myreturnwindow.com/orders/order-abc");
+  });
+});
+
+// ── HTML body builder ────────────────────────────────────────────────────────
+
+describe("buildRefundCheckinHtmlBody", () => {
+  const base = {
+    retailer: "Shopbop",
+    lineItems: [{ name: "Ulla Johnson Dress", price: 295, quantity: 1 }],
+    returnedAt: new Date("2026-07-01T12:00:00.000Z"),
+    id: "order-abc",
+  };
+
+  it("renders the order link as a real <a> tag with the exact requested short copy, no visible raw URL", () => {
+    const html = buildRefundCheckinHtmlBody(base);
+    expect(html).toContain('<a href="https://app.myreturnwindow.com/orders/order-abc"');
+    expect(html).toContain(">View order details</a>");
+  });
+
+  it("includes the retailer and item name when lineItems is set", () => {
+    const html = buildRefundCheckinHtmlBody(base);
+    expect(html).toContain("Shopbop / Ulla Johnson Dress");
+  });
+
+  it("escapes an HTML-unsafe retailer name instead of breaking the markup", () => {
+    const html = buildRefundCheckinHtmlBody({ ...base, retailer: `Sam's <Club> & Co`, lineItems: [] });
+    expect(html).toContain("Sam&#39;s &lt;Club&gt; &amp; Co");
+    expect(html).not.toContain("Sam's <Club> & Co");
+  });
+
+  it("falls back to 'Your order' when retailer is null", () => {
+    const html = buildRefundCheckinHtmlBody({ ...base, retailer: null });
+    expect(html).toContain("Your order");
   });
 });

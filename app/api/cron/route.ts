@@ -14,6 +14,7 @@ import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
 import { runRefundCheckinReminders } from "@/lib/refundCheckin";
 import { buildActionLink } from "@/lib/actionLinks";
 import { autoArchiveOrderWhere } from "@/lib/autoArchive";
+import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,37 @@ export function buildBody(
   ]
     .filter((line) => line !== null)
     .join("\n");
+}
+
+// HTML counterpart of buildBody — same content, real <a> links instead of
+// raw URLs. Sent alongside buildBody's plain text, never in place of it.
+export function buildHtmlBody(
+  order: { id: string; retailer: string | null; orderNumber: string | null; returnDeadline: Date; deadlineIsEstimated: boolean; orderTotal: number | null; orderCurrency: string | null; userId: string },
+  reminderType: ReminderType,
+): string {
+  const retailer = order.retailer || "your order";
+  const orderRef = order.orderNumber ? ` (order ${order.orderNumber})` : "";
+  const deadline = `${formatDate(order.returnDeadline)}${order.deadlineIsEstimated ? " (estimated)" : ""}`;
+  const total = formatCurrency(order.orderTotal, order.orderCurrency);
+  const returnedLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "returned" });
+  const archiveLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "archive" });
+  const detailsLink = `${APP_URL}/orders/${order.id}`;
+
+  const parts = [
+    `<p style="margin:0 0 16px;">Your return window for ${escapeHtml(retailer)}${escapeHtml(orderRef)} ${escapeHtml(CLOSES_PHRASE[reminderType])}.</p>`,
+    `<p style="margin:0 0 4px;">Return deadline: ${escapeHtml(deadline)}</p>`,
+    order.deadlineIsEstimated
+      ? `<p style="margin:0 0 16px;color:#78716c;font-size:13px;">Deadline based on shipping estimate — may shift with delivery.</p>`
+      : null,
+    total ? `<p style="margin:0 0 16px;">Order total: ${escapeHtml(total)}</p>` : null,
+    `<p style="margin:0 0 8px;">${htmlLink(detailsLink, "View order details")}</p>`,
+    `<p style="margin:0 0 8px;">${htmlLink(returnedLink, "Already shipped it back? Mark as returned →")}</p>`,
+    `<p style="margin:0;">${htmlLink(archiveLink, "Archive this order")} <span style="color:#78716c;font-size:13px;">(stops all reminders)</span></p>`,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+
+  return wrapEmailHtml(parts);
 }
 
 function isAuthorized(request: NextRequest): boolean {
@@ -219,21 +251,20 @@ export async function GET(request: NextRequest) {
     // shouldn't block reminders for every other order in this run.
     try {
       const subject = buildSubject(reminderType, order.retailer, order.orderTotal, order.orderCurrency);
-      const body = buildBody(
-        {
-          id: order.id,
-          retailer: order.retailer,
-          orderNumber: order.orderNumber,
-          returnDeadline: order.returnDeadline,
-          deadlineIsEstimated: order.deadlineIsEstimated,
-          orderTotal: order.orderTotal,
-          orderCurrency: order.orderCurrency,
-          userId: order.userId,
-        },
-        reminderType,
-      );
+      const orderForBody = {
+        id: order.id,
+        retailer: order.retailer,
+        orderNumber: order.orderNumber,
+        returnDeadline: order.returnDeadline,
+        deadlineIsEstimated: order.deadlineIsEstimated,
+        orderTotal: order.orderTotal,
+        orderCurrency: order.orderCurrency,
+        userId: order.userId,
+      };
+      const body = buildBody(orderForBody, reminderType);
+      const htmlBody = buildHtmlBody(orderForBody, reminderType);
 
-      await sendEmail({ to: order.user.email, from: fromEmail, subject, textBody: body });
+      await sendEmail({ to: order.user.email, from: fromEmail, subject, textBody: body, htmlBody });
       await prisma.reminder.create({ data: { orderId: order.id, userId: order.userId, reminderType } });
 
       sent.push({

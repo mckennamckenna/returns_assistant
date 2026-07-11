@@ -686,6 +686,28 @@ this pass.
 - **Refund check-in:** 5 days after `returnedAt` when `returnTrackingNumber` is set; 10 days otherwise. Deduped by `@@unique([orderId, "refund_checkin"])`. Excludes archived/deleted. `refundCheckinOrderWhere()` (`lib/refundCheckin.ts`) requires `displayStatus: "returned"` exactly — once an order transitions to `"refunded"` it no longer matches this query at all, independent of archive state. Auto-archiving a refunded order is a second, redundant layer of exclusion here (via `activeOrderFilter`), not the mechanism that suppresses it — the `displayStatus` mismatch alone already does that.
 - All sends go to `order.user.email`. No global `REMINDER_EMAIL` anywhere in active code.
 
+### HTML emails (`lib/emailHtml.ts`) — LIVE across all three link-bearing emails
+- Every outbound email that carries a link sends **both** `TextBody` and `HtmlBody`
+  (`lib/postmark.ts`'s `sendEmail()` — `htmlBody` is optional and additive, never a
+  replacement for the plain-text body). Built 2026-07-10, replacing raw URLs
+  pasted into plain text with real `<a>` tags across the deadline reminder
+  (`app/api/cron/route.ts`'s `buildHtmlBody()`), the weekly digest
+  (`app/api/cron/weekly-digest/route.ts`'s `buildOrderLineHtml()`/`buildBodyHtml()`),
+  and the refund check-in (`lib/refundCheckin.ts`'s `buildRefundCheckinHtmlBody()`).
+- `lib/emailHtml.ts` is the one shared module: `escapeHtml()` (any dynamic string
+  that ultimately traces back to a retailer's email — retailer name, order
+  number, line-item name — must be escaped before interpolating into HTML, or a
+  stray `&`/`<` breaks the rendered markup; this wasn't a concern in plain text),
+  `htmlLink(href, text)` (an anchor with escaped visible text — `href` itself is
+  never escaped, because it's always constructed entirely from our own code, a
+  `cuid` orderId or a base64url signed token, never retailer-supplied text), and
+  `wrapEmailHtml()` (minimal inline-styled document wrapper — email clients don't
+  reliably support `<style>` blocks, so every style is inline).
+- No new HTML-specific test infra: each HTML body builder is tested the same way
+  its plain-text counterpart already was (pure functions, no DB) — asserting the
+  link text is exactly the short copy, the `href` isn't visible as text, and the
+  embedded action token still verifies with the correct `action`.
+
 ### Marketing page routing (`proxy.ts`)
 - `MARKETING_HOSTNAMES = ["myreturnwindow.com", "www.myreturnwindow.com"]` — both already alias to this same Vercel deployment.
 - Host check runs before the `req.auth` check. A matching host rewrites `/` to `/marketing` and returns immediately — no session lookup, no login redirect.
@@ -740,6 +762,7 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 - **`kept` (spec'd and built 2026-07-10) is a one-way terminal `displayStatus`, ranked equal to `returned` rather than above `refunded`**, so it auto-archives atomically and stays reachable only from `ordered`/`shipped`/`return_requested` — same "chapter closed, stop reminders" reasoning as `refunded`'s auto-archive. Unlike `refunded`, its rank tie alone doesn't fully protect it: `deriveDisplayStatus()` needed an explicit early return for `currentDisplayStatus === "kept"`, before the refund-email branch, since that branch is deliberately exempt from the normal downgrade guard and would otherwise let a stray refund email silently overwrite a manual kept decision. Ships with an inline warning caption instead of a blocking confirm dialog (owner decision) and hides once the return window is confirmed past, treating a null deadline as still-open.
 - **Auto-archive after missed window (built 2026-07-10) is scoped to `ordered`/`shipped`/`return_requested` only, deliberately excluding `returned`.** Rationale: `returned` means the user already acted (shipped the item back) — there's no missed window to sweep, and it's already tracked by the refund check-in cron. 14-day grace period (`AUTO_ARCHIVE_GRACE_DAYS`), fully silent (no email, no `Reminder`/`ActionLog` row) — same "a wrong deadline is worse than a missing one"-adjacent judgment call as elsewhere in this codebase: an unactioned order past its window is either quietly kept or genuinely missed, and in both cases continuing to surface it (or remind about it) serves nobody. Piggybacks on the existing daily `/api/cron` run rather than a new scheduled route.
 - **Mark returned (built 2026-07-10) is the second one-tap-from-email action, proving the token infrastructure is actually generic rather than Archive-specific** — `lib/actionToken.ts`/`lib/actionLinks.ts` needed zero changes. Its one departure from Archive's pattern: the gate is rank-based (`DISPLAY_STATUS_RANK`), not idempotent, because "returned" is a forward-only ladder position rather than a boolean flag — an order already at `returned`/`refunded`/`kept` rejects the transition (reported as `order_state_changed`, reusing Archive's existing outcome rather than inventing a new one) instead of silently no-op-succeeding. Built and reviewed one action at a time, deliberately — Mark refunded is next, not bundled into this pass.
+- **HTML emails (built 2026-07-10) are additive, never a replacement for plain text** — every `sendEmail()` call that builds an `htmlBody` still sends the existing `textBody` too, for deliverability and for clients that don't render HTML. Applied to all three link-bearing emails (deadline reminder, weekly digest, refund check-in) in the same commit, on the reasoning that the shared infra (`lib/emailHtml.ts`) only needed building once and leaving two of three emails with raw URLs after fixing the third would be a worse, inconsistent state than not starting at all.
 
 ---
 

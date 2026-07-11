@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/postmark";
 import { activeOrderFilter } from "@/lib/orderFilters";
+import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 
 export const REFUND_CHECKIN_REMINDER_TYPE = "refund_checkin";
 
@@ -60,6 +61,34 @@ View order: ${APP_URL}/orders/${order.id}
 — Return Window`;
 }
 
+// HTML counterpart of buildRefundCheckinBody — same content, a real <a> link
+// instead of a raw URL. Sent alongside the plain text, never in place of it.
+export function buildRefundCheckinHtmlBody(order: {
+  retailer: string | null;
+  lineItems: unknown;
+  returnedAt: Date;
+  id: string;
+}): string {
+  const retailer = order.retailer ?? "Your order";
+  const items = Array.isArray(order.lineItems)
+    ? (order.lineItems as Array<{ name?: string }>)
+    : [];
+  const itemName = items[0]?.name ?? null;
+  const returnedDate = order.returnedAt.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const ref = itemName ? `${retailer} / ${itemName}` : retailer;
+  const link = `${APP_URL}/orders/${order.id}`;
+
+  return wrapEmailHtml(`
+    <p style="margin:0 0 16px;">${escapeHtml(ref)} was marked returned on ${escapeHtml(returnedDate)} — your refund should have landed by now. Worth a quick check of your card statement.</p>
+    <p style="margin:0;">${htmlLink(link, "View order details")}</p>
+  `);
+}
+
 // ── DB / email (called from the daily cron) ───────────────────────────────────
 
 export async function runRefundCheckinReminders(
@@ -94,18 +123,21 @@ export async function runRefundCheckinReminders(
     }
 
     try {
-      const body = buildRefundCheckinBody({
+      const orderForBody = {
         retailer: order.retailer,
         lineItems: order.lineItems,
         returnedAt: order.returnedAt,
         id: order.id,
-      });
+      };
+      const body = buildRefundCheckinBody(orderForBody);
+      const htmlBody = buildRefundCheckinHtmlBody(orderForBody);
 
       await sendEmail({
         to: order.user.email,
         from: fromEmail,
         subject: "Worth checking your refund",
         textBody: body,
+        htmlBody,
       });
 
       await prisma.reminder.create({

@@ -5,10 +5,14 @@ interface SendEmailParams {
   from: string;
   subject: string;
   textBody: string;
+  htmlBody?: string;
   bcc?: string;
 }
 
-export async function sendEmail({ to, from, subject, textBody, bcc }: SendEmailParams): Promise<void> {
+// htmlBody is optional and additive — TextBody is always sent regardless, as
+// the fallback for clients that don't render HTML. Never HTML-only: every
+// caller that builds an htmlBody must still pass its plain-text equivalent.
+export async function sendEmail({ to, from, subject, textBody, htmlBody, bcc }: SendEmailParams): Promise<void> {
   const response = await fetch(POSTMARK_SEND_URL, {
     method: "POST",
     headers: {
@@ -22,6 +26,7 @@ export async function sendEmail({ to, from, subject, textBody, bcc }: SendEmailP
       ...(bcc ? { Bcc: bcc } : {}),
       Subject: subject,
       TextBody: textBody,
+      ...(htmlBody ? { HtmlBody: htmlBody } : {}),
       MessageStream: "outbound",
     }),
   });
