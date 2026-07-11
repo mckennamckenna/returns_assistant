@@ -5,6 +5,102 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-10 (later) — Session close: Mark kept, auto-archive, Mark returned, and HTML emails all shipped and verified
+
+Four features built and deployed in one continuous session, each gated behind its
+own commit, its own test pass, and (where possible) real hands-on verification
+before moving on — no bundling.
+
+**"Mark kept" — new one-way `displayStatus`, dashboard-only.** Spec'd earlier the
+same day (see the `07-10` entry above this one), built same session:
+`Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`); `kept` ranked
+tied with `returned` (not above `refunded`) in `lib/displayStatus.ts` — the one
+choice that made both existing rank-gates (`PATCH /api/orders/:id/status`,
+`advanceDisplayStatus`) enforce "reachable from ordered/shipped/return_requested
+only" for free, no bespoke branching; `deriveDisplayStatus()` gained an explicit
+guard (`if (currentDisplayStatus === "kept") return "kept";`) since its refund-email
+branch is deliberately exempt from the normal downgrade protection and would
+otherwise let a stray refund email silently overwrite a manual kept decision.
+"I'm keeping this" button shipped on all three order-list surfaces — dashboard
+card view, dashboard table/list view (added second, same commit, per an explicit
+product decision now in the Decisions log: list view is the primary surface for
+routine actions, not just wherever a prior button happened to exist), and order
+detail page — with an inline warning caption instead of a blocking confirm dialog,
+and a visibility gate that hides once the return window is confirmed past while
+treating a null deadline as still-open. Pushed (`01189f8`), auto-deployed. **Still
+awaiting owner browser verification** — the one feature this session with no
+click-through confirmation yet, since it wasn't the target of this session's live
+tests.
+
+**Auto-archive after missed window.** Nightly, silent sweep (no email/Reminder/
+ActionLog row) for orders 14+ days past `returnDeadline`, scoped to
+`ordered`/`shipped`/`return_requested` — `returned` deliberately excluded (already
+user-acted, tracked by refund check-in separately). New `lib/autoArchive.ts`,
+piggybacked onto the existing daily `/api/cron` run rather than a new scheduled
+route. Pushed (`a7af7df`), auto-deployed. A pre-push read-only query found 0
+currently-eligible orders — the feature is dormant on arrival, which was expected
+and is why it was built second, after "Mark kept" (verifiable same-day) rather than
+first.
+
+**"Mark returned" — second one-tap-from-email action, proving the token
+infrastructure is actually generic.** Built following Archive's exact pattern
+end-to-end: `lib/actionToken.ts` and `lib/actionLinks.ts` needed zero changes.
+`lib/returnedAction.ts`/`returnedPageState.ts` mirror `archiveAction.ts`/
+`archivePageState.ts`, with one deliberate departure — Archive's gate is
+idempotent (re-archiving is a harmless no-op), but "returned" is a forward-only
+rank position like every other manual transition, so the gate reuses
+`DISPLAY_STATUS_RANK` and rejects (as `order_state_changed`) an order already at
+returned/refunded/kept. `POST /api/action/returned` writes via the existing
+`buildStatusTransitionData("returned", ...)`, so it can't drift from the other
+three write paths. Link added to both the deadline reminder and weekly digest,
+same placement as Archive. 27 new tests. Pushed (`ae360be`) alongside HTML emails
+below (same deploy — `git push` isn't selective, flagged to the owner before
+pushing since only the HTML-email commit had just been reviewed).
+
+**HTML emails — real hyperlinks instead of raw URLs, all three link-bearing
+emails.** No HTML-email pattern existed anywhere in the codebase before this;
+`lib/postmark.ts`'s `sendEmail()` was text-only. New `htmlBody` param (always sent
+alongside `textBody`, never replacing it) plus a new shared `lib/emailHtml.ts`
+(`escapeHtml()`, `htmlLink()`, `wrapEmailHtml()`). Applied to the deadline
+reminder, weekly digest, and refund check-in in the same commit — deliberately,
+per the owner's own reasoning: the shared infra only needed building once, and
+leaving two of three emails with raw URLs after fixing the third would have been a
+worse, inconsistent state than not starting. 23 new tests. Pushed (`cd786da`),
+auto-deployed (`dpl_9WzYq7iHfsir6yScZjjQTSC4xAtK`).
+
+Also investigated (no code change) a reported "coverage-check email shows entire
+order history" symptom — the 7-day filter already existed and worked correctly;
+real data showed two alpha accounts (jsweazey, kathleensweazey) simply have 100%
+of their data within the last 7 days because the accounts are only ~2 days old.
+Logged in Known Issues as resolved/non-issue so it isn't re-investigated.
+
+**Live verification, real send.** Rather than stopping at unit tests, forced two
+real reminder emails to the owner's own account (scoped, single-order, ownership
+verified before each send, dry-run previewed before every real send, disposable
+Reminder-row side effects accepted as real production state — not reimplemented
+sends). First: On (On-Running) #101130827062601745, sent *before* the Mark-returned
+deploy specifically to prove the "broken link" risk was real (confirmed: the
+Mark-returned link 404'd as predicted, Archive link worked). Second, after both
+features deployed: Shopbop #142770152 — owner confirmed the HTML rendered
+correctly and all three links resolved, then clicked "Mark as returned" for real.
+Confirmed via direct read that the transition landed exactly as expected
+(`displayStatus: shipped → returned`, `returnedAt` set), then reverted it (direct
+DB write scoped to this one order — `displayStatus` back to `shipped`, `returnedAt`
+back to `null` — since the app has no "unmark returned" path by design; one-way
+rank-gated transitions don't get a UI undo). Owner confirmed both HTML emails and
+Mark returned as verified based on this test. Also answered a side question during
+this pass: the order that originally surfaced the "estimated delivery dates
+presented as confirmed" bug (04e9675) was Proenza Schouler #86864's
+`shipping_confirmation` email "Your shipment is on the way 873765217005" (received
+2026-06-30, extracted a shipping ETA of 2026-07-07 into the then-unsplit
+`deliveryDate` field the day before the actual delivery landed).
+
+All four features' commits, tests, and doc updates (`BUILD.md`/`TASKS.md` in the
+same commit as their code, per the standing rule) are pushed and live. `main` and
+`origin/main` match; no unpushed commits at session close.
+
+---
+
 ## 2026-07-10 — orderDate-fallback Phase 4 backfill: 5 pre-gate wrong-fires corrected, Upway excluded
 
 Closed the excluded-side verification deferred from Phase 2 (`76f4dd6`): backfilled

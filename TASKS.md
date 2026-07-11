@@ -26,54 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **HTML emails — pushed (`cd786da`), auto-deployed (`dpl_9WzYq7iHfsir6yScZjjQTSC4xAtK`).** Action links
-      (Archive, Mark as returned, View details) now render as real `<a>` tags with
-      short readable copy instead of raw URLs, across all three link-bearing
-      emails: deadline reminder (`app/api/cron/route.ts`'s new `buildHtmlBody()`),
-      weekly digest (`weekly-digest/route.ts`'s new `buildOrderLineHtml()`/
-      `buildBodyHtml()`), refund check-in (`lib/refundCheckin.ts`'s new
-      `buildRefundCheckinHtmlBody()`). New infra, since none existed:
-      `lib/postmark.ts`'s `sendEmail()` gains an optional `htmlBody` param (always
-      sent alongside `TextBody`, never replacing it); new `lib/emailHtml.ts`
-      (`escapeHtml()`, `htmlLink()`, `wrapEmailHtml()`) shared by all three.
-      Copy: "View order details", "Already shipped it back? Mark as returned →",
-      "Archive this order" (reminder + digest); refund check-in gets its own "View
-      order details" link. 23 new tests (link text/href assertions, HTML-escaping
-      of retailer names, token verification out of the rendered `href`), 271 total
-      passing; `npm run build` clean. Item 2 from the same request (coverage-check
-      email scope) investigated and confirmed already correct — no fix needed, see
-      Known Issues note below. **Not verified: actual rendering in a real email
-      client** — same limitation as every prior email/UI change this session
-      (no way to preview Postmark's rendered HTML without sending a real email);
-      needs a hands-on check now that it's deployed.
-- [ ] **"Mark returned" signed-token email action — pushed (`ae360be`),
-      auto-deployed same run as HTML emails above.** Second one-tap action after Archive, following its exact
-      pattern end-to-end: `"returned"` action string (already anticipated in
-      `TokenRedemption.action`'s schema comment, no migration needed);
-      `buildActionLink({..., action: "returned"})`, zero changes to
-      `lib/actionLinks.ts`/`lib/actionToken.ts` (both already fully generic on
-      action string — this is the proof they actually are); `app/action/returned/page.tsx`
-      (confirm page) + `app/api/action/returned/route.ts` (POST endpoint, single
-      transaction: `TokenRedemption` create enforces single-use, `Order.update` via
-      existing `buildStatusTransitionData("returned", ...)`, `ActionLog` create, 303
-      redirect) + `app/action/returned/done/page.tsx`. Gate: only valid when current
-      `displayStatus` rank is below `returned` (rejects if already
-      returned/refunded/kept, reported as `order_state_changed`) — new
-      `lib/returnedAction.ts`/`returnedPageState.ts` pure decision logic, mirroring
-      `lib/archiveAction.ts`/`archivePageState.ts` exactly except for this one
-      rank-based-vs-idempotent difference. Link added to reminder emails and weekly
-      digest, same placement as Archive (`"Already shipped it back? Mark as
-      returned: ..."`, right before the Archive line). 27 new tests (status gate,
-      invalid/userId-mismatch, action-scoping cross-check), 248 total passing;
-      `npm run build` clean. **Not covered by any test, matching Archive's own
-      precedent:** the actual DB-level single-use enforcement (second POST of the
-      same token → `already_used`) — this project doesn't unit-test DB-touching
-      code, and Archive's single-use behavior was itself only ever verified live in
-      production with disposable test orders. Mark returned needs the same
-      hands-on check now that it's deployed — including a live check that the
-      "Mark as returned" link in the reminder sent earlier today (before this
-      deploy) now resolves instead of 404ing. **Did NOT build "Mark refunded"** —
-      next, separately, per instruction.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
@@ -112,10 +64,10 @@
       (`__tests__/autoArchive.test.ts`, mirrors `archiveDelete.test.ts`'s pattern),
       221 total passing; `npm run build` clean. Separate commit from "Mark kept" —
       can't be hand-verified until real orders miss their windows in production, so
-      no reason to bundle it into an earlier deploy. Not yet deployed — this can't
-      be browser-verified at all before real orders age past the grace period;
-      verification here means watching the next scheduled cron run's `autoArchived`
-      count.
+      no reason to bundle it into an earlier deploy. Deployed but still can't be
+      browser-verified — a pre-push read-only query found 0 currently-eligible
+      orders; verification here means watching a future scheduled cron run's
+      `autoArchived` count once a real order ages past the grace period.
 - [ ] **Investigate unexplained extra Vercel production deployments** —
       **stronger evidence 2026-07-09 session close, priority raised.**
       Directly observed in real time: within ~24 seconds of a docs-only
@@ -545,6 +497,8 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **HTML emails** — deadline reminder, weekly digest, and refund check-in emails now send real HTML with clickable links instead of raw URLs. Owner-verified live via a real forced send (Shopbop test order): HTML rendered correctly, all three links resolved.
+- [x] **"Mark returned" signed-token email action** — second one-tap-from-email action after Archive. Owner-verified live: clicked the link on the Shopbop test order, confirmed the order transitioned to returned correctly, reverted after.
 - [ ] **orderDate-fallback Phase 4 backfill** — 6 prod rows matched the
       pre-gate wrong-fire pattern (fallback fired before 76f4dd6's gate
       existed, earliest-linked emailType now excluded); not 5 as originally
