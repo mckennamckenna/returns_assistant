@@ -68,10 +68,11 @@
       307-redirect to `/login` when unauthenticated — confirms the new
       layout's auth gate and the new `/alerts` route are wired correctly at
       the routing level without needing a real session (same production-DB
-      constraint as Commit 2 — no fabricated login). Committed, pushed,
-      deployed — **awaiting owner browser verification**, especially the
-      380px-width check the owner asked for specifically, not Done until
-      hand-verified live.
+      constraint as Commit 2 — no fabricated login). Committed (`cf042a8`),
+      pushed, deployed (`dpl_Dnn3LjhFmVPqjqjGdQcRpY73dYzt`, confirmed Ready
+      and aliased to `app.myreturnwindow.com`) — **awaiting owner browser
+      verification**, especially the 380px-width check the owner asked for
+      specifically, not Done until hand-verified live.
 - [ ] **Design tokens Commit 2 — dashboard layout redesign. Code complete,
       awaiting deploy + owner browser verification.** Plan at
       `.claude/plans/melodic-moseying-newell.md`. Per
