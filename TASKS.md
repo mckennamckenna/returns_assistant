@@ -26,6 +26,25 @@
 ---
 
 ## 🔴 Now
+- [ ] **Order-number display — display-only refinement, list view + order
+      detail/card.** Middle-truncate long order numbers in the list row
+      (`#6a4d94…3748a` style, full value in `title`/`aria-label`); order
+      detail/card shows the full untruncated number, optional
+      copy-to-clipboard. No schema/data change — the stored order number
+      (including the long Poshmark value, confirmed a real retailer order
+      number) is correct and untouched. Note: not actually present in Now
+      when this session started — added now per task-tracking rule rather
+      than assuming it was already tracked.
+- [ ] **Retailer logo coverage test — investigation only, both passes now run
+      live against Logo.dev.** Domain pass (real observed sender domains):
+      15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
+      Name pass (retailers with no domain): 20/22 hit, 2 confirmed wrong
+      (NET-A-PORTER, Sidekick), 4 unverified generic marks. Quality-adjusted:
+      78.3% of order volume gets a confidently-correct logo, not the 93.5%
+      raw hit rate. See `LOGO_COVERAGE.md` for full breakdown + recommendation
+      (2026-07-13). `LOGO_DEV_PUBLISHABLE_KEY` added to gitignored `.env.local`
+      only — not committed, not in Vercel. No code/schema/UI changes, no
+      commits.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
@@ -131,13 +150,6 @@
 - [ ] **Retailer logos** — `RetailerAvatar` currently shows initials only
       (deliberately, per Commit 2: "logo integration is a separate future
       task"). Needs a logo source/lookup strategy — not spec'd yet.
-- [ ] **Needs-review card repositioning — verify current placement.**
-      Checked 2026-07-12: already sits between the summary card and the
-      order list in `app/(app)/page.tsx` (confirmed again at session close,
-      unchanged since Commit 2's original diagnostic-first check found no
-      move was needed). Leaving this item open only in case a different
-      placement is actually wanted — if current placement is correct, this
-      can just be closed next session without code changes.
 - [ ] **orderDate-fallback Phase 3** — verify UI behavior with a null-orderDate
       order (5-min eyeball, likely no code needed per Phase 1's finding that
       null orderDate already renders as "—" correctly). Phase 4 backfill is
@@ -525,6 +537,12 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Needs-review card placement — verified correct, no move needed.**
+      Checked twice (2026-07-12 session close, and again on 2026-07-13) —
+      sits between the summary card and the order list in
+      `app/(app)/page.tsx`, unchanged since Commit 2's original
+      diagnostic-first check. No code changes; closing as verified-correct
+      per owner instruction rather than leaving it open indefinitely.
 - [x] **Task A ("at risk" label, conditional on ≤7 days left) and Task B
       ("(est.)" hedging, conditional on `policySource === "stated_in_email"`,
       no schema migration)** — both owner-verified live 2026-07-12. See
@@ -772,6 +790,19 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`Order.retailer` has a casing duplicate: "Mango" and "MANGO" exist as two
+  separate retailer strings** (1 order each) — same normalization problem
+  `CLAUDE.md` already documents for order-number suffixes, just on the
+  retailer name field instead. Surfaced 2026-07-13 during the logo-coverage
+  investigation (`LOGO_COVERAGE.md`). Not fixed — out of scope for that task.
+- **Third-party returns-logistics vendor domains can masquerade as a
+  retailer's own sending domain** — Gap Inc.'s sender domain resolves to
+  `optiturn.com` (a returns-processing platform, likely not Gap's own site),
+  a failure mode the existing ESP-exclusion concept doesn't cover (it's not
+  a marketing ESP, it's a returns vendor: Optiturn/Narvar/Happy
+  Returns/Loop/AfterShip are the likely list). Relevant to any future
+  sender-domain-derived feature (e.g. retailer logos). Surfaced 2026-07-13,
+  see `LOGO_COVERAGE.md` §7.
 - **Summary card should show the retailer name, not just the dollar total,
   when exactly one order is due** — e.g. "Poshmark · Return by Jul 17"
   instead of "$77.66" when `closingSoonOrders.length === 1`; the dollar

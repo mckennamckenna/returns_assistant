@@ -7,6 +7,7 @@ import { DeleteButton } from "@/app/DeleteButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
 import { MarkRefundedButton } from "@/app/MarkRefundedButton";
 import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
+import { CopyButton } from "@/app/CopyButton";
 import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { daysUntil } from "@/lib/reminders";
 
@@ -135,7 +136,17 @@ export default async function OrderDetail({
 
       <div className="border border-border rounded-lg p-4 mt-4">
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <Field label="Order number" value={order.orderNumber} />
+          <Field
+            label="Order number"
+            value={
+              order.orderNumber ? (
+                <span className="flex items-center gap-2">
+                  <span className="break-all">{order.orderNumber}</span>
+                  <CopyButton text={order.orderNumber} />
+                </span>
+              ) : null
+            }
+          />
           <Field
             label="Order date"
             value={order.orderDate ? `${formatDate(order.orderDate)}${order.orderDateEstimated ? " (estimated)" : ""}` : "—"}

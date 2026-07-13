@@ -10,6 +10,7 @@ import { markReturnedAction, markKeptAction } from "./actions";
 import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { daysUntil } from "@/lib/reminders";
 import { isClosingSoon } from "@/lib/alerts";
+import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
 
 function formatDate(date: Date | null): string {
   if (!date) return "—";
@@ -60,7 +61,7 @@ function QrIcon() {
 export function OrderCard({ order, now }: { order: Order; now: Date }) {
   const rank = DISPLAY_STATUS_RANK[order.displayStatus] ?? 0;
   const canKeep = rank < DISPLAY_STATUS_RANK.returned && (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0);
-  const meta = [order.orderNumber ? `#${order.orderNumber}` : null, itemSummary(order.lineItems)].filter(Boolean).join(" · ");
+  const itemSummaryText = itemSummary(order.lineItems);
   const atRisk = isClosingSoon(order, now);
   // "Confirmed" means the retailer's email explicitly stated the return
   // window/deadline (policySource === "stated_in_email") — everything else
@@ -78,7 +79,17 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
           <RetailerAvatar name={order.retailer || "?"} />
           <div className="min-w-0">
             <div className="text-lg font-medium text-ink truncate">{order.retailer || "Unknown retailer"}</div>
-            {meta && <div className="text-xs text-muted truncate">{meta}</div>}
+            {(order.orderNumber || itemSummaryText) && (
+              <div className="text-xs text-muted truncate">
+                {order.orderNumber && (
+                  <span title={order.orderNumber} aria-label={`Order number ${order.orderNumber}`}>
+                    #{truncateOrderNumber(order.orderNumber)}
+                  </span>
+                )}
+                {order.orderNumber && itemSummaryText && " · "}
+                {itemSummaryText}
+              </div>
+            )}
             <div className="mt-1"><DisplayStatusBadge status={order.displayStatus} /></div>
           </div>
         </Link>
