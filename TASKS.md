@@ -26,6 +26,20 @@
 ---
 
 ## 🔴 Now
+- [ ] **Desktop layout pass** — constrain `OrderCard`/`SummaryCard`/search+sort
+      to a 640px content column at ≥768px, apply design tokens to `Sidebar`
+      (page-color background, ink/secondary/muted text per item, active-state
+      highlight, token-styled Soon/alert badges), size buttons to content
+      instead of full-width at desktop width. One breakpoint (768px). No new
+      components/pages, no mobile/settings/login/admin changes, sidebar nav
+      items unchanged. **Blocked on the Commit 2 follow-up fixes entry below
+      being owner-verified live first** (explicit instruction from the task
+      request) — do not start until that's confirmed.
+- [ ] **Order card buttons: shorten "I'm keeping this" → "Keeping it", equal
+      width with "Start return".** Small fix, `app/OrderCard.tsx` only (not
+      the order-detail page's own "I'm keeping this" button — out of scope,
+      not mentioned). Both buttons already used `flex-1`/`min-w-0` identically
+      before this fix — only the label text changed.
 - [ ] **Commit 2 follow-up fixes (mobile-priority) — mobile width overflow,
       BottomNav not persisting across routes, Alerts nav item not a real
       page.** Owner-reported after Commit 2 deploy. Three fixes: (1) mobile

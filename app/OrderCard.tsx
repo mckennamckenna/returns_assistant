@@ -112,7 +112,7 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         {canKeep && (
           <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0">
             <button type="submit" className="w-full truncate border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page">
-              I&apos;m keeping this
+              Keeping it
             </button>
           </form>
         )}
