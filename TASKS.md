@@ -32,9 +32,9 @@
       highlight, token-styled Soon/alert badges), size buttons to content
       instead of full-width at desktop width. One breakpoint (768px). No new
       components/pages, no mobile/settings/login/admin changes, sidebar nav
-      items unchanged. **Blocked on the Commit 2 follow-up fixes entry below
-      being owner-verified live first** (explicit instruction from the task
-      request) — do not start until that's confirmed.
+      items unchanged. Was blocked on the Commit 2 follow-up fixes entry
+      (below, in Done) being owner-verified live first — confirmed 2026-07-12,
+      starting now.
 - [ ] **Order card buttons: shorten "I'm keeping this" → "Keeping it", equal
       width with "Start return".** Small fix, `app/OrderCard.tsx` only (not
       the order-detail page's own "I'm keeping this" button — out of scope,
@@ -43,53 +43,6 @@
       pushed, deployed (`dpl_FEcndzHVePgqB443QQpQRwqeP9r7`, confirmed Ready
       and aliased to `app.myreturnwindow.com`) — **awaiting owner browser
       verification**, not Done until hand-verified live.
-- [ ] **Commit 2 follow-up fixes (mobile-priority) — mobile width overflow,
-      BottomNav not persisting across routes, Alerts nav item not a real
-      page.** Owner-reported after Commit 2 deploy. Three fixes: (1) mobile
-      viewport overflow at 380px — root cause is `<main>` using `flex-1`
-      without `min-w-0` inside the Sidebar/BottomNav flex row, so flexbox's
-      default `min-width: auto` refuses to shrink the content column below
-      its children's natural width; compounded by `OrderCard`'s two-button
-      action row (`flex-1` buttons, no `min-w-0`/`truncate`) which can
-      genuinely exceed 340px available width with longer labels like "I'm
-      keeping this". (2) `Sidebar`/`BottomNav` currently render only from
-      `app/page.tsx` — moving to a new `app/(app)/layout.tsx` shared layout
-      so dashboard/settings/order-detail/email-detail/alerts all get them
-      (route group, URLs unchanged). (3) `BottomNav`'s Alerts item is
-      currently a plain `<div>`, not a link — new `/alerts` route with a
-      real empty state, backed by new `lib/alerts.ts` (single source of
-      truth for the alert-badge count and the alert-order list, replacing
-      duplicated logic that lived in `app/page.tsx`). `BottomNav` becomes a
-      client component (`usePathname`) so the active tab is correct on
-      every route, not permanently stuck on "Dashboard" — not explicitly
-      requested but a direct, unavoidable consequence of making the nav
-      shared; `Sidebar`'s equivalent active-state precision left alone
-      (desktop-only, not reported, not mobile-priority). Moving
-      page/settings/orders/emails into the route group surfaced a real bug
-      mid-fix: their relative imports (`"./actions"`, `"./DeleteButton"`,
-      etc.) still resolved at the old flat location but broke once only
-      some files moved — fixed by switching `app/(app)/page.tsx`'s imports
-      of top-level shared components to absolute `@/app/...` paths;
-      settings/orders/emails' own relative imports stayed valid since their
-      sibling files moved with them. `CopyButton` promoted from
-      `app/settings/CopyButton.tsx` to top-level `app/CopyButton.tsx` (was
-      already shared with `app/admin/onboarding/page.tsx`, which the
-      `@/app/settings/CopyButton` path would have made needlessly reach
-      into the new route group). `npm run build` clean; `npm run lint`
-      shows only the same pre-existing errors confirmed via `git show`
-      against the pre-Commit-2 commit (none introduced by this fix), plus
-      one now-relocated pre-existing error in `GmailVerificationCode.tsx`
-      (same file, same issue, just moved). Verified via `playwright-core` +
-      local Chrome on the unauthenticated pages (unchanged, still correct)
-      and via `curl` that `/`, `/alerts`, and `/settings` all correctly
-      307-redirect to `/login` when unauthenticated — confirms the new
-      layout's auth gate and the new `/alerts` route are wired correctly at
-      the routing level without needing a real session (same production-DB
-      constraint as Commit 2 — no fabricated login). Committed (`cf042a8`),
-      pushed, deployed (`dpl_Dnn3LjhFmVPqjqjGdQcRpY73dYzt`, confirmed Ready
-      and aliased to `app.myreturnwindow.com`) — **awaiting owner browser
-      verification**, especially the 380px-width check the owner asked for
-      specifically, not Done until hand-verified live.
 - [ ] **Design tokens Commit 2 — dashboard layout redesign. Code complete,
       awaiting deploy + owner browser verification.** Plan at
       `.claude/plans/melodic-moseying-newell.md`. Per
@@ -609,6 +562,11 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Commit 2 follow-up fixes** — mobile width overflow at 380px (missing
+      `min-w-0` on flex children), Sidebar/BottomNav now render from a shared
+      `app/(app)/layout.tsx` on every authenticated page instead of just the
+      dashboard, and the Alerts nav item is now a real `/alerts` page instead
+      of a dead `<div>`. Owner-verified live 2026-07-12.
 - [x] **Design tokens Commit 1 — self-host Bodoni Moda + Inter, apply type
       scale + color palette.** `next/font/google` self-hosts Bodoni Moda
       (serif, weights 400–700) + Inter (sans, 400/500), exposed as
