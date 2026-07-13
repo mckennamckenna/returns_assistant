@@ -57,11 +57,12 @@
       references to the old palette/fonts outside the deliberately-
       untouched `RetailerAvatar.tsx` and the excluded marketing page, and
       line-by-line reasoning against the design doc during each edit.
-      **Not yet committed, pushed, or deployed** — do that next, then this
-      needs the owner's own browser check (dashboard mobile+desktop, order
-      detail, settings, login, admin) before Commit 2 (dashboard layout
-      redesign, same doc §6) can start, per the doc's own sequencing
-      instruction.
+      Committed (`90f6856`), pushed, deployed (`dpl_5T9C68LZE5i39b63fPUPsBRYeWcx`,
+      confirmed Ready and aliased to `app.myreturnwindow.com`) —
+      **awaiting owner browser verification** (dashboard mobile+desktop,
+      order detail, settings, login, admin), not Done until hand-verified
+      live, before Commit 2 (dashboard layout redesign, same doc §6) can
+      start, per the doc's own sequencing instruction.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
