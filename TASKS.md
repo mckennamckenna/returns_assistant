@@ -26,15 +26,26 @@
 ---
 
 ## 🔴 Now
-- [ ] **Order-number display — display-only refinement, list view + order
-      detail/card.** Middle-truncate long order numbers in the list row
-      (`#6a4d94…3748a` style, full value in `title`/`aria-label`); order
-      detail/card shows the full untruncated number, optional
-      copy-to-clipboard. No schema/data change — the stored order number
-      (including the long Poshmark value, confirmed a real retailer order
-      number) is correct and untouched. Note: not actually present in Now
-      when this session started — added now per task-tracking rule rather
-      than assuming it was already tracked.
+- [ ] **Order-number display — display-only, shipped, awaiting owner
+      verification.** `OrderCard.tsx` middle-truncates order numbers over 16
+      chars (`#6a4d94…748a` — first 6 + ellipsis + last 4), full value in
+      `title` + `aria-label`; short numbers (`#F4VLSF`, `#86864`,
+      `#142770152`) render untouched. Order detail page shows the full
+      untruncated number plus a copy button (reused existing `CopyButton`).
+      New `lib/orderNumberDisplay.ts` (pure function) + 4 new tests, 275
+      total passing; `npm run build` clean. No schema/data change — the
+      stored order number, including the long Poshmark value, is untouched.
+      Full authenticated browser click-through NOT done (same constraint as
+      prior sessions: magic-link-only auth, one production DB, no seeded
+      test account). Committed (`771778f`), pushed, auto-deployed
+      (`dpl_HBsw75cTQmFzdequQcYTXyA857rF`, Ready and aliased to
+      `app.myreturnwindow.com` within ~2s of push, no manual `vercel --prod`
+      run — 4th data point on the unexplained auto-deploy question below) —
+      **awaiting owner browser verification**, not Done until hand-verified
+      live. One spec-vs-example discrepancy to flag: the task's own worked
+      example showed 5 trailing characters (`…3748a`) while the stated rule
+      said "last 4" — implemented literally per the stated rule (last 4:
+      `…748a`), differing from the illustrative example by one character.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
@@ -132,6 +143,16 @@
       but it confirms this isn't a one-off — three separate sessions now,
       still unexplained via CLI. Priority stands: someone needs to open the
       Vercel dashboard directly.
+      **2026-07-13, fourth data point, fastest lag yet:** pushed the
+      order-number-display commit (`771778f`, real code change this time, not
+      docs-only). A new Building deployment (`dpl_HBsw75cTQmFzdequQcYTXyA857rF`)
+      appeared in `vercel ls` within ~2 seconds of the push — faster than any
+      prior observation (previously ~24s/~35s/~2.5min) — went Ready, and
+      `app.myreturnwindow.com` aliased to it, no manual `vercel --prod` run.
+      Same unresolved caveat: `vercel inspect` still shows no Git Commit
+      field, so this is still strong timing correlation, not proof. Four
+      sessions now; still needs someone to open the Vercel dashboard
+      directly.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
