@@ -9,6 +9,7 @@ import { MarkRefundedButton } from "./MarkRefundedButton";
 import { markReturnedAction, markKeptAction } from "./actions";
 import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { daysUntil } from "@/lib/reminders";
+import { isClosingSoon } from "@/lib/alerts";
 
 function formatDate(date: Date | null): string {
   if (!date) return "—";
@@ -60,6 +61,15 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
   const rank = DISPLAY_STATUS_RANK[order.displayStatus] ?? 0;
   const canKeep = rank < DISPLAY_STATUS_RANK.returned && (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0);
   const meta = [order.orderNumber ? `#${order.orderNumber}` : null, itemSummary(order.lineItems)].filter(Boolean).join(" · ");
+  const atRisk = isClosingSoon(order, now);
+  // "Confirmed" means the retailer's email explicitly stated the return
+  // window/deadline (policySource === "stated_in_email") — everything else
+  // (web_lookup, user_supplied, null) stays hedged. Deliberately independent
+  // of deadlineIsEstimated, which tracks a different kind of uncertainty
+  // (whether the delivery-date anchor used to compute the deadline was
+  // itself confirmed) and stays wired to reminder-suppression logic
+  // (lib/reminders.ts) untouched by this display-only distinction.
+  const deadlineConfirmed = order.policySource === "stated_in_email";
 
   return (
     <div className="bg-card border border-border rounded-2xl p-[18px]">
@@ -72,16 +82,17 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
             <div className="mt-1"><DisplayStatusBadge status={order.displayStatus} /></div>
           </div>
         </Link>
-        <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
+        <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={!deadlineConfirmed} />
       </div>
 
       <div className="flex items-baseline justify-between flex-wrap gap-x-2 gap-y-1 mt-3">
         <span className="font-serif text-[27px] font-semibold text-ink">
           {formatCurrency(order.orderTotal, order.orderCurrency)}
+          {atRisk && <span className="font-sans text-xs font-medium text-accent ml-1.5 align-middle">at risk</span>}
         </span>
         <span className="text-[13px] text-muted">
           Return by {formatDate(order.returnDeadline)}
-          {order.deadlineIsEstimated ? " (est.)" : ""}
+          {!deadlineConfirmed ? " (est.)" : ""}
         </span>
       </div>
       {order.orderTotal == null && (

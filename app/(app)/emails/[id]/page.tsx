@@ -104,7 +104,10 @@ export default async function EmailDetail({
               label="Return deadline"
               value={
                 email.returnDeadline
-                  ? `${formatDate(email.returnDeadline)}${email.deadlineIsEstimated ? " (estimated)" : ""}`
+                  ? // "email" (not "stated_in_email" — that's the Order-level
+                    // vocabulary post-linkOrder.ts mapping) means the return
+                    // window/deadline was explicitly stated in this email.
+                    `${formatDate(email.returnDeadline)}${email.policySource !== "email" ? " (estimated)" : ""}`
                   : "—"
               }
             />

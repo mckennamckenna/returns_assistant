@@ -26,99 +26,48 @@
 ---
 
 ## 🔴 Now
-- [ ] **Desktop layout pass — code complete, awaiting deploy + owner browser
-      verification.** `app/(app)/page.tsx` and `app/(app)/alerts/page.tsx`
-      constrained to `max-w-[640px]` with `md:pl-12` (left-aligned, not
-      centered, per the brief) instead of the old `max-w-3xl`; greeting
-      grows to `md:text-[38px]`. `OrderCard`'s action buttons switch from
-      `flex-1` (equal-width, mobile) to `md:flex-none md:w-auto` with
-      `md:px-6` at desktop, sized to content instead of stretching; the `…`
-      overflow menu (`OrderActionsMenu`, now accepts an optional
-      `className` prop) gets `md:ml-auto` to dock at the far right of the
-      row. `Sidebar` retokened: `bg-page` background (was `bg-card`), 15px
-      nav item text (was 14px), wordmark weight 500 (was 600), Soon badges
-      now `bg-border`/rounded-full/11px, footer email/sign-out now 13px
-      muted. `Sidebar` became a client component (`usePathname` +
-      `useSearchParams`) so active-state highlighting actually works —
-      wasn't route-aware at all before this (every item's style was
-      static). **One real contradiction in the brief, resolved by
-      judgment**: it says both "sidebar background: page color" and
-      "active item: ... background highlight using page color" — those
-      can't both be true, a page-colored highlight is invisible on a
-      page-colored background. Used the brief's own listed alternative
-      instead: a 3px ink-colored left border on the active item (transparent
-      border on inactive items, so nothing shifts horizontally when active
-      state changes) — flagging in case a different resolution was intended.
-      Also caught and fixed while implementing: hover states on inactive nav
-      items were still `hover:bg-page`, which would have been equally
-      invisible against the new page-colored sidebar background — changed
-      to `hover:bg-card`. `npm run build` clean; `npm run lint` shows only
-      the same pre-existing `GmailVerificationCode.tsx` error already
-      tracked, nothing new. Verified via `playwright-core` + local Chrome at
-      380/768/1280px that the shared font/token pipeline still renders with
-      no console errors — same production-DB constraint as the last two
-      fixes means the actual Sidebar/OrderCard desktop rendering itself
-      still needs the owner's own browser check at those three widths.
-      Committed (`2b4cfc6`), pushed, deployed
-      (`dpl_25sf8EKe3S5bg6yU89pxqJLJTmex`, confirmed Ready and aliased to
-      `app.myreturnwindow.com`) — **awaiting owner browser verification**
-      at 380/768/1280px, not Done until hand-verified live.
-- [ ] **Order card buttons: shorten "I'm keeping this" → "Keeping it", equal
-      width with "Start return".** Small fix, `app/OrderCard.tsx` only (not
-      the order-detail page's own "I'm keeping this" button — out of scope,
-      not mentioned). Both buttons already used `flex-1`/`min-w-0` identically
-      before this fix — only the label text changed. Committed (`b204790`),
-      pushed, deployed (`dpl_FEcndzHVePgqB443QQpQRwqeP9r7`, confirmed Ready
-      and aliased to `app.myreturnwindow.com`) — **awaiting owner browser
-      verification**, not Done until hand-verified live.
-- [ ] **Design tokens Commit 2 — dashboard layout redesign. Code complete,
-      awaiting deploy + owner browser verification.** Plan at
-      `.claude/plans/melodic-moseying-newell.md`. Per
-      `return-window-design-tokens.md` §6, on top of Commit 1's tokens. New
-      `app/SummaryCard.tsx` (count | divider | dollar | "View all →" to
-      `/?status=closing_soon`) replaces the three `StatCard` boxes —
-      `app/StatCard.tsx` deleted. New `app/OrderCard.tsx` replaces both the
-      old mobile card map and the desktop table with one card design used
-      at every breakpoint (scope confirmed with owner — doc only described
-      a card layout, no desktop table mentioned). Needs-review block
-      confirmed already correctly positioned (between summary and order
-      list) — no move needed, diagnostic-first check. `app/RetailerAvatar.tsx`
-      simplified to a neutral 48px circle (was per-retailer hash-colored).
-      `app/SearchFilterBar.tsx` repurposed: status-filter dropdown → sort
-      dropdown (doc: "No tabs... sort-by-urgency as default"); also resolves
-      the parked 🟡 Next item about that dropdown. New
-      `app/StartReturnButton.tsx` (client) — "Start return" now combines what
-      were two separate controls (external `returnPortalUrl` link + status-only
-      "I'm returning this"): one click opens the portal and marks
-      `return_requested`, confirmed with owner as a deliberate behavior change,
-      not just a relabel. New `app/OrderActionsMenu.tsx` (client) — `…`
-      overflow for Track package/Track return/Archive/Delete; status-transition
-      buttons (Mark returned/refunded) stay in the primary row, not duplicated
-      into overflow. Primary-button-per-status mapping (doc's anatomy describes
-      one fixed pair, but `lib/displayStatus.ts` has more states) documented in
-      the plan file. Bottom nav deliberately NOT changed — doc's "To drop off"
-      replacement would have removed mobile's only Settings entry point
-      (`Sidebar` is `hidden md:flex`), confirmed with owner to keep today's
-      Dashboard/Alerts/Settings three items instead. `npm run build` clean;
-      `npm run lint` has pre-existing errors in files this session touched
-      (verified via `git show` against the pre-session commit — same error
-      count before and after, none introduced here) and one pre-existing
-      `react-hooks/set-state-in-effect` pattern in `SearchFilterBar.tsx`
-      duplicated into the new sort-select `useEffect` (same shape as the
-      existing search-query one right above it, already present before this
-      session). Browser-verified via `playwright-core` driving local Chrome
-      against the unauthenticated pages (login, verify, privacy) — confirmed
-      the `#F5F4F2` page-background token and font pipeline render correctly
-      in a real browser, no console errors. Could not verify the new
-      dashboard/order-card layout itself the same way: `.env`/`.env.local`
-      both point at the single production Neon database (no separate dev
-      DB), so a real logged-in session would mean writing test auth state to
-      production — deliberately not done. Committed (`1dd9450`), pushed,
-      deployed (`dpl_HFWqhBJov7GTs6f3DJtjT24hjU2v`, confirmed Ready and
-      aliased to `app.myreturnwindow.com`) — **awaiting owner browser
-      verification** (dashboard at both mobile and desktop width, especially
-      the new action-row/overflow-menu behavior per status and the "Start
-      return" combined action), not Done until hand-verified live.
+- [ ] **Task A — "at risk" label only when ≤7 days left.** Diagnostic-first
+      catch: the "at risk" text didn't exist anywhere in the codebase before
+      this task (grepped, zero matches) — `valueAtRisk` was only ever an
+      internal variable name, never rendered. So this is "add a new
+      conditional label," not "narrow an existing always-on one," though the
+      requested end state is unambiguous either way. Also confirmed
+      (no fix needed): the summary card's dollar figure was already
+      correctly filtered to the ≤7-day window via `closingSoonOrders`.
+      `app/OrderCard.tsx`'s price line gets `at risk` (accent-colored,
+      sans, small) when `isClosingSoon(order, now)` from `lib/alerts.ts` —
+      reused rather than hardcoding a second 7, per the task's own
+      instruction.
+- [ ] **Task B — "(est.)" only for genuinely uncertain deadlines.**
+      Diagnostic-first catch: ran a read-only production count before
+      touching anything — 30 of 44 orders have `deadlineIsEstimated: true`,
+      not "every single date" as the brief's framing assumed, though the
+      68% majority likely drives the perception. More importantly, the
+      brief's proposed new `returnDeadlineConfidence` field would have
+      duplicated an existing, already-populated signal:
+      `policySource` (`stated_in_email` / `web_lookup` / `user_supplied` /
+      `null`), which maps almost exactly onto the brief's own
+      confirmed/estimated definitions. **Confirmed with owner: reuse
+      `policySource`, no migration, no parser change** — `confirmed =
+      policySource === "stated_in_email"` (Order-level vocabulary) /
+      `=== "email"` (Email-level — `lib/linkOrder.ts`'s `mapPolicySource()`
+      translates Email's `"email"` to Order's `"stated_in_email"` when
+      merging, confirmed by reading the mapping, not assumed). Deliberately
+      independent of `deadlineIsEstimated`, which tracks delivery-anchor
+      uncertainty and still drives reminder-suppression logic
+      (`lib/reminders.ts`) — untouched by this display-only change; combining
+      both signals for extra accuracy was considered and set aside in favor
+      of exactly what was approved, flagged here as a possible future
+      refinement rather than built now. Three display sites updated:
+      `app/OrderCard.tsx` (price-row hedge + `DaysLeftChip`'s own `(est.)`
+      suffix, for internal consistency on the same card), the order-detail
+      page's "Return deadline" field (kept its existing richer
+      "estimated — based on shipping estimate" vs plain "estimated"
+      distinction, just re-gated), and the email-detail page's raw
+      extraction "Return deadline" field. Admin diagnostic pages and cron
+      reminder/digest email copy deliberately left alone — different
+      purpose (raw-field debugging / functional risk signal), not the
+      display-hedging concept this task is about.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
@@ -590,6 +539,14 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Design tokens Commit 2 — dashboard layout redesign**, its follow-up
+      button-label fix ("Keeping it"), and the desktop layout pass (640px
+      content column, retokened route-aware Sidebar, content-sized buttons
+      at desktop). All three owner-verified live 2026-07-12. One flagged
+      judgment call in the desktop pass — the brief asked for both a
+      page-colored sidebar background and a page-colored active-item
+      highlight, which can't coexist; resolved with a left-border indicator
+      instead (the brief's own listed alternative).
 - [x] **Commit 2 follow-up fixes** — mobile width overflow at 380px (missing
       `min-w-0` on flex children), Sidebar/BottomNav now render from a shared
       `app/(app)/layout.tsx` on every authenticated page instead of just the

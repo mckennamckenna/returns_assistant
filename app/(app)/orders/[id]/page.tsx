@@ -155,7 +155,12 @@ export default async function OrderDetail({
               <>
                 {order.returnDeadline
                   ? `${formatDate(order.returnDeadline)}${
-                      order.deadlineIsEstimated
+                      // "Confirmed" means the retailer's email explicitly stated
+                      // the return window/deadline (policySource === "stated_in_email").
+                      // Independent of deadlineIsEstimated (delivery-anchor
+                      // uncertainty, still drives reminder suppression elsewhere) —
+                      // this is purely about whether to hedge the displayed date.
+                      order.policySource !== "stated_in_email"
                         ? order.estimatedDeliveryDate
                           ? " (estimated — based on shipping estimate)"
                           : " (estimated)"
