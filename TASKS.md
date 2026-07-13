@@ -39,7 +39,10 @@
       width with "Start return".** Small fix, `app/OrderCard.tsx` only (not
       the order-detail page's own "I'm keeping this" button — out of scope,
       not mentioned). Both buttons already used `flex-1`/`min-w-0` identically
-      before this fix — only the label text changed.
+      before this fix — only the label text changed. Committed (`b204790`),
+      pushed, deployed (`dpl_FEcndzHVePgqB443QQpQRwqeP9r7`, confirmed Ready
+      and aliased to `app.myreturnwindow.com`) — **awaiting owner browser
+      verification**, not Done until hand-verified live.
 - [ ] **Commit 2 follow-up fixes (mobile-priority) — mobile width overflow,
       BottomNav not persisting across routes, Alerts nav item not a real
       page.** Owner-reported after Commit 2 deploy. Three fixes: (1) mobile
