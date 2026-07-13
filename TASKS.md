@@ -59,6 +59,10 @@
       no console errors — same production-DB constraint as the last two
       fixes means the actual Sidebar/OrderCard desktop rendering itself
       still needs the owner's own browser check at those three widths.
+      Committed (`2b4cfc6`), pushed, deployed
+      (`dpl_25sf8EKe3S5bg6yU89pxqJLJTmex`, confirmed Ready and aliased to
+      `app.myreturnwindow.com`) — **awaiting owner browser verification**
+      at 380/768/1280px, not Done until hand-verified live.
 - [ ] **Order card buttons: shorten "I'm keeping this" → "Keeping it", equal
       width with "Start return".** Small fix, `app/OrderCard.tsx` only (not
       the order-detail page's own "I'm keeping this" button — out of scope,
