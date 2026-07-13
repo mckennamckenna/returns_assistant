@@ -2,13 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, approveOrderAction, splitOrderAction, markReturnRequestedAction, markReturnedAction, markKeptAction } from "./actions";
+import { deleteEmail, approveOrderAction, splitOrderAction } from "./actions";
 import { DeleteButton } from "./DeleteButton";
-import { SoftDeleteOrderButton } from "./SoftDeleteOrderButton";
-import { ArchiveOrderButton } from "./ArchiveOrderButton";
-import { MarkRefundedButton } from "./MarkRefundedButton";
-import { DisplayStatusBadge } from "./DisplayStatusBadge";
-import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { ReviewCard } from "./ReviewCard";
 import { SearchFilterBar } from "./SearchFilterBar";
 import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
@@ -17,9 +12,8 @@ import { daysUntil } from "@/lib/reminders";
 import { activeOrderFilter } from "@/lib/orderFilters";
 import { Sidebar } from "./Sidebar";
 import { BottomNav } from "./BottomNav";
-import { StatCard } from "./StatCard";
-import { RetailerAvatar } from "./RetailerAvatar";
-import { DaysLeftChip } from "./DaysLeftChip";
+import { SummaryCard } from "./SummaryCard";
+import { OrderCard } from "./OrderCard";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +22,8 @@ export const dynamic = "force-dynamic";
 // passed, the order is no longer "open" in this sense.
 const OPEN_STATUSES = ["ordered", "shipped", "delivered", "returnable", "needs_review"];
 const CLOSING_SOON_DAYS = 7;
-const HIGH_VALUE_THRESHOLD = 150;
 
 type SortField = "retailer" | "total" | "purchaseDate" | "deliveryDate" | "returnDate" | "daysLeft";
-
-function formatDate(date: Date | null): string {
-  if (!date) return "—";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
 
 function formatCurrency(total: number | null, currency: string | null): string {
   if (total == null) return "—";
@@ -59,7 +47,6 @@ function snippet(text: string | null, length = 160): string {
   return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
-
 // Nulls always sort last, regardless of direction — a missing date or total
 // isn't "less than zero," it's unknown, and shouldn't jump to the top when
 // sorting descending.
@@ -81,6 +68,10 @@ export default async function Home({
 
   const params = await searchParams;
   const q = (params.q ?? "").trim().toLowerCase();
+  // No longer surfaced as a dropdown (return-window-design-tokens.md §6
+  // Commit 2 drops status tabs in favor of sort-by-urgency-by-default) —
+  // still read here for the Summary Card's "View all" link and the
+  // Sidebar/Settings "Archived" links, both of which deep-link via ?status=.
   const statusFilter = params.status ?? "all";
   const sortField: SortField = (["retailer", "total", "purchaseDate", "deliveryDate", "returnDate", "daysLeft"] as const).includes(
     params.sort as SortField,
@@ -121,7 +112,6 @@ export default async function Home({
     order.returnDeadline != null && daysUntil(order.returnDeadline, now) >= 0 && daysUntil(order.returnDeadline, now) <= CLOSING_SOON_DAYS;
 
   const openOrders = activeOrders.filter((o) => OPEN_STATUSES.includes(o.status));
-  const openValue = openOrders.reduce((sum, o) => sum + (o.orderTotal ?? 0), 0);
   const closingSoonOrders = openOrders.filter(isClosingSoon);
   const valueAtRisk = closingSoonOrders.reduce((sum, o) => sum + (o.orderTotal ?? 0), 0);
   const alertCount = openOrders.filter((o) => o.needsReview || isClosingSoon(o)).length;
@@ -166,63 +156,27 @@ export default async function Home({
     }
   });
 
-  function sortLink(field: SortField): string {
-    const next = new URLSearchParams();
-    if (q) next.set("q", params.q ?? "");
-    if (statusFilter !== "all") next.set("status", statusFilter);
-    next.set("sort", field);
-    next.set("dir", sortField === field && sortDir === "asc" ? "desc" : "asc");
-    return `/?${next.toString()}`;
-  }
-
-  function SortHeader({ field, children }: { field: SortField; children: React.ReactNode }) {
-    const active = sortField === field;
-    return (
-      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide pb-3 pr-4">
-        <Link href={sortLink(field)} className={`hover:text-ink ${active ? "text-ink" : ""}`}>
-          {children}
-          {active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
-        </Link>
-      </th>
-    );
-  }
-
   return (
     <div className="flex min-h-screen">
       <Sidebar alertCount={alertCount} accountLabel={session.user.email ?? "Your account"} />
       <BottomNav alertCount={alertCount} />
 
-      <main className="flex-1 p-4 pb-20 md:p-8 max-w-6xl">
-        <header className="mb-6">
+      <main className="flex-1 px-5 pt-4 pb-20 md:pt-8 md:px-8 md:pb-8 max-w-3xl">
+        <header className="mb-[22px]">
           <h1 className="font-serif text-[30px] leading-[1.08] font-medium text-ink">{getGreeting()}</h1>
           <p className="text-sm text-muted mt-1">Here&apos;s what&apos;s happening with your returns.</p>
         </header>
 
-        <SearchFilterBar initialQuery={params.q ?? ""} initialStatus={statusFilter} />
+        <SearchFilterBar initialQuery={params.q ?? ""} initialSort={sortField} />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <StatCard
-            label="Open returns"
-            value={String(openOrders.length)}
-            sublabel={`${formatCurrency(openValue, "USD")} total value`}
-            accent="rose"
-          />
-          <StatCard
-            label="Closing soon"
-            value={String(closingSoonOrders.length)}
-            sublabel={`within ${CLOSING_SOON_DAYS} days`}
-            accent="amber"
-          />
-          <StatCard
-            label="Total value at risk"
-            value={formatCurrency(valueAtRisk, "USD")}
-            sublabel="closing soon, not yet returned"
-            accent="sage"
-          />
-        </div>
+        <SummaryCard
+          count={closingSoonOrders.length}
+          dollarAmount={formatCurrency(valueAtRisk, "USD")}
+          href="/?status=closing_soon"
+        />
 
         {reviewOrders.length > 0 && (
-          <details open className="mb-8 bg-amber-50 border border-amber-200 rounded-xl">
+          <details open className="mb-[22px] bg-amber-50 border border-amber-200 rounded-2xl">
             <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-amber-900 flex items-center justify-between">
               <span>Needs review ({reviewOrders.length})</span>
               <span className="text-xs text-amber-700">▾</span>
@@ -255,239 +209,11 @@ export default async function Home({
         ) : visibleOrders.length === 0 ? (
           <p className="text-secondary">No orders match your search and filters.</p>
         ) : (
-          <>
-          <div className="md:hidden flex flex-col gap-3">
-            {visibleOrders.map((order) => {
-              const isHighValue = (order.orderTotal ?? 0) >= HIGH_VALUE_THRESHOLD;
-              return (
-                <div key={order.id} className={`bg-card border border-border rounded-xl p-4 ${isHighValue ? "bg-rose-50/40" : ""}`}>
-                  <div className="flex items-center gap-3">
-                    <Link href={`/orders/${order.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                      <RetailerAvatar name={order.retailer || "?"} />
-                      <div className="min-w-0">
-                        <div className="text-lg font-medium text-ink truncate">{order.retailer || "Unknown retailer"}</div>
-                        {order.orderNumber && <div className="text-xs text-muted truncate">#{order.orderNumber}</div>}
-                        <div className="mt-0.5"><DisplayStatusBadge status={order.displayStatus} /></div>
-                      </div>
-                    </Link>
-                    <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
-                  </div>
-                  <div className="flex items-baseline justify-between mt-3">
-                    <span className="font-serif text-[27px] font-semibold text-ink">
-                      {formatCurrency(order.orderTotal, order.orderCurrency)}
-                    </span>
-                    <span className="text-[13px] text-muted whitespace-nowrap">
-                      Return by {formatDate(order.returnDeadline)}
-                      {order.deadlineIsEstimated ? " (est.)" : ""}
-                    </span>
-                  </div>
-                  {order.orderTotal == null && (
-                    <p className="text-xs text-muted mt-1">Forward your order confirmation to add the total</p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    {order.trackingNumber && order.trackingUrl && (
-                      <a
-                        href={order.trackingUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        Track package →
-                      </a>
-                    )}
-                    {order.returnTrackingNumber && order.returnTrackingUrl && (
-                      <a
-                        href={order.returnTrackingUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        Track your return →
-                      </a>
-                    )}
-                    {order.returnPortalUrl && (
-                      <a
-                        href={order.returnPortalUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-medium text-rose-600 hover:text-rose-800 hover:underline"
-                      >
-                        Start return →
-                      </a>
-                    )}
-                    {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.return_requested && (
-                      <form action={markReturnRequestedAction.bind(null, order.id)}>
-                        <button type="submit" className="text-xs font-medium text-secondary hover:text-ink hover:underline">
-                          I&apos;m returning this
-                        </button>
-                      </form>
-                    )}
-                    {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.returned &&
-                      (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0) && (
-                        <form action={markKeptAction.bind(null, order.id)} className="flex flex-col items-start gap-0.5">
-                          <button type="submit" className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline">
-                            I&apos;m keeping this
-                          </button>
-                          <span className="text-[10px] text-muted">{KEPT_WARNING_CAPTION}</span>
-                        </form>
-                      )}
-                    {order.displayStatus === "return_requested" && (
-                      <form action={markReturnedAction.bind(null, order.id)}>
-                        <button type="submit" className="text-xs font-medium text-green-700 hover:text-green-900 hover:underline">
-                          Mark as returned
-                        </button>
-                      </form>
-                    )}
-                    {order.displayStatus === "returned" && (
-                      <MarkRefundedButton
-                        orderId={order.id}
-                        className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline"
-                      />
-                    )}
-                    <div className="ml-auto flex items-center gap-1">
-                      <ArchiveOrderButton
-                        orderId={order.id}
-                        isArchived={order.archivedAt !== null}
-                        className="text-xs font-medium text-secondary hover:text-ink"
-                      />
-                      <SoftDeleteOrderButton orderId={order.id} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex flex-col gap-4">
+            {visibleOrders.map((order) => (
+              <OrderCard key={order.id} order={order} now={now} />
+            ))}
           </div>
-
-          <div className="hidden md:block bg-card border border-border rounded-xl overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left text-xs font-medium text-muted uppercase tracking-wide pb-3 pr-4 pl-5 pt-4">
-                    Retailer
-                  </th>
-                  <th className="text-left text-xs font-medium text-muted uppercase tracking-wide pb-3 pr-4 pt-4">
-                    Status
-                  </th>
-                  <SortHeader field="total">Total price</SortHeader>
-                  <SortHeader field="purchaseDate">Purchase date</SortHeader>
-                  <SortHeader field="deliveryDate">Delivery date</SortHeader>
-                  <SortHeader field="returnDate">Return date</SortHeader>
-                  <SortHeader field="daysLeft">Days left</SortHeader>
-                  <th className="pb-3 pr-4"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleOrders.map((order) => {
-                  const isHighValue = (order.orderTotal ?? 0) >= HIGH_VALUE_THRESHOLD;
-                  return (
-                    <tr key={order.id} className={`border-b border-border last:border-0 ${isHighValue ? "bg-rose-50/40" : ""}`}>
-                      <td className="py-3 pr-4 pl-5">
-                        <Link href={`/orders/${order.id}`} className="flex items-center gap-3 group">
-                          <RetailerAvatar name={order.retailer || "?"} />
-                          <div className="min-w-0">
-                            <div className="text-lg font-medium text-ink group-hover:underline truncate">
-                              {order.retailer || "Unknown retailer"}
-                            </div>
-                            {order.orderNumber && <div className="text-xs text-muted truncate">#{order.orderNumber}</div>}
-                          </div>
-                        </Link>
-                        {order.orderTotal == null && (
-                          <p className="text-xs text-muted mt-1">Forward your order confirmation to add the total</p>
-                        )}
-                        {order.trackingNumber && order.trackingUrl && (
-                          <a
-                            href={order.trackingUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            Track package →
-                          </a>
-                        )}
-                        {order.returnTrackingNumber && order.returnTrackingUrl && (
-                          <a
-                            href={order.returnTrackingUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block mt-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            Track your return →
-                          </a>
-                        )}
-                        {order.returnPortalUrl && (
-                          <a
-                            href={order.returnPortalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block mt-1 text-xs font-medium text-rose-600 hover:text-rose-800 hover:underline"
-                          >
-                            Start return →
-                          </a>
-                        )}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <DisplayStatusBadge status={order.displayStatus} />
-                      </td>
-                      <td className="py-3 pr-4 whitespace-nowrap font-serif font-semibold text-ink">
-                        {formatCurrency(order.orderTotal, order.orderCurrency)}
-                      </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-secondary">
-                        {formatDate(order.orderDate)}
-                        {order.orderDateEstimated ? <span className="text-muted"> (est.)</span> : ""}
-                      </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-secondary">
-                        {(() => {
-                          const best = order.deliveredAt ?? order.estimatedDeliveryDate ?? order.deliveryDate;
-                          if (!best) return "—";
-                          return (
-                            <>
-                              {formatDate(best)}
-                              {!order.deliveredAt && (order.estimatedDeliveryDate || order.deliveryDate) && (
-                                <span className="text-muted"> (est.)</span>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-secondary">
-                        {formatDate(order.returnDeadline)}
-                        {order.deadlineIsEstimated ? <span className="text-muted"> (est.)</span> : ""}
-                      </td>
-                      <td className="py-3 pr-4 whitespace-nowrap">
-                        <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
-                      </td>
-                      <td className="py-3 pr-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {order.displayStatus === "returned" && (
-                            <MarkRefundedButton
-                              orderId={order.id}
-                              className="text-xs font-medium text-emerald-700 hover:text-emerald-900 hover:underline whitespace-nowrap"
-                            />
-                          )}
-                          {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.returned &&
-                            (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0) && (
-                              <form action={markKeptAction.bind(null, order.id)} className="flex flex-col items-end gap-0.5">
-                                <button type="submit" className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline whitespace-nowrap">
-                                  I&apos;m keeping this
-                                </button>
-                                <span className="text-[10px] text-muted whitespace-nowrap">{KEPT_WARNING_CAPTION}</span>
-                              </form>
-                            )}
-                          <ArchiveOrderButton
-                            orderId={order.id}
-                            isArchived={order.archivedAt !== null}
-                            className="text-xs font-medium text-secondary hover:text-ink"
-                          />
-                          <SoftDeleteOrderButton orderId={order.id} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          </>
         )}
 
         {orphanedEmails.length > 0 && (

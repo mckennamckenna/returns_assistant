@@ -6,35 +6,35 @@ import Link from "next/link";
 
 const DEBOUNCE_MS = 300;
 
-const STATUS_OPTIONS = [
-  { value: "all", label: "All orders" },
-  { value: "open", label: "Open" },
-  { value: "closing_soon", label: "Closing soon" },
-  { value: "needs_review", label: "Needs review" },
-  { value: "shipped", label: "Shipped" },
-  { value: "return_requested", label: "Return requested" },
-  { value: "returned", label: "Returned" },
-  { value: "refunded", label: "Refunded" },
-  { value: "archived", label: "Archived" },
+// Same fields the old desktop table's sortable column headers covered.
+// return-window-design-tokens.md §6 Commit 2: "No tabs... sort-by-urgency
+// as default is sufficient at alpha volume" — status filtering (open,
+// closing soon, etc.) drops from the UI; sorting replaces it.
+const SORT_OPTIONS = [
+  { value: "returnDate", label: "Return date" },
+  { value: "daysLeft", label: "Days left" },
+  { value: "retailer", label: "Retailer" },
+  { value: "total", label: "Total price" },
+  { value: "purchaseDate", label: "Purchase date" },
+  { value: "deliveryDate", label: "Delivery date" },
 ];
 
-export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery: string; initialStatus: string }) {
+export function SearchFilterBar({ initialQuery, initialSort }: { initialQuery: string; initialSort: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const [query, setQuery] = useState(initialQuery);
-  const [status, setStatus] = useState(initialStatus);
+  const [sort, setSort] = useState(initialSort);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-sync if the URL changes from outside this component (e.g. the
-  // "Clear" link below, or a sort-header link elsewhere on the page) —
-  // local state otherwise wouldn't know the params moved.
+  // Re-sync if the URL changes from outside this component — local state
+  // otherwise wouldn't know the params moved.
   useEffect(() => setQuery(initialQuery), [initialQuery]);
-  useEffect(() => setStatus(initialStatus), [initialStatus]);
+  useEffect(() => setSort(initialSort), [initialSort]);
 
-  function pushUrl(nextQuery: string, nextStatus: string) {
+  function pushUrl(nextQuery: string, nextSort: string) {
     const params = new URLSearchParams();
     if (nextQuery) params.set("q", nextQuery);
-    if (nextStatus !== "all") params.set("status", nextStatus);
+    if (nextSort !== "returnDate") params.set("sort", nextSort);
     const queryString = params.toString();
     router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
   }
@@ -42,11 +42,11 @@ export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery:
   function handleQueryChange(value: string) {
     setQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => pushUrl(value, status), DEBOUNCE_MS);
+    debounceRef.current = setTimeout(() => pushUrl(value, sort), DEBOUNCE_MS);
   }
 
-  function handleStatusChange(value: string) {
-    setStatus(value);
+  function handleSortChange(value: string) {
+    setSort(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     pushUrl(query, value);
   }
@@ -58,20 +58,20 @@ export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery:
         value={query}
         onChange={(e) => handleQueryChange(e.target.value)}
         placeholder="Search retailer or order number"
-        className="w-full md:flex-1 md:min-w-[14rem] bg-card border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted"
+        className="w-full md:flex-1 md:min-w-[14rem] bg-card border border-border rounded-[12px] px-3 py-2 text-sm placeholder:text-muted"
       />
       <select
-        value={status}
-        onChange={(e) => handleStatusChange(e.target.value)}
-        className="w-full md:w-auto bg-card border border-border rounded-lg px-3 py-2 text-sm text-secondary"
+        value={sort}
+        onChange={(e) => handleSortChange(e.target.value)}
+        className="w-full md:w-auto bg-card border border-border rounded-[12px] px-3 py-2 text-sm text-secondary"
       >
-        {STATUS_OPTIONS.map((option) => (
+        {SORT_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
-            {option.label}
+            Sort: {option.label}
           </option>
         ))}
       </select>
-      {(query || status !== "all") && (
+      {query && (
         <Link href={pathname} className="text-sm text-secondary hover:underline">
           Clear
         </Link>

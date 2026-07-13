@@ -26,15 +26,53 @@
 ---
 
 ## 🔴 Now
-- [ ] **Design tokens Commit 2 — dashboard layout redesign.** Per
-      `return-window-design-tokens.md` §6 Commit 2, gated on Commit 1
-      (above, owner-verified live 2026-07-12) and now starting. Summary
-      card (count | divider | dollar | "View all →" replacing the three
-      colored stat boxes), needs-review card repositioned above the order
-      list, order card anatomy (retailer logo circle, status pill, days-left
-      pill, serif price, two-button + overflow-menu action row), search+sort
-      row, QR/label "Soon" hint, bottom nav relabel, §5 spacing. Structural
-      layout change, not just typography/color this time.
+- [ ] **Design tokens Commit 2 — dashboard layout redesign. Code complete,
+      awaiting deploy + owner browser verification.** Plan at
+      `.claude/plans/melodic-moseying-newell.md`. Per
+      `return-window-design-tokens.md` §6, on top of Commit 1's tokens. New
+      `app/SummaryCard.tsx` (count | divider | dollar | "View all →" to
+      `/?status=closing_soon`) replaces the three `StatCard` boxes —
+      `app/StatCard.tsx` deleted. New `app/OrderCard.tsx` replaces both the
+      old mobile card map and the desktop table with one card design used
+      at every breakpoint (scope confirmed with owner — doc only described
+      a card layout, no desktop table mentioned). Needs-review block
+      confirmed already correctly positioned (between summary and order
+      list) — no move needed, diagnostic-first check. `app/RetailerAvatar.tsx`
+      simplified to a neutral 48px circle (was per-retailer hash-colored).
+      `app/SearchFilterBar.tsx` repurposed: status-filter dropdown → sort
+      dropdown (doc: "No tabs... sort-by-urgency as default"); also resolves
+      the parked 🟡 Next item about that dropdown. New
+      `app/StartReturnButton.tsx` (client) — "Start return" now combines what
+      were two separate controls (external `returnPortalUrl` link + status-only
+      "I'm returning this"): one click opens the portal and marks
+      `return_requested`, confirmed with owner as a deliberate behavior change,
+      not just a relabel. New `app/OrderActionsMenu.tsx` (client) — `…`
+      overflow for Track package/Track return/Archive/Delete; status-transition
+      buttons (Mark returned/refunded) stay in the primary row, not duplicated
+      into overflow. Primary-button-per-status mapping (doc's anatomy describes
+      one fixed pair, but `lib/displayStatus.ts` has more states) documented in
+      the plan file. Bottom nav deliberately NOT changed — doc's "To drop off"
+      replacement would have removed mobile's only Settings entry point
+      (`Sidebar` is `hidden md:flex`), confirmed with owner to keep today's
+      Dashboard/Alerts/Settings three items instead. `npm run build` clean;
+      `npm run lint` has pre-existing errors in files this session touched
+      (verified via `git show` against the pre-session commit — same error
+      count before and after, none introduced here) and one pre-existing
+      `react-hooks/set-state-in-effect` pattern in `SearchFilterBar.tsx`
+      duplicated into the new sort-select `useEffect` (same shape as the
+      existing search-query one right above it, already present before this
+      session). Browser-verified via `playwright-core` driving local Chrome
+      against the unauthenticated pages (login, verify, privacy) — confirmed
+      the `#F5F4F2` page-background token and font pipeline render correctly
+      in a real browser, no console errors. Could not verify the new
+      dashboard/order-card layout itself the same way: `.env`/`.env.local`
+      both point at the single production Neon database (no separate dev
+      DB), so a real logged-in session would mean writing test auth state to
+      production — deliberately not done. **Not yet committed, pushed, or
+      deployed** — do that next, then this needs the owner's own browser
+      check (dashboard at both mobile and desktop width, especially the new
+      action-row/overflow-menu behavior per status and the "Start return"
+      combined action) before this can move to Done.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
