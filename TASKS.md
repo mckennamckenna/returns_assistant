@@ -68,11 +68,12 @@
       dashboard/order-card layout itself the same way: `.env`/`.env.local`
       both point at the single production Neon database (no separate dev
       DB), so a real logged-in session would mean writing test auth state to
-      production — deliberately not done. **Not yet committed, pushed, or
-      deployed** — do that next, then this needs the owner's own browser
-      check (dashboard at both mobile and desktop width, especially the new
-      action-row/overflow-menu behavior per status and the "Start return"
-      combined action) before this can move to Done.
+      production — deliberately not done. Committed (`1dd9450`), pushed,
+      deployed (`dpl_HFWqhBJov7GTs6f3DJtjT24hjU2v`, confirmed Ready and
+      aliased to `app.myreturnwindow.com`) — **awaiting owner browser
+      verification** (dashboard at both mobile and desktop width, especially
+      the new action-row/overflow-menu behavior per status and the "Start
+      return" combined action), not Done until hand-verified live.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
