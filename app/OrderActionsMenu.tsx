@@ -15,11 +15,13 @@ export function OrderActionsMenu({
   isArchived,
   trackingUrl,
   returnTrackingUrl,
+  className = "",
 }: {
   orderId: string;
   isArchived: boolean;
   trackingUrl: string | null;
   returnTrackingUrl: string | null;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -40,7 +42,7 @@ export function OrderActionsMenu({
   }
 
   return (
-    <div className="relative shrink-0">
+    <div className={`relative shrink-0 ${className}`}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

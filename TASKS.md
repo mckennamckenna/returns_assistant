@@ -26,15 +26,39 @@
 ---
 
 ## 🔴 Now
-- [ ] **Desktop layout pass** — constrain `OrderCard`/`SummaryCard`/search+sort
-      to a 640px content column at ≥768px, apply design tokens to `Sidebar`
-      (page-color background, ink/secondary/muted text per item, active-state
-      highlight, token-styled Soon/alert badges), size buttons to content
-      instead of full-width at desktop width. One breakpoint (768px). No new
-      components/pages, no mobile/settings/login/admin changes, sidebar nav
-      items unchanged. Was blocked on the Commit 2 follow-up fixes entry
-      (below, in Done) being owner-verified live first — confirmed 2026-07-12,
-      starting now.
+- [ ] **Desktop layout pass — code complete, awaiting deploy + owner browser
+      verification.** `app/(app)/page.tsx` and `app/(app)/alerts/page.tsx`
+      constrained to `max-w-[640px]` with `md:pl-12` (left-aligned, not
+      centered, per the brief) instead of the old `max-w-3xl`; greeting
+      grows to `md:text-[38px]`. `OrderCard`'s action buttons switch from
+      `flex-1` (equal-width, mobile) to `md:flex-none md:w-auto` with
+      `md:px-6` at desktop, sized to content instead of stretching; the `…`
+      overflow menu (`OrderActionsMenu`, now accepts an optional
+      `className` prop) gets `md:ml-auto` to dock at the far right of the
+      row. `Sidebar` retokened: `bg-page` background (was `bg-card`), 15px
+      nav item text (was 14px), wordmark weight 500 (was 600), Soon badges
+      now `bg-border`/rounded-full/11px, footer email/sign-out now 13px
+      muted. `Sidebar` became a client component (`usePathname` +
+      `useSearchParams`) so active-state highlighting actually works —
+      wasn't route-aware at all before this (every item's style was
+      static). **One real contradiction in the brief, resolved by
+      judgment**: it says both "sidebar background: page color" and
+      "active item: ... background highlight using page color" — those
+      can't both be true, a page-colored highlight is invisible on a
+      page-colored background. Used the brief's own listed alternative
+      instead: a 3px ink-colored left border on the active item (transparent
+      border on inactive items, so nothing shifts horizontally when active
+      state changes) — flagging in case a different resolution was intended.
+      Also caught and fixed while implementing: hover states on inactive nav
+      items were still `hover:bg-page`, which would have been equally
+      invisible against the new page-colored sidebar background — changed
+      to `hover:bg-card`. `npm run build` clean; `npm run lint` shows only
+      the same pre-existing `GmailVerificationCode.tsx` error already
+      tracked, nothing new. Verified via `playwright-core` + local Chrome at
+      380/768/1280px that the shared font/token pipeline still renders with
+      no console errors — same production-DB constraint as the last two
+      fixes means the actual Sidebar/OrderCard desktop rendering itself
+      still needs the owner's own browser check at those three widths.
 - [ ] **Order card buttons: shorten "I'm keeping this" → "Keeping it", equal
       width with "Start return".** Small fix, `app/OrderCard.tsx` only (not
       the order-detail page's own "I'm keeping this" button — out of scope,

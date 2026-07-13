@@ -93,12 +93,12 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
           <StartReturnButton
             orderId={order.id}
             returnPortalUrl={order.returnPortalUrl}
-            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 disabled:opacity-50"
+            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 disabled:opacity-50 md:flex-none md:w-auto"
           />
         )}
         {order.displayStatus === "return_requested" && (
-          <form action={markReturnedAction.bind(null, order.id)} className="flex-1 min-w-0">
-            <button type="submit" className="w-full truncate bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90">
+          <form action={markReturnedAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none">
+            <button type="submit" className="w-full md:w-auto truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90">
               Mark as returned
             </button>
           </form>
@@ -106,12 +106,12 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         {order.displayStatus === "returned" && (
           <MarkRefundedButton
             orderId={order.id}
-            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 text-center"
+            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 text-center md:flex-none md:w-auto"
           />
         )}
         {canKeep && (
-          <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0">
-            <button type="submit" className="w-full truncate border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page">
+          <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none">
+            <button type="submit" className="w-full md:w-auto truncate border border-border text-ink text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-page">
               Keeping it
             </button>
           </form>
@@ -121,6 +121,7 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
           isArchived={order.archivedAt !== null}
           trackingUrl={order.trackingNumber && order.trackingUrl ? order.trackingUrl : null}
           returnTrackingUrl={order.returnTrackingNumber && order.returnTrackingUrl ? order.returnTrackingUrl : null}
+          className="md:ml-auto"
         />
       </div>
       {canKeep && <p className="text-[10px] text-muted mt-1">{KEPT_WARNING_CAPTION}</p>}

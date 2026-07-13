@@ -145,9 +145,9 @@ export default async function Home({
   });
 
   return (
-    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pt-8 md:px-8 md:pb-8 max-w-3xl">
+    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pb-8 md:pl-12 md:pr-8 md:pt-12 max-w-[640px]">
       <header className="mb-[22px]">
-        <h1 className="font-serif text-[30px] leading-[1.08] font-medium text-ink">{getGreeting()}</h1>
+        <h1 className="font-serif text-[30px] md:text-[38px] leading-[1.08] font-medium text-ink">{getGreeting()}</h1>
         <p className="text-sm text-muted mt-1">Here&apos;s what&apos;s happening with your returns.</p>
       </header>
 
