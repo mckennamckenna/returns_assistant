@@ -26,43 +26,15 @@
 ---
 
 ## 🔴 Now
-- [ ] **Design tokens Commit 1 — self-host Bodoni Moda + Inter, apply type
-      scale + color palette. Code complete, awaiting deploy + owner browser
-      verification.** Plan at `.claude/plans/melodic-moseying-newell.md`.
-      `next/font/google` self-hosts Bodoni Moda (serif, weights 400–700) +
-      Inter (sans, 400/500), exposed as `--font-serif`/`--font-sans`;
-      `--font-sans` drives Tailwind v4's default body font automatically, so
-      only the doc's explicitly-listed serif elements (greeting, StatCard
-      value, order price in mobile card/desktop table/order-detail, and
-      DaysLeftChip's number) needed an explicit `font-serif` override.
-      `app/globals.css` adds page/card/ink/secondary/muted/border/accent
-      color tokens (`bg-page`, `text-ink`, etc.), replacing the warm-cream
-      `stone`/`zinc` palette across every logged-in-app page (dashboard,
-      order detail, settings, login, admin — ~30 files touched, scope
-      confirmed with owner). Marketing page (`myreturnwindow.com`)
-      deliberately excluded — turned out to be a fully separate bespoke
-      design (own Cormorant Garamond font link, inline-hex styles), not a
-      themed dashboard variant. Hue-bearing semantic colors (status badges'
-      returned/refunded/kept, DaysLeftChip's ≤2-day red urgency tier, and
-      the order-detail/dashboard's per-action colored buttons — Start
-      Return blue, returning amber, keeping slate, returned green, refunded
-      emerald) deliberately left untouched — not covered by the token doc's
-      status-tint table, flagged explicitly in the plan rather than
-      guessed at. `npm run build` clean (type-checks pass). Automated
-      browser screenshot verification was attempted (no working headless-
-      browser tool pre-existed in this repo; a Playwright chromium install
-      hung for hours in this sandboxed environment and was killed) — could
-      not complete it this session. Verification instead rests on: the
-      clean build, an exhaustive repo-wide grep confirming zero leftover
-      references to the old palette/fonts outside the deliberately-
-      untouched `RetailerAvatar.tsx` and the excluded marketing page, and
-      line-by-line reasoning against the design doc during each edit.
-      Committed (`90f6856`), pushed, deployed (`dpl_5T9C68LZE5i39b63fPUPsBRYeWcx`,
-      confirmed Ready and aliased to `app.myreturnwindow.com`) —
-      **awaiting owner browser verification** (dashboard mobile+desktop,
-      order detail, settings, login, admin), not Done until hand-verified
-      live, before Commit 2 (dashboard layout redesign, same doc §6) can
-      start, per the doc's own sequencing instruction.
+- [ ] **Design tokens Commit 2 — dashboard layout redesign.** Per
+      `return-window-design-tokens.md` §6 Commit 2, gated on Commit 1
+      (above, owner-verified live 2026-07-12) and now starting. Summary
+      card (count | divider | dollar | "View all →" replacing the three
+      colored stat boxes), needs-review card repositioned above the order
+      list, order card anatomy (retailer logo circle, status pill, days-left
+      pill, serif price, two-button + overflow-menu action row), search+sort
+      row, QR/label "Soon" hint, bottom nav relabel, §5 spacing. Structural
+      layout change, not just typography/color this time.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
@@ -534,6 +506,37 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Design tokens Commit 1 — self-host Bodoni Moda + Inter, apply type
+      scale + color palette.** `next/font/google` self-hosts Bodoni Moda
+      (serif, weights 400–700) + Inter (sans, 400/500), exposed as
+      `--font-serif`/`--font-sans`; `--font-sans` drives Tailwind v4's
+      default body font automatically, so only the doc's explicitly-listed
+      serif elements (greeting, StatCard value, order price in mobile
+      card/desktop table/order-detail, and DaysLeftChip's number) needed an
+      explicit `font-serif` override. `app/globals.css` adds page/card/ink/
+      secondary/muted/border/accent color tokens (`bg-page`, `text-ink`,
+      etc.), replacing the warm-cream `stone`/`zinc` palette across every
+      logged-in-app page (dashboard, order detail, settings, login, admin —
+      ~30 files touched, scope confirmed with owner). Marketing page
+      (`myreturnwindow.com`) deliberately excluded — turned out to be a
+      fully separate bespoke design (own Cormorant Garamond font link,
+      inline-hex styles), not a themed dashboard variant. Hue-bearing
+      semantic colors (status badges' returned/refunded/kept, DaysLeftChip's
+      ≤2-day red urgency tier, and the order-detail/dashboard's per-action
+      colored buttons — Start Return blue, returning amber, keeping slate,
+      returned green, refunded emerald) deliberately left untouched — not
+      covered by the token doc's status-tint table, flagged explicitly in
+      the plan rather than guessed at. `npm run build` clean (type-checks
+      pass). Automated browser screenshot verification was attempted (no
+      working headless-browser tool pre-existed in this repo; a Playwright
+      chromium install hung for hours in this sandboxed environment and was
+      killed) — could not complete it that session; verification instead
+      rested on the clean build plus an exhaustive repo-wide grep confirming
+      zero leftover references to the old palette/fonts outside the
+      deliberately-untouched `RetailerAvatar.tsx` and the excluded marketing
+      page. Committed (`90f6856`), pushed, deployed
+      (`dpl_5T9C68LZE5i39b63fPUPsBRYeWcx`, confirmed Ready and aliased to
+      `app.myreturnwindow.com`) — **owner-verified live 2026-07-12.**
 - [x] **HTML emails** — deadline reminder, weekly digest, and refund check-in emails now send real HTML with clickable links instead of raw URLs. Owner-verified live via a real forced send (Shopbop test order): HTML rendered correctly, all three links resolved.
 - [x] **"Mark returned" signed-token email action** — second one-tap-from-email action after Archive. Owner-verified live: clicked the link on the Shopbop test order, confirmed the order transitioned to returned correctly, reverted after.
 - [ ] **orderDate-fallback Phase 4 backfill** — 6 prod rows matched the
