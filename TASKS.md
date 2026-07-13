@@ -26,57 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **Task A — "at risk" label only when ≤7 days left.** Diagnostic-first
-      catch: the "at risk" text didn't exist anywhere in the codebase before
-      this task (grepped, zero matches) — `valueAtRisk` was only ever an
-      internal variable name, never rendered. So this is "add a new
-      conditional label," not "narrow an existing always-on one," though the
-      requested end state is unambiguous either way. Also confirmed
-      (no fix needed): the summary card's dollar figure was already
-      correctly filtered to the ≤7-day window via `closingSoonOrders`.
-      `app/OrderCard.tsx`'s price line gets `at risk` (accent-colored,
-      sans, small) when `isClosingSoon(order, now)` from `lib/alerts.ts` —
-      reused rather than hardcoding a second 7, per the task's own
-      instruction. Committed with Task B (`b6ff814`), pushed, deployed
-      (`dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ`, confirmed Ready and aliased to
-      `app.myreturnwindow.com`) — **awaiting owner browser verification**,
-      not Done until hand-verified live.
-- [ ] **Task B — "(est.)" only for genuinely uncertain deadlines.**
-      Diagnostic-first catch: ran a read-only production count before
-      touching anything — 30 of 44 orders have `deadlineIsEstimated: true`,
-      not "every single date" as the brief's framing assumed, though the
-      68% majority likely drives the perception. More importantly, the
-      brief's proposed new `returnDeadlineConfidence` field would have
-      duplicated an existing, already-populated signal:
-      `policySource` (`stated_in_email` / `web_lookup` / `user_supplied` /
-      `null`), which maps almost exactly onto the brief's own
-      confirmed/estimated definitions. **Confirmed with owner: reuse
-      `policySource`, no migration, no parser change** — `confirmed =
-      policySource === "stated_in_email"` (Order-level vocabulary) /
-      `=== "email"` (Email-level — `lib/linkOrder.ts`'s `mapPolicySource()`
-      translates Email's `"email"` to Order's `"stated_in_email"` when
-      merging, confirmed by reading the mapping, not assumed). Deliberately
-      independent of `deadlineIsEstimated`, which tracks delivery-anchor
-      uncertainty and still drives reminder-suppression logic
-      (`lib/reminders.ts`) — untouched by this display-only change; combining
-      both signals for extra accuracy was considered and set aside in favor
-      of exactly what was approved, flagged here as a possible future
-      refinement rather than built now. Three display sites updated:
-      `app/OrderCard.tsx` (price-row hedge + `DaysLeftChip`'s own `(est.)`
-      suffix, for internal consistency on the same card), the order-detail
-      page's "Return deadline" field (kept its existing richer
-      "estimated — based on shipping estimate" vs plain "estimated"
-      distinction, just re-gated), and the email-detail page's raw
-      extraction "Return deadline" field. Admin diagnostic pages and cron
-      reminder/digest email copy deliberately left alone — different
-      purpose (raw-field debugging / functional risk signal), not the
-      display-hedging concept this task is about. `npm run build` and
-      `npm test` (271 tests) clean; `npm run lint` shows only the same
-      pre-existing `GmailVerificationCode.tsx` error, nothing new. Both A
-      and B committed together (`b6ff814`), pushed, deployed
-      (`dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ`, confirmed Ready and aliased to
-      `app.myreturnwindow.com`) — **awaiting owner browser verification**,
-      not Done until hand-verified live.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
@@ -152,6 +101,18 @@
       strong timing correlation, not proof. The underlying mechanism (Settings
       → Git / Deploy Hooks / webhook) is still unconfirmed by dashboard
       inspection; someone needs to actually open the Vercel dashboard.
+      **2026-07-12, third data point:** recurred again at session close.
+      Explicitly ran `vercel --prod` for commit `b6ff814` (Tasks A/B),
+      confirmed deployment `dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ` Ready and
+      aliased. Then pushed one more docs-only commit (`016ca20`,
+      TASKS.md-only). ~2.5 minutes later, with no `vercel --prod` run for
+      it, `dpl_BdhzY93AwF6NqQhMKjYtiGBettsy` appeared and became the new
+      aliased live deployment — same pattern as the two prior data points.
+      No functional risk here specifically (the triggering commit was
+      docs-only, so the rebuilt bundle is identical to `dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ`'s),
+      but it confirms this isn't a one-off — three separate sessions now,
+      still unexplained via CLI. Priority stands: someone needs to open the
+      Vercel dashboard directly.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
@@ -161,6 +122,22 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **Desktop visual polish** — sidebar refinement, spacing, greeting size,
+      and needs-review card styling at wider viewports. Follow-up to the
+      2026-07-12 desktop layout pass (640px content column, retokened
+      Sidebar); that pass covered structure/sizing per its brief, this is
+      the next-level polish pass once the owner has spent more time at
+      desktop width.
+- [ ] **Retailer logos** — `RetailerAvatar` currently shows initials only
+      (deliberately, per Commit 2: "logo integration is a separate future
+      task"). Needs a logo source/lookup strategy — not spec'd yet.
+- [ ] **Needs-review card repositioning — verify current placement.**
+      Checked 2026-07-12: already sits between the summary card and the
+      order list in `app/(app)/page.tsx` (confirmed again at session close,
+      unchanged since Commit 2's original diagnostic-first check found no
+      move was needed). Leaving this item open only in case a different
+      placement is actually wanted — if current placement is correct, this
+      can just be closed next session without code changes.
 - [ ] **orderDate-fallback Phase 3** — verify UI behavior with a null-orderDate
       order (5-min eyeball, likely no code needed per Phase 1's finding that
       null orderDate already renders as "—" correctly). Phase 4 backfill is
@@ -548,6 +525,11 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Task A ("at risk" label, conditional on ≤7 days left) and Task B
+      ("(est.)" hedging, conditional on `policySource === "stated_in_email"`,
+      no schema migration)** — both owner-verified live 2026-07-12. See
+      Known Issues for the one follow-up this surfaced (summary card's
+      single-order display).
 - [x] **Design tokens Commit 2 — dashboard layout redesign**, its follow-up
       button-label fix ("Keeping it"), and the desktop layout pass (640px
       content column, retokened route-aware Sidebar, content-sized buttons
@@ -790,6 +772,22 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Summary card should show the retailer name, not just the dollar total,
+  when exactly one order is due** — e.g. "Poshmark · Return by Jul 17"
+  instead of "$77.66" when `closingSoonOrders.length === 1`; the dollar
+  summary makes sense for multiple orders but is a weak signal for one.
+  Owner reference: "the adaptive hero pattern from the design tokens doc."
+  Checked 2026-07-12: `return-window-design-tokens.md` as it currently
+  exists in the repo does not contain this pattern (grepped for
+  "adaptive"/"hero"/"single order"/"one order" — no matches; only a
+  generic "Retailer name" type-scale entry for the order-card anatomy, not
+  a summary-card special case). Likely lives in an approved mock/chat
+  reference from an earlier session that was never written into the
+  committed doc — next session will need either an updated doc or the
+  specific behavior spelled out fresh (exact copy, threshold, which order
+  wins if the single order is ambiguous) rather than assuming it can be
+  "referenced." `app/SummaryCard.tsx` is the file — currently always shows
+  count/divider/dollar regardless of count.
 - **RESOLVED, not a bug:** ~~coverage-check email showing entire order history
   instead of "this week"~~ — `app/api/cron/weekly-coverage/route.ts` already
   filters `Email.receivedAt >= now - 7 days` and has since Milestone 16
