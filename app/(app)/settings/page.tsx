@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { getInboundAddress } from "@/lib/inboundAddress";
 import { DeleteAllDataForm } from "./DeleteAllDataForm";
-import { CopyButton } from "./CopyButton";
+import { CopyButton } from "@/app/CopyButton";
 import { GmailVerificationCode } from "./GmailVerificationCode";
 
 export default async function SettingsPage() {
@@ -24,7 +24,7 @@ export default async function SettingsPage() {
   const gmailSearchUrl = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(GMAIL_COMMERCE_QUERY).replace(/\(/g, "%28").replace(/\)/g, "%29")}`;
 
   return (
-    <main className="min-h-screen p-8 max-w-2xl mx-auto w-full">
+    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pt-8 md:px-8 md:pb-8 max-w-2xl mx-auto">
       <Link href="/" className="text-sm text-secondary hover:underline">
         &larr; Back to dashboard
       </Link>

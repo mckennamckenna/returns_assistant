@@ -75,11 +75,11 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
       </div>
 
-      <div className="flex items-baseline justify-between mt-3">
+      <div className="flex items-baseline justify-between flex-wrap gap-x-2 gap-y-1 mt-3">
         <span className="font-serif text-[27px] font-semibold text-ink">
           {formatCurrency(order.orderTotal, order.orderCurrency)}
         </span>
-        <span className="text-[13px] text-muted whitespace-nowrap">
+        <span className="text-[13px] text-muted">
           Return by {formatDate(order.returnDeadline)}
           {order.deadlineIsEstimated ? " (est.)" : ""}
         </span>
@@ -93,12 +93,12 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
           <StartReturnButton
             orderId={order.id}
             returnPortalUrl={order.returnPortalUrl}
-            className="flex-1 bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 disabled:opacity-50"
+            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 disabled:opacity-50"
           />
         )}
         {order.displayStatus === "return_requested" && (
-          <form action={markReturnedAction.bind(null, order.id)} className="flex-1">
-            <button type="submit" className="w-full bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90">
+          <form action={markReturnedAction.bind(null, order.id)} className="flex-1 min-w-0">
+            <button type="submit" className="w-full truncate bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90">
               Mark as returned
             </button>
           </form>
@@ -106,12 +106,12 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         {order.displayStatus === "returned" && (
           <MarkRefundedButton
             orderId={order.id}
-            className="flex-1 bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 text-center"
+            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 text-center"
           />
         )}
         {canKeep && (
-          <form action={markKeptAction.bind(null, order.id)} className="flex-1">
-            <button type="submit" className="w-full border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page">
+          <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0">
+            <button type="submit" className="w-full truncate border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page">
               I&apos;m keeping this
             </button>
           </form>

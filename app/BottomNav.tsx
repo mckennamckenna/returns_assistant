@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 // Hand-rolled, minimal stroke icons — no icon library dependency for
 // three glyphs. Sized to match the rest of the app's restrained,
@@ -31,13 +34,20 @@ function GearIcon() {
 }
 
 export function BottomNav({ alertCount }: { alertCount: number }) {
+  const pathname = usePathname();
+
+  function tabClass(href: string): string {
+    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+    return `flex-1 flex flex-col items-center justify-center gap-0.5 ${active ? "text-ink" : "text-muted"}`;
+  }
+
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 bg-card border-t border-border flex items-stretch h-16 pb-[env(safe-area-inset-bottom)]">
-      <Link href="/" className="flex-1 flex flex-col items-center justify-center gap-0.5 text-ink">
+      <Link href="/" className={tabClass("/")}>
         <HomeIcon />
         <span className="text-[10px] font-medium">Dashboard</span>
       </Link>
-      <div className="flex-1 flex flex-col items-center justify-center gap-0.5 text-muted relative">
+      <Link href="/alerts" className={`${tabClass("/alerts")} relative`}>
         <span className="relative">
           <BellIcon />
           {alertCount > 0 && (
@@ -47,8 +57,8 @@ export function BottomNav({ alertCount }: { alertCount: number }) {
           )}
         </span>
         <span className="text-[10px]">Alerts</span>
-      </div>
-      <Link href="/settings" className="flex-1 flex flex-col items-center justify-center gap-0.5 text-muted">
+      </Link>
+      <Link href="/settings" className={tabClass("/settings")}>
         <GearIcon />
         <span className="text-[10px]">Settings</span>
       </Link>

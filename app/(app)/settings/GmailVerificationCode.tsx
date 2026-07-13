@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CopyButton } from "./CopyButton";
+import { CopyButton } from "@/app/CopyButton";
 import { markGmailVerified } from "./actions";
 
 const POLL_INTERVAL_MS = 3000;

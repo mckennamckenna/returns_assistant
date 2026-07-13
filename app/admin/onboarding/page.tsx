@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { getInboundAddress } from "@/lib/inboundAddress";
-import { CopyButton } from "@/app/settings/CopyButton";
+import { CopyButton } from "@/app/CopyButton";
 
 export const dynamic = "force-dynamic";
 

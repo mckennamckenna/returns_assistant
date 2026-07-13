@@ -116,7 +116,7 @@ export default async function OrderDetail({
   const now = new Date();
 
   return (
-    <main className="min-h-screen p-8 max-w-3xl mx-auto w-full">
+    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pt-8 md:px-8 md:pb-8 max-w-3xl mx-auto">
       <Link href="/" className="text-sm text-secondary hover:underline">
         &larr; Back to dashboard
       </Link>
