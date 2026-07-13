@@ -37,7 +37,10 @@
       `app/OrderCard.tsx`'s price line gets `at risk` (accent-colored,
       sans, small) when `isClosingSoon(order, now)` from `lib/alerts.ts` —
       reused rather than hardcoding a second 7, per the task's own
-      instruction.
+      instruction. Committed with Task B (`b6ff814`), pushed, deployed
+      (`dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ`, confirmed Ready and aliased to
+      `app.myreturnwindow.com`) — **awaiting owner browser verification**,
+      not Done until hand-verified live.
 - [ ] **Task B — "(est.)" only for genuinely uncertain deadlines.**
       Diagnostic-first catch: ran a read-only production count before
       touching anything — 30 of 44 orders have `deadlineIsEstimated: true`,
@@ -67,7 +70,13 @@
       extraction "Return deadline" field. Admin diagnostic pages and cron
       reminder/digest email copy deliberately left alone — different
       purpose (raw-field debugging / functional risk signal), not the
-      display-hedging concept this task is about.
+      display-hedging concept this task is about. `npm run build` and
+      `npm test` (271 tests) clean; `npm run lint` shows only the same
+      pre-existing `GmailVerificationCode.tsx` error, nothing new. Both A
+      and B committed together (`b6ff814`), pushed, deployed
+      (`dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ`, confirmed Ready and aliased to
+      `app.myreturnwindow.com`) — **awaiting owner browser verification**,
+      not Done until hand-verified live.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
