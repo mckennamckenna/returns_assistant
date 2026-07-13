@@ -25,7 +25,7 @@ export default async function AdminOnboardingPage() {
   return (
     <main className="min-h-screen p-8 max-w-3xl mx-auto w-full">
       <h1 className="text-2xl font-semibold mb-2">Onboarding</h1>
-      <p className="text-sm text-stone-500 mb-8">
+      <p className="text-sm text-secondary mb-8">
         Each user's forwarding address — copy one to send to a friend, or to remind someone who already signed up.
       </p>
 
@@ -33,13 +33,13 @@ export default async function AdminOnboardingPage() {
         {users.map((user) => {
           const inboundAddress = getInboundAddress(user.inboundToken);
           return (
-            <div key={user.id} className="bg-white border border-stone-200 rounded-lg p-4">
+            <div key={user.id} className="bg-card border border-border rounded-lg p-4">
               <div className="flex items-baseline justify-between gap-4">
-                <span className="font-medium text-stone-800">{user.email}</span>
-                <span className="text-xs text-stone-400 whitespace-nowrap">Joined {formatDate(user.createdAt)}</span>
+                <span className="font-medium text-ink">{user.email}</span>
+                <span className="text-xs text-muted whitespace-nowrap">Joined {formatDate(user.createdAt)}</span>
               </div>
               <div className="flex items-center gap-2 mt-2">
-                <code className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 break-all">
+                <code className="flex-1 bg-page border border-border rounded-lg px-3 py-2 text-sm text-ink break-all">
                   {inboundAddress}
                 </code>
                 <CopyButton text={inboundAddress} />

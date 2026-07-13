@@ -24,8 +24,8 @@ export default async function LoginPage({
     <main className="min-h-screen flex items-center justify-center p-8">
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
-          <span className="text-xl font-semibold text-stone-800">Return Window</span>
-          <p className="text-stone-500 text-sm mt-1">Sign in to your account</p>
+          <span className="text-xl font-semibold text-ink">Return Window</span>
+          <p className="text-secondary text-sm mt-1">Sign in to your account</p>
         </div>
         {errorMessage && (
           <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">

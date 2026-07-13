@@ -32,23 +32,23 @@ function GearIcon() {
 
 export function BottomNav({ alertCount }: { alertCount: number }) {
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 bg-white border-t border-stone-200 flex items-stretch h-16 pb-[env(safe-area-inset-bottom)]">
-      <Link href="/" className="flex-1 flex flex-col items-center justify-center gap-0.5 text-rose-700">
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 bg-card border-t border-border flex items-stretch h-16 pb-[env(safe-area-inset-bottom)]">
+      <Link href="/" className="flex-1 flex flex-col items-center justify-center gap-0.5 text-ink">
         <HomeIcon />
         <span className="text-[10px] font-medium">Dashboard</span>
       </Link>
-      <div className="flex-1 flex flex-col items-center justify-center gap-0.5 text-stone-400 relative">
+      <div className="flex-1 flex flex-col items-center justify-center gap-0.5 text-muted relative">
         <span className="relative">
           <BellIcon />
           {alertCount > 0 && (
-            <span className="absolute -top-1 -right-1.5 text-[10px] font-semibold bg-rose-500 text-white px-1 rounded-full min-w-[1rem] text-center leading-[1rem]">
+            <span className="absolute -top-1 -right-1.5 text-[10px] font-semibold bg-ink text-page px-1 rounded-full min-w-[1rem] text-center leading-[1rem]">
               {alertCount}
             </span>
           )}
         </span>
         <span className="text-[10px]">Alerts</span>
       </div>
-      <Link href="/settings" className="flex-1 flex flex-col items-center justify-center gap-0.5 text-stone-500">
+      <Link href="/settings" className="flex-1 flex flex-col items-center justify-center gap-0.5 text-muted">
         <GearIcon />
         <span className="text-[10px]">Settings</span>
       </Link>

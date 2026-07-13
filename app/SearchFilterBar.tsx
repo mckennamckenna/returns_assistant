@@ -58,12 +58,12 @@ export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery:
         value={query}
         onChange={(e) => handleQueryChange(e.target.value)}
         placeholder="Search retailer or order number"
-        className="w-full md:flex-1 md:min-w-[14rem] bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm placeholder:text-stone-400"
+        className="w-full md:flex-1 md:min-w-[14rem] bg-card border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted"
       />
       <select
         value={status}
         onChange={(e) => handleStatusChange(e.target.value)}
-        className="w-full md:w-auto bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-600"
+        className="w-full md:w-auto bg-card border border-border rounded-lg px-3 py-2 text-sm text-secondary"
       >
         {STATUS_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -72,7 +72,7 @@ export function SearchFilterBar({ initialQuery, initialStatus }: { initialQuery:
         ))}
       </select>
       {(query || status !== "all") && (
-        <Link href={pathname} className="text-sm text-stone-500 hover:underline">
+        <Link href={pathname} className="text-sm text-secondary hover:underline">
           Clear
         </Link>
       )}

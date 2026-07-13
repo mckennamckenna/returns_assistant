@@ -1,20 +1,35 @@
 @import "tailwindcss";
 
+/* return-window-design-tokens.md §3 — Foundations */
 :root {
-  --background: #faf3ec;
-  --foreground: #3f3a36;
+  --background: #f5f4f2;
+  --foreground: #16120e;
+  --color-page: #f5f4f2;
+  --color-card: #ffffff;
+  --color-ink: #16120e;
+  --color-secondary: #7a736a;
+  --color-muted: #a8a096;
+  --color-border: #e8e6e2;
+  --color-accent: #9a7a45;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-page: var(--color-page);
+  --color-card: var(--color-card);
+  --color-ink: var(--color-ink);
+  --color-secondary: var(--color-secondary);
+  --color-muted: var(--color-muted);
+  --color-border: var(--color-border);
+  --color-accent: var(--color-accent);
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-bodoni-moda);
   --font-mono: var(--font-geist-mono);
-  --font-playfair: var(--font-playfair-display);
 
-  /* Muted sage green for the "value at risk" stat card accent — not part
-     of Tailwind's default palette, the warm cream/blush design system
-     calls for a softer, more desaturated green than emerald/green-400. */
+  /* Muted sage green for the "value at risk" stat card top-border accent —
+     unrelated to the design tokens' "Safe" days-left tint; kept as-is,
+     Commit 2 replaces this 3-card layout entirely. */
   --color-sage: #8a9a7e;
 }
 

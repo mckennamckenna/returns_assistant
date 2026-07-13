@@ -35,8 +35,8 @@ function isLineItemArray(value: unknown): value is LineItem[] {
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-zinc-400">{label}</dt>
-      <dd className="text-sm text-zinc-800 mt-0.5">{value ?? "—"}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-sm text-ink mt-0.5">{value ?? "—"}</dd>
     </div>
   );
 }
@@ -61,24 +61,24 @@ export default async function EmailDetail({
   return (
     <main className="min-h-screen p-8 max-w-5xl mx-auto w-full">
       <div className="flex justify-between items-baseline">
-        <Link href="/" className="text-sm text-zinc-500 hover:underline">
+        <Link href="/" className="text-sm text-secondary hover:underline">
           &larr; Back to dashboard
         </Link>
         {email.orderId && (
-          <Link href={`/orders/${email.orderId}`} className="text-sm text-zinc-500 hover:underline">
+          <Link href={`/orders/${email.orderId}`} className="text-sm text-secondary hover:underline">
             View Order &rarr;
           </Link>
         )}
       </div>
 
       <h1 className="text-2xl font-semibold mt-4">{email.subject || "(no subject)"}</h1>
-      <div className="flex justify-between items-baseline gap-4 mt-1 text-sm text-zinc-500">
+      <div className="flex justify-between items-baseline gap-4 mt-1 text-sm text-secondary">
         <span className="truncate">Forwarded by you</span>
         <span className="whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
       </div>
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="border border-zinc-200 rounded-lg p-4">
+        <div className="border border-border rounded-lg p-4">
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-semibold">Extracted data</h2>
             <form action={reExtract.bind(null, email.id)}>
@@ -117,15 +117,15 @@ export default async function EmailDetail({
 
           {isLineItemArray(email.lineItems) && email.lineItems.length > 0 && (
             <div className="mt-3">
-              <dt className="text-xs uppercase tracking-wide text-zinc-400">Line items</dt>
-              <ul className="text-sm text-zinc-800 mt-0.5">
+              <dt className="text-xs uppercase tracking-wide text-muted">Line items</dt>
+              <ul className="text-sm text-ink mt-0.5">
                 {email.lineItems.map((item, i) => (
                   <li key={i} className="flex justify-between gap-2">
                     <span className="truncate">
                       {item.name}
                       {item.quantity != null && item.quantity > 1 ? ` ×${item.quantity}` : ""}
                     </span>
-                    <span className="text-zinc-500 whitespace-nowrap">
+                    <span className="text-secondary whitespace-nowrap">
                       {item.price != null ? formatCurrency(item.price, email.orderCurrency) : ""}
                     </span>
                   </li>
@@ -138,7 +138,7 @@ export default async function EmailDetail({
             <Field label="Extraction notes" value={email.extractionNotes} />
           </div>
 
-          <p className="text-xs text-zinc-400 mt-3">
+          <p className="text-xs text-muted mt-3">
             {email.extractedAt ? `Extracted ${email.extractedAt.toLocaleString()}` : "Not yet extracted"}
           </p>
         </div>
@@ -148,10 +148,10 @@ export default async function EmailDetail({
             <iframe
               srcDoc={email.htmlBody}
               sandbox=""
-              className="w-full h-[70vh] border border-zinc-200 rounded-lg"
+              className="w-full h-[70vh] border border-border rounded-lg"
             />
           ) : (
-            <p className="whitespace-pre-wrap text-zinc-800 border border-zinc-200 rounded-lg p-4 h-[70vh] overflow-auto">
+            <p className="whitespace-pre-wrap text-ink border border-border rounded-lg p-4 h-[70vh] overflow-auto">
               {email.textBody || "(no body)"}
             </p>
           )}

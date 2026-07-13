@@ -30,12 +30,12 @@ export default async function ArchiveDonePage({
   return (
     <main className="min-h-screen flex items-center justify-center p-8">
       <div className="w-full max-w-sm text-center">
-        <span className="text-xl font-semibold text-stone-800">Return Window</span>
-        <h1 className="text-lg font-medium text-stone-800 mt-6">{copy.title}</h1>
-        <p className="text-stone-500 text-sm mt-2">{copy.body}</p>
+        <span className="text-xl font-semibold text-ink">Return Window</span>
+        <h1 className="text-lg font-medium text-ink mt-6">{copy.title}</h1>
+        <p className="text-secondary text-sm mt-2">{copy.body}</p>
         <a
           href={APP_URL}
-          className="inline-block mt-6 text-sm font-medium text-stone-800 underline hover:text-stone-600"
+          className="inline-block mt-6 text-sm font-medium text-ink underline hover:text-secondary"
         >
           Go to your dashboard
         </a>

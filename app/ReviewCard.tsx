@@ -14,7 +14,7 @@ function ReviewButton({
 }) {
   const { pending } = useFormStatus();
   const base = "text-xs font-medium rounded-lg px-2.5 py-1 disabled:opacity-50";
-  const style = primary ? "bg-rose-600 text-white hover:bg-rose-700" : "border border-stone-300 text-stone-700 hover:bg-stone-50";
+  const style = primary ? "bg-ink text-page hover:bg-ink/90" : "border border-border text-ink hover:bg-page";
 
   return (
     <button type="submit" formAction={formAction} disabled={pending} className={`${base} ${style}`}>
@@ -49,19 +49,19 @@ export function ReviewCard({
   return (
     <>
       <div className="flex items-center justify-between gap-3 mt-0.5 leading-tight">
-        <p className="text-xs text-stone-400 truncate">{retailerLine}</p>
+        <p className="text-xs text-muted truncate">{retailerLine}</p>
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="text-xs underline text-stone-500 hover:text-stone-700 shrink-0"
+          className="text-xs underline text-secondary hover:text-ink shrink-0"
         >
           {expanded ? "Show less" : "Read more"}
         </button>
       </div>
       {expanded && (
-        <div className="mt-2 text-xs text-stone-400 flex flex-col gap-1.5">
+        <div className="mt-2 text-xs text-muted flex flex-col gap-1.5">
           <p>{note}</p>
-          {userNote && <p className="italic text-stone-500 border-l-2 border-amber-300 pl-2">Your note: {userNote}</p>}
+          {userNote && <p className="italic text-secondary border-l-2 border-amber-300 pl-2">Your note: {userNote}</p>}
         </div>
       )}
       <form className="mt-2 flex flex-col gap-2">
@@ -70,7 +70,7 @@ export function ReviewCard({
             name="note"
             placeholder="What do you think happened here? How would you fix it?"
             rows={2}
-            className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm placeholder:text-stone-400"
+            className="bg-card border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted"
           />
         )}
         <div className="flex gap-2">

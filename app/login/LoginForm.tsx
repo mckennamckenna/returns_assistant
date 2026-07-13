@@ -14,12 +14,12 @@ export function LoginForm() {
 
   if (state.sent) {
     return (
-      <div className="bg-white border border-stone-200 rounded-xl p-6 text-center">
-        <p className="text-stone-700 font-medium">Check your email</p>
-        <p className="text-stone-500 text-sm mt-1">We sent you a magic link to sign in.</p>
-        <p className="text-stone-400 text-xs mt-4">
+      <div className="bg-card border border-border rounded-xl p-6 text-center">
+        <p className="text-ink font-medium">Check your email</p>
+        <p className="text-secondary text-sm mt-1">We sent you a magic link to sign in.</p>
+        <p className="text-muted text-xs mt-4">
           Didn&apos;t get anything? You may need an invite first —{" "}
-          <a href="https://myreturnwindow.com" className="underline hover:text-stone-600">
+          <a href="https://myreturnwindow.com" className="underline hover:text-ink">
             request access
           </a>
           .
@@ -29,18 +29,18 @@ export function LoginForm() {
   }
 
   return (
-    <form action={formAction} className="bg-white border border-stone-200 rounded-xl p-6 flex flex-col gap-3">
+    <form action={formAction} className="bg-card border border-border rounded-xl p-6 flex flex-col gap-3">
       <input
         type="email"
         name="email"
         required
         placeholder="you@example.com"
-        className="bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm placeholder:text-stone-400"
+        className="bg-page border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted"
       />
       <button
         type="submit"
         disabled={pending}
-        className="bg-rose-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-rose-700 disabled:opacity-50"
+        className="bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 disabled:opacity-50"
       >
         {pending ? "Sending…" : "Send magic link"}
       </button>

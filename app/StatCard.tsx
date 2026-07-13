@@ -18,10 +18,10 @@ export function StatCard({
   accent: Accent;
 }) {
   return (
-    <div className={`bg-white border border-stone-200 ${ACCENT_BORDER[accent]} border-t-[3px] rounded-xl p-6`}>
-      <div className="text-sm text-stone-500">{label}</div>
-      <div className="font-playfair text-3xl text-stone-800 mt-1">{value}</div>
-      {sublabel && <div className="text-xs text-stone-400 mt-1">{sublabel}</div>}
+    <div className={`bg-card border border-border ${ACCENT_BORDER[accent]} border-t-[3px] rounded-xl p-6`}>
+      <div className="text-sm text-secondary">{label}</div>
+      <div className="font-serif text-3xl text-ink mt-1">{value}</div>
+      {sublabel && <div className="text-xs text-muted mt-1">{sublabel}</div>}
     </div>
   );
 }

@@ -26,6 +26,42 @@
 ---
 
 ## 🔴 Now
+- [ ] **Design tokens Commit 1 — self-host Bodoni Moda + Inter, apply type
+      scale + color palette. Code complete, awaiting deploy + owner browser
+      verification.** Plan at `.claude/plans/melodic-moseying-newell.md`.
+      `next/font/google` self-hosts Bodoni Moda (serif, weights 400–700) +
+      Inter (sans, 400/500), exposed as `--font-serif`/`--font-sans`;
+      `--font-sans` drives Tailwind v4's default body font automatically, so
+      only the doc's explicitly-listed serif elements (greeting, StatCard
+      value, order price in mobile card/desktop table/order-detail, and
+      DaysLeftChip's number) needed an explicit `font-serif` override.
+      `app/globals.css` adds page/card/ink/secondary/muted/border/accent
+      color tokens (`bg-page`, `text-ink`, etc.), replacing the warm-cream
+      `stone`/`zinc` palette across every logged-in-app page (dashboard,
+      order detail, settings, login, admin — ~30 files touched, scope
+      confirmed with owner). Marketing page (`myreturnwindow.com`)
+      deliberately excluded — turned out to be a fully separate bespoke
+      design (own Cormorant Garamond font link, inline-hex styles), not a
+      themed dashboard variant. Hue-bearing semantic colors (status badges'
+      returned/refunded/kept, DaysLeftChip's ≤2-day red urgency tier, and
+      the order-detail/dashboard's per-action colored buttons — Start
+      Return blue, returning amber, keeping slate, returned green, refunded
+      emerald) deliberately left untouched — not covered by the token doc's
+      status-tint table, flagged explicitly in the plan rather than
+      guessed at. `npm run build` clean (type-checks pass). Automated
+      browser screenshot verification was attempted (no working headless-
+      browser tool pre-existed in this repo; a Playwright chromium install
+      hung for hours in this sandboxed environment and was killed) — could
+      not complete it this session. Verification instead rests on: the
+      clean build, an exhaustive repo-wide grep confirming zero leftover
+      references to the old palette/fonts outside the deliberately-
+      untouched `RetailerAvatar.tsx` and the excluded marketing page, and
+      line-by-line reasoning against the design doc during each edit.
+      **Not yet committed, pushed, or deployed** — do that next, then this
+      needs the owner's own browser check (dashboard mobile+desktop, order
+      detail, settings, login, admin) before Commit 2 (dashboard layout
+      redesign, same doc §6) can start, per the doc's own sequencing
+      instruction.
 - [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
       browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
       section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,

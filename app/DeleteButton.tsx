@@ -11,7 +11,7 @@ export function DeleteButton({ label = "Delete" }: { label?: string }) {
       disabled={pending}
       aria-label={label}
       title={label}
-      className="text-zinc-400 hover:text-red-600 disabled:opacity-50 px-2 text-sm"
+      className="text-muted hover:text-red-600 disabled:opacity-50 px-2 text-sm"
     >
       {pending ? "…" : "✕"}
     </button>

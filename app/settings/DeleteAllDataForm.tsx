@@ -18,7 +18,7 @@ export function DeleteAllDataForm() {
       }}
       className="flex flex-col gap-3 max-w-sm"
     >
-      <label className="text-sm text-zinc-600">
+      <label className="text-sm text-secondary">
         Type <strong>{CONFIRM_TEXT}</strong> to confirm. This permanently removes every email, order, and reminder —
         there is no undo.
       </label>
@@ -28,7 +28,7 @@ export function DeleteAllDataForm() {
         onChange={(e) => setConfirmText(e.target.value)}
         placeholder={CONFIRM_TEXT}
         autoComplete="off"
-        className="border border-zinc-300 rounded px-3 py-2 text-sm"
+        className="border border-border rounded px-3 py-2 text-sm"
       />
       <button
         type="submit"

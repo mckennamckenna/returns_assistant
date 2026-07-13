@@ -73,15 +73,15 @@ export function GmailVerificationCode({ initialCode }: { initialCode: string | n
   }
 
   return (
-    <div className="border border-stone-200 rounded-lg p-4 mb-6">
-      <h2 className="font-semibold text-stone-800 mb-2">Confirmation code</h2>
+    <div className="border border-border rounded-lg p-4 mb-6">
+      <h2 className="font-semibold text-ink mb-2">Confirmation code</h2>
 
       {state.phase === "waiting" && (
-        <p className="text-sm text-stone-500">Waiting for Gmail to send us the confirmation code…</p>
+        <p className="text-sm text-secondary">Waiting for Gmail to send us the confirmation code…</p>
       )}
 
       {state.phase === "timeout" && (
-        <p className="text-sm text-stone-500">
+        <p className="text-sm text-secondary">
           Still waiting? Check that you entered the address correctly, or check your spam folder.
         </p>
       )}
@@ -89,24 +89,24 @@ export function GmailVerificationCode({ initialCode }: { initialCode: string | n
       {state.phase === "found" && (
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <code className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-2xl font-mono tracking-wider text-stone-800">
+            <code className="flex-1 bg-page border border-border rounded-lg px-3 py-2 text-2xl font-mono tracking-wider text-ink">
               {state.code}
             </code>
             <CopyButton text={state.code} />
           </div>
-          <p className="text-sm text-stone-500 mb-3">Paste this into Gmail&apos;s verification field, then click Verify.</p>
+          <p className="text-sm text-secondary mb-3">Paste this into Gmail&apos;s verification field, then click Verify.</p>
           <button
             type="button"
             onClick={handleVerified}
             disabled={confirming}
-            className="text-sm font-medium text-white bg-stone-800 rounded-lg px-3 py-1.5 hover:bg-stone-700 disabled:opacity-50"
+            className="text-sm font-medium text-page bg-ink rounded-lg px-3 py-1.5 hover:bg-ink/90 disabled:opacity-50"
           >
             {confirming ? "Saving…" : "I've entered this code in Gmail"}
           </button>
         </div>
       )}
 
-      {state.phase === "verified" && <p className="text-sm text-stone-500">Got it — setup complete.</p>}
+      {state.phase === "verified" && <p className="text-sm text-secondary">Got it — setup complete.</p>}
     </div>
   );
 }

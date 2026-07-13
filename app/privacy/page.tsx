@@ -3,13 +3,13 @@ import Link from "next/link";
 export default function PrivacyPage() {
   return (
     <main className="min-h-screen p-8 max-w-2xl mx-auto w-full">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
+      <Link href="/" className="text-sm text-secondary hover:underline">
         &larr; Back to dashboard
       </Link>
 
       <h1 className="text-2xl font-semibold mt-4 mb-6">Privacy</h1>
 
-      <ul className="flex flex-col gap-4 text-zinc-800">
+      <ul className="flex flex-col gap-4 text-ink">
         <li>
           <strong>What we store:</strong> only the shopping emails you forward to us — sender, subject, date, body
           text, and whatever order details (retailer, order number, dates, totals) we can read from them. The

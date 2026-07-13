@@ -52,16 +52,16 @@ export default async function AdminUserDetailPage({
 
   return (
     <main className="min-h-screen p-8 max-w-4xl mx-auto w-full">
-      <Link href="/admin/users" className="text-sm text-zinc-500 hover:underline">
+      <Link href="/admin/users" className="text-sm text-secondary hover:underline">
         &larr; Back to users
       </Link>
 
       <h1 className="text-xl font-mono font-semibold mt-4 mb-6 break-all">{getInboundAddress(user.inboundToken)}</h1>
 
-      <div className="bg-white border border-stone-200 rounded-lg overflow-x-auto">
+      <div className="bg-card border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-stone-100 text-left text-xs font-medium text-stone-400 uppercase tracking-wide">
+            <tr className="border-b border-border text-left text-xs font-medium text-muted uppercase tracking-wide">
               <th className="py-2 pl-4 pr-4">Retailer</th>
               <th className="py-2 pr-4">Order #</th>
               <th className="py-2 pr-4">Deadline</th>
@@ -78,7 +78,7 @@ export default async function AdminUserDetailPage({
             {orders.map((order) => (
               <tr
                 key={order.id}
-                className={`border-b border-stone-50 last:border-0 ${order.archivedAt || order.deletedAt ? "opacity-50" : ""}`}
+                className={`border-b border-border last:border-0 ${order.archivedAt || order.deletedAt ? "opacity-50" : ""}`}
               >
                 <td className="py-2 pl-4 pr-4">
                   <Link
@@ -88,15 +88,15 @@ export default async function AdminUserDetailPage({
                     {order.retailer || "Unknown retailer"}
                   </Link>
                 </td>
-                <td className="py-2 pr-4 text-stone-500">{order.orderNumber || "—"}</td>
-                <td className="py-2 pr-4 text-stone-500">{formatDate(order.returnDeadline)}</td>
-                <td className="py-2 pr-4 text-stone-500">{formatDate(order.estimatedDeliveryDate)}</td>
-                <td className="py-2 pr-4 text-stone-500">{formatDate(order.deliveredAt)}</td>
-                <td className="py-2 pr-4 text-stone-500">{order.displayStatus}</td>
-                <td className="py-2 pr-4 text-stone-500">{order.needsReview ? "yes" : "—"}</td>
-                <td className="py-2 pr-4 text-stone-500">{order.orderDateEstimated ? "yes" : "—"}</td>
-                <td className="py-2 pr-4 text-stone-500">{order.deadlineIsEstimated ? "yes" : "—"}</td>
-                <td className="py-2 pr-4 text-stone-500 text-xs">
+                <td className="py-2 pr-4 text-secondary">{order.orderNumber || "—"}</td>
+                <td className="py-2 pr-4 text-secondary">{formatDate(order.returnDeadline)}</td>
+                <td className="py-2 pr-4 text-secondary">{formatDate(order.estimatedDeliveryDate)}</td>
+                <td className="py-2 pr-4 text-secondary">{formatDate(order.deliveredAt)}</td>
+                <td className="py-2 pr-4 text-secondary">{order.displayStatus}</td>
+                <td className="py-2 pr-4 text-secondary">{order.needsReview ? "yes" : "—"}</td>
+                <td className="py-2 pr-4 text-secondary">{order.orderDateEstimated ? "yes" : "—"}</td>
+                <td className="py-2 pr-4 text-secondary">{order.deadlineIsEstimated ? "yes" : "—"}</td>
+                <td className="py-2 pr-4 text-secondary text-xs">
                   {order.deletedAt ? "Deleted" : order.archivedAt ? "Archived" : "Active"}
                 </td>
               </tr>

@@ -21,8 +21,8 @@ function formatValue(value: unknown): string {
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-zinc-400">{label}</dt>
-      <dd className="text-sm text-zinc-800 mt-0.5 break-words">{value ?? "—"}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-sm text-ink mt-0.5 break-words">{value ?? "—"}</dd>
     </div>
   );
 }
@@ -138,14 +138,14 @@ export default async function AdminOrderDetailPage({
 
   return (
     <main className="min-h-screen p-8 max-w-3xl mx-auto w-full">
-      <Link href={`/admin/users/${encodeURIComponent(forwardingAddress)}`} className="text-sm text-zinc-500 hover:underline">
+      <Link href={`/admin/users/${encodeURIComponent(forwardingAddress)}`} className="text-sm text-secondary hover:underline">
         &larr; Back to user
       </Link>
 
       <h1 className="text-2xl font-semibold mt-4 mb-6">{order.retailer || "Unknown retailer"}</h1>
 
-      <div className="border border-zinc-200 rounded-lg p-4 mb-8">
-        <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wide mb-3">Order</h2>
+      <div className="border border-border rounded-lg p-4 mb-8">
+        <h2 className="text-sm font-semibold text-secondary uppercase tracking-wide mb-3">Order</h2>
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {ORDER_FIELD_LABELS.map(([key, label]) => (
             <Field key={key} label={label} value={formatValue(orderRecord[key])} />
@@ -153,19 +153,19 @@ export default async function AdminOrderDetailPage({
         </dl>
       </div>
 
-      <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wide mb-3">
+      <h2 className="text-sm font-semibold text-secondary uppercase tracking-wide mb-3">
         Linked emails ({emails.length})
       </h2>
       <div className="flex flex-col gap-4">
         {emails.map((email) => {
           const emailRecord = email as unknown as Record<string, unknown>;
           return (
-            <div key={email.id} className="border border-zinc-200 rounded-lg p-4">
+            <div key={email.id} className="border border-border rounded-lg p-4">
               <div className="flex items-baseline justify-between gap-4 flex-wrap mb-3">
-                <span className="font-medium text-zinc-800">{email.emailType || "(unclassified)"}</span>
-                <span className="text-xs text-zinc-400">{formatDateTime(email.receivedAt)}</span>
+                <span className="font-medium text-ink">{email.emailType || "(unclassified)"}</span>
+                <span className="text-xs text-muted">{formatDateTime(email.receivedAt)}</span>
               </div>
-              <p className="text-sm text-zinc-700 mb-3">{email.subject || "(no subject)"}</p>
+              <p className="text-sm text-ink mb-3">{email.subject || "(no subject)"}</p>
 
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-3">
                 {EMAIL_EXTRACTION_FIELD_LABELS.map(([key, label]) => (
@@ -175,15 +175,15 @@ export default async function AdminOrderDetailPage({
 
               {email.extractionNotes && (
                 <div className="mb-3">
-                  <dt className="text-xs uppercase tracking-wide text-zinc-400">Extraction notes</dt>
-                  <dd className="text-sm text-zinc-700 mt-0.5">{email.extractionNotes}</dd>
+                  <dt className="text-xs uppercase tracking-wide text-muted">Extraction notes</dt>
+                  <dd className="text-sm text-ink mt-0.5">{email.extractionNotes}</dd>
                 </div>
               )}
 
               {email.extractionRaw != null && (
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-zinc-400 mb-1">Extraction raw</dt>
-                  <pre className="text-xs bg-zinc-50 border border-zinc-200 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
+                  <dt className="text-xs uppercase tracking-wide text-muted mb-1">Extraction raw</dt>
+                  <pre className="text-xs bg-page border border-border rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
                     {JSON.stringify(email.extractionRaw, null, 2)}
                   </pre>
                 </div>

@@ -39,8 +39,8 @@ function isLineItemArray(value: unknown): value is LineItem[] {
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-zinc-400">{label}</dt>
-      <dd className="text-sm text-zinc-800 mt-0.5">{value ?? "—"}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-sm text-ink mt-0.5">{value ?? "—"}</dd>
     </div>
   );
 }
@@ -117,12 +117,12 @@ export default async function OrderDetail({
 
   return (
     <main className="min-h-screen p-8 max-w-3xl mx-auto w-full">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
+      <Link href="/" className="text-sm text-secondary hover:underline">
         &larr; Back to dashboard
       </Link>
 
       <div className="flex justify-between items-baseline gap-4 mt-4">
-        <h1 className="text-2xl font-semibold">{order.retailer || "Unknown retailer"}</h1>
+        <h1 className="text-2xl font-semibold text-ink">{order.retailer || "Unknown retailer"}</h1>
         <div className="flex items-center gap-2">
           <DisplayStatusBadge status={order.displayStatus} />
           {order.needsReview && (
@@ -133,7 +133,7 @@ export default async function OrderDetail({
         </div>
       </div>
 
-      <div className="border border-zinc-200 rounded-lg p-4 mt-4">
+      <div className="border border-border rounded-lg p-4 mt-4">
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Field label="Order number" value={order.orderNumber} />
           <Field
@@ -176,7 +176,14 @@ export default async function OrderDetail({
             }
           />
           <Field label="Return policy" value={<PolicyLine order={order} />} />
-          <Field label="Order total" value={formatCurrency(order.orderTotal, order.orderCurrency)} />
+          <Field
+            label="Order total"
+            value={
+              <span className="font-serif text-lg font-semibold text-ink">
+                {formatCurrency(order.orderTotal, order.orderCurrency)}
+              </span>
+            }
+          />
         </dl>
 
         <div className="flex flex-wrap gap-3 mt-4">
@@ -195,7 +202,7 @@ export default async function OrderDetail({
               href={order.trackingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block bg-stone-100 text-stone-700 text-sm font-medium rounded px-4 py-2 hover:bg-stone-200"
+              className="inline-block bg-page text-secondary text-sm font-medium rounded px-4 py-2 hover:bg-border"
             >
               Track package &rarr;
             </a>
@@ -205,7 +212,7 @@ export default async function OrderDetail({
               href={order.returnTrackingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block bg-stone-100 text-stone-700 text-sm font-medium rounded px-4 py-2 hover:bg-stone-200"
+              className="inline-block bg-page text-secondary text-sm font-medium rounded px-4 py-2 hover:bg-border"
             >
               Track your return &rarr;
             </a>
@@ -229,7 +236,7 @@ export default async function OrderDetail({
                 >
                   I&apos;m keeping this
                 </button>
-                <span className="text-xs text-stone-400">{KEPT_WARNING_CAPTION}</span>
+                <span className="text-xs text-muted">{KEPT_WARNING_CAPTION}</span>
               </form>
             )}
           {order.displayStatus === "return_requested" && (
@@ -251,21 +258,21 @@ export default async function OrderDetail({
           <ArchiveOrderButton
             orderId={order.id}
             isArchived={order.archivedAt !== null}
-            className="bg-stone-100 text-stone-600 text-sm font-medium rounded px-4 py-2 hover:bg-stone-200"
+            className="bg-page text-secondary text-sm font-medium rounded px-4 py-2 hover:bg-border"
           />
         </div>
 
         {isLineItemArray(order.lineItems) && order.lineItems.length > 0 && (
           <div className="mt-4">
-            <dt className="text-xs uppercase tracking-wide text-zinc-400">Line items</dt>
-            <ul className="text-sm text-zinc-800 mt-1">
+            <dt className="text-xs uppercase tracking-wide text-muted">Line items</dt>
+            <ul className="text-sm text-ink mt-1">
               {order.lineItems.map((item, i) => (
                 <li key={i} className="flex justify-between gap-2">
                   <span className="truncate">
                     {item.name}
                     {item.quantity != null && item.quantity > 1 ? ` ×${item.quantity}` : ""}
                   </span>
-                  <span className="text-zinc-500 whitespace-nowrap">
+                  <span className="text-secondary whitespace-nowrap">
                     {item.price != null ? formatCurrency(item.price, order.orderCurrency) : ""}
                   </span>
                 </li>
@@ -275,20 +282,20 @@ export default async function OrderDetail({
         )}
       </div>
 
-      <h2 className="text-lg font-semibold mt-8 mb-3">
+      <h2 className="text-lg font-semibold text-ink mt-8 mb-3">
         Linked emails ({order.emails.length})
       </h2>
       <ul className="flex flex-col gap-3">
         {order.emails.map((email) => (
-          <li key={email.id} className="border border-zinc-200 rounded-lg flex items-stretch">
-            <Link href={`/emails/${email.id}`} className="flex-1 block p-3 hover:bg-zinc-50 min-w-0">
+          <li key={email.id} className="border border-border rounded-lg flex items-stretch">
+            <Link href={`/emails/${email.id}`} className="flex-1 block p-3 hover:bg-page min-w-0">
               <div className="flex justify-between items-baseline gap-4">
-                <span className="font-medium truncate">{email.subject || "(no subject)"}</span>
-                <span className="text-sm text-zinc-500 whitespace-nowrap">
+                <span className="font-medium text-ink truncate">{email.subject || "(no subject)"}</span>
+                <span className="text-sm text-muted whitespace-nowrap">
                   {email.receivedAt.toLocaleDateString()}
                 </span>
               </div>
-              <span className="text-xs text-zinc-400">{email.emailType ?? "unclassified"}</span>
+              <span className="text-xs text-muted">{email.emailType ?? "unclassified"}</span>
             </Link>
             <form action={deleteEmail.bind(null, email.id)} className="flex items-center pr-3">
               <DeleteButton label="Delete email" />

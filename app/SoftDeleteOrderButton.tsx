@@ -28,7 +28,7 @@ export function SoftDeleteOrderButton({ orderId, className }: { orderId: string;
       disabled={pending}
       aria-label="Delete order"
       title="Delete order"
-      className={`text-zinc-400 hover:text-red-600 disabled:opacity-50 px-2 text-sm${className ? ` ${className}` : ""}`}
+      className={`text-muted hover:text-red-600 disabled:opacity-50 px-2 text-sm${className ? ` ${className}` : ""}`}
     >
       {pending ? "…" : "✕"}
     </button>

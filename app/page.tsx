@@ -178,8 +178,8 @@ export default async function Home({
   function SortHeader({ field, children }: { field: SortField; children: React.ReactNode }) {
     const active = sortField === field;
     return (
-      <th className="text-left text-xs font-medium text-stone-400 uppercase tracking-wide pb-3 pr-4">
-        <Link href={sortLink(field)} className={`hover:text-stone-700 ${active ? "text-stone-700" : ""}`}>
+      <th className="text-left text-xs font-medium text-muted uppercase tracking-wide pb-3 pr-4">
+        <Link href={sortLink(field)} className={`hover:text-ink ${active ? "text-ink" : ""}`}>
           {children}
           {active ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
         </Link>
@@ -194,8 +194,8 @@ export default async function Home({
 
       <main className="flex-1 p-4 pb-20 md:p-8 max-w-6xl">
         <header className="mb-6">
-          <h1 className="text-2xl font-semibold text-stone-800">{getGreeting()}</h1>
-          <p className="text-stone-500 mt-1">Here&apos;s what&apos;s happening with your returns.</p>
+          <h1 className="font-serif text-[30px] leading-[1.08] font-medium text-ink">{getGreeting()}</h1>
+          <p className="text-sm text-muted mt-1">Here&apos;s what&apos;s happening with your returns.</p>
         </header>
 
         <SearchFilterBar initialQuery={params.q ?? ""} initialStatus={statusFilter} />
@@ -230,7 +230,7 @@ export default async function Home({
             <div className="px-5 pb-5 flex flex-col gap-3">
               {reviewOrders.map((order) => (
                 <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-2.5">
-                  <p className="text-sm font-medium text-stone-700 leading-tight">{reviewReasonLabel(order)}</p>
+                  <p className="text-sm font-medium text-ink leading-tight">{reviewReasonLabel(order)}</p>
                   <ReviewCard
                     retailerLine={`${order.retailer || "Unknown retailer"}${order.orderNumber ? ` #${order.orderNumber}` : ""}`}
                     note={reviewReason(order)}
@@ -245,7 +245,7 @@ export default async function Home({
         )}
 
         {allOrders.length === 0 && orphanedEmails.length === 0 ? (
-          <p className="text-stone-500">
+          <p className="text-secondary">
             No emails yet.{" "}
             <Link href="/settings" className="underline">
               Forward your first order confirmation
@@ -253,36 +253,36 @@ export default async function Home({
             to get started.
           </p>
         ) : visibleOrders.length === 0 ? (
-          <p className="text-stone-500">No orders match your search and filters.</p>
+          <p className="text-secondary">No orders match your search and filters.</p>
         ) : (
           <>
           <div className="md:hidden flex flex-col gap-3">
             {visibleOrders.map((order) => {
               const isHighValue = (order.orderTotal ?? 0) >= HIGH_VALUE_THRESHOLD;
               return (
-                <div key={order.id} className={`bg-white border border-stone-200 rounded-xl p-4 ${isHighValue ? "bg-rose-50/40" : ""}`}>
+                <div key={order.id} className={`bg-card border border-border rounded-xl p-4 ${isHighValue ? "bg-rose-50/40" : ""}`}>
                   <div className="flex items-center gap-3">
                     <Link href={`/orders/${order.id}`} className="flex items-center gap-3 flex-1 min-w-0">
                       <RetailerAvatar name={order.retailer || "?"} />
                       <div className="min-w-0">
-                        <div className="text-sm font-medium text-stone-800 truncate">{order.retailer || "Unknown retailer"}</div>
-                        {order.orderNumber && <div className="text-xs text-stone-400 truncate">#{order.orderNumber}</div>}
+                        <div className="text-lg font-medium text-ink truncate">{order.retailer || "Unknown retailer"}</div>
+                        {order.orderNumber && <div className="text-xs text-muted truncate">#{order.orderNumber}</div>}
                         <div className="mt-0.5"><DisplayStatusBadge status={order.displayStatus} /></div>
                       </div>
                     </Link>
                     <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
                   </div>
                   <div className="flex items-baseline justify-between mt-3">
-                    <span className={`font-playfair text-xl ${isHighValue ? "font-semibold text-stone-900" : "text-stone-700"}`}>
+                    <span className="font-serif text-[27px] font-semibold text-ink">
                       {formatCurrency(order.orderTotal, order.orderCurrency)}
                     </span>
-                    <span className="text-xs text-stone-500 whitespace-nowrap">
+                    <span className="text-[13px] text-muted whitespace-nowrap">
                       Return by {formatDate(order.returnDeadline)}
                       {order.deadlineIsEstimated ? " (est.)" : ""}
                     </span>
                   </div>
                   {order.orderTotal == null && (
-                    <p className="text-xs text-stone-400 mt-1">Forward your order confirmation to add the total</p>
+                    <p className="text-xs text-muted mt-1">Forward your order confirmation to add the total</p>
                   )}
                   <div className="flex flex-wrap items-center gap-2 mt-2">
                     {order.trackingNumber && order.trackingUrl && (
@@ -317,7 +317,7 @@ export default async function Home({
                     )}
                     {(DISPLAY_STATUS_RANK[order.displayStatus] ?? 0) < DISPLAY_STATUS_RANK.return_requested && (
                       <form action={markReturnRequestedAction.bind(null, order.id)}>
-                        <button type="submit" className="text-xs font-medium text-stone-600 hover:text-stone-900 hover:underline">
+                        <button type="submit" className="text-xs font-medium text-secondary hover:text-ink hover:underline">
                           I&apos;m returning this
                         </button>
                       </form>
@@ -328,7 +328,7 @@ export default async function Home({
                           <button type="submit" className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline">
                             I&apos;m keeping this
                           </button>
-                          <span className="text-[10px] text-stone-400">{KEPT_WARNING_CAPTION}</span>
+                          <span className="text-[10px] text-muted">{KEPT_WARNING_CAPTION}</span>
                         </form>
                       )}
                     {order.displayStatus === "return_requested" && (
@@ -348,7 +348,7 @@ export default async function Home({
                       <ArchiveOrderButton
                         orderId={order.id}
                         isArchived={order.archivedAt !== null}
-                        className="text-xs font-medium text-stone-500 hover:text-stone-800"
+                        className="text-xs font-medium text-secondary hover:text-ink"
                       />
                       <SoftDeleteOrderButton orderId={order.id} />
                     </div>
@@ -358,14 +358,14 @@ export default async function Home({
             })}
           </div>
 
-          <div className="hidden md:block bg-white border border-stone-200 rounded-xl overflow-x-auto">
+          <div className="hidden md:block bg-card border border-border rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-stone-100">
-                  <th className="text-left text-xs font-medium text-stone-400 uppercase tracking-wide pb-3 pr-4 pl-5 pt-4">
+                <tr className="border-b border-border">
+                  <th className="text-left text-xs font-medium text-muted uppercase tracking-wide pb-3 pr-4 pl-5 pt-4">
                     Retailer
                   </th>
-                  <th className="text-left text-xs font-medium text-stone-400 uppercase tracking-wide pb-3 pr-4 pt-4">
+                  <th className="text-left text-xs font-medium text-muted uppercase tracking-wide pb-3 pr-4 pt-4">
                     Status
                   </th>
                   <SortHeader field="total">Total price</SortHeader>
@@ -380,19 +380,19 @@ export default async function Home({
                 {visibleOrders.map((order) => {
                   const isHighValue = (order.orderTotal ?? 0) >= HIGH_VALUE_THRESHOLD;
                   return (
-                    <tr key={order.id} className={`border-b border-stone-50 last:border-0 ${isHighValue ? "bg-rose-50/40" : ""}`}>
+                    <tr key={order.id} className={`border-b border-border last:border-0 ${isHighValue ? "bg-rose-50/40" : ""}`}>
                       <td className="py-3 pr-4 pl-5">
                         <Link href={`/orders/${order.id}`} className="flex items-center gap-3 group">
                           <RetailerAvatar name={order.retailer || "?"} />
                           <div className="min-w-0">
-                            <div className="text-sm font-medium text-stone-800 group-hover:underline truncate">
+                            <div className="text-lg font-medium text-ink group-hover:underline truncate">
                               {order.retailer || "Unknown retailer"}
                             </div>
-                            {order.orderNumber && <div className="text-xs text-stone-400 truncate">#{order.orderNumber}</div>}
+                            {order.orderNumber && <div className="text-xs text-muted truncate">#{order.orderNumber}</div>}
                           </div>
                         </Link>
                         {order.orderTotal == null && (
-                          <p className="text-xs text-stone-400 mt-1">Forward your order confirmation to add the total</p>
+                          <p className="text-xs text-muted mt-1">Forward your order confirmation to add the total</p>
                         )}
                         {order.trackingNumber && order.trackingUrl && (
                           <a
@@ -428,14 +428,14 @@ export default async function Home({
                       <td className="py-3 pr-4">
                         <DisplayStatusBadge status={order.displayStatus} />
                       </td>
-                      <td className={`py-3 pr-4 whitespace-nowrap ${isHighValue ? "font-semibold text-stone-900" : "text-stone-700"}`}>
+                      <td className="py-3 pr-4 whitespace-nowrap font-serif font-semibold text-ink">
                         {formatCurrency(order.orderTotal, order.orderCurrency)}
                       </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
+                      <td className="py-3 pr-4 whitespace-nowrap text-secondary">
                         {formatDate(order.orderDate)}
-                        {order.orderDateEstimated ? <span className="text-stone-400"> (est.)</span> : ""}
+                        {order.orderDateEstimated ? <span className="text-muted"> (est.)</span> : ""}
                       </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
+                      <td className="py-3 pr-4 whitespace-nowrap text-secondary">
                         {(() => {
                           const best = order.deliveredAt ?? order.estimatedDeliveryDate ?? order.deliveryDate;
                           if (!best) return "—";
@@ -443,15 +443,15 @@ export default async function Home({
                             <>
                               {formatDate(best)}
                               {!order.deliveredAt && (order.estimatedDeliveryDate || order.deliveryDate) && (
-                                <span className="text-stone-400"> (est.)</span>
+                                <span className="text-muted"> (est.)</span>
                               )}
                             </>
                           );
                         })()}
                       </td>
-                      <td className="py-3 pr-4 whitespace-nowrap text-stone-600">
+                      <td className="py-3 pr-4 whitespace-nowrap text-secondary">
                         {formatDate(order.returnDeadline)}
-                        {order.deadlineIsEstimated ? <span className="text-stone-400"> (est.)</span> : ""}
+                        {order.deadlineIsEstimated ? <span className="text-muted"> (est.)</span> : ""}
                       </td>
                       <td className="py-3 pr-4 whitespace-nowrap">
                         <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={order.deadlineIsEstimated} />
@@ -470,13 +470,13 @@ export default async function Home({
                                 <button type="submit" className="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline whitespace-nowrap">
                                   I&apos;m keeping this
                                 </button>
-                                <span className="text-[10px] text-stone-400 whitespace-nowrap">{KEPT_WARNING_CAPTION}</span>
+                                <span className="text-[10px] text-muted whitespace-nowrap">{KEPT_WARNING_CAPTION}</span>
                               </form>
                             )}
                           <ArchiveOrderButton
                             orderId={order.id}
                             isArchived={order.archivedAt !== null}
-                            className="text-xs font-medium text-stone-500 hover:text-stone-800"
+                            className="text-xs font-medium text-secondary hover:text-ink"
                           />
                           <SoftDeleteOrderButton orderId={order.id} />
                         </div>
@@ -492,20 +492,20 @@ export default async function Home({
 
         {orphanedEmails.length > 0 && (
           <div className="mt-10">
-            <h2 className="text-lg font-semibold text-stone-800 mb-3">Unlinked emails</h2>
-            <p className="text-sm text-stone-500 mb-4">
+            <h2 className="text-lg font-semibold text-ink mb-3">Unlinked emails</h2>
+            <p className="text-sm text-secondary mb-4">
               Couldn&apos;t match these to a retailer + order number — review and clean up manually.
             </p>
             <ul className="flex flex-col gap-3">
               {orphanedEmails.map((email) => (
-                <li key={email.id} className="bg-white border border-stone-200 rounded-xl flex items-stretch">
-                  <Link href={`/emails/${email.id}`} className="flex-1 block p-4 hover:bg-stone-50 min-w-0">
+                <li key={email.id} className="bg-card border border-border rounded-xl flex items-stretch">
+                  <Link href={`/emails/${email.id}`} className="flex-1 block p-4 hover:bg-page min-w-0">
                     <div className="flex justify-between items-baseline gap-4">
-                      <span className="font-medium text-stone-800 truncate">Forwarded by you</span>
-                      <span className="text-sm text-stone-400 whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
+                      <span className="font-medium text-ink truncate">Forwarded by you</span>
+                      <span className="text-sm text-muted whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
                     </div>
-                    <p className="font-semibold text-stone-700 mt-1">{email.subject || "(no subject)"}</p>
-                    <p className="text-stone-500 mt-1">{snippet(email.textBody)}</p>
+                    <p className="font-semibold text-ink mt-1">{email.subject || "(no subject)"}</p>
+                    <p className="text-secondary mt-1">{snippet(email.textBody)}</p>
                     {email.needsReview && (
                       <span className="inline-block mt-2 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
                         Needs review

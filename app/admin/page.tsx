@@ -75,39 +75,39 @@ export default async function AdminPage({
       <section className="mb-12">
         <h2 className="text-lg font-semibold mb-3">Needs review ({reviewOrders.length})</h2>
         {reviewOrders.length === 0 ? (
-          <p className="text-sm text-stone-500">Nothing flagged right now.</p>
+          <p className="text-sm text-secondary">Nothing flagged right now.</p>
         ) : (
           <div className="flex flex-col gap-4">
             {reviewOrders.map((order) => (
               <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div>
-                    <span className="font-medium text-stone-800">{order.retailer || "Unknown retailer"}</span>
-                    {order.orderNumber && <span className="text-sm text-stone-400 ml-2">#{order.orderNumber}</span>}
+                    <span className="font-medium text-ink">{order.retailer || "Unknown retailer"}</span>
+                    {order.orderNumber && <span className="text-sm text-muted ml-2">#{order.orderNumber}</span>}
                   </div>
-                  <span className="text-sm text-stone-500">{order.user.email}</span>
+                  <span className="text-sm text-secondary">{order.user.email}</span>
                 </div>
-                <p className="text-sm font-medium text-stone-700 mt-2">{reviewReasonLabel(order)}</p>
-                <p className="text-xs text-stone-400 mt-1">{reviewReason(order)}</p>
-                <p className="text-xs text-stone-400 mt-2">
+                <p className="text-sm font-medium text-ink mt-2">{reviewReasonLabel(order)}</p>
+                <p className="text-xs text-muted mt-1">{reviewReason(order)}</p>
+                <p className="text-xs text-muted mt-2">
                   Emails: {order.emails.map((e) => e.subject || "(no subject)").join(" · ")}
                 </p>
                 {order.userNote && (
-                  <p className="text-sm text-stone-700 italic mt-2 border-l-2 border-amber-300 pl-2">User note: {order.userNote}</p>
+                  <p className="text-sm text-ink italic mt-2 border-l-2 border-amber-300 pl-2">User note: {order.userNote}</p>
                 )}
                 <form className="mt-3 flex gap-2">
                   <input type="hidden" name="secret" value={secret} />
                   <button
                     type="submit"
                     formAction={adminApproveAction.bind(null, order.id)}
-                    className="text-sm font-medium rounded-lg px-3 py-1.5 bg-rose-600 text-white hover:bg-rose-700"
+                    className="text-sm font-medium rounded-lg px-3 py-1.5 bg-ink text-page hover:bg-ink/90"
                   >
                     Approve
                   </button>
                   <button
                     type="submit"
                     formAction={adminSplitAction.bind(null, order.id)}
-                    className="text-sm font-medium rounded-lg px-3 py-1.5 border border-stone-300 text-stone-700 hover:bg-stone-50"
+                    className="text-sm font-medium rounded-lg px-3 py-1.5 border border-border text-ink hover:bg-page"
                   >
                     Split
                   </button>
@@ -120,10 +120,10 @@ export default async function AdminPage({
 
       <section className="mb-12">
         <h2 className="text-lg font-semibold mb-3">Recent users ({users.length})</h2>
-        <div className="bg-white border border-stone-200 rounded-lg overflow-x-auto">
+        <div className="bg-card border border-border rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-100 text-left text-xs font-medium text-stone-400 uppercase tracking-wide">
+              <tr className="border-b border-border text-left text-xs font-medium text-muted uppercase tracking-wide">
                 <th className="py-2 pl-4 pr-4">Email</th>
                 <th className="py-2 pr-4">Joined</th>
                 <th className="py-2 pr-4">Orders</th>
@@ -134,13 +134,13 @@ export default async function AdminPage({
             </thead>
             <tbody>
               {users.map((user, i) => (
-                <tr key={user.id} className="border-b border-stone-50 last:border-0">
+                <tr key={user.id} className="border-b border-border last:border-0">
                   <td className="py-2 pl-4 pr-4">{user.email}</td>
-                  <td className="py-2 pr-4 text-stone-500">{formatDate(user.createdAt)}</td>
-                  <td className="py-2 pr-4 text-stone-500">{user._count.orders}</td>
-                  <td className="py-2 pr-4 text-stone-500">{user._count.emails}</td>
-                  <td className="py-2 pr-4 text-stone-500">{formatDateTime(lastEmailByUser[i]?.receivedAt ?? null)}</td>
-                  <td className="py-2 pr-4 text-stone-500 font-mono text-xs whitespace-nowrap">
+                  <td className="py-2 pr-4 text-secondary">{formatDate(user.createdAt)}</td>
+                  <td className="py-2 pr-4 text-secondary">{user._count.orders}</td>
+                  <td className="py-2 pr-4 text-secondary">{user._count.emails}</td>
+                  <td className="py-2 pr-4 text-secondary">{formatDateTime(lastEmailByUser[i]?.receivedAt ?? null)}</td>
+                  <td className="py-2 pr-4 text-secondary font-mono text-xs whitespace-nowrap">
                     {getInboundAddress(user.inboundToken)}
                   </td>
                 </tr>
@@ -152,10 +152,10 @@ export default async function AdminPage({
 
       <section className="mb-12">
         <h2 className="text-lg font-semibold mb-3">Recent sends (last {recentSends.length})</h2>
-        <div className="bg-white border border-stone-200 rounded-lg overflow-x-auto">
+        <div className="bg-card border border-border rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-stone-100 text-left text-xs font-medium text-stone-400 uppercase tracking-wide">
+              <tr className="border-b border-border text-left text-xs font-medium text-muted uppercase tracking-wide">
                 <th className="py-2 pl-4 pr-4">User</th>
                 <th className="py-2 pr-4">Order</th>
                 <th className="py-2 pr-4">Type</th>
@@ -164,15 +164,15 @@ export default async function AdminPage({
             </thead>
             <tbody>
               {recentSends.map((reminder) => (
-                <tr key={reminder.id} className="border-b border-stone-50 last:border-0">
+                <tr key={reminder.id} className="border-b border-border last:border-0">
                   <td className="py-2 pl-4 pr-4">{reminder.user.email}</td>
-                  <td className="py-2 pr-4 text-stone-500">
+                  <td className="py-2 pr-4 text-secondary">
                     {reminder.order
                       ? `${reminder.order.retailer || "Unknown"}${reminder.order.orderNumber ? ` #${reminder.order.orderNumber}` : ""}`
                       : "—"}
                   </td>
-                  <td className="py-2 pr-4 text-stone-500">{reminder.reminderType}</td>
-                  <td className="py-2 pr-4 text-stone-500">{formatDateTime(reminder.sentAt)}</td>
+                  <td className="py-2 pr-4 text-secondary">{reminder.reminderType}</td>
+                  <td className="py-2 pr-4 text-secondary">{formatDateTime(reminder.sentAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -183,21 +183,21 @@ export default async function AdminPage({
       <section>
         <h2 className="text-lg font-semibold mb-3">Discard log — non-commerce (last 30 days)</h2>
         {discardDays.length === 0 ? (
-          <p className="text-sm text-stone-500">No discards in this window.</p>
+          <p className="text-sm text-secondary">No discards in this window.</p>
         ) : (
-          <div className="bg-white border border-stone-200 rounded-lg overflow-x-auto">
+          <div className="bg-card border border-border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-stone-100 text-left text-xs font-medium text-stone-400 uppercase tracking-wide">
+                <tr className="border-b border-border text-left text-xs font-medium text-muted uppercase tracking-wide">
                   <th className="py-2 pl-4 pr-4">Day</th>
                   <th className="py-2 pr-4">Discarded</th>
                 </tr>
               </thead>
               <tbody>
                 {discardDays.map(([day, count]) => (
-                  <tr key={day} className="border-b border-stone-50 last:border-0">
+                  <tr key={day} className="border-b border-border last:border-0">
                     <td className="py-2 pl-4 pr-4">{day}</td>
-                    <td className="py-2 pr-4 text-stone-500">{count}</td>
+                    <td className="py-2 pr-4 text-secondary">{count}</td>
                   </tr>
                 ))}
               </tbody>

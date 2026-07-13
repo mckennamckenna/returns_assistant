@@ -62,29 +62,29 @@ export default async function AdminUsersPage({
   return (
     <main className="min-h-screen p-8 max-w-4xl mx-auto w-full">
       <h1 className="text-2xl font-semibold mb-2">Users</h1>
-      <p className="text-sm text-stone-500 mb-6">
+      <p className="text-sm text-secondary mb-6">
         Forwarding addresses only — no names, emails, retailers, or dollar amounts on this page.
       </p>
 
       <div className="flex gap-2 mb-4 text-sm">
         <Link
           href="/admin/users?sort=recent"
-          className={`px-3 py-1.5 rounded-lg border ${sortMode === "recent" ? "border-stone-800 bg-stone-800 text-white" : "border-stone-300 text-stone-700 hover:bg-stone-50"}`}
+          className={`px-3 py-1.5 rounded-lg border ${sortMode === "recent" ? "border-ink bg-ink text-page" : "border-border text-ink hover:bg-page"}`}
         >
           Most recent order
         </Link>
         <Link
           href="/admin/users?sort=needsReview"
-          className={`px-3 py-1.5 rounded-lg border ${sortMode === "needsReview" ? "border-stone-800 bg-stone-800 text-white" : "border-stone-300 text-stone-700 hover:bg-stone-50"}`}
+          className={`px-3 py-1.5 rounded-lg border ${sortMode === "needsReview" ? "border-ink bg-ink text-page" : "border-border text-ink hover:bg-page"}`}
         >
           Most needsReview
         </Link>
       </div>
 
-      <div className="bg-white border border-stone-200 rounded-lg overflow-x-auto">
+      <div className="bg-card border border-border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-stone-100 text-left text-xs font-medium text-stone-400 uppercase tracking-wide">
+            <tr className="border-b border-border text-left text-xs font-medium text-muted uppercase tracking-wide">
               <th className="py-2 pl-4 pr-4">Forwarding address</th>
               <th className="py-2 pr-4">Orders</th>
               <th className="py-2 pr-4">Most recent order</th>
@@ -93,7 +93,7 @@ export default async function AdminUsersPage({
           </thead>
           <tbody>
             {sorted.map((row) => (
-              <tr key={row.forwardingAddress} className="border-b border-stone-50 last:border-0">
+              <tr key={row.forwardingAddress} className="border-b border-border last:border-0">
                 <td className="py-2 pl-4 pr-4 font-mono text-xs">
                   <Link
                     href={`/admin/users/${encodeURIComponent(row.forwardingAddress)}`}
@@ -102,9 +102,9 @@ export default async function AdminUsersPage({
                     {row.forwardingAddress}
                   </Link>
                 </td>
-                <td className="py-2 pr-4 text-stone-500">{row.orderCount}</td>
-                <td className="py-2 pr-4 text-stone-500">{formatDate(row.mostRecentOrderAt)}</td>
-                <td className="py-2 pr-4 text-stone-500">{row.needsReviewCount}</td>
+                <td className="py-2 pr-4 text-secondary">{row.orderCount}</td>
+                <td className="py-2 pr-4 text-secondary">{formatDate(row.mostRecentOrderAt)}</td>
+                <td className="py-2 pr-4 text-secondary">{row.needsReviewCount}</td>
               </tr>
             ))}
           </tbody>
