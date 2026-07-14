@@ -26,6 +26,12 @@
 ---
 
 ## 🔴 Now
+- [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
+      pass, prep for a more public-facing alpha: env vars, auth, API
+      routes, input validation, rate limiting, data exposure. Not started
+      tonight. The inbound webhook auth item below (still mid-rollout) and
+      the still-open inbound endpoint until that rollout completes are
+      directly relevant context to start from, not separate work.
 - [ ] **Inbound flood alert + webhook auth (Postmark hardening) — code
       shipped, dormant, awaiting Postmark rollout.** Plan at
       `~/.claude/plans/foamy-squishing-quasar.md`. (1) Alert admin when a
@@ -58,7 +64,12 @@
 
       **Rollout checklist (only the owner can do step 4 — Postmark
       dashboard):**
-      1. ✅ Code deployed dormant (this entry).
+      1. ✅ Code deployed dormant. Committed (`b2c7b4c`), pushed,
+         auto-deployed (`dpl_56qa7eb7ibf6JbsjKfqXaFL1NM1U`, confirmed Ready
+         and aliased to `app.myreturnwindow.com`); live-verified with a
+         real `curl` POST against production — still 200s normally,
+         auth check confirmed dormant as designed since neither env var
+         is set yet.
       2. Generate a strong password (e.g. `openssl rand -base64 24`).
       3. Tell Claude the username/password (or have it generate them) —
          it runs `npx vercel env add INBOUND_WEBHOOK_USER production` /
@@ -75,32 +86,6 @@
          credentials → expect 401; correct credentials → expect normal
          200 behavior.
       Not Done until steps 2-6 are complete and verified live.
-- [ ] **Dashboard row density — 4-line desktop layout shipped, awaiting
-      owner verification.** `OrderCard.tsx` now renders two parallel blocks
-      sharing identical underlying data/logic (no props, state, or
-      `getVisibleActions`/`itemSummary` changes) — mobile (`md:hidden`)
-      keeps the exact original 5-line stacked layout untouched; desktop
-      (`hidden md:block`) merges retailer+order# onto L1 (with status pill +
-      days-left pill at the right) and gives item description its own
-      full-width single-line-truncate row (L2), down from 5 lines to 4.
-      **Judgment call: days-left pill stays on L1 next to the status
-      pill** (not moved to L3) — verified live on the Poshmark case
-      ("Shipped" + "3 days left (est.)" side by side read as two distinct
-      pills with clean gap-2 spacing, not a cramped blob). Actions row
-      margin bumped `mt-3` → `mt-4` for breathing room from the
-      price/deadline line above it. Verified live against all four named
-      worst-case rows in a disposable browser session: Poshmark (pill-clash
-      case, holds), the 193-char Amazon protein-powder description
-      (single-line truncates cleanly on its own row, doesn't break row
-      height), Loeffler Randall (16-char retailer, fits with room to
-      spare), and a mobile card (confirmed pixel-identical to the
-      pre-existing stacked layout, bottom-nav unaffected). 298 tests
-      passing (no test touched this component), `npm run build` clean.
-      Committed (`b3d1d26`), pushed, auto-deployed
-      (`dpl_G4iETqE59TU6LKBRteAr9Hv5hXKd`, confirmed Ready and aliased to
-      `app.myreturnwindow.com` within ~2s of push — 8th data point on the
-      unexplained auto-deploy question below) — **awaiting owner browser
-      verification**, not Done until hand-verified live.
 - [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification;
       item 4 (dashboard row density) proposed in chat, now greenlit and
       being applied as its own Now item above.** (1) Order detail's "Track
@@ -672,6 +657,21 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Dashboard row density ("desktop OrderCard cleanup") — 4-line
+      desktop layout.** `OrderCard.tsx` renders two parallel blocks sharing
+      identical underlying data/logic — mobile (`md:hidden`) keeps the
+      exact original 5-line stacked layout; desktop (`hidden md:block`)
+      merges retailer+order# onto L1 (status pill + days-left pill at the
+      right) and gives item description its own full-width
+      single-line-truncate row (L2), down from 5 lines to 4. Verified live
+      against all four named worst-case rows (Poshmark pill-clash, 193-char
+      Amazon description, Loeffler Randall longest retailer, mobile) in a
+      disposable browser session. Committed (`b3d1d26`), pushed,
+      auto-deployed (`dpl_G4iETqE59TU6LKBRteAr9Hv5hXKd`, confirmed Ready
+      and aliased). **Marked Done per owner closeout instruction
+      2026-07-14** — noting for the record this reflects the owner's
+      explicit session-closeout call, not a separately-witnessed browser
+      verification beyond the disposable-session check above.
 - [x] **RESOLVED 2026-07-14: Vercel auto-deploy mechanism confirmed —
       `mckennamckenna/returns_assistant` is connected to this Vercel project
       via the GitHub integration (connected 2026-06-21).** Every push to
@@ -981,6 +981,19 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Good Eggs order showing "Return by Jul 21, 2025" on the active
+  dashboard with a live "Start return" button** — the deadline is in the
+  past (2025, over a year ago relative to the current session date), so
+  this is an expired order that should be filtered out or auto-archived,
+  not shown as actionable. Spotted 2026-07-13 owner review, explicitly
+  **not fixed tonight** — needs investigation into why
+  `lib/autoArchive.ts`'s sweep or the dashboard's active-order filter
+  didn't catch it (auto-archive requires 14+ days past `returnDeadline`
+  and runs nightly via cron — worth checking whether the cron actually ran
+  for this order, whether `returnDeadline` is somehow null/wrong despite
+  the displayed date, or whether this status makes it exempt from the
+  sweep). `app/(app)/page.tsx` (dashboard query) and `lib/autoArchive.ts`
+  are the likely files. Backlog — not in scope for tonight's closeout.
 - **Gmail deep-link filter setup button removed from Settings as of
   2026-07-13, pending URL construction fix.** `app/(app)/settings/page.tsx` —
   2/2 non-owner test users (mom, brother) ended up with a filter matching
@@ -1005,22 +1018,16 @@
   Returns/Loop/AfterShip are the likely list). Relevant to any future
   sender-domain-derived feature (e.g. retailer logos). Surfaced 2026-07-13,
   see `LOGO_COVERAGE.md` §7.
-- **Summary card should show the retailer name, not just the dollar total,
-  when exactly one order is due** — e.g. "Poshmark · Return by Jul 17"
-  instead of "$77.66" when `closingSoonOrders.length === 1`; the dollar
-  summary makes sense for multiple orders but is a weak signal for one.
-  Owner reference: "the adaptive hero pattern from the design tokens doc."
-  Checked 2026-07-12: `return-window-design-tokens.md` as it currently
-  exists in the repo does not contain this pattern (grepped for
-  "adaptive"/"hero"/"single order"/"one order" — no matches; only a
-  generic "Retailer name" type-scale entry for the order-card anatomy, not
-  a summary-card special case). Likely lives in an approved mock/chat
-  reference from an earlier session that was never written into the
-  committed doc — next session will need either an updated doc or the
-  specific behavior spelled out fresh (exact copy, threshold, which order
-  wins if the single order is ambiguous) rather than assuming it can be
-  "referenced." `app/SummaryCard.tsx` is the file — currently always shows
-  count/divider/dollar regardless of count.
+- **RESOLVED 2026-07-14 ("adaptive hero" fix):** ~~Summary card should show
+  the retailer name, not just the dollar total, when exactly one order is
+  due~~ — `app/SummaryCard.tsx` gained a `singleOrderRetailer` prop, shown
+  above the dollar figure only when `count === 1` (e.g. "Poshmark" above
+  "$640.87"). Shipped as item 6 of the Desktop visual polish Phase 2
+  commit (`cc99f33`, 2026-07-13). No design-doc pattern was ever found to
+  reference (see the now-superseded note below) — the spec was worked out
+  fresh instead: exact threshold (`count === 1`), which order wins is moot
+  since count 1 means only one candidate exists. Marked Done per owner
+  closeout instruction 2026-07-14.
 - **RESOLVED, not a bug:** ~~coverage-check email showing entire order history
   instead of "this week"~~ — `app/api/cron/weekly-coverage/route.ts` already
   filters `Email.receivedAt >= now - 7 days` and has since Milestone 16
