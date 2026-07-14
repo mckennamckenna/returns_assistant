@@ -26,15 +26,35 @@
 ---
 
 ## 🔴 Now
-- [ ] **Desktop visual polish — Phase 2, greenlit scope (in progress).**
-      Six items per TRUST_AUDIT.md's audit: (1) avatar-initials bug fix
-      ("On (On-Running)" → "O("), (2) order detail action buttons migrated to
-      shared status-gated helper, (3) "(est.)" deduplication to one
-      card/page-level note, (4) amber/tan contrast token fix (≥4.5:1), (5)
-      content column widened to 800–900px + greeting shrink + spacing pass +
-      needs-review card polish/why-line, (6) retailer context on summary
-      card where it helps. Not in Now until this session — moved from 🟡 Next
-      per task-tracking rule before starting.
+- [ ] **Desktop visual polish — Phase 2, greenlit scope shipped, awaiting
+      owner verification.** All six items from TRUST_AUDIT.md applied in one
+      commit: (1) avatar-initials bug fix ("On (On-Running)" → "OO", no
+      longer "O("), (2) order detail action buttons migrated to
+      `lib/orderActions.ts`'s shared `getVisibleActions()` — same function
+      OrderCard calls, so list/detail can't drift apart again; detail page
+      now reuses `StartReturnButton` and the ink/border button styling
+      instead of its own unmigrated blue/yellow/green set, (3) "(est.)"
+      deduplication — dashboard card down to one indicator, detail page
+      replaces 3 per-field suffixes with one "Some dates on this order are
+      estimated" note, (4) `--color-accent` darkened `#9a7a45` → `#7a5c2e`
+      (measured ~3.6:1 → ~5.2–6.2:1 across all three real backgrounds it's
+      used against, clears WCAG AA), (5) content column 640px → 860px
+      (dashboard + alerts), greeting 30/38px → 24/26px, sidebar active-item
+      indicator no longer renders as a curved bracket, needs-review card
+      gets a 2-column layout at md+ plus a specific why-line
+      (`reviewReasonLabel` now parses the `[auto]` retailer-prefix-merge
+      note instead of falling through to a generic message), (6) summary
+      card names the retailer when exactly one order is due. 23 new tests
+      (`orderActions`, `orderReview`, `retailerAvatar`), 298 total passing;
+      `npm run build` clean. Verified against the real production database
+      via a disposable, deleted-after-use session (same method as the Phase
+      1 audit) — all six changes visually confirmed live in a real browser
+      before commit. Committed (`cc99f33`), pushed, auto-deployed
+      (`dpl_E7hmoUunv3tq7pnGwr9pTkGqxsat`, confirmed Ready and aliased to
+      `app.myreturnwindow.com` within ~3s of push — 5th data point on the
+      unexplained auto-deploy question below) — **awaiting owner browser
+      verification**, not Done until hand-verified live. Four trust-audit
+      findings outside this scope logged separately below, not dropped.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
@@ -140,6 +160,14 @@
       `app.myreturnwindow.com` aliased to it, no manual `vercel --prod` run.
       Same unresolved caveat: `vercel inspect` still shows no Git Commit
       field, so this is still strong timing correlation, not proof. Four
+      sessions now; still needs someone to open the Vercel dashboard
+      directly.
+      **2026-07-13, fifth data point, same session:** pushed the Desktop
+      visual polish Phase 2 commit (`cc99f33`). A new Building deployment
+      (`dpl_E7hmoUunv3tq7pnGwr9pTkGqxsat`) appeared within ~3 seconds of the
+      push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
+      `vercel --prod` run. Pattern held a fifth time, still fastest-observed
+      range (~2-3s), still no Git Commit field in `vercel inspect`. Five
       sessions now; still needs someone to open the Vercel dashboard
       directly.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
