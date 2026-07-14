@@ -26,18 +26,55 @@
 ---
 
 ## 🔴 Now
-- [ ] **Inbound flood alert + webhook auth (Postmark hardening), two tasks
-      in one plan-mode session.** (1) Alert admin when a resolved user's
-      forwarding address receives ≥15 inbound messages/hour (tunable
-      constant), counted before the commerce/discard split so a broken
-      Gmail filter forwarding a whole inbox is caught even though most of
-      that mail is discarded pre-`Email`-row. Content-free rolling counter
-      on `User` (owner's explicit choice over a per-event receipt log, for
-      privacy — no event history retained). (2) HTTP Basic Auth on the
-      inbound webhook, dormant when env vars unset so deploy is zero-risk
-      before Postmark is configured. Plan at
-      `~/.claude/plans/foamy-squishing-quasar.md`. In progress this
-      session — plan approved, implementing now.
+- [ ] **Inbound flood alert + webhook auth (Postmark hardening) — code
+      shipped, dormant, awaiting Postmark rollout.** Plan at
+      `~/.claude/plans/foamy-squishing-quasar.md`. (1) Alert admin when a
+      resolved user's forwarding address receives ≥15 inbound
+      messages/hour (`INBOUND_FLOOD_THRESHOLD`, tunable), counted before
+      the commerce/discard split (`app/api/inbound/route.ts`, right after
+      the user resolves) so a broken Gmail filter forwarding a whole inbox
+      is caught even though most of that mail is discarded
+      pre-`Email`-row. Content-free rolling counter on `User`
+      (`inboundWindowStart`/`inboundWindowCount`, migration
+      `20260714034635_add_inbound_volume_tracking`) — owner's explicit
+      choice over a per-event receipt log, for privacy (no event history
+      retained, just a constantly-overwritten tally). `lib/inboundVolume.ts`
+      uses two guarded atomic `updateMany` calls rather than
+      read-then-write, specifically because a naive version would lose
+      increments under the concurrent webhook calls a real flood produces
+      — caught and fixed during plan validation, before any code was
+      written. New `"inbound_volume_spike"` `NotificationKind`, dedup via
+      the existing `hasRecentNotification`/`recordDedupedNotification`
+      pattern (mirrors `auth.ts`'s `allowlist_rejection` handling).
+      (2) HTTP Basic Auth on the inbound webhook — new exported
+      `isInboundWebhookAuthorized()`, constant-time comparison
+      (`timingSafeEqual`, matching `lib/actionToken.ts`'s pattern),
+      **dormant when `INBOUND_WEBHOOK_USER`/`INBOUND_WEBHOOK_PASSWORD` are
+      unset** so this deploy is zero-risk before Postmark is configured —
+      not yet set in any environment, so the check is inert on this
+      deploy; endpoint remains open until the rollout checklist below is
+      completed. 15 new tests (`inboundVolume`, `inboundAuth`), 313 total
+      passing; `npm run build` clean.
+
+      **Rollout checklist (only the owner can do step 4 — Postmark
+      dashboard):**
+      1. ✅ Code deployed dormant (this entry).
+      2. Generate a strong password (e.g. `openssl rand -base64 24`).
+      3. Tell Claude the username/password (or have it generate them) —
+         it runs `npx vercel env add INBOUND_WEBHOOK_USER production` /
+         `... INBOUND_WEBHOOK_PASSWORD production` for you. Takes effect
+         on the *next* deploy, not immediately.
+      4. **Owner updates the Postmark inbound webhook URL** (Postmark
+         dashboard → Servers → your server → Settings → Inbound) to
+         `https://USER:PASSWORD@returns-assistant.vercel.app/api/inbound`
+         — safe to do *before* the redeploy below, since the check is
+         still dormant at this point.
+      5. Claude redeploys — this activates the check. Postmark's URL
+         already has the right credentials from step 4, so no lockout.
+      6. Claude verifies with two real `curl`s against production: no
+         credentials → expect 401; correct credentials → expect normal
+         200 behavior.
+      Not Done until steps 2-6 are complete and verified live.
 - [ ] **Dashboard row density — 4-line desktop layout shipped, awaiting
       owner verification.** `OrderCard.tsx` now renders two parallel blocks
       sharing identical underlying data/logic (no props, state, or

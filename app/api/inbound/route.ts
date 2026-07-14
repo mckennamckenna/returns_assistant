@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/db";
 import { runExtraction } from "@/lib/runExtraction";
 import { isCommerceEmail } from "@/lib/classify";
 import { encryptEmailContent, encryptRawJson } from "@/lib/emailEncryption";
 import { isGmailForwardingVerification, extractVerificationDetails } from "@/lib/gmailVerification";
-import { notifyAdmin } from "@/lib/adminNotify";
+import { notifyAdmin, hasRecentNotification, recordDedupedNotification } from "@/lib/adminNotify";
 import { getInboundAddress } from "@/lib/inboundAddress";
+import { recordInboundArrival, INBOUND_FLOOD_THRESHOLD } from "@/lib/inboundVolume";
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -40,7 +42,38 @@ function extractInboundToken(payload: PostmarkInboundPayload): string | null {
   return domain.toLowerCase() === pilotDomain.toLowerCase() ? localPart : null;
 }
 
+// Dormant (returns true / lets everything through) when either env var is
+// unset — lets this deploy safely before Postmark is configured, zero
+// downtime. See TASKS.md rollout checklist before setting these in
+// production.
+export function isInboundWebhookAuthorized(authorizationHeader: string | null): boolean {
+  const expectedUser = process.env.INBOUND_WEBHOOK_USER;
+  const expectedPassword = process.env.INBOUND_WEBHOOK_PASSWORD;
+
+  if (!expectedUser || !expectedPassword) return true;
+
+  if (!authorizationHeader || !/^basic /i.test(authorizationHeader)) return false;
+
+  const decoded = Buffer.from(authorizationHeader.slice(6), "base64").toString("utf8");
+  const provided = Buffer.from(decoded, "utf8");
+  const expected = Buffer.from(`${expectedUser}:${expectedPassword}`, "utf8");
+
+  // timingSafeEqual throws on a length mismatch, so this check routes
+  // unequal-length credentials to the same "invalid" outcome first — same
+  // guard shape as lib/actionToken.ts's signature comparisons.
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(provided, expected);
+}
+
 export async function POST(request: NextRequest) {
+  // Deliberate single exception to this file's otherwise-universal 200
+  // response — an unauthorized request never reaches processing, so
+  // there's nothing to "always 200" here. See TASKS.md rollout checklist.
+  if (!isInboundWebhookAuthorized(request.headers.get("authorization"))) {
+    console.warn("Rejected unauthorized inbound webhook request");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const payload: PostmarkInboundPayload = await request.json();
 
@@ -61,6 +94,29 @@ export async function POST(request: NextRequest) {
       // domain didn't match what extractInboundToken expected."
       console.log("Discarded inbound email with unrecognized routing token. Recipient:", payload.OriginalRecipient || payload.To);
       return NextResponse.json({ ok: true });
+    }
+
+    // Counted here — before the Gmail-verification branch and before the
+    // commerce/discard split below — so every inbound message attributed to
+    // a resolved user counts toward flood detection, including the mail
+    // that's about to be silently discarded (non-commerce mail never
+    // becomes an Email row, so counting only Email rows would miss exactly
+    // the case this exists to catch: a broken filter forwarding an entire
+    // inbox, almost all of it non-commerce).
+    try {
+      const count = await recordInboundArrival(user.id);
+      if (count >= INBOUND_FLOOD_THRESHOLD) {
+        const subject = `Inbound volume spike: ${user.email}`;
+        const body = `${user.email} has received ${count}+ inbound messages in the last hour. This usually means a broken Gmail filter is forwarding their entire inbox instead of just shopping emails — check their forwarding setup.`;
+        if (await hasRecentNotification("inbound_volume_spike", user.email)) {
+          await recordDedupedNotification("inbound_volume_spike", subject, body, user.email);
+        } else {
+          await notifyAdmin(subject, body, "inbound_volume_spike", user.email);
+        }
+      }
+    } catch (error) {
+      // Never let flood detection break inbound processing.
+      console.error("Inbound volume tracking failed:", error);
     }
 
     // Gmail's forwarding setup sends this to whichever address the user

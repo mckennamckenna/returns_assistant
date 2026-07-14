@@ -8,7 +8,8 @@ export type NotificationKind =
   | "gmail_verification"
   | "reminder_summary"
   | "weekly_coverage_summary"
-  | "weekly_digest_summary";
+  | "weekly_digest_summary"
+  | "inbound_volume_spike";
 
 // Centralizes "never let an admin notification failure break the real flow
 // it's attached to" — a missing ADMIN_EMAIL or a Postmark hiccup here

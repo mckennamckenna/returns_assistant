@@ -37,6 +37,13 @@ model User {
   gmailVerificationCode           String?
   gmailVerificationCodeReceivedAt DateTime?
 
+  // Content-free rolling counter for inbound-volume flood detection
+  // (lib/adminNotify.ts "inbound_volume_spike"). Approximate fixed-window
+  // counter — constantly overwritten, no event history retained. See
+  // lib/inboundVolume.ts.
+  inboundWindowStart DateTime?
+  inboundWindowCount Int       @default(0)
+
   accounts   Account[]
   sessions   Session[]
   orders     Order[]
@@ -319,7 +326,7 @@ model AllowedSignIn {
 // nothing here needs DB-level enum enforcement.
 // kind: "beta_signup" | "allowlist_rejection" | "new_user_login" |
 // "gmail_verification" | "reminder_summary" | "weekly_coverage_summary" |
-// "weekly_digest_summary"
+// "weekly_digest_summary" | "inbound_volume_spike"
 model AdminNotification {
   id             String   @id @default(cuid())
   kind           String
