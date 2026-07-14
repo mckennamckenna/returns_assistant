@@ -26,6 +26,27 @@
 ---
 
 ## 🔴 Now
+- [ ] **Gmail deep-link filter-setup button removed from Settings, awaiting
+      owner verification.** 2/2 non-owner test users (mom, brother) who used
+      the deep link ended up with a filter matching their entire inbox —
+      real privacy exposure (personal email forwarding into extraction).
+      Surgical removal in `app/(app)/settings/page.tsx`: deleted the
+      `GMAIL_COMMERCE_QUERY`/`gmailSearchUrl` construction and the deep-link
+      `<a>` button + its instructional paragraph. "Your forwarding address"
+      card otherwise untouched (heading, intro paragraph, address+Copy row
+      all render exactly as before); `GmailVerificationCode`, Archived
+      orders, and Delete-all-data cards untouched. No manual-instructions
+      replacement — the owner's call was that we're removing the trap, not
+      rebuilding the flow. No backend/URL-construction changes; no change to
+      any existing user's already-created filter. Note: there is no
+      separate new-user-onboarding route in this codebase — Settings is the
+      one shared page every user (new or existing) sees, so this change is
+      necessarily visible to everyone who opens Settings going forward, not
+      just new signups; it does not touch any existing user's data or
+      already-created Gmail filter. 298 tests passing (no test referenced
+      the removed code), `npm run build` clean, verified live in a real
+      browser (disposable session, deleted after use) — card renders
+      cleanly, zero console errors.
 - [ ] **Desktop visual polish — Phase 2, greenlit scope shipped, awaiting
       owner verification.** All six items from TRUST_AUDIT.md applied in one
       commit: (1) avatar-initials bug fix ("On (On-Running)" → "OO", no
@@ -230,16 +251,23 @@
       today; investigate adding line-item/goods-description as another
       signal. Needs real investigation, not a quick patch. Slug:
       `shopbop-goods-based-matching`.
-- [ ] **Gmail deep-link "empty filter" bug — reproducible on mom's account,
-      root cause unknown** — owner reproduced hands-on today: clicking the
-      deep link from Return Window settings loads Gmail with essentially no
-      search applied; results are close to the full inbox. Byte-identical URL
-      to owner's own (which works correctly). Not a "user followed
+- [ ] **Diagnose Gmail deep-link URL construction bug** — 2/2 non-owner
+      test users (mom, then brother) whose filters matched their entire
+      inbox instead of the intended commerce search, forwarding personal
+      email into Return Window's extraction pipeline. Byte-identical URL to
+      the owner's own (which works correctly) — not a "user followed
       instructions wrong" case. Deep debugging is high-cost without ability
-      to instrument the browser. Next diagnostic: reproduce on a third
-      account (husband or unrelated tester) to determine if per-account or
-      broader. Real evidence supporting OAuth prioritization. Interim
-      workaround: manual/text setup instructions bypassing the deep link.
+      to instrument the browser. Root cause suspected: search query not
+      carrying through the URL to Gmail. **2026-07-13: the button itself
+      removed from Settings** (see Known Issues) as an immediate stopgap —
+      this item is now purely about the underlying fix. When fixed and
+      verified against a third non-owner account (using the
+      filter-matches-everything monitoring alert — being built in a
+      separate session, per owner — as the verification signal: no alert
+      firing = fix confirmed), re-introduce the button + explanatory copy at
+      `settings/page.tsx` (previously at lines 22-24 and 45-56 pre-removal —
+      reference commit `[fill in at merge]` for the original implementation).
+      Real evidence supporting OAuth prioritization as the eventual real fix.
       Slug: `gmail-deeplink-cross-account-parsing`.
 - [ ] **Surface delivery date as first-class dashboard info** — currently
       `estimatedDeliveryDate`, `deliveredAt`, `deliveryDate` drive deadline
@@ -857,6 +885,17 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Gmail deep-link filter setup button removed from Settings as of
+  2026-07-13, pending URL construction fix.** `app/(app)/settings/page.tsx` —
+  2/2 non-owner test users (mom, brother) ended up with a filter matching
+  their entire inbox instead of the intended commerce search. Non-owner
+  users must now set up the Gmail filter manually with no in-app guidance
+  (no replacement copy was added — deliberate, see 🟡 Next). Impact:
+  onboarding friction for non-technical users; watch for setup-completion
+  drop-off. A separate monitoring alert for "filter matched everything" is
+  being built in a separate session (per owner) — not this one, don't
+  duplicate. Re-introduce the button once `gmail-deeplink-cross-account-parsing`
+  (🟡 Next) is fixed and verified.
 - **`Order.retailer` has a casing duplicate: "Mango" and "MANGO" exist as two
   separate retailer strings** (1 order each) — same normalization problem
   `CLAUDE.md` already documents for order-number suffixes, just on the
