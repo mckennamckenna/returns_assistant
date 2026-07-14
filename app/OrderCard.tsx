@@ -7,10 +7,10 @@ import { OrderActionsMenu } from "./OrderActionsMenu";
 import { StartReturnButton } from "./StartReturnButton";
 import { MarkRefundedButton } from "./MarkRefundedButton";
 import { markReturnedAction, markKeptAction } from "./actions";
-import { DISPLAY_STATUS_RANK, KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
-import { daysUntil } from "@/lib/reminders";
+import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { isClosingSoon } from "@/lib/alerts";
 import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
+import { getVisibleActions } from "@/lib/orderActions";
 
 function formatDate(date: Date | null): string {
   if (!date) return "—";
@@ -59,8 +59,7 @@ function QrIcon() {
 // describes one fixed two-button pair, but the underlying status machine
 // (lib/displayStatus.ts) has more states than that.
 export function OrderCard({ order, now }: { order: Order; now: Date }) {
-  const rank = DISPLAY_STATUS_RANK[order.displayStatus] ?? 0;
-  const canKeep = rank < DISPLAY_STATUS_RANK.returned && (order.returnDeadline == null || daysUntil(order.returnDeadline, now) >= 0);
+  const { canStartReturn, canMarkReturned, canKeep, canMarkRefunded } = getVisibleActions(order, now);
   const itemSummaryText = itemSummary(order.lineItems);
   const atRisk = isClosingSoon(order, now);
   // "Confirmed" means the retailer's email explicitly stated the return
@@ -103,7 +102,6 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         </span>
         <span className="text-[13px] text-muted">
           Return by {formatDate(order.returnDeadline)}
-          {!deadlineConfirmed ? " (est.)" : ""}
         </span>
       </div>
       {order.orderTotal == null && (
@@ -111,21 +109,21 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
       )}
 
       <div className="flex items-center gap-2 mt-3">
-        {rank < DISPLAY_STATUS_RANK.return_requested && (
+        {canStartReturn && (
           <StartReturnButton
             orderId={order.id}
             returnPortalUrl={order.returnPortalUrl}
             className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 disabled:opacity-50 md:flex-none md:w-auto"
           />
         )}
-        {order.displayStatus === "return_requested" && (
+        {canMarkReturned && (
           <form action={markReturnedAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none">
             <button type="submit" className="w-full md:w-auto truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90">
               Mark as returned
             </button>
           </form>
         )}
-        {order.displayStatus === "returned" && (
+        {canMarkRefunded && (
           <MarkRefundedButton
             orderId={order.id}
             className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 text-center md:flex-none md:w-auto"

@@ -13,7 +13,7 @@ export default async function AlertsPage() {
   const orders = await getAlertOrders(session.user.id, now);
 
   return (
-    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pb-8 md:pl-12 md:pr-8 md:pt-12 max-w-[640px]">
+    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pb-8 md:pl-12 md:pr-8 md:pt-12 max-w-[860px]">
       <header className="mb-[22px]">
         <h1 className="font-serif text-[30px] md:text-[38px] leading-[1.08] font-medium text-ink">Alerts</h1>
         <p className="text-sm text-muted mt-1">Orders that need review or are closing soon.</p>

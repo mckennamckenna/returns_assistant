@@ -42,9 +42,12 @@ export function DaysLeftChip({
     return <Pill bg="bg-red-100" labelColor="text-red-700" days={days} estSuffix={estSuffix} />;
   }
 
-  // Closing soon (≤7 days) — return-window-design-tokens.md §3
+  // Closing soon (≤7 days) — return-window-design-tokens.md §3. Label color
+  // is the shared --color-accent token (text-accent), not a separate
+  // hardcoded hex, so a future contrast fix updates every "(est.)"/"at risk"
+  // instance from one source — see TRUST_AUDIT.md item 4.
   if (days <= 7) {
-    return <Pill bg="bg-[#F4EBD8]" labelColor="text-[#9A7A45]" days={days} estSuffix={estSuffix} />;
+    return <Pill bg="bg-[#F4EBD8]" labelColor="text-accent" days={days} estSuffix={estSuffix} />;
   }
 
   // Safe (>7 days) — return-window-design-tokens.md §3

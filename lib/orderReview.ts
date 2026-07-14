@@ -79,17 +79,32 @@ type ReviewOrderForLabel = {
   orderNumber: string | null;
   orderDate: Date | null;
   orderTotal: number | null;
+  userNote: string | null;
   emails: { orderNumber: string | null; confidence: string | null }[];
 };
 
+// [auto]-prefixed userNote entries are the merge logic's own audit trail
+// (lib/linkOrder.ts's retailerPrefixNote/refundFallbackNote) — the most
+// authoritative signal for *why* a merge needed a human to confirm it,
+// since it names the two retailer strings that triggered it. Parsed here
+// rather than duplicated at write time; see TASKS.md Known Issues for the
+// separate, longer-standing note about userNote co-mingling auto and
+// user-authored text.
+const RETAILER_PREFIX_NOTE = /^\[auto\] retailer prefix match: "(.+)" ← "(.+)"$/m;
+
 // Plain-language translation of the same underlying signals reviewReason
 // inspects — shown prominently, always, regardless of whether a
-// technical note exists. Checked in priority order: a prefix match is
-// the most specific, actionable explanation when it applies; a generic
-// confidence/total gap is the least specific, so it's the fallback.
+// technical note exists. Checked in priority order: an [auto] merge note is
+// the most specific, actionable explanation when present (it's the actual
+// recorded trigger, not an inference); an orderNumber-mismatch is the next
+// most specific; the rest are progressively more generic fallbacks.
 export function reviewReasonLabel(order: ReviewOrderForLabel): string {
-  const isPrefixMatch = order.emails.some((email) => email.orderNumber && email.orderNumber !== order.orderNumber);
-  if (isPrefixMatch) {
+  const prefixMatch = order.userNote?.match(RETAILER_PREFIX_NOTE);
+  if (prefixMatch) {
+    return `This looks like it might be the same order as an existing "${prefixMatch[1]}" purchase — please confirm`;
+  }
+  const isOrderNumberMismatch = order.emails.some((email) => email.orderNumber && email.orderNumber !== order.orderNumber);
+  if (isOrderNumberMismatch) {
     return "We matched this return email to an existing order — please confirm it's correct";
   }
   if (!order.orderDate) {

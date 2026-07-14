@@ -145,9 +145,11 @@ export default async function Home({
   });
 
   return (
-    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pb-8 md:pl-12 md:pr-8 md:pt-12 max-w-[640px]">
-      <header className="mb-[22px]">
-        <h1 className="font-serif text-[30px] md:text-[38px] leading-[1.08] font-medium text-ink">{getGreeting()}</h1>
+    <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pb-8 md:pl-12 md:pr-8 md:pt-12 max-w-[860px]">
+      {/* Shrunk from 30/38px (2026-07-13) — read as a hero competing with the
+          content rather than a warm header. See TRUST_AUDIT.md item 5. */}
+      <header className="mb-6">
+        <h1 className="font-serif text-[24px] md:text-[26px] leading-[1.15] font-medium text-ink">{getGreeting()}</h1>
         <p className="text-sm text-muted mt-1">Here&apos;s what&apos;s happening with your returns.</p>
       </header>
 
@@ -157,17 +159,18 @@ export default async function Home({
         count={closingSoonOrders.length}
         dollarAmount={formatCurrency(valueAtRisk, "USD")}
         href="/?status=closing_soon"
+        singleOrderRetailer={closingSoonOrders.length === 1 ? closingSoonOrders[0].retailer : null}
       />
 
       {reviewOrders.length > 0 && (
-        <details open className="mb-[22px] bg-amber-50 border border-amber-200 rounded-2xl">
-          <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-amber-900 flex items-center justify-between">
+        <details open className="mb-8 bg-amber-50 border border-amber-200 rounded-2xl">
+          <summary className="cursor-pointer list-none px-5 py-4 md:px-6 md:py-5 font-semibold text-amber-900 flex items-center justify-between">
             <span>Needs review ({reviewOrders.length})</span>
             <span className="text-xs text-amber-700">▾</span>
           </summary>
-          <div className="px-5 pb-5 flex flex-col gap-3">
+          <div className="px-5 pb-5 md:px-6 md:pb-6 grid grid-cols-1 md:grid-cols-2 gap-3">
             {reviewOrders.map((order) => (
-              <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-2.5">
+              <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-3 md:p-4">
                 <p className="text-sm font-medium text-ink leading-tight">{reviewReasonLabel(order)}</p>
                 <ReviewCard
                   retailerLine={`${order.retailer || "Unknown retailer"}${order.orderNumber ? ` #${order.orderNumber}` : ""}`}

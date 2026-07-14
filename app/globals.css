@@ -10,7 +10,11 @@
   --color-secondary: #7a736a;
   --color-muted: #a8a096;
   --color-border: #e8e6e2;
-  --color-accent: #9a7a45;
+  /* Darkened from #9a7a45 (2026-07-13) — measured ~3.6:1 against the page/
+     card/pill backgrounds it's used against, below WCAG AA's 4.5:1 minimum
+     for normal-size text. This value measures ~5.2-6.2:1 across all three,
+     same hue, kept for "(est.)" / "at risk" tags. See TRUST_AUDIT.md item 4. */
+  --color-accent: #7a5c2e;
 }
 
 @theme inline {

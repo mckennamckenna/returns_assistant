@@ -26,26 +26,15 @@
 ---
 
 ## 🔴 Now
-- [ ] **Order-number display — display-only, shipped, awaiting owner
-      verification.** `OrderCard.tsx` middle-truncates order numbers over 16
-      chars (`#6a4d94…748a` — first 6 + ellipsis + last 4), full value in
-      `title` + `aria-label`; short numbers (`#F4VLSF`, `#86864`,
-      `#142770152`) render untouched. Order detail page shows the full
-      untruncated number plus a copy button (reused existing `CopyButton`).
-      New `lib/orderNumberDisplay.ts` (pure function) + 4 new tests, 275
-      total passing; `npm run build` clean. No schema/data change — the
-      stored order number, including the long Poshmark value, is untouched.
-      Full authenticated browser click-through NOT done (same constraint as
-      prior sessions: magic-link-only auth, one production DB, no seeded
-      test account). Committed (`771778f`), pushed, auto-deployed
-      (`dpl_HBsw75cTQmFzdequQcYTXyA857rF`, Ready and aliased to
-      `app.myreturnwindow.com` within ~2s of push, no manual `vercel --prod`
-      run — 4th data point on the unexplained auto-deploy question below) —
-      **awaiting owner browser verification**, not Done until hand-verified
-      live. One spec-vs-example discrepancy to flag: the task's own worked
-      example showed 5 trailing characters (`…3748a`) while the stated rule
-      said "last 4" — implemented literally per the stated rule (last 4:
-      `…748a`), differing from the illustrative example by one character.
+- [ ] **Desktop visual polish — Phase 2, greenlit scope (in progress).**
+      Six items per TRUST_AUDIT.md's audit: (1) avatar-initials bug fix
+      ("On (On-Running)" → "O("), (2) order detail action buttons migrated to
+      shared status-gated helper, (3) "(est.)" deduplication to one
+      card/page-level note, (4) amber/tan contrast token fix (≥4.5:1), (5)
+      content column widened to 800–900px + greeting shrink + spacing pass +
+      needs-review card polish/why-line, (6) retailer context on summary
+      card where it helps. Not in Now until this session — moved from 🟡 Next
+      per task-tracking rule before starting.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
@@ -162,12 +151,35 @@
       any non-owner user.
 
 ## 🟡 Next
-- [ ] **Desktop visual polish** — sidebar refinement, spacing, greeting size,
-      and needs-review card styling at wider viewports. Follow-up to the
-      2026-07-12 desktop layout pass (640px content column, retokened
-      Sidebar); that pass covered structure/sizing per its brief, this is
-      the next-level polish pass once the owner has spent more time at
-      desktop width.
+- [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
+      e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
+      to near-nothing after the (already-shortened) order number eats the
+      line. Surfaced by 2026-07-13 trust audit (`TRUST_AUDIT.md` row 7), not
+      in the six-item Phase 2 scope. Proposed fix: drop item summary from
+      this line at narrow widths, or stack the two on separate lines below
+      ~480px.
+- [ ] **Sidebar account email truncates with no `title` fallback** — e.g.
+      `mckenna.sweazey@g…`, no way to see the full address without editing
+      the DOM. Surfaced by trust audit (`TRUST_AUDIT.md` row 8), not in
+      today's six-item scope. Proposed fix: add a `title` attribute, same
+      pattern as the order-number display fix.
+- [ ] **"Unlinked emails" section shows a raw tracking-style URL in the body
+      preview** — e.g. `click.mkt.isdnn.com/...` visible in a forwarded
+      promotional email's preview text, reads as spam/phishing leaking into
+      the app's own UI. Surfaced by trust audit (`TRUST_AUDIT.md` row 12),
+      not in today's scope. Proposed fix: strip/hide raw URLs from the
+      preview snippet before display.
+- [ ] **Order detail page: long order number wraps awkwardly on mobile** —
+      24-char Poshmark-style numbers wrap across 3 lines with the Copy
+      button sitting mid-wrap rather than below the value. Cosmetic only,
+      not broken. Surfaced by trust audit (`TRUST_AUDIT.md` row 14).
+      Proposed fix: stack Copy button below the value at narrow widths.
+- [ ] **Bare "Delivery date —" / "Return by — (est.)" renders with zero
+      explanatory context** when the field is simply not yet known — could
+      read as "the app failed to fetch this" rather than "we don't have a
+      delivery email yet, that's normal." Surfaced by trust audit
+      (`TRUST_AUDIT.md` row 15), not in today's scope. Proposed fix: a short
+      inline hint on the fields most central to the app's promise.
 - [ ] **Retailer logos** — `RetailerAvatar` currently shows initials only
       (deliberately, per Commit 2: "logo integration is a separate future
       task"). Needs a logo source/lookup strategy — not spec'd yet.
@@ -558,6 +570,12 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Order-number display** — `OrderCard.tsx` middle-truncates order
+      numbers over 16 chars (`#6a4d94…748a`), full value in `title` +
+      `aria-label`; order detail page shows the full untruncated number plus
+      a copy button. `lib/orderNumberDisplay.ts` + tests. Committed
+      (`771778f`), pushed, deployed (`dpl_HBsw75cTQmFzdequQcYTXyA857rF`) —
+      **owner-verified live 2026-07-13.**
 - [x] **Needs-review card placement — verified correct, no move needed.**
       Checked twice (2026-07-12 session close, and again on 2026-07-13) —
       sits between the summary card and the order list in

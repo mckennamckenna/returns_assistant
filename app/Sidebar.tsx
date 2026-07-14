@@ -6,7 +6,7 @@ import { signOutAction } from "./actions";
 
 function ComingSoonItem({ label }: { label: string }) {
   return (
-    <span className="flex items-center justify-between px-3 py-2 rounded-lg text-[15px] text-muted cursor-default border-l-[3px] border-transparent">
+    <span className="flex items-center justify-between px-3 py-1.5 rounded-r-lg text-[15px] text-muted cursor-default border-l-[3px] border-transparent">
       {label}
       <span className="text-[11px] uppercase tracking-wide bg-border text-muted px-1.5 py-0.5 rounded-full">
         Soon
@@ -28,8 +28,12 @@ export function Sidebar({ alertCount, accountLabel }: { alertCount: number; acco
   // so a background-tint highlight on the active item would be invisible
   // against it. Every item shares the same border-left box model (active or
   // not) so nothing shifts horizontally when the active item changes.
+  // rounded-r-lg (not rounded-lg) — corners on the border side must stay
+  // square, or the left border follows the curve and reads as a stray
+  // bracket/parenthesis next to the label instead of a flush accent line.
+  // See TRUST_AUDIT.md row 2.
   function navClass(active: boolean): string {
-    return `flex items-center px-3 py-2 rounded-lg text-[15px] border-l-[3px] ${
+    return `flex items-center px-3 py-1.5 rounded-r-lg text-[15px] border-l-[3px] ${
       active ? "border-ink text-ink font-medium" : "border-transparent text-secondary font-normal hover:bg-card"
     }`;
   }
@@ -50,7 +54,7 @@ export function Sidebar({ alertCount, accountLabel }: { alertCount: number; acco
         <ComingSoonItem label="Returns" />
         <ComingSoonItem label="Purchases" />
         <ComingSoonItem label="Insights" />
-        <span className="flex items-center justify-between px-3 py-2 rounded-lg text-[15px] text-muted cursor-default border-l-[3px] border-transparent">
+        <span className="flex items-center justify-between px-3 py-1.5 rounded-r-lg text-[15px] text-muted cursor-default border-l-[3px] border-transparent">
           Alerts
           {alertCount > 0 && (
             <span className="text-xs font-semibold bg-ink text-page px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
