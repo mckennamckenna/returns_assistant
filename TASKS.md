@@ -26,6 +26,30 @@
 ---
 
 ## 🔴 Now
+- [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification;
+      item 4 (dashboard row density) proposed in chat, awaiting greenlight,
+      NOT applied.** (1) Order detail's "Track package"/"Track your return"
+      converted from muted text-style links to real outlined buttons
+      matching "Keeping it" exactly. (2) Order-number Copy button on order
+      detail is now icon-only (`CopyButton` gained an `iconOnly` prop + a
+      new hand-rolled clipboard SVG — no existing copy icon was found
+      anywhere in the app to reuse, and no icon library was added;
+      `aria-label`/`title` both "Copy order number", confirmed functional
+      via a real clipboard write/read in a disposable browser session).
+      (3) Action-button hierarchy verified consistent on both the two named
+      cases (Poshmark/Shipped: filled+outlined+outlined+text; Shopbop/Return
+      requested: filled+outlined+text) — `OrderCard.tsx` (dashboard card)
+      needed no changes, already compliant; only the order detail page's
+      Track-package/Track-your-return needed conversion.
+      `getVisibleActions()` visibility logic untouched, styling-only.
+      **Judgment call flagged, not silently decided:** left `MarkRefundedButton`
+      filled black (unchanged) on both surfaces — the task's hierarchy rule
+      only explicitly named Start return/Mark as returned as "primary,"
+      and neither of the two verification cases reaches the refunded state,
+      so I didn't reclassify it without asking. 298 tests passing,
+      `npm run build` clean. (4) Row-density investigation — findings and
+      proposal reported in chat, no code changes made; stops for greenlight
+      per instructions.
 - [ ] **Gmail deep-link filter-setup button removed from Settings, awaiting
       owner verification.** 2/2 non-owner test users (mom, brother) who used
       the deep link ended up with a filter matching their entire inbox —

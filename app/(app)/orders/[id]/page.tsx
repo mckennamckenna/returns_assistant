@@ -153,7 +153,7 @@ export default async function OrderDetail({
               order.orderNumber ? (
                 <span className="flex items-center gap-2">
                   <span className="break-all">{order.orderNumber}</span>
-                  <CopyButton text={order.orderNumber} />
+                  <CopyButton text={order.orderNumber} iconOnly label="Copy order number" />
                 </span>
               ) : null
             }
@@ -208,9 +208,9 @@ export default async function OrderDetail({
               href={order.trackingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block bg-page text-secondary text-sm font-medium rounded-lg px-4 py-2 hover:bg-border"
+              className="inline-block border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
             >
-              Track package &rarr;
+              Track package
             </a>
           )}
           {order.returnTrackingNumber && order.returnTrackingUrl && (
@@ -218,9 +218,9 @@ export default async function OrderDetail({
               href={order.returnTrackingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block bg-page text-secondary text-sm font-medium rounded-lg px-4 py-2 hover:bg-border"
+              className="inline-block border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
             >
-              Track your return &rarr;
+              Track your return
             </a>
           )}
           {canMarkReturned && (
