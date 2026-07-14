@@ -73,7 +73,8 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
 
   return (
     <div className="bg-card border border-border rounded-2xl p-[18px]">
-      <div className="flex items-start gap-3">
+      {/* Mobile (below md): unchanged 5-line stacked layout. */}
+      <div className="md:hidden flex items-start gap-3">
         <Link href={`/orders/${order.id}`} className="flex items-start gap-3 flex-1 min-w-0">
           <RetailerAvatar name={order.retailer || "?"} />
           <div className="min-w-0">
@@ -95,6 +96,37 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={!deadlineConfirmed} />
       </div>
 
+      {/* Desktop (md+): 4-line density pass — TRUST_AUDIT.md row-density
+          follow-up. Item description gets its own full-width line
+          deliberately (worst-case real data runs 190+ chars — compressing
+          it onto the retailer/order# line breaks on that case), so
+          retailer + order# combine on L1 instead, freeing a line overall.
+          Same underlying data as the mobile block above — layout-only. */}
+      <div className="hidden md:block">
+        <div className="flex items-center gap-3">
+          <RetailerAvatar name={order.retailer || "?"} />
+          <Link href={`/orders/${order.id}`} className="min-w-0 flex-1 flex items-center gap-2">
+            <span className="text-lg font-medium text-ink truncate shrink-0 max-w-[45%]">
+              {order.retailer || "Unknown retailer"}
+            </span>
+            {order.orderNumber && (
+              <span
+                className="text-xs text-muted truncate"
+                title={order.orderNumber}
+                aria-label={`Order number ${order.orderNumber}`}
+              >
+                · #{truncateOrderNumber(order.orderNumber)}
+              </span>
+            )}
+          </Link>
+          <div className="shrink-0 flex items-center gap-2">
+            <DisplayStatusBadge status={order.displayStatus} />
+            <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={!deadlineConfirmed} />
+          </div>
+        </div>
+        {itemSummaryText && <p className="text-xs text-muted truncate mt-1 ml-[60px]">{itemSummaryText}</p>}
+      </div>
+
       <div className="flex items-baseline justify-between flex-wrap gap-x-2 gap-y-1 mt-3">
         <span className="font-serif text-[27px] font-semibold text-ink">
           {formatCurrency(order.orderTotal, order.orderCurrency)}
@@ -108,7 +140,7 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
         <p className="text-xs text-muted mt-1">Forward your order confirmation to add the total</p>
       )}
 
-      <div className="flex items-center gap-2 mt-3">
+      <div className="flex items-center gap-2 mt-4">
         {canStartReturn && (
           <StartReturnButton
             orderId={order.id}

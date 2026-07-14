@@ -26,9 +26,31 @@
 ---
 
 ## 🔴 Now
+- [ ] **Dashboard row density — 4-line desktop layout shipped, awaiting
+      owner verification.** `OrderCard.tsx` now renders two parallel blocks
+      sharing identical underlying data/logic (no props, state, or
+      `getVisibleActions`/`itemSummary` changes) — mobile (`md:hidden`)
+      keeps the exact original 5-line stacked layout untouched; desktop
+      (`hidden md:block`) merges retailer+order# onto L1 (with status pill +
+      days-left pill at the right) and gives item description its own
+      full-width single-line-truncate row (L2), down from 5 lines to 4.
+      **Judgment call: days-left pill stays on L1 next to the status
+      pill** (not moved to L3) — verified live on the Poshmark case
+      ("Shipped" + "3 days left (est.)" side by side read as two distinct
+      pills with clean gap-2 spacing, not a cramped blob). Actions row
+      margin bumped `mt-3` → `mt-4` for breathing room from the
+      price/deadline line above it. Verified live against all four named
+      worst-case rows in a disposable browser session: Poshmark (pill-clash
+      case, holds), the 193-char Amazon protein-powder description
+      (single-line truncates cleanly on its own row, doesn't break row
+      height), Loeffler Randall (16-char retailer, fits with room to
+      spare), and a mobile card (confirmed pixel-identical to the
+      pre-existing stacked layout, bottom-nav unaffected). 298 tests
+      passing (no test touched this component), `npm run build` clean.
 - [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification;
-      item 4 (dashboard row density) proposed in chat, awaiting greenlight,
-      NOT applied.** (1) Order detail's "Track package"/"Track your return"
+      item 4 (dashboard row density) proposed in chat, now greenlit and
+      being applied as its own Now item above.** (1) Order detail's "Track
+      package"/"Track your return"
       converted from muted text-style links to real outlined buttons
       matching "Keeping it" exactly. (2) Order-number Copy button on order
       detail is now icon-only (`CopyButton` gained an `iconOnly` prop + a
