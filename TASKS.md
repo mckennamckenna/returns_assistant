@@ -46,7 +46,11 @@
       already-created Gmail filter. 298 tests passing (no test referenced
       the removed code), `npm run build` clean, verified live in a real
       browser (disposable session, deleted after use) — card renders
-      cleanly, zero console errors.
+      cleanly, zero console errors. Committed (`3658947`), pushed,
+      auto-deployed (`dpl_FMKqbrZRTsLSv99tRctnq62i7oLJ`, confirmed Ready and
+      aliased to `app.myreturnwindow.com` within ~3s of push — 6th data
+      point on the unexplained auto-deploy question below) — **awaiting
+      owner browser verification**, not Done until hand-verified live.
 - [ ] **Desktop visual polish — Phase 2, greenlit scope shipped, awaiting
       owner verification.** All six items from TRUST_AUDIT.md applied in one
       commit: (1) avatar-initials bug fix ("On (On-Running)" → "OO", no
@@ -191,6 +195,13 @@
       range (~2-3s), still no Git Commit field in `vercel inspect`. Five
       sessions now; still needs someone to open the Vercel dashboard
       directly.
+      **2026-07-13, sixth data point, same session:** pushed the Gmail
+      deep-link removal commit (`3658947`). A new Building deployment
+      (`dpl_FMKqbrZRTsLSv99tRctnq62i7oLJ`) appeared within ~3 seconds of the
+      push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
+      `vercel --prod` run. Pattern held a sixth time. Six sessions now;
+      still needs someone to open the Vercel dashboard directly — this is
+      now the single most confirmed-but-unexplained item on this board.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
@@ -266,7 +277,8 @@
       separate session, per owner — as the verification signal: no alert
       firing = fix confirmed), re-introduce the button + explanatory copy at
       `settings/page.tsx` (previously at lines 22-24 and 45-56 pre-removal —
-      reference commit `[fill in at merge]` for the original implementation).
+      reference commit `3658947` — the removal commit — to see the original
+      implementation via `git show 3658947^:app/\(app\)/settings/page.tsx`).
       Real evidence supporting OAuth prioritization as the eventual real fix.
       Slug: `gmail-deeplink-cross-account-parsing`.
 - [ ] **Surface delivery date as first-class dashboard info** — currently
