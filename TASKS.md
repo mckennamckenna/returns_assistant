@@ -26,6 +26,18 @@
 ---
 
 ## 🔴 Now
+- [ ] **Inbound flood alert + webhook auth (Postmark hardening), two tasks
+      in one plan-mode session.** (1) Alert admin when a resolved user's
+      forwarding address receives ≥15 inbound messages/hour (tunable
+      constant), counted before the commerce/discard split so a broken
+      Gmail filter forwarding a whole inbox is caught even though most of
+      that mail is discarded pre-`Email`-row. Content-free rolling counter
+      on `User` (owner's explicit choice over a per-event receipt log, for
+      privacy — no event history retained). (2) HTTP Basic Auth on the
+      inbound webhook, dormant when env vars unset so deploy is zero-risk
+      before Postmark is configured. Plan at
+      `~/.claude/plans/foamy-squishing-quasar.md`. In progress this
+      session — plan approved, implementing now.
 - [ ] **Dashboard row density — 4-line desktop layout shipped, awaiting
       owner verification.** `OrderCard.tsx` now renders two parallel blocks
       sharing identical underlying data/logic (no props, state, or
@@ -187,87 +199,6 @@
       browser-verified — a pre-push read-only query found 0 currently-eligible
       orders; verification here means watching a future scheduled cron run's
       `autoArchived` count once a real order ages past the grace period.
-- [ ] **Investigate unexplained extra Vercel production deployments** —
-      **stronger evidence 2026-07-09 session close, priority raised.**
-      Directly observed in real time: within ~24 seconds of a docs-only
-      `git push` (TASKS.md/HISTORY.md commit, no `vercel --prod` run), a new
-      Production deployment appeared in `vercel ls` with status Building,
-      then went Ready and became the aliased live deployment — no explicit
-      deploy command was run for it. `vercel project inspect` still confirms
-      no Git Repository connection (ruling out standard GitHub auto-deploy),
-      so a push-triggered deploy is happening through some *other* mechanism
-      — check the Vercel dashboard directly (Settings → Git, Settings →
-      Deploy Hooks, and any webhook config) since this isn't visible via
-      CLI. This directly contradicts `CLAUDE.md`'s documented deploy model
-      ("manual, not automatic on push") — that doc needs correcting once the
-      mechanism is understood, not before (don't want to document a guess).
-      Practical implication: `vercel inspect <alias> | grep "Git Commit"`
-      cannot be trusted to reflect only intentional deploys anymore — every
-      push may already be live before a manual `vercel --prod` runs.
-      Production correctness still isn't at risk (every deploy — intentional
-      or not — rebuilds whatever `main` legitimately contained at push time),
-      but this needs to be understood, not just tolerated.
-      **2026-07-10, second data point:** owner directed "push it, don't run
-      `vercel --prod`, GitHub integration auto-deploys on push" — pattern held:
-      a new Building deployment appeared in `vercel ls` ~35s after
-      `git push` (this run's poll interval was coarser than the ~24s-observed
-      case, so "35s" is an upper bound on the actual lag, not a claim it's
-      slower), went Ready, and the `returns-assistant.vercel.app` alias updated
-      to it (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`) with no manual deploy command
-      run. Still cannot independently confirm via CLI that this specific
-      deployment built from commit `01189f8` specifically (vs. some other
-      trigger) — `vercel inspect` still shows no Git Commit field — so this is
-      strong timing correlation, not proof. The underlying mechanism (Settings
-      → Git / Deploy Hooks / webhook) is still unconfirmed by dashboard
-      inspection; someone needs to actually open the Vercel dashboard.
-      **2026-07-12, third data point:** recurred again at session close.
-      Explicitly ran `vercel --prod` for commit `b6ff814` (Tasks A/B),
-      confirmed deployment `dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ` Ready and
-      aliased. Then pushed one more docs-only commit (`016ca20`,
-      TASKS.md-only). ~2.5 minutes later, with no `vercel --prod` run for
-      it, `dpl_BdhzY93AwF6NqQhMKjYtiGBettsy` appeared and became the new
-      aliased live deployment — same pattern as the two prior data points.
-      No functional risk here specifically (the triggering commit was
-      docs-only, so the rebuilt bundle is identical to `dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ`'s),
-      but it confirms this isn't a one-off — three separate sessions now,
-      still unexplained via CLI. Priority stands: someone needs to open the
-      Vercel dashboard directly.
-      **2026-07-13, fourth data point, fastest lag yet:** pushed the
-      order-number-display commit (`771778f`, real code change this time, not
-      docs-only). A new Building deployment (`dpl_HBsw75cTQmFzdequQcYTXyA857rF`)
-      appeared in `vercel ls` within ~2 seconds of the push — faster than any
-      prior observation (previously ~24s/~35s/~2.5min) — went Ready, and
-      `app.myreturnwindow.com` aliased to it, no manual `vercel --prod` run.
-      Same unresolved caveat: `vercel inspect` still shows no Git Commit
-      field, so this is still strong timing correlation, not proof. Four
-      sessions now; still needs someone to open the Vercel dashboard
-      directly.
-      **2026-07-13, fifth data point, same session:** pushed the Desktop
-      visual polish Phase 2 commit (`cc99f33`). A new Building deployment
-      (`dpl_E7hmoUunv3tq7pnGwr9pTkGqxsat`) appeared within ~3 seconds of the
-      push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
-      `vercel --prod` run. Pattern held a fifth time, still fastest-observed
-      range (~2-3s), still no Git Commit field in `vercel inspect`. Five
-      sessions now; still needs someone to open the Vercel dashboard
-      directly.
-      **2026-07-13, sixth data point, same session:** pushed the Gmail
-      deep-link removal commit (`3658947`). A new Building deployment
-      (`dpl_FMKqbrZRTsLSv99tRctnq62i7oLJ`) appeared within ~3 seconds of the
-      push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
-      `vercel --prod` run. Pattern held a sixth time. Six sessions now;
-      still needs someone to open the Vercel dashboard directly — this is
-      now the single most confirmed-but-unexplained item on this board.
-      **2026-07-13, seventh data point, same session:** pushed the
-      Follow-up polish commit (`f3b549a`). A new Building deployment
-      (`dpl_DQhUXbjbjgPbM76miPqfT1Lu84M4`) appeared within ~3 seconds of the
-      push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
-      `vercel --prod` run. Seven for seven now.
-      **2026-07-13, eighth data point, same session:** pushed the Dashboard
-      row density commit (`b3d1d26`). A new deployment
-      (`dpl_G4iETqE59TU6LKBRteAr9Hv5hXKd`) appeared within ~2 seconds of the
-      push (`vercel ls` caught it at "Initializing," even earlier in the
-      lifecycle than prior checks), went Ready, `app.myreturnwindow.com`
-      aliased to it — no manual `vercel --prod` run. Eight for eight.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
@@ -704,6 +635,56 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **RESOLVED 2026-07-14: Vercel auto-deploy mechanism confirmed —
+      `mckennamckenna/returns_assistant` is connected to this Vercel project
+      via the GitHub integration (connected 2026-06-21).** Every push to
+      `main` triggers a production deploy on its own, including docs-only
+      commits — this is standard GitHub-integration auto-deploy, not some
+      other unexplained trigger. `CLAUDE.md`'s deploy section corrected to
+      say so and to stop recommending `vercel --prod` (which just creates a
+      redundant duplicate deployment alongside the one GitHub already
+      triggered). Eight data points collected across six sessions
+      (2026-07-09 through 2026-07-13, lag consistently ~2-3 seconds by the
+      end) before the mechanism was confirmed via the dashboard rather than
+      inferred from CLI timing alone — full history preserved below as the
+      decision-log record of how this was chased down.
+      <details><summary>Full data-point history (click to expand)</summary>
+
+      **2026-07-09, first data point:** within ~24 seconds of a docs-only
+      `git push` (TASKS.md/HISTORY.md commit, no `vercel --prod` run), a new
+      Production deployment appeared in `vercel ls` with status Building,
+      then went Ready and became the aliased live deployment — no explicit
+      deploy command was run for it. `vercel project inspect` showed no Git
+      Repository connection at the time (a CLI-visibility gap, not evidence
+      the integration didn't exist).
+      **2026-07-10, second data point:** owner directed "push it, don't run
+      `vercel --prod`, GitHub integration auto-deploys on push" — pattern
+      held: a new Building deployment appeared ~35s after `git push`, went
+      Ready, `returns-assistant.vercel.app` aliased to it
+      (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`), no manual deploy command run.
+      **2026-07-12, third data point:** recurred at session close. Explicitly
+      ran `vercel --prod` for commit `b6ff814` (Tasks A/B), confirmed
+      `dpl_86QfR7qHpUfv1aiJqvTq8TP4p3TQ` Ready and aliased. Then pushed one
+      more docs-only commit (`016ca20`); ~2.5 minutes later, with no
+      `vercel --prod` run, `dpl_BdhzY93AwF6NqQhMKjYtiGBettsy` appeared and
+      became the new aliased live deployment.
+      **2026-07-13, fourth data point:** pushed the order-number-display
+      commit (`771778f`) — new deployment within ~2 seconds
+      (`dpl_HBsw75cTQmFzdequQcYTXyA857rF`), Ready, aliased.
+      **2026-07-13, fifth data point:** pushed Desktop visual polish Phase 2
+      (`cc99f33`) — within ~3 seconds (`dpl_E7hmoUunv3tq7pnGwr9pTkGqxsat`),
+      Ready, aliased.
+      **2026-07-13, sixth data point:** pushed the Gmail deep-link removal
+      (`3658947`) — within ~3 seconds (`dpl_FMKqbrZRTsLSv99tRctnq62i7oLJ`),
+      Ready, aliased.
+      **2026-07-13, seventh data point:** pushed Follow-up polish
+      (`f3b549a`) — within ~3 seconds (`dpl_DQhUXbjbjgPbM76miPqfT1Lu84M4`),
+      Ready, aliased.
+      **2026-07-13, eighth data point:** pushed Dashboard row density
+      (`b3d1d26`) — within ~2 seconds, caught at "Initializing" even earlier
+      in the lifecycle than prior checks
+      (`dpl_G4iETqE59TU6LKBRteAr9Hv5hXKd`), Ready, aliased.
+      </details>
 - [x] **Order-number display** — `OrderCard.tsx` middle-truncates order
       numbers over 16 chars (`#6a4d94…748a`), full value in `title` +
       `aria-label`; order detail page shows the full untruncated number plus

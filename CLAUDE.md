@@ -83,12 +83,14 @@ Return Window matters until it has happy users.
 - Dev: `npm run dev`
 - Build (also type-checks): `npm run build`
 - Migrate: `npx prisma migrate dev --name <description>` (Prisma + Postgres)
-- Deploy: **manual, not automatic on push** — there is no GitHub auto-deploy
-  configured on this Vercel project (confirmed: no Git connection shows up
-  under `npx vercel project inspect returns-assistant`). After pushing to
-  `main`:
-  1. `npx vercel --prod` from the repo root
-  2. Confirm the alias updated: `npx vercel inspect returns-assistant.vercel.app`
+- Deploy: **automatic on push.** `mckennamckenna/returns_assistant` is
+  connected to this Vercel project via the GitHub integration (connected
+  2026-06-21) — every push to `main` triggers a production deploy on its
+  own, including docs-only commits, typically live within a few seconds.
+  Do **not** run `vercel --prod` — it creates a redundant duplicate
+  deployment alongside the one GitHub already triggered. After pushing:
+  confirm the alias updated: `npx vercel inspect returns-assistant.vercel.app`
+  (or `app.myreturnwindow.com`).
 - Env vars: manage via the CLI so local `.env` and all three Vercel
   environments (production/preview/development) stay in sync —
   `npx vercel env add <NAME> <environment>` (and `vercel env rm` to replace
