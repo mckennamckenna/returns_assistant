@@ -47,9 +47,13 @@
       only explicitly named Start return/Mark as returned as "primary,"
       and neither of the two verification cases reaches the refunded state,
       so I didn't reclassify it without asking. 298 tests passing,
-      `npm run build` clean. (4) Row-density investigation — findings and
-      proposal reported in chat, no code changes made; stops for greenlight
-      per instructions.
+      `npm run build` clean. Committed (`f3b549a`), pushed, auto-deployed
+      (`dpl_DQhUXbjbjgPbM76miPqfT1Lu84M4`, confirmed Ready and aliased to
+      `app.myreturnwindow.com` within ~3s of push — 7th data point on the
+      unexplained auto-deploy question below) — **awaiting owner browser
+      verification**, not Done until hand-verified live. (4) Row-density
+      investigation — findings and proposal reported in chat, no code
+      changes made; stops for greenlight per instructions.
 - [ ] **Gmail deep-link filter-setup button removed from Settings, awaiting
       owner verification.** 2/2 non-owner test users (mom, brother) who used
       the deep link ended up with a filter matching their entire inbox —
@@ -226,6 +230,11 @@
       `vercel --prod` run. Pattern held a sixth time. Six sessions now;
       still needs someone to open the Vercel dashboard directly — this is
       now the single most confirmed-but-unexplained item on this board.
+      **2026-07-13, seventh data point, same session:** pushed the
+      Follow-up polish commit (`f3b549a`). A new Building deployment
+      (`dpl_DQhUXbjbjgPbM76miPqfT1Lu84M4`) appeared within ~3 seconds of the
+      push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
+      `vercel --prod` run. Seven for seven now.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
