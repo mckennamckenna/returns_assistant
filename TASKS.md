@@ -47,6 +47,11 @@
       spare), and a mobile card (confirmed pixel-identical to the
       pre-existing stacked layout, bottom-nav unaffected). 298 tests
       passing (no test touched this component), `npm run build` clean.
+      Committed (`b3d1d26`), pushed, auto-deployed
+      (`dpl_G4iETqE59TU6LKBRteAr9Hv5hXKd`, confirmed Ready and aliased to
+      `app.myreturnwindow.com` within ~2s of push — 8th data point on the
+      unexplained auto-deploy question below) — **awaiting owner browser
+      verification**, not Done until hand-verified live.
 - [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification;
       item 4 (dashboard row density) proposed in chat, now greenlit and
       being applied as its own Now item above.** (1) Order detail's "Track
@@ -257,6 +262,12 @@
       (`dpl_DQhUXbjbjgPbM76miPqfT1Lu84M4`) appeared within ~3 seconds of the
       push, went Ready, `app.myreturnwindow.com` aliased to it — no manual
       `vercel --prod` run. Seven for seven now.
+      **2026-07-13, eighth data point, same session:** pushed the Dashboard
+      row density commit (`b3d1d26`). A new deployment
+      (`dpl_G4iETqE59TU6LKBRteAr9Hv5hXKd`) appeared within ~2 seconds of the
+      push (`vercel ls` caught it at "Initializing," even earlier in the
+      lifecycle than prior checks), went Ready, `app.myreturnwindow.com`
+      aliased to it — no manual `vercel --prod` run. Eight for eight.
 - [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
       as of session close he had verified his Return Window forwarding address
       with Google, but not confirmed to have (a) opened the deep link successfully,
