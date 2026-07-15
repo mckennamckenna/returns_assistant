@@ -5,6 +5,30 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-15 — Gmail deep-link filter-setup button removed from Settings (owner-verified live)
+
+2/2 non-owner test users (mom, brother) who used the deep link ended up with a
+filter matching their entire inbox — real privacy exposure (personal email
+forwarding into extraction). Surgical removal in `app/(app)/settings/page.tsx`:
+deleted the `GMAIL_COMMERCE_QUERY`/`gmailSearchUrl` construction and the
+deep-link `<a>` button + its instructional paragraph. "Your forwarding address"
+card otherwise untouched (heading, intro paragraph, address+Copy row all render
+exactly as before); `GmailVerificationCode`, Archived orders, and
+Delete-all-data cards untouched. No manual-instructions replacement — the
+owner's call was that we're removing the trap, not rebuilding the flow. No
+backend/URL-construction changes; no change to any existing user's
+already-created filter. Note: there is no separate new-user-onboarding route in
+this codebase — Settings is the one shared page every user (new or existing)
+sees, so this change is necessarily visible to everyone who opens Settings
+going forward, not just new signups. 298 tests passing (no test referenced the
+removed code), `npm run build` clean, verified live in a real browser
+(disposable session, deleted after use) at commit time — card rendered
+cleanly, zero console errors. Committed (`3658947`), pushed, auto-deployed
+(`dpl_FMKqbrZRTsLSv99tRctnq62i7oLJ`, confirmed Ready and aliased to
+`app.myreturnwindow.com` within ~3s of push — 6th data point on the
+now-resolved auto-deploy question). **Owner hand-verified live in production
+2026-07-15**, confirmed gone from Settings.
+
 ## 2026-07-10 (later) — Session close: Mark kept, auto-archive, Mark returned, and HTML emails all shipped and verified
 
 Four features built and deployed in one continuous session, each gated behind its

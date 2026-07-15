@@ -21,11 +21,14 @@ Project context for Claude Code. This file is auto-loaded every session.
 - At the end of every session, update `TASKS.md` to reflect actual current state.
 
 **DONE MEANS DEPLOYED — NON-NEGOTIABLE:**
-A task is only "Done" when it is committed AND pushed to origin AND verified live
-in production. Committed-but-unpushed is not done. Pushed-but-unverified is not done.
-At the end of every session: run `git status` and
-`git log origin/main..main --oneline`. If anything is uncommitted or unpushed,
-surface it and resolve it before ending. Never leave a session with unpushed commits.
+For code changes, a task is only "Done" when it is committed AND pushed to origin
+AND verified live in production. Committed-but-unpushed is not done.
+Pushed-but-unverified is not done. For docs-only changes (TASKS.md, HISTORY.md,
+CLAUDE.md, BUILD.md, and similar, with no code touched), there is no "deploy" to
+verify — done means committed AND pushed to origin. At the end of every session:
+run `git status` and `git log origin/main..main --oneline`. If anything is
+uncommitted or unpushed, surface it and resolve it before ending. Never leave a
+session with unpushed commits.
 
 ---
 

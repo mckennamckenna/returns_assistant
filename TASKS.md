@@ -86,9 +86,8 @@
          credentials → expect 401; correct credentials → expect normal
          200 behavior.
       Not Done until steps 2-6 are complete and verified live.
-- [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification;
-      item 4 (dashboard row density) proposed in chat, now greenlit and
-      being applied as its own Now item above.** (1) Order detail's "Track
+- [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification.**
+      (1) Order detail's "Track
       package"/"Track your return"
       converted from muted text-style links to real outlined buttons
       matching "Keeping it" exactly. (2) Order-number Copy button on order
@@ -115,31 +114,6 @@
       verification**, not Done until hand-verified live. (4) Row-density
       investigation — findings and proposal reported in chat, no code
       changes made; stops for greenlight per instructions.
-- [ ] **Gmail deep-link filter-setup button removed from Settings, awaiting
-      owner verification.** 2/2 non-owner test users (mom, brother) who used
-      the deep link ended up with a filter matching their entire inbox —
-      real privacy exposure (personal email forwarding into extraction).
-      Surgical removal in `app/(app)/settings/page.tsx`: deleted the
-      `GMAIL_COMMERCE_QUERY`/`gmailSearchUrl` construction and the deep-link
-      `<a>` button + its instructional paragraph. "Your forwarding address"
-      card otherwise untouched (heading, intro paragraph, address+Copy row
-      all render exactly as before); `GmailVerificationCode`, Archived
-      orders, and Delete-all-data cards untouched. No manual-instructions
-      replacement — the owner's call was that we're removing the trap, not
-      rebuilding the flow. No backend/URL-construction changes; no change to
-      any existing user's already-created filter. Note: there is no
-      separate new-user-onboarding route in this codebase — Settings is the
-      one shared page every user (new or existing) sees, so this change is
-      necessarily visible to everyone who opens Settings going forward, not
-      just new signups; it does not touch any existing user's data or
-      already-created Gmail filter. 298 tests passing (no test referenced
-      the removed code), `npm run build` clean, verified live in a real
-      browser (disposable session, deleted after use) — card renders
-      cleanly, zero console errors. Committed (`3658947`), pushed,
-      auto-deployed (`dpl_FMKqbrZRTsLSv99tRctnq62i7oLJ`, confirmed Ready and
-      aliased to `app.myreturnwindow.com` within ~3s of push — 6th data
-      point on the unexplained auto-deploy question below) — **awaiting
-      owner browser verification**, not Done until hand-verified live.
 - [ ] **Desktop visual polish — Phase 2, greenlit scope shipped, awaiting
       owner verification.** All six items from TRUST_AUDIT.md applied in one
       commit: (1) avatar-initials bug fix ("On (On-Running)" → "OO", no
@@ -361,16 +335,15 @@
       correction changes a user-facing fact (deadline, status, amount), what
       triggers a notification vs. silent correction? Matters more as backfills
       become more routine.
-- [ ] **[TOMORROW #2, spec pass first] Auto-email Gmail confirmation code** —
+- [ ] **Auto-email Gmail confirmation code** —
       deliver the confirmation code to the user via email (in addition to
       dashboard surfacing), owner BCC'd — see Decisions log for the
       "meets them where their attention actually is" rationale. Do a 15-minute
-      spec pass before writing code; ship only if the spec holds up. Not
-      urgent enough to skip the spec pass even under tomorrow's priority.
-- [ ] **[TOMORROW #3, if time] `orderDate` column on admin dashboard user
+      spec pass before writing code; ship only if the spec holds up.
+- [ ] **`orderDate` column on admin dashboard user
       detail table** — small, clean addition; deferred out of admin dashboard
       v1.1. Not urgent since order date is already visible on the order
-      detail page — only worth it if #1 and #2 leave room.
+      detail page.
 - [ ] **Retailer policy database** — NOT tomorrow, needs its own session — for
       high-volume retailers where we can
       justify curation (Moda, Shopbop, Nordstrom, J.Crew, Amazon, and the next
@@ -657,6 +630,13 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Docs-only board cleanup (2026-07-15)** — moved Gmail deep-link removal
+      to Done, dropped the stale "greenlit as Now item" clause from Follow-up
+      polish, stripped stale `[TOMORROW #2]`/`[TOMORROW #3]` tags from Next,
+      and clarified CLAUDE.md's "DONE MEANS DEPLOYED" wording for docs-only
+      changes. No code changes.
+- [x] **Gmail deep-link filter-setup button removed from Settings** — owner
+      hand-verified live in production 2026-07-15. Full detail in HISTORY.md.
 - [x] **Dashboard row density ("desktop OrderCard cleanup") — 4-line
       desktop layout.** `OrderCard.tsx` renders two parallel blocks sharing
       identical underlying data/logic — mobile (`md:hidden`) keeps the
@@ -1044,12 +1024,6 @@
   owner. Archive column falls off the visible page area on the main
   dashboard. Layout needs a cleanup pass. Not urgent but real UX friction.
   Slug: `dashboard-visual-polish-archive-overflow`.
-- **CLAUDE.md's "DONE MEANS DEPLOYED" rule is written for code, ambiguous
-  for docs** — docs-only changes have no "deploy" concept, but the spirit
-  ("done means visible on origin/main") applies via `push`. Next time
-  CLAUDE.md is touched, adjust wording to: *for code, done means deployed;
-  for docs, done means pushed*. Surfaced today when the CLAUDE.md merge
-  commit sat unpushed pending clarification.
 - **`other`-typed emails that link to an Order and carry retailer/orderNumber
   are likely misclassifications** — surfaced during Phase 1 diagnostic
   (2026-07-09). 1 of 15 `other`-typed rows in prod (Upway, a "Link to
