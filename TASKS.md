@@ -26,12 +26,47 @@
 ---
 
 ## 🔴 Now
+- [ ] **sidekick-deadline-anchor-mismatch (owner-flagged top priority,
+      2026-07-15) — STOPPED after diagnostic, awaiting owner decision, no
+      fix written.** Diagnostic-first per repo rule found the reported
+      hypothesis (`computeDeadline()` anchored on a populated
+      `estimatedDeliveryDate`) does not match prod: `Order.estimatedDeliveryDate`
+      and `deliveredAt` are both null on this row, and `computeDeadline()`'s
+      code already prioritizes `returnWindowStartsFrom === "order_date"`
+      correctly (not running stale pre-Milestone-15 logic — the BUILD.md
+      docs are stale, the code isn't). The real cause: `Order.returnWindowStartsFrom`
+      is `null` on this row, because the web-lookup extraction's own notes
+      say the anchor is genuinely ambiguous ("does not explicitly state
+      whether the 60 days runs from order date or delivery date") —
+      **contradicting the reported symptom's premise** that the policy
+      clearly states "60 days from purchase." `computeDeadline()` treats a
+      `null` anchor identically to an explicit `delivery_date` anchor,
+      applying a synthetic `STANDARD_SHIPPING_DAYS` (7-day) buffer before
+      the window starts — Jun 25 + 7 + 60 = Aug 31, matching prod exactly,
+      but via that branch, not a literal `estimatedDeliveryDate` read.
+      Systemic scope check: 28 active orders have orderDate+window+deadline
+      set; 22 don't match a naive `orderDate + returnWindowDays`
+      comparison, but 21 of those are `delivery_date`-anchored orders
+      correctly applying the same intentional 7-day buffer (working as
+      designed, not bugs) — **Sidekick is the only active order with
+      `returnWindowStartsFrom === null`**, so this is contained, not
+      systemic. Needs an owner decision before any fix: (a) is Sidekick's
+      real policy actually order-date-anchored (making this a web-lookup
+      extraction-quality miss, fixable by re-running/improving that
+      lookup), or (b) should `computeDeadline()` change how it treats a
+      genuinely-unknown anchor (currently defaults to
+      delivery-date-with-buffer; defaulting unknown anchors to order-date
+      instead is the more common real-world default but changes behavior
+      for any future order that lands in this same ambiguous state)?
+      Three uncommitted diagnostic scripts left in `scripts/` for
+      reference: `diagnose-sidekick-deadline.mjs`,
+      `diagnose-deadline-mismatches.mjs`, `diagnose-startsfrom-null.mjs`.
 - [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
       pass, prep for a more public-facing alpha: env vars, auth, API
       routes, input validation, rate limiting, data exposure. Not started
-      tonight. The inbound webhook auth item below (still mid-rollout) and
-      the still-open inbound endpoint until that rollout completes are
-      directly relevant context to start from, not separate work.
+      tonight. The inbound webhook auth rollout (completed `d5772a8`,
+      2026-07-15) is directly relevant context to start from — its
+      findings inform this cleanse, not blocking work.
 - [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification.**
       (1) Order detail's "Track
       package"/"Track your return"
