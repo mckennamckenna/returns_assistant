@@ -5,6 +5,42 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-15 — Inbound webhook Postmark hardening: rollout complete, HTTP Basic Auth activated
+
+Code (flood alert + dormant Basic Auth check) shipped dormant on 2026-07-14
+(`b2c7b4c`) — see the `07-14`-adjacent entry below for the build details
+(`lib/inboundVolume.ts`'s atomic-`updateMany` counter, `isInboundWebhookAuthorized()`'s
+constant-time comparison, the `"inbound_volume_spike"` notification kind). This
+entry covers completing the rollout checklist (steps 2-6) end to end:
+
+1. Generated a strong random password (`openssl rand -base64 24`), shown once
+   to the owner for pasting into Postmark, not logged elsewhere in this
+   session's artifacts.
+2. Set `INBOUND_WEBHOOK_USER` (`postmark`) and `INBOUND_WEBHOOK_PASSWORD` in
+   Vercel production via `npx vercel env add ... production` — confirmed both
+   present via `vercel env ls production` before continuing.
+3. Printed the exact webhook URL (`https://postmark:<password>@returns-assistant.vercel.app/api/inbound`,
+   plus a percent-encoded fallback since the generated password happened to
+   contain a `/`, which is a reserved character in URL userinfo). Owner
+   updated the Postmark dashboard's inbound webhook URL and confirmed saved
+   before any redeploy — this ordering (credentials live in Postmark while
+   the check is still dormant) is what makes the rollout zero-lockout-risk.
+4. Redeployed production via `npx vercel redeploy <deployment-id> --target production`
+   rather than a `git push` (no code changed — this was purely to pick up the
+   two new env vars, which only take effect on the next deploy per this
+   project's standing convention). New deployment
+   `dpl_m47vg2K7aSDJRywAWP8kUqbox1yb`, confirmed Ready and aliased to
+   `app.myreturnwindow.com` and `returns-assistant.vercel.app`.
+5. Verified live with two real `curl` POSTs against production: no
+   credentials → `401 {"error":"Unauthorized"}`; correct credentials →
+   `200 {"ok":true}`. Both matched expected behavior exactly — the inbound
+   webhook is no longer open to anonymous POSTs, and the flood-alert half of
+   this feature (dormant since it depends on real traffic volume, not
+   env vars) is live alongside it.
+
+No code changes this session — purely env var configuration + redeploy +
+live verification. TASKS.md's rollout checklist is now fully closed out.
+
 ## 2026-07-15 — Gmail deep-link filter-setup button removed from Settings (owner-verified live)
 
 2/2 non-owner test users (mom, brother) who used the deep link ended up with a
