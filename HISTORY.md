@@ -5,6 +5,79 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-15 — sidekick-deadline-anchor-mismatch fixed: null anchor defaults to orderDate, shipping buffer tightened 7→5 (`72274c2`, owner-verified live)
+
+Reported symptom: Sidekick order #SK213978 showed "Return by Aug 31, 2026" —
+orderDate Jun 25 + a 60-day "from purchase" policy should be Aug 24, a 7-day
+mismatch. Diagnostic-first pass (same-day, earlier session) found the original
+hypothesis (`computeDeadline()` anchoring on a populated `estimatedDeliveryDate`)
+didn't match prod: no delivery date existed anywhere on the order. Real cause:
+the web-lookup extraction's own notes said the policy's anchor was genuinely
+ambiguous ("does not explicitly state whether the 60 days runs from order date
+or delivery date"), so `returnWindowStartsFrom` persisted `null` — and
+`computeDeadline()` treated `null` identically to an explicit `delivery_date`
+anchor, estimating a synthetic delivery date (orderDate + a shipping buffer)
+before applying the window. A systemic scope check confirmed this was
+contained to one order, not widespread, before any fix was written.
+
+**Decision 1 — null/unknown anchor defaults to `orderDate` directly**, not a
+delivery-plus-buffer guess. Rationale: order-date anchor is always <=
+delivery-date anchor, so defaulting an unconfirmed anchor to orderDate can
+never compute a deadline later than the true one could be — mirrors the
+existing tiered-window "shortest window always wins" precedent ("a wrong
+deadline is worse than a missing one"). `deadlineIsEstimated` stays `true` in
+this branch even though `orderDate` is a real, confirmed value — the anchor
+*choice* is still an assumption, not a fact the AI confirmed, which matches
+this codebase's standing convention that `deadlineIsEstimated` flags
+uncertainty in the calculation basis, not just the date's provenance (same
+reasoning as why an `estimatedDeliveryDate`-anchored deadline is flagged
+estimated despite using a real carrier ETA).
+
+**Decision 2 — `STANDARD_SHIPPING_DAYS` tightened 7 → 5 days**, the buffer
+used only when a policy is explicitly `delivery_date`-anchored but no real
+delivery signal exists yet. Same "wrong deadline worse than missing"
+principle: owner explicitly accepted that a user might occasionally start a
+return a couple of days before they strictly needed to, in exchange for never
+computing a deadline later than the real one.
+
+Both changes scoped to `computeDeadline()` only — order-date-anchored orders
+untouched, no extraction/prompt changes, `returnWindowStartsFrom`'s own
+semantics untouched. 4 new tests (Sidekick's exact inputs, delivery-signal-
+present override, no-orderDate fallback, null-with-no-signal) + 1 updated
+regression guard for the buffer change, 321 total tests passing, `npm run
+build` clean.
+
+**Backfill** (`scripts/backfill-deadline-anchor-and-buffer.ts`, dry-run diff
+printed and approved by the owner before `--apply`, refuses to write anything
+if it finds a counterexample) updated 20 active orders: 19 delivery-date-
+anchored orders tightened 2 days each (buffer change), Sidekick tightened 7
+days (Aug 31 → Aug 24, anchor change). Every delta confirmed tightening before
+writing, zero loosening. Two pre-apply sanity checks also cleared: (1) the
+"21 vs 19" discrepancy against an earlier diagnostic — one order (Shopbop) was
+delivery-date-anchored but already had a real `estimatedDeliveryDate`, so
+unaffected by the buffer change by design; one order (Poshmark) had its
+`displayStatus` change to `kept` between sessions, correctly dropping it from
+the active-order scope; (2) re-verified no affected deadline landed on/before
+the current date, no other `-7d` deltas besides Sidekick, no unexpected
+retailers in the list.
+
+Verified live via a disposable authenticated session (a manually-issued
+`Session` row for the order's own owner, deleted immediately after use — no
+real email sent, no magic-link flow triggered) — screenshot confirmed
+"Return deadline: Aug 24, 2026" plus "Some dates on this order are estimated"
+on the real production page. Owner hand-verified live in production
+2026-07-15.
+
+BUILD.md's stale `computeDeadline()` documentation block (still describing
+pre-Milestone-15 logic) rewritten to match current behavior; the
+corresponding Known Issues entry removed. One side observation surfaced
+during verification, not fixed (out of this session's `computeDeadline()`-only
+scope): the order detail page's `returnWindowFromLabel()` already defaulted a
+null anchor to the label "from purchase," reading as more certain than the
+data actually is for a genuinely-ambiguous-anchor order — promoted to
+🔴 Now as `returnwindow-label-anchor-uncertainty` in a later session (the
+visible follow-up to this fix, not backlog).
+
 ## 2026-07-15 — Inbound webhook Postmark hardening: rollout complete, HTTP Basic Auth activated
 
 Code (flood alert + dormant Basic Auth check) shipped dormant on 2026-07-14

@@ -26,31 +26,18 @@
 ---
 
 ## 🔴 Now
-- [ ] **sidekick-deadline-anchor-mismatch — fix shipped, backfill applied,
-      awaiting owner browser verification.** Decision 1: null/unknown
-      `returnWindowStartsFrom` now anchors to `orderDate` directly (not
-      delivery-with-buffer) — conservative default since order-date anchor
-      is always ≤ delivery-date anchor; `deadlineIsEstimated` stays `true`
-      in this branch (orderDate is real, but the anchor choice is still an
-      assumption). Decision 2: `STANDARD_SHIPPING_DAYS` buffer tightened
-      7→5 days for delivery-date-anchored estimates with no real delivery
-      signal. Both scoped to `computeDeadline()` only, no extraction/prompt
-      changes; order-date-anchored orders untouched. 4 new tests + 1
-      updated, 321 total passing, `npm run build` clean. Backfill
-      (`scripts/backfill-deadline-anchor-and-buffer.ts`, dry-run reviewed
-      and approved by owner before `--apply`) updated 20 active orders —
-      19 delivery-date-anchored orders -2 days each, Sidekick #SK213978
-      -7 days (Aug 31 → Aug 24) — every delta confirmed tightening, zero
-      loosening. Verified live via a disposable authenticated session
-      (manually-issued Session row, deleted after use — screenshot
-      confirmed "Return deadline: Aug 24, 2026" + "Some dates on this
-      order are estimated"). BUILD.md's `computeDeadline()` doc block
-      rewritten to match; corresponding Known Issues entry removed.
-      Side observation, not fixed (out of scope): `returnWindowFromLabel()`
-      (`app/(app)/orders/[id]/page.tsx`) already defaulted null anchor to
-      the label "from purchase" pre-existing, unrelated to this session's
-      change — flagging since it can read as more certain than the data
-      actually is for a genuinely-ambiguous-anchor order.
+- [ ] **returnwindow-label-anchor-uncertainty** — order detail's
+      `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
+      a `null`/unknown `returnWindowStartsFrom` to the label "from
+      purchase," with the same certainty as a confirmed order-date policy.
+      Sidekick's page reads "60 days from purchase — Web lookup" even
+      though the anchor is genuinely unconfirmed — that ambiguity is
+      exactly why `computeDeadline()` sets `deadlineIsEstimated: true` for
+      this case. The "(est.)"/"some dates are estimated" flag communicates
+      uncertainty; the "from purchase" label communicates certainty, on
+      the same page, about the same fact. Not urgent enough to fix today,
+      but it's the visible follow-up to sidekick-deadline-anchor-mismatch
+      (just shipped), not backlog.
 - [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
       pass, prep for a more public-facing alpha: env vars, auth, API
       routes, input validation, rate limiting, data exposure. Not started
@@ -601,6 +588,13 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Docs-only bookkeeping (2026-07-15)** — moved
+      sidekick-deadline-anchor-mismatch to Done, full detail to HISTORY.md;
+      promoted the `returnWindowFromLabel()` observation from Known Issues
+      to Now. No code changes.
+- [x] **Sidekick's return deadline now shows the correct date** — fixed an
+      ambiguous-policy anchor bug plus tightened the shipping-estimate
+      buffer; owner-verified live 2026-07-15. Full detail in HISTORY.md.
 - [x] **Inbound webhook now requires HTTP Basic Auth; flood alert live** —
       Postmark hardening rollout complete, verified live (401 without
       credentials, normal 200 with them). Full detail in HISTORY.md.
@@ -935,14 +929,6 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **`returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults a
-  `null`/unknown `returnWindowStartsFrom` to the label "from purchase"** —
-  pre-existing, unrelated to the 2026-07-15 `computeDeadline()` anchor fix
-  (sidekick-deadline-anchor-mismatch), but noticed while verifying it live:
-  Sidekick's policy line reads "60 days from purchase — Web lookup" even
-  though the anchor is genuinely unconfirmed (the web-lookup extraction
-  itself said so). Reads more certain than the data actually is. Not fixed
-  — out of that session's scope (`computeDeadline()` only).
 - **Good Eggs order showing "Return by Jul 21, 2025" on the active
   dashboard with a live "Start return" button** — the deadline is in the
   past (2025, over a year ago relative to the current session date), so
