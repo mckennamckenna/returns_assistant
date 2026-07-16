@@ -44,63 +44,20 @@
       tonight. The inbound webhook auth rollout (completed `d5772a8`,
       2026-07-15) is directly relevant context to start from — its
       findings inform this cleanse, not blocking work.
-- [ ] **Follow-up polish — items 1-3 shipped, awaiting owner verification.**
-      (1) Order detail's "Track
-      package"/"Track your return"
-      converted from muted text-style links to real outlined buttons
-      matching "Keeping it" exactly. (2) Order-number Copy button on order
-      detail is now icon-only (`CopyButton` gained an `iconOnly` prop + a
-      new hand-rolled clipboard SVG — no existing copy icon was found
-      anywhere in the app to reuse, and no icon library was added;
-      `aria-label`/`title` both "Copy order number", confirmed functional
-      via a real clipboard write/read in a disposable browser session).
-      (3) Action-button hierarchy verified consistent on both the two named
-      cases (Poshmark/Shipped: filled+outlined+outlined+text; Shopbop/Return
-      requested: filled+outlined+text) — `OrderCard.tsx` (dashboard card)
-      needed no changes, already compliant; only the order detail page's
-      Track-package/Track-your-return needed conversion.
-      `getVisibleActions()` visibility logic untouched, styling-only.
-      **Judgment call flagged, not silently decided:** left `MarkRefundedButton`
-      filled black (unchanged) on both surfaces — the task's hierarchy rule
-      only explicitly named Start return/Mark as returned as "primary,"
-      and neither of the two verification cases reaches the refunded state,
-      so I didn't reclassify it without asking. 298 tests passing,
-      `npm run build` clean. Committed (`f3b549a`), pushed, auto-deployed
-      (`dpl_DQhUXbjbjgPbM76miPqfT1Lu84M4`, confirmed Ready and aliased to
-      `app.myreturnwindow.com` within ~3s of push — 7th data point on the
-      unexplained auto-deploy question below) — **awaiting owner browser
-      verification**, not Done until hand-verified live. (4) Row-density
-      investigation — findings and proposal reported in chat, no code
-      changes made; stops for greenlight per instructions.
-- [ ] **Desktop visual polish — Phase 2, greenlit scope shipped, awaiting
-      owner verification.** All six items from TRUST_AUDIT.md applied in one
-      commit: (1) avatar-initials bug fix ("On (On-Running)" → "OO", no
-      longer "O("), (2) order detail action buttons migrated to
-      `lib/orderActions.ts`'s shared `getVisibleActions()` — same function
-      OrderCard calls, so list/detail can't drift apart again; detail page
-      now reuses `StartReturnButton` and the ink/border button styling
-      instead of its own unmigrated blue/yellow/green set, (3) "(est.)"
-      deduplication — dashboard card down to one indicator, detail page
-      replaces 3 per-field suffixes with one "Some dates on this order are
-      estimated" note, (4) `--color-accent` darkened `#9a7a45` → `#7a5c2e`
-      (measured ~3.6:1 → ~5.2–6.2:1 across all three real backgrounds it's
-      used against, clears WCAG AA), (5) content column 640px → 860px
-      (dashboard + alerts), greeting 30/38px → 24/26px, sidebar active-item
-      indicator no longer renders as a curved bracket, needs-review card
-      gets a 2-column layout at md+ plus a specific why-line
-      (`reviewReasonLabel` now parses the `[auto]` retailer-prefix-merge
-      note instead of falling through to a generic message), (6) summary
-      card names the retailer when exactly one order is due. 23 new tests
-      (`orderActions`, `orderReview`, `retailerAvatar`), 298 total passing;
-      `npm run build` clean. Verified against the real production database
-      via a disposable, deleted-after-use session (same method as the Phase
-      1 audit) — all six changes visually confirmed live in a real browser
-      before commit. Committed (`cc99f33`), pushed, auto-deployed
-      (`dpl_E7hmoUunv3tq7pnGwr9pTkGqxsat`, confirmed Ready and aliased to
-      `app.myreturnwindow.com` within ~3s of push — 5th data point on the
-      unexplained auto-deploy question below) — **awaiting owner browser
-      verification**, not Done until hand-verified live. Four trust-audit
-      findings outside this scope logged separately below, not dropped.
+- [ ] **archive-button-styling-mismatch** — order detail's "Archive" button
+      renders as bare text with no border, while "Keeping it" (outlined),
+      "Track package" (outlined), and "Mark as returned" (filled black) all
+      render as proper buttons. Owner screenshots 2026-07-15 confirm this
+      on Shopbop (Return requested state) and Poshmark (Kept state). Fix:
+      Archive should be an outlined button matching "Keeping it" — same
+      shape, same weight. Applies to the order detail page; worth checking
+      dashboard card overflow menus too during the fix, in case the same
+      pattern recurs there. Directly violates the owner's stated hierarchy
+      rule (see Decisions log): "one black button is fine as long as the
+      others look like buttons and are equal." Surfaced as the leftover
+      piece of Follow-up polish's item 3 (hierarchy) after items 1-2
+      verified live and the MarkRefundedButton judgment call was confirmed
+      correct.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
@@ -111,30 +68,6 @@
       (2026-07-13). `LOGO_DEV_PUBLISHABLE_KEY` added to gitignored `.env.local`
       only — not committed, not in Vercel. No code/schema/UI changes, no
       commits.
-- [ ] **"Mark kept" full build — code complete, awaiting deploy go-ahead + owner
-      browser verification.** Implements the 2026-07-10 spec (`BUILD.md` displayStatus
-      section): `Order.keptAt` + migration (`20260710213509_add_kept_at_to_order`,
-      applied); `lib/displayStatus.ts` rank (tied with `returned`)/labels/
-      `ALLOWED_MANUAL_STATUSES`/`buildStatusTransitionData` extension/
-      `deriveDisplayStatus` refund-branch guard; `markKeptAction` in `app/actions.ts`;
-      "I'm keeping this" button + inline warning caption (no confirm dialog) on all
-      three surfaces — dashboard card view, dashboard table/list view, and order
-      detail page — same gate and caption everywhere; visibility gate covers
-      `return_requested` and treats `returnDeadline: null` as open. Table/list view
-      was added second, same commit, per owner instruction (see Decisions log below:
-      list view is the primary surface for routine actions) — initially skipped on
-      the (correct) observation that "I'm returning this" doesn't exist there either,
-      but that turned out not to be the deciding factor. New "Kept" badge; `kept`
-      added to `lib/reminders.ts` and weekly-digest exclusion lists. 18+ new/updated
-      tests, 212+ total passing; `npm run build` clean. Dev
-      server smoke-tested (boots clean, no runtime errors) — full authenticated
-      click-through NOT done: auth is magic-link-only via real email and this
-      project has one production database, no seeded test account, so that check
-      needs the owner. Email one-tap (`/action/kept`) explicitly out of scope —
-      future work. Pushed (`01189f8`) and auto-deployed
-      (`dpl_BH21fS2a5pcceEcjjGvba5FWpFVX`, confirmed Ready and aliased to
-      `app.myreturnwindow.com`) — **awaiting owner browser verification**, not
-      Done until hand-verified live.
 - [ ] **Auto-archive after missed window — pushed (`a7af7df`), auto-deployed.** Nightly
       cron sweep, silent (no email/Reminder/ActionLog row), 14+ days past
       `returnDeadline`, scoped to `ordered`/`shipped`/`return_requested` (deliberately
@@ -588,6 +521,38 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Desktop visual polish — Phase 2, all six items owner-verified live.**
+      All six items from TRUST_AUDIT.md applied in one commit: (1)
+      avatar-initials bug fix ("On (On-Running)" → "OO", no longer "O("),
+      (2) order detail action buttons migrated to `lib/orderActions.ts`'s
+      shared `getVisibleActions()` — same function OrderCard calls, so
+      list/detail can't drift apart again; detail page now reuses
+      `StartReturnButton` and the ink/border button styling instead of its
+      own unmigrated blue/yellow/green set, (3) "(est.)" deduplication —
+      dashboard card down to one indicator, detail page replaces 3
+      per-field suffixes with one "Some dates on this order are estimated"
+      note, (4) `--color-accent` darkened `#9a7a45` → `#7a5c2e` (measured
+      ~3.6:1 → ~5.2–6.2:1 across all three real backgrounds it's used
+      against, clears WCAG AA), (5) content column 640px → 860px (dashboard
+      + alerts), greeting 30/38px → 24/26px, sidebar active-item indicator
+      no longer renders as a curved bracket, needs-review card gets a
+      2-column layout at md+ plus a specific why-line (`reviewReasonLabel`
+      now parses the `[auto]` retailer-prefix-merge note instead of falling
+      through to a generic message), (6) summary card names the retailer
+      when exactly one order is due. 23 new tests (`orderActions`,
+      `orderReview`, `retailerAvatar`), 298 total passing; `npm run build`
+      clean. Committed (`cc99f33`), pushed, auto-deployed
+      (`dpl_E7hmoUunv3tq7pnGwr9pTkGqxsat`, confirmed Ready and aliased to
+      `app.myreturnwindow.com` within ~3s of push). Four trust-audit
+      findings outside this scope logged separately, not dropped. **Owner
+      confirmed all six items live 2026-07-15** ("item B all landed").
+- [x] **"I'm keeping this" and Archive both work correctly live** — owner
+      clicked Mark kept on a Poshmark order (moved to Kept) and Archive on
+      a Shopbop order (moved to Archive), both confirmed in production
+      2026-07-15. Full detail in HISTORY.md.
+- [x] **Order detail's Track-package/Track-your-return buttons and the
+      order-number Copy button both confirmed working live** — owner
+      verified 2026-07-15. Full detail in HISTORY.md.
 - [x] **Docs-only bookkeeping (2026-07-15)** — moved
       sidekick-deadline-anchor-mismatch to Done, full detail to HISTORY.md;
       promoted the `returnWindowFromLabel()` observation from Known Issues
@@ -597,7 +562,8 @@
       buffer; owner-verified live 2026-07-15. Full detail in HISTORY.md.
 - [x] **Inbound webhook now requires HTTP Basic Auth; flood alert live** —
       Postmark hardening rollout complete, verified live (401 without
-      credentials, normal 200 with them). Full detail in HISTORY.md.
+      credentials, normal 200 with them). Also resolves security-audit
+      finding C1. Full detail in HISTORY.md.
 - [x] **Docs-only board cleanup (2026-07-15)** — moved Gmail deep-link removal
       to Done, dropped the stale "greenlit as Now item" clause from Follow-up
       polish, stripped stale `[TOMORROW #2]`/`[TOMORROW #3]` tags from Next,

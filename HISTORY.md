@@ -113,6 +113,8 @@ entry covers completing the rollout checklist (steps 2-6) end to end:
 
 No code changes this session — purely env var configuration + redeploy +
 live verification. TASKS.md's rollout checklist is now fully closed out.
+This also resolves security-audit finding C1 (inbound webhook open to
+anonymous POSTs).
 
 ## 2026-07-15 — Gmail deep-link filter-setup button removed from Settings (owner-verified live)
 
