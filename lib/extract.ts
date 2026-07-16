@@ -6,8 +6,11 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = "claude-sonnet-4-6";
 
 // Conservative assumption when we only have an order date, no confirmed
-// delivery date yet — errs toward a tighter (earlier) deadline.
-const STANDARD_SHIPPING_DAYS = 7;
+// delivery date yet — errs toward a tighter (earlier) deadline. Tightened
+// 7 → 5 days 2026-07-15 (Decisions log): a wrong deadline is worse than a
+// missing one, so a shorter buffer trades "user occasionally returns a
+// few days before they strictly had to" for "never miss the real window."
+const STANDARD_SHIPPING_DAYS = 5;
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -256,13 +259,28 @@ async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult>
 //    on orderDate directly, regardless of any delivery signal. Never
 //    estimated — this is the real anchor the policy actually counts from
 //    (Amazon's path). Delivery info is irrelevant here and must stay so.
+// 1b. returnWindowStartsFrom === null (genuinely unknown/ambiguous — e.g.
+//    a web_lookup that couldn't determine the anchor) and orderDate known
+//    → also anchor on orderDate directly, same as 1, ignoring delivery
+//    signals. Decision (2026-07-15, Decisions log, sidekick-deadline-
+//    anchor-mismatch): order-date anchor is always <= delivery-date
+//    anchor, so defaulting an unconfirmed anchor to orderDate can never
+//    compute a deadline LATER than the true one — the prior behavior
+//    (falling through to a delivery-plus-buffer guess, case 4 below) could
+//    compute a deadline later than a true order-date-anchored policy,
+//    risking a missed window. Mirrors the tiered-window "shortest window
+//    wins" precedent. Flagged deadlineIsEstimated (unlike case 1) — the
+//    orderDate value itself is real, but which field the window counts
+//    from is still an assumption, not a confirmed fact.
 // 2. deliveredAt known (a real "delivery" email, not an estimate) → most
-//    accurate. Never estimated.
+//    accurate. Never estimated. (Only reached when returnWindowStartsFrom
+//    is the explicit "delivery_date", or orderDate is unknown so case 1b
+//    doesn't apply.)
 // 3. estimatedDeliveryDate known (a shipping-email carrier ETA, no
 //    confirmed delivery yet) → same math, but flagged deadlineIsEstimated
 //    — the whole point of this split: a carrier estimate is not a fact.
-// 4. orderDate known, no delivery signal at all, policy counts from
-//    delivery (or doesn't say) → estimate a delivery date assuming
+// 4. orderDate known, no delivery signal at all, returnWindowStartsFrom is
+//    the explicit "delivery_date" → estimate a delivery date assuming
 //    STANDARD_SHIPPING_DAYS of transit, flagged deadlineIsEstimated.
 // 5. returnWindowDays missing, or nothing to anchor on → null, caller sets
 //    needsReview.
@@ -291,8 +309,11 @@ export function computeDeadline(parsed: {
   const estimatedParsed = estimatedDeliveryDate ? new Date(estimatedDeliveryDate) : null;
   const estimatedValid = !!estimatedParsed && !Number.isNaN(estimatedParsed.getTime());
 
-  if ((deliveredValid || estimatedValid) && returnWindowStartsFrom === "order_date" && orderValid) {
-    return { returnDeadline: addDays(orderParsed!, returnWindowDays).toISOString(), deadlineIsEstimated: false };
+  if (orderValid && (returnWindowStartsFrom === "order_date" || returnWindowStartsFrom == null)) {
+    return {
+      returnDeadline: addDays(orderParsed!, returnWindowDays).toISOString(),
+      deadlineIsEstimated: returnWindowStartsFrom == null,
+    };
   }
 
   if (deliveredValid) {
@@ -304,10 +325,6 @@ export function computeDeadline(parsed: {
   }
 
   if (orderValid) {
-    if (returnWindowStartsFrom === "order_date") {
-      return { returnDeadline: addDays(orderParsed!, returnWindowDays).toISOString(), deadlineIsEstimated: false };
-    }
-
     const estimatedDelivery = addDays(orderParsed!, STANDARD_SHIPPING_DAYS);
     return {
       returnDeadline: addDays(estimatedDelivery, returnWindowDays).toISOString(),

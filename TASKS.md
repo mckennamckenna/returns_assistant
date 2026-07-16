@@ -26,41 +26,31 @@
 ---
 
 ## 🔴 Now
-- [ ] **sidekick-deadline-anchor-mismatch (owner-flagged top priority,
-      2026-07-15) — STOPPED after diagnostic, awaiting owner decision, no
-      fix written.** Diagnostic-first per repo rule found the reported
-      hypothesis (`computeDeadline()` anchored on a populated
-      `estimatedDeliveryDate`) does not match prod: `Order.estimatedDeliveryDate`
-      and `deliveredAt` are both null on this row, and `computeDeadline()`'s
-      code already prioritizes `returnWindowStartsFrom === "order_date"`
-      correctly (not running stale pre-Milestone-15 logic — the BUILD.md
-      docs are stale, the code isn't). The real cause: `Order.returnWindowStartsFrom`
-      is `null` on this row, because the web-lookup extraction's own notes
-      say the anchor is genuinely ambiguous ("does not explicitly state
-      whether the 60 days runs from order date or delivery date") —
-      **contradicting the reported symptom's premise** that the policy
-      clearly states "60 days from purchase." `computeDeadline()` treats a
-      `null` anchor identically to an explicit `delivery_date` anchor,
-      applying a synthetic `STANDARD_SHIPPING_DAYS` (7-day) buffer before
-      the window starts — Jun 25 + 7 + 60 = Aug 31, matching prod exactly,
-      but via that branch, not a literal `estimatedDeliveryDate` read.
-      Systemic scope check: 28 active orders have orderDate+window+deadline
-      set; 22 don't match a naive `orderDate + returnWindowDays`
-      comparison, but 21 of those are `delivery_date`-anchored orders
-      correctly applying the same intentional 7-day buffer (working as
-      designed, not bugs) — **Sidekick is the only active order with
-      `returnWindowStartsFrom === null`**, so this is contained, not
-      systemic. Needs an owner decision before any fix: (a) is Sidekick's
-      real policy actually order-date-anchored (making this a web-lookup
-      extraction-quality miss, fixable by re-running/improving that
-      lookup), or (b) should `computeDeadline()` change how it treats a
-      genuinely-unknown anchor (currently defaults to
-      delivery-date-with-buffer; defaulting unknown anchors to order-date
-      instead is the more common real-world default but changes behavior
-      for any future order that lands in this same ambiguous state)?
-      Three uncommitted diagnostic scripts left in `scripts/` for
-      reference: `diagnose-sidekick-deadline.mjs`,
-      `diagnose-deadline-mismatches.mjs`, `diagnose-startsfrom-null.mjs`.
+- [ ] **sidekick-deadline-anchor-mismatch — fix shipped, backfill applied,
+      awaiting owner browser verification.** Decision 1: null/unknown
+      `returnWindowStartsFrom` now anchors to `orderDate` directly (not
+      delivery-with-buffer) — conservative default since order-date anchor
+      is always ≤ delivery-date anchor; `deadlineIsEstimated` stays `true`
+      in this branch (orderDate is real, but the anchor choice is still an
+      assumption). Decision 2: `STANDARD_SHIPPING_DAYS` buffer tightened
+      7→5 days for delivery-date-anchored estimates with no real delivery
+      signal. Both scoped to `computeDeadline()` only, no extraction/prompt
+      changes; order-date-anchored orders untouched. 4 new tests + 1
+      updated, 321 total passing, `npm run build` clean. Backfill
+      (`scripts/backfill-deadline-anchor-and-buffer.ts`, dry-run reviewed
+      and approved by owner before `--apply`) updated 20 active orders —
+      19 delivery-date-anchored orders -2 days each, Sidekick #SK213978
+      -7 days (Aug 31 → Aug 24) — every delta confirmed tightening, zero
+      loosening. Verified live via a disposable authenticated session
+      (manually-issued Session row, deleted after use — screenshot
+      confirmed "Return deadline: Aug 24, 2026" + "Some dates on this
+      order are estimated"). BUILD.md's `computeDeadline()` doc block
+      rewritten to match; corresponding Known Issues entry removed.
+      Side observation, not fixed (out of scope): `returnWindowFromLabel()`
+      (`app/(app)/orders/[id]/page.tsx`) already defaulted null anchor to
+      the label "from purchase" pre-existing, unrelated to this session's
+      change — flagging since it can read as more certain than the data
+      actually is for a genuinely-ambiguous-anchor order.
 - [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
       pass, prep for a more public-facing alpha: env vars, auth, API
       routes, input validation, rate limiting, data exposure. Not started
@@ -945,6 +935,14 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults a
+  `null`/unknown `returnWindowStartsFrom` to the label "from purchase"** —
+  pre-existing, unrelated to the 2026-07-15 `computeDeadline()` anchor fix
+  (sidekick-deadline-anchor-mismatch), but noticed while verifying it live:
+  Sidekick's policy line reads "60 days from purchase — Web lookup" even
+  though the anchor is genuinely unconfirmed (the web-lookup extraction
+  itself said so). Reads more certain than the data actually is. Not fixed
+  — out of that session's scope (`computeDeadline()` only).
 - **Good Eggs order showing "Return by Jul 21, 2025" on the active
   dashboard with a live "Start return" button** — the deadline is in the
   past (2025, over a year ago relative to the current session date), so
@@ -1046,12 +1044,6 @@
   `needsReview` to a first-class AI-set JSON field, with the string-match
   kept only as an OR'd fallback. Leaving this entry as a record that the
   prediction was correct, not removing it outright.
-- **`BUILD.md`'s `computeDeadline()` documentation block is stale** — still
-  describes the old pre-split `deliveryDate` logic ("if deliveryDate known:
-  anchor = ..."), not the `deliveredAt`/`estimatedDeliveryDate` split shipped
-  two sessions ago. Found while adding the tiered-return-policy bullet to the
-  Extraction section just above it; not fixed here (out of scope for a
-  prompt-only task).
 - **Duplicate "On (On-Running)" order rows** — see 🟡 Next: "Investigate duplicate Order
   rows for On order 101130827062601745."
 - Order-number normalization is brittle across retailers (Mango is the first
@@ -1167,3 +1159,19 @@
   amount, or only to `returned` when it doesn't. Retailer refund emails are frequently
   vague about whether the money actually moved, and catching that ambiguity is the
   product's job — trusting every refund email equally would have been the wrong call.
+- `computeDeadline()`: a `null`/unknown `returnWindowStartsFrom` now anchors directly
+  on `orderDate`, not a delivery-plus-buffer guess (2026-07-15,
+  sidekick-deadline-anchor-mismatch). Rationale: order-date anchor is always
+  <= delivery-date anchor, so defaulting an unconfirmed anchor to orderDate can
+  never compute a deadline later than the true one could be — mirrors the
+  tiered-window "shortest window always wins" entry above ("a wrong deadline is
+  worse than a missing one"). Deadline is still flagged `deadlineIsEstimated: true`
+  in this case even though `orderDate` itself is a real value — the anchor choice
+  is an assumption, not a confirmed fact.
+- `STANDARD_SHIPPING_DAYS` (the synthetic buffer used only when a policy is
+  explicitly `delivery_date`-anchored but no real delivery signal exists yet)
+  tightened 7 -> 5 days (2026-07-15, same session). Same "wrong deadline worse
+  than missing" principle: owner explicitly accepted the trade that a user might
+  occasionally start a return a couple days before they strictly needed to
+  (minor inconvenience) in exchange for never computing a deadline later than
+  the real one (real cost, a missed return).

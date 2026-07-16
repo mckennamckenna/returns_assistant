@@ -446,25 +446,34 @@ the moment the secret is generated, not just once the token endpoints ship.
 
 ### `computeDeadline()` (exported from `lib/extract.ts`)
 
+Current logic, as of the 2026-07-15 anchor/buffer fix (see Decisions log below) —
+inputs are `orderDate`, `deliveredAt` (real, confirmed delivery), `estimatedDeliveryDate`
+(carrier ETA, unconfirmed), `returnWindowDays`, `returnWindowStartsFrom`
+(`"order_date" | "delivery_date" | null`):
+
 ```
-if deliveryDate known:
-  anchor = (returnWindowStartsFrom === "order_date" && orderDate) ? orderDate : deliveryDate
-  returnDeadline = anchor + returnWindowDays
+if orderDate known AND returnWindowStartsFrom is "order_date" OR null:
+  # null/unknown anchors default to orderDate too (Decision, 2026-07-15) — see below
+  returnDeadline = orderDate + returnWindowDays   ← NO shipping buffer, ignores any delivery signal
+  deadlineIsEstimated = (returnWindowStartsFrom === null)  # orderDate is real; the anchor CHOICE is the assumption
+
+else if deliveredAt known:            # only reached when returnWindowStartsFrom === "delivery_date"
+  returnDeadline = deliveredAt + returnWindowDays
   deadlineIsEstimated = false
 
-else if orderDate known:
-  if returnWindowStartsFrom === "order_date":
-    returnDeadline = orderDate + returnWindowDays   ← NO shipping buffer
-    deadlineIsEstimated = false
-  else:
-    returnDeadline = orderDate + STANDARD_SHIPPING_DAYS(7) + returnWindowDays
-    deadlineIsEstimated = true
+else if estimatedDeliveryDate known:  # carrier ETA, no confirmed delivery
+  returnDeadline = estimatedDeliveryDate + returnWindowDays
+  deadlineIsEstimated = true
+
+else if orderDate known:              # explicit delivery_date anchor, no delivery signal at all
+  returnDeadline = orderDate + STANDARD_SHIPPING_DAYS(5) + returnWindowDays
+  deadlineIsEstimated = true
 
 else:
   returnDeadline = null
 ```
 
-The no-buffer rule for order-date-anchored policies is intentional and was a real bug fix. Do not add the shipping buffer back.
+The no-buffer rule for order-date-anchored (and now null-anchored) policies is intentional and was a real bug fix. Do not add the shipping buffer back for either case. `STANDARD_SHIPPING_DAYS` tightened 7 → 5 days 2026-07-15 — do not loosen it without revisiting that decision.
 
 ### Order linking (`lib/linkOrder.ts`)
 - Match on `retailer` + `orderNumber`, case-insensitively, always scoped by `userId`.
@@ -763,6 +772,8 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 - **Auto-archive after missed window (built 2026-07-10) is scoped to `ordered`/`shipped`/`return_requested` only, deliberately excluding `returned`.** Rationale: `returned` means the user already acted (shipped the item back) — there's no missed window to sweep, and it's already tracked by the refund check-in cron. 14-day grace period (`AUTO_ARCHIVE_GRACE_DAYS`), fully silent (no email, no `Reminder`/`ActionLog` row) — same "a wrong deadline is worse than a missing one"-adjacent judgment call as elsewhere in this codebase: an unactioned order past its window is either quietly kept or genuinely missed, and in both cases continuing to surface it (or remind about it) serves nobody. Piggybacks on the existing daily `/api/cron` run rather than a new scheduled route.
 - **Mark returned (built 2026-07-10) is the second one-tap-from-email action, proving the token infrastructure is actually generic rather than Archive-specific** — `lib/actionToken.ts`/`lib/actionLinks.ts` needed zero changes. Its one departure from Archive's pattern: the gate is rank-based (`DISPLAY_STATUS_RANK`), not idempotent, because "returned" is a forward-only ladder position rather than a boolean flag — an order already at `returned`/`refunded`/`kept` rejects the transition (reported as `order_state_changed`, reusing Archive's existing outcome rather than inventing a new one) instead of silently no-op-succeeding. Built and reviewed one action at a time, deliberately — Mark refunded is next, not bundled into this pass.
 - **HTML emails (built 2026-07-10) are additive, never a replacement for plain text** — every `sendEmail()` call that builds an `htmlBody` still sends the existing `textBody` too, for deliverability and for clients that don't render HTML. Applied to all three link-bearing emails (deadline reminder, weekly digest, refund check-in) in the same commit, on the reasoning that the shared infra (`lib/emailHtml.ts`) only needed building once and leaving two of three emails with raw URLs after fixing the third would be a worse, inconsistent state than not starting at all.
+- **`computeDeadline()`: a `null`/unknown `returnWindowStartsFrom` anchors directly on `orderDate` (2026-07-15, sidekick-deadline-anchor-mismatch)**, not a delivery-plus-buffer guess. Found via a real production case (Sidekick #SK213978): the web-lookup extraction's own notes said the 60-day window's anchor was genuinely ambiguous, so `returnWindowStartsFrom` persisted `null` — and the old code treated `null` identically to an explicit `delivery_date` anchor, estimating a synthetic delivery date and computing a deadline 7 days later than the true order-date-anchored deadline would be. Rationale for the fix: order-date anchor is always <= delivery-date anchor, so defaulting an unconfirmed anchor to orderDate can never compute a deadline later than the true one could be — same "a wrong deadline is worse than a missing one" principle as the tiered-window entry above. `deadlineIsEstimated` stays `true` in this branch even though `orderDate` is a real value, because the anchor choice itself is an assumption. Diagnostic-first process caught that the reported symptom's premise ("the policy states 60 days from purchase") didn't match the actual extraction notes (genuinely ambiguous) before any fix was written — see TASKS.md's Decisions log for the full before/after.
+- **`STANDARD_SHIPPING_DAYS` tightened 7 -> 5 days (2026-07-15, same session)** — the synthetic buffer used only when a policy is explicitly `delivery_date`-anchored but no real delivery signal exists yet. Same "wrong deadline worse than missing" principle: owner explicitly accepted that a user might occasionally start a return a couple of days before they strictly needed to, in exchange for never computing a deadline later than the real one. Backfilled 20 active orders whose stored `returnDeadline` predated one or both changes (19 delivery-date-anchored orders tightened by 2 days each from the buffer change; Sidekick tightened by 7 days from the anchor change) — every affected order's deadline moved earlier or stayed the same, never later, verified before writing.
 
 ---
 
