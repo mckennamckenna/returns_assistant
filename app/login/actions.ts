@@ -2,6 +2,7 @@
 
 import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
+import { MagicLinkRateLimitError } from "@/lib/magicLinkRateLimit";
 
 export async function sendMagicLink(formData: FormData): Promise<{ error?: string }> {
   try {
@@ -11,6 +12,14 @@ export async function sendMagicLink(formData: FormData): Promise<{ error?: strin
     await signIn("nodemailer", formData, { redirectTo: "/" });
     return {};
   } catch (error) {
+    // Checked before the generic AuthError case below, since
+    // MagicLinkRateLimitError is itself an AuthError subclass — this is
+    // the one case with copy specific enough to be worth distinguishing.
+    // See auth.ts / TASKS.md's Decisions log for why this is a
+    // user-visible message rather than a silent no-op.
+    if (error instanceof MagicLinkRateLimitError) {
+      return { error: "You've requested several sign-in links recently. Please wait a few minutes and try again." };
+    }
     if (error instanceof AuthError) {
       return { error: "Couldn't send the link. Check the email address and try again." };
     }

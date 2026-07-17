@@ -110,38 +110,54 @@
       on per-kind-vs-per-identifier dedup granularity, referencing this
       as the reason it's worth writing down. 341 total tests passing,
       `npm run build` clean.
-      **Phase 3 — in progress this session:** magic-link send
-      (`auth.ts`'s `sendVerificationRequest`), the last H1 endpoint. Two
-      limits, both must pass: 8/hr per email (`magic_link_email:<email>`),
-      20/hr per IP (`magic_link_ip:<ip>`). Owner decisions on the record:
-      (1) loud, not silent — user sees "You've requested several sign-in
-      links recently. Please wait a few minutes and try again." on block,
-      unlike the allowlist gate's silent-success pattern, because this app
-      has no password to protect via silence and a magic-link app failing
-      silently is worse UX than a small, non-leaking rate-limit message;
-      (2) 8/hr chosen over 5 (too tight for real resend behavior) or 10
-      (looser than needed); (3) admin notified on a block, deduped
-      per-email/24h (same shape as `beta_signup`), but only when the email
-      is allowlisted — an unknown email hitting the limit is attacker
-      noise the existing `allowlist_rejection` path already covers, not a
-      second alert. Diagnostic finding before writing code: IP is already
-      available via the `request: Request` param Auth.js v5 passes into
+      **Phase 3 — code shipped, deployed, awaiting owner normal-sign-in
+      verification. H1 is now closable pending that verification —
+      all three endpoints protected.** Magic-link send (`auth.ts` →
+      new `lib/magicLinkRateLimit.ts`), the last H1 endpoint. Two limits,
+      both must pass: 8/hr per email (`magic_link_email:<email>`), 20/hr
+      per IP (`magic_link_ip:<ip>`). Owner decisions on the record (also
+      in Decisions log): (1) loud, not silent — user sees "You've
+      requested several sign-in links recently. Please wait a few minutes
+      and try again." on block, unlike the allowlist gate's silent-success
+      pattern beside it, because this app has no password to protect via
+      silence and a magic-link app failing silently is worse UX than a
+      small, non-leaking rate-limit message; (2) 8/hr chosen over 5 (too
+      tight for real resend behavior) or 10 (looser than needed); (3)
+      admin notified on a block, deduped per-email/24h (same shape as
+      `beta_signup`), but only when the email is allowlisted — an unknown
+      email hitting the limit is attacker noise the existing
+      `allowlist_rejection` path already covers, not a second alert.
+      Diagnostic finding before writing code: IP is already available via
+      the `request: Request` param Auth.js v5 passes into
       `sendVerificationRequest` — no surgery needed to thread it through
-      `app/login/actions.ts`. Design note: getting the block signal back
-      to the login form required a small, contained addition — a custom
-      `AuthError` subclass (`MagicLinkRateLimitError`, Auth.js's own
-      supported extension point for distinguishing sign-in failures)
-      thrown on block and caught in `app/login/actions.ts` — not
-      pre-approved verbatim in the brief, judged not to be "meaningful
-      surgery" (additive, doesn't touch session handling, allowlist logic,
-      or other auth paths), called out here for the record.
-      `sendVerificationRequest`'s body extracted to a named exported
-      function in `auth.ts` (same behavior, needed for unit testing —
-      mirrors how Phase 1/2 test the exported route handlers directly).
-      Explicitly out of scope this session: other auth paths (`createUser`,
-      session handling), the allowlist itself, M-tier/L-tier findings,
-      authenticated/session-scoped rate limiting (different abuse profile,
-      own decision later).
+      `app/login/actions.ts`. Second diagnostic finding, mid-implementation:
+      importing `auth.ts` (or even bare `"next-auth"`) fails under
+      vitest/plain Node — `next-auth`'s own entry point transitively
+      imports `next/server`, which only resolves inside Next.js's bundler.
+      Pre-existing fragility, not introduced this session; resolved by
+      extracting the rate-limit + allowlist logic into
+      `lib/magicLinkRateLimit.ts`, importing `AuthError` from
+      `@auth/core/errors` directly instead of via `"next-auth"` (confirmed
+      via `next-auth`'s own source to be the exact same class — it just
+      re-exports it) — same technique used to make the block signal
+      testable at all, not just nice-to-have. Design note: getting the
+      block signal back to the login form uses a custom `AuthError`
+      subclass (`MagicLinkRateLimitError`, Auth.js's own supported
+      extension point for distinguishing sign-in failures) thrown on block
+      and caught in `app/login/actions.ts` — not pre-approved verbatim in
+      the brief, judged not to be "meaningful surgery" (additive, doesn't
+      touch session handling, allowlist logic, or other auth paths),
+      called out here for the record. No change needed to `LoginForm.tsx`
+      — it already renders any `state.error` string generically. 13 new
+      tests across `__tests__/magicLinkRateLimit.test.ts` (real rate-limit
+      + dedup arithmetic through `sendVerificationRequest`, not mocked) and
+      `__tests__/loginActions.test.ts` (the `actions.ts` catch-block
+      mapping); 354 total passing; `npm run build` clean.
+      `SECURITY_AUDIT.md` updated: H1 marked ✅ resolved with all three
+      limit values, coverage-matrix cells updated. Explicitly out of scope
+      this session: other auth paths (`createUser`, session handling), the
+      allowlist itself, M-tier/L-tier findings, authenticated/session-scoped
+      rate limiting (different abuse profile, own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
@@ -1124,6 +1140,26 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- Magic-link rate limiting is loud, not silent, unlike the allowlist gate
+  right below it in the same function. When a real user hits the 8/hr
+  (per email) or 20/hr (per IP) limit, they see a message explaining
+  they've been rate-limited, rather than a silent no-op. Rationale: the
+  "silently succeed" pattern the allowlist gate uses exists to defend
+  against credential-stuffing/enumeration, which doesn't apply here — this
+  app has no password, so there's nothing to protect by staying silent.
+  The residual leak risk (a rate-limit message reveals *that* a request
+  was throttled, not *whether* the email is allowlisted — both allowlisted
+  and non-allowlisted emails hit the same limit and see the same message)
+  isn't meaningful at pre-public-alpha scale, and silently failing sign-in
+  is one of the worst UX patterns a small app can have — it teaches users
+  the app is broken.
+- Admin notification on a magic-link rate-limit hit is deduped per-email
+  per 24h (same shape as `beta_signup`, see the dedup-granularity entry
+  above) but only fires when the rate-limited email is on the allowlist.
+  An unknown email hammering the limit is attacker/scanner noise the
+  existing `allowlist_rejection` notification already covers; a second
+  alert for the same noise adds nothing. Real users are the only signal
+  worth a second look.
 - Admin notification dedup granularity depends on the signal's meaning.
   Attack-shaped signals (`allowlist_rejection`, `inbound_rate_limited`) dedup
   per-kind — one alert per window is enough. Real-user signals
