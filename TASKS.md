@@ -26,6 +26,26 @@
 ---
 
 ## 🔴 Now
+- [ ] **H1 rate limiting — Postgres-backed, staged rollout, one endpoint at a
+      time, stopping for owner review between each.** Implements
+      `SECURITY_AUDIT.md`'s H1 finding (no rate limiting on any public
+      endpoint). Storage: Postgres via a new `RateLimitCounter` model
+      (reuses existing Neon DB, no new deps), guarded-atomic-upsert pattern
+      mirroring `lib/inboundVolume.ts`. Agreed limits: `/api/inbound` 30/hr
+      per `inboundToken`; `/api/beta-signup` 3/hr per IP plus 24hr dedup on
+      the `beta_signup` admin notification (mirrors `allowlist_rejection`);
+      magic-link send 5/hr per email AND 20/hr per IP, silent drop (no
+      error shown, don't leak allowlist membership), admin notified once
+      per hour per email on a hit. Phase 0: build `lib/rateLimit.ts` +
+      migration + unit tests only, no endpoint wiring — stop for review.
+      Phase 1: wire `/api/inbound` (429 + `Retry-After`, no Email row on
+      block, new `inbound_rate_limited` notification kind, deduped) — stop,
+      confirm live with a real forward before Phase 2. Phase 2:
+      `/api/beta-signup` (429 on block, no admin notify for the block
+      itself). Phase 3: magic-link send (both limits, silent to user).
+      Explicitly out of scope this session: M-tier/L-tier findings, and
+      rate limiting any authenticated/session-scoped endpoint (different
+      abuse profile, own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
