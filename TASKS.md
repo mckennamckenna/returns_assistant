@@ -26,15 +26,19 @@
 ---
 
 ## 🔴 Now
-- [ ] **Item 3 — C1 dig: is entropy rotation the right remaining fix, or is
-      inbound trust the real gap? (security work 2026-07-17, commit 3 of 3,
-      analysis only, no code).** With webhook Basic Auth confirmed live, test
-      the premise that `inboundToken` entropy is the remaining gap rather than
-      assuming it. Check whether Postmark's inbound payload carries SPF/DKIM
-      results and whether they're checked; trace what injected mail can reach
-      (M2, L4); quantify real CUID enumeration risk at alpha scale. Write
-      findings directly into `SECURITY_AUDIT.md`'s C1 entry. If inbound trust
-      turns out to be the real issue, propose it as a new finding ID rather
+- [ ] **Decide on proposed finding C2 — no SPF/DKIM check on inbound mail
+      (surfaced by the Item 3 C1 dig, 2026-07-17).** `SECURITY_AUDIT.md` now
+      has a full write-up under C2 (CRITICAL, proposed, not yet accepted) —
+      `PostmarkInboundPayload` has no authentication-result field and nothing
+      checks sender identity; a forged-sender email to a known/leaked address
+      reaches the same M2 (phishing return-portal link)/L4 (forged refund
+      auto-advancing status) impact the original C1 was worried about, without
+      needing to forge the webhook request at all. Needs: (1) a decision on
+      whether to accept it as tracked, (2) if accepted, a real check of what
+      Postmark's inbound payload actually exposes for this account (raw
+      `Headers` array with `Received-SPF`/`Authentication-Results`?) — platform
+      inspection, not a code question. `[needs clarification]` on priority
+      relative to other Now/Next work.
       than folding it into C1.
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
@@ -557,6 +561,20 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **C1 dig completed 2026-07-17 (analysis only, no code)** — tested the audit's
+      "rotate to high entropy" premise instead of assuming it. Verified the CUID
+      v1 algorithm against Prisma's actual generator source (no `cuid` package —
+      Prisma's built-in default). Quantified real entropy: ~41 bits from the
+      random block only (timestamp/counter/fingerprint are inferable or
+      near-deterministic, not secret) — ≈2.8×10¹² possible values, ≈220 billion
+      guesses expected to hit any of 13 live tokens even in the attacker-best
+      case, with no guessing oracle. Conclusion: entropy rotation is likely the
+      wrong remaining fix — recommended killing it as priority. Real gap:
+      confirmed (not assumed) that no SPF/DKIM/sender-authentication check
+      exists anywhere in the inbound path — proposed as new finding **C2**
+      (CRITICAL, not yet accepted) rather than folded into C1. C1 itself now
+      documented as 3-of-4 resolved. Full write-up in `SECURITY_AUDIT.md`'s
+      C1/C2 entries — see 🔴 Now for the resulting decision needed.
 - [x] **L5 re-rated 2026-07-17 (docs-only, no code change)** — `SECURITY_AUDIT.md`'s
       "runtime deps came back clean" claim was false; `nodemailer` (direct
       dependency) carries a HIGH advisory. No clean upgrade exists (next-auth's
