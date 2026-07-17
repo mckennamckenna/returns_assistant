@@ -81,6 +81,13 @@ function getClientIp(request: Request): string {
 // since NextAuth(...) is called at module scope there and pulls in
 // next/server transitively.
 //
+// SECURITY (BUILD.md Security invariants, SECURITY_AUDIT.md L5): this
+// function's entire existence is what keeps @auth/core's default
+// sendVerificationRequest — which calls nodemailer's createTransport/
+// sendMail, the HIGH-severity GHSA-p6gq-j5cr-w38f surface — unreachable.
+// Every send in this function must keep going through sendEmail()
+// (lib/postmark.ts, Postmark's HTTP API), never nodemailer directly.
+//
 // Alpha gate: an email only gets a magic link if it already belongs to an
 // existing User (re-login, always allowed — never lock out someone who
 // already has an account) or is in AllowedSignIn (a manually-curated

@@ -25,6 +25,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Rate limiting (SECURITY_AUDIT.md H1) and the allowlist gate both
       // live in lib/magicLinkRateLimit.ts — extracted from this file so
       // it's unit-testable without pulling in NextAuth(...)'s module graph.
+      // SECURITY: also load-bearing for L5 — this override replaces
+      // @auth/core's default sendVerificationRequest, which calls
+      // nodemailer's createTransport/sendMail (the HIGH-severity advisory
+      // GHSA-p6gq-j5cr-w38f) directly. Removing or bypassing this makes
+      // that vulnerable path reachable again. See BUILD.md's Security
+      // invariants and SECURITY_AUDIT.md's L5 entry before changing this.
       sendVerificationRequest,
     }),
   ],

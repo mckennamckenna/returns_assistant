@@ -109,6 +109,65 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **`vitest-nextauth-import-fragility` needs its own investigation** —
+      promoted from Known Issues 2026-07-17 per its own stated graduation
+      criteria ("if a third instance shows up, it graduates from 'pre-existing
+      fragility, work around it' to 'test setup needs its own investigation'").
+      Root cause: `next-auth`'s entry point transitively imports `next/server`
+      (via `next-auth/lib/env.js`), which only resolves inside Next.js's own
+      bundler, not plain Node/vitest ESM resolution — so importing `auth.ts`,
+      or even bare `"next-auth"`, fails under vitest. Three decisions shaped by
+      working around it so far, without ever fixing it: (1) H1 Phase 3
+      (2026-07-16, `903a9eb`) — extracted `auth.ts`'s rate-limit-plus-allowlist
+      logic into `lib/magicLinkRateLimit.ts`, sourced `AuthError` from
+      `@auth/core/errors` directly. (2) M1's fix (2026-07-17, `505c7fb`) — test
+      strategy for the BCC removal was built entirely against
+      `lib/magicLinkRateLimit.ts`, never `auth.ts`, specifically because of this
+      constraint. (3) The L5 nodemailer-override guard (2026-07-17, proposed
+      below, not yet built) — every guard option had to be evaluated against
+      "does this survive vitest-nextauth-import-fragility," which ruled out the
+      simplest approaches (a standalone script importing `auth.ts` directly)
+      and pushed toward a boot-time runtime assertion instead. Not investigated
+      this session per explicit instruction — tracked here so the next session
+      that touches auth-adjacent testing picks it up instead of re-discovering
+      it. Candidate directions to evaluate when picked up: a vitest alias/mock
+      for `next/server`, or a documented, explicit pattern for what's safe to
+      import directly in a test vs. what needs extraction to a
+      `lib/`-level module first.
+- [ ] **Guard against L5's nodemailer-override regressing silently** — proposed
+      2026-07-17, not built (see `SECURITY_AUDIT.md` L5(d) and `BUILD.md`'s
+      Security invariants for the full context: L5's LOW rating depends
+      entirely on `auth.ts`'s custom `sendVerificationRequest` continuing to
+      override `@auth/core`'s default, which calls nodemailer's vulnerable
+      `createTransport`/`sendMail` directly; nothing currently enforces that,
+      and two unrelated commits already touched that exact function). Two
+      complementary options evaluated, both feasible without importing
+      `auth.ts` under vitest (see `vitest-nextauth-import-fragility` above for
+      why that constraint matters):
+      1. **Boot-time runtime assertion in `auth.ts`.** After constructing the
+         `Nodemailer` provider, assert its `sendVerificationRequest` is
+         reference-equal to the one imported from `lib/magicLinkRateLimit.ts`;
+         throw (fail loud at boot, same pattern as the existing
+         `TOKEN_SIGNING_SECRET` length check) if not. Runs for real on every
+         dev/production boot, inside the actual Next.js runtime where
+         `next-auth` imports fine — no vitest involvement at all. Catches: the
+         override being removed or swapped out. Does not catch: the override
+         staying wired but its own implementation being changed to call
+         nodemailer directly.
+      2. **ESLint rule banning direct `nodemailer` imports** outside an
+         explicit allowlist (or banning it outright — no file in this repo
+         currently imports `nodemailer` directly, confirmed by grep). Static,
+         zero runtime cost, runs at lint/CI time, doesn't touch vitest/next-auth
+         resolution at all. Catches: any new code (this file or a future one)
+         importing `nodemailer` directly. Does not catch: the override being
+         removed entirely, since that reactivates `@auth/core`'s own
+         already-installed default without any new import in our code.
+      **Recommendation:** both together, not either alone — they guard against
+      the two different realistic mutation vectors (wiring removed vs. new
+      usage added) and neither is expensive. A third option (wrapping/spying on
+      nodemailer's own `createTransport` as an in-process canary) was considered
+      and set aside as more invasive for the same coverage as option 1.
+      Proposed only — awaiting a decision on whether/which to build.
 - [ ] **Amazon: reminder for every email, not just the deadline-driven
       schedule** — Amazon orders are high-volume and frequently multi-item;
       users need to know about each individual email because linking is
@@ -985,24 +1044,10 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **`vitest-nextauth-import-fragility`: importing `auth.ts`, or even bare
-  `"next-auth"`, fails under vitest/plain Node** — `next-auth`'s own entry
-  point transitively imports `next/server` (via `next-auth/lib/env.js`),
-  which only resolves inside Next.js's own bundler, not plain Node ESM
-  resolution. Pre-existing, not introduced by any recent change (a bare
-  `import "next-auth"` fails identically with zero other code involved).
-  Surfaced 2026-07-16 while adding tests for H1 Phase 3 (magic-link rate
-  limiting); worked around by extracting `auth.ts`'s
-  rate-limit-plus-allowlist logic into `lib/magicLinkRateLimit.ts`,
-  sourcing `AuthError` from `@auth/core/errors` directly instead of via
-  `"next-auth"` (confirmed to be the exact same re-exported class, so
-  `instanceof` checks still work). This is the **second** session in a row
-  a test-environment gotcha like this has surfaced — the first was the
-  Sidekick backfill's mock-vs-real question. If a third instance shows up,
-  it graduates from "pre-existing fragility, work around it" to "test
-  setup needs its own investigation" (e.g. a vitest alias/mock for
-  `next/server`, or a documented pattern for what's safe to import
-  directly in a test vs. what needs extraction first).
+- **`vitest-nextauth-import-fragility` — PROMOTED to 🟡 Next 2026-07-17.** Now
+  shaped three separate decisions (H1 Phase 3 extraction, M1's test strategy,
+  the L5 guard proposal); per its own graduation criteria below, that's the
+  investigation trigger. See 🟡 Next for the full item.
 - **Good Eggs order showing "Return by Jul 21, 2025" on the active
   dashboard with a live "Start return" button** — the deadline is in the
   past (2025, over a year ago relative to the current session date), so
