@@ -43,8 +43,8 @@
       rows don't pre-exist a key the way a `User` row always does; owner
       confirmed this is fine) + migration + 8 unit tests, inert (nothing
       wired in yet).
-      **Phase 1 — code shipped (`9357f5b`), deployed, awaiting owner
-      verification before Phase 2.** `/api/inbound` now rate-limits at
+      **Phase 1 — done, owner-verified live 2026-07-16 (`9357f5b`).**
+      `/api/inbound` now rate-limits at
       30/hr per `inboundToken` (429 + `Retry-After`, no Email
       row/extraction/volume-counter touch on block, new
       `inbound_rate_limited` notification kind deduped 1/hr per token —
@@ -65,12 +65,25 @@
       locally (credentials + their own `inboundToken` never leave their
       machine) to confirm the endpoint still returns 200 under normal load,
       then forwards one real test email through Postmark to confirm it
-      still lands in the dashboard. **Awaiting both before Phase 2.** Do not
-      proceed to Phase 2 (`/api/beta-signup`) until confirmed.
-      Phase 3 (magic-link send) not started. Explicitly out of scope this
-      session: beta-signup, magic-link, M-tier/L-tier findings, and rate
-      limiting any authenticated/session-scoped endpoint (different abuse
-      profile, own decision later).
+      still lands in the dashboard. **Verified live 2026-07-16 by owner**
+      (Postmark activity log + a real forwarded email landing in the
+      dashboard) — Phase 1 done.
+      **Phase 2 — in progress this session:** wire `/api/beta-signup` (3/hr
+      per IP, key `beta_signup:<ip>`, IP read from the existing
+      `x-vercel-forwarded-for` `getClientIp` pattern already used by
+      `app/api/action/{archive,returned}/route.ts` — not the
+      x-forwarded-for/x-real-ip pair originally suggested, since this
+      codebase already has an established, deliberate convention here;
+      mirrored per-route rather than shared, matching that existing
+      duplication style). 429 on block, no `BetaSignup` row, no admin
+      notification for the block itself (low-value endpoint). Also dedups
+      the existing `notifyAdmin("beta_signup", ...)` call via
+      `hasRecentNotification` (24h window, mirrors `allowlist_rejection`) —
+      today every signup attempt emails the admin regardless of repeats.
+      Stop after this phase; do not touch magic-link send (Phase 3) this
+      session. Explicitly out of scope: magic-link, M-tier/L-tier findings,
+      authenticated/session-scoped rate limiting (different abuse profile,
+      own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
