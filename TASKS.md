@@ -26,138 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **H1 rate limiting — Postgres-backed, staged rollout, one endpoint at a
-      time, stopping for owner review between each.** Implements
-      `SECURITY_AUDIT.md`'s H1 finding (no rate limiting on any public
-      endpoint). Storage: Postgres via a new `RateLimitCounter` model
-      (reuses existing Neon DB, no new deps). Agreed limits: `/api/inbound`
-      30/hr per `inboundToken`; `/api/beta-signup` 3/hr per IP plus 24hr
-      dedup on the `beta_signup` admin notification (mirrors
-      `allowlist_rejection`); magic-link send 5/hr per email AND 20/hr per
-      IP, silent drop (no error shown, don't leak allowlist membership),
-      admin notified once per hour per email on a hit.
-      **Phase 0 — done, owner-approved (`9ea5ced`):** `lib/rateLimit.ts`
-      (fixed-window approximation, guarded-atomic-increment on the happy
-      path, `upsert` on the miss/rollover path — a deliberate deviation
-      from mirroring `lib/inboundVolume.ts` exactly, since `RateLimitCounter`
-      rows don't pre-exist a key the way a `User` row always does; owner
-      confirmed this is fine) + migration + 8 unit tests, inert (nothing
-      wired in yet).
-      **Phase 1 — done, owner-verified live 2026-07-16 (`9357f5b`).**
-      `/api/inbound` now rate-limits at
-      30/hr per `inboundToken` (429 + `Retry-After`, no Email
-      row/extraction/volume-counter touch on block, new
-      `inbound_rate_limited` notification kind deduped 1/hr per token —
-      `hasRecentNotification` gained an optional `windowMs` param for this,
-      defaults to the existing 24h for every other caller). 5 new tests
-      exercise the real rate-limit arithmetic through the route (30 succeed,
-      31st blocks, window rollover resets, dedup fires once across 5 rapid
-      rejections, key carries the `inbound:` prefix); 330 total passing,
-      build clean. Deploy confirmed Ready + aliased to
-      `app.myreturnwindow.com` (`dpl_7bWox7hssc4RSy1pcqzSrCHa47Zu`).
-      **Could not complete the planned live 31-request curl stress test
-      myself** — `INBOUND_WEBHOOK_PASSWORD` came back empty from
-      `vercel env pull`, consistent with being a write-only/sensitive var
-      (matches HISTORY.md: shown to owner once, never logged again).
-      Owner's call: skip the live stress test (the unit tests already prove
-      the 30/31 boundary; a real 31-request burst against production proves
-      wiring, not arithmetic) — instead owner runs a single real curl
-      locally (credentials + their own `inboundToken` never leave their
-      machine) to confirm the endpoint still returns 200 under normal load,
-      then forwards one real test email through Postmark to confirm it
-      still lands in the dashboard. **Verified live 2026-07-16 by owner**
-      (Postmark activity log + a real forwarded email landing in the
-      dashboard) — Phase 1 done.
-      **Phase 2 — code shipped (`1f073ad`, mislabeled "Phase 3" in the
-      commit message — TASKS.md's numbering here is the correct one),
-      deployed (`dpl_6kEWmKMqDwYujC9D99NHuty342rM`, confirmed Ready),
-      awaiting owner verification before Phase 3.** `/api/beta-signup` now
-      rate-limits at 3/hr per IP, key `beta_signup:<ip>`, IP read from the
-      existing `x-vercel-forwarded-for` `getClientIp` pattern already used by
-      `app/api/action/{archive,returned}/route.ts` — not the
-      x-forwarded-for/x-real-ip pair originally suggested, since this
-      codebase already has an established, deliberate convention here;
-      mirrored per-route rather than shared, matching that existing
-      duplication style). 429 on block, no `BetaSignup` row, no admin
-      notification for the block itself (low-value endpoint). Also dedups
-      the existing `notifyAdmin("beta_signup", ...)` call via
-      `hasRecentNotification` (24h window, mirrors `allowlist_rejection`) —
-      today every signup attempt emails the admin regardless of repeats.
-      8 new tests, 338 total passing; `npm run build` clean.
-      **Correction requested this session:** owner review flagged the
-      `beta_signup` dedup as "per-kind, one email per 24h regardless of
-      unique signups" and asked for per-email dedup instead (rate limit
-      stays the flood protection; dedup should shape visibility, not
-      suppress it). **Diagnostic check before any change: the shipped
-      code already dedups per kind+email, not per kind alone** —
-      `hasRecentNotification(kind, relatedEmail, windowMs)`'s query is
-      `where: { kind, relatedEmail, attemptedAt: {...} }`, and
-      `relatedEmail` is a required (non-optional) parameter for every
-      existing caller, including beta-signup's own
-      `hasRecentNotification("beta_signup", email)` call. Two different
-      emails already get two separate notifications today; only repeats
-      of the *same* email within 24h get deduped — which is exactly the
-      requested behavior, already shipped. Reported to owner before
-      writing any code, per diagnostic-first habit. **Outcome: tests +
-      documentation, not a bug fix** — owner confirmed the review
-      assumption (per-kind dedup) was the wrong read, not the code.
-      Landed: 3 behavioral tests against the real `hasRecentNotification`
-      logic (same email × 4 → 1 admin email; two different emails → 2;
-      same email again after the 24h window → fires again) in
-      `__tests__/betaSignupNotificationDedup.test.ts`, a one-line comment
-      at the beta-signup call site making the per-email intent visible
-      (not just implicit in argument order), and the Decisions log entry
-      on per-kind-vs-per-identifier dedup granularity, referencing this
-      as the reason it's worth writing down. 341 total tests passing,
-      `npm run build` clean.
-      **Phase 3 — code shipped, deployed, awaiting owner normal-sign-in
-      verification. H1 is now closable pending that verification —
-      all three endpoints protected.** Magic-link send (`auth.ts` →
-      new `lib/magicLinkRateLimit.ts`), the last H1 endpoint. Two limits,
-      both must pass: 8/hr per email (`magic_link_email:<email>`), 20/hr
-      per IP (`magic_link_ip:<ip>`). Owner decisions on the record (also
-      in Decisions log): (1) loud, not silent — user sees "You've
-      requested several sign-in links recently. Please wait a few minutes
-      and try again." on block, unlike the allowlist gate's silent-success
-      pattern beside it, because this app has no password to protect via
-      silence and a magic-link app failing silently is worse UX than a
-      small, non-leaking rate-limit message; (2) 8/hr chosen over 5 (too
-      tight for real resend behavior) or 10 (looser than needed); (3)
-      admin notified on a block, deduped per-email/24h (same shape as
-      `beta_signup`), but only when the email is allowlisted — an unknown
-      email hitting the limit is attacker noise the existing
-      `allowlist_rejection` path already covers, not a second alert.
-      Diagnostic finding before writing code: IP is already available via
-      the `request: Request` param Auth.js v5 passes into
-      `sendVerificationRequest` — no surgery needed to thread it through
-      `app/login/actions.ts`. Second diagnostic finding, mid-implementation:
-      importing `auth.ts` (or even bare `"next-auth"`) fails under
-      vitest/plain Node — `next-auth`'s own entry point transitively
-      imports `next/server`, which only resolves inside Next.js's bundler.
-      Pre-existing fragility, not introduced this session; resolved by
-      extracting the rate-limit + allowlist logic into
-      `lib/magicLinkRateLimit.ts`, importing `AuthError` from
-      `@auth/core/errors` directly instead of via `"next-auth"` (confirmed
-      via `next-auth`'s own source to be the exact same class — it just
-      re-exports it) — same technique used to make the block signal
-      testable at all, not just nice-to-have. Design note: getting the
-      block signal back to the login form uses a custom `AuthError`
-      subclass (`MagicLinkRateLimitError`, Auth.js's own supported
-      extension point for distinguishing sign-in failures) thrown on block
-      and caught in `app/login/actions.ts` — not pre-approved verbatim in
-      the brief, judged not to be "meaningful surgery" (additive, doesn't
-      touch session handling, allowlist logic, or other auth paths),
-      called out here for the record. No change needed to `LoginForm.tsx`
-      — it already renders any `state.error` string generically. 13 new
-      tests across `__tests__/magicLinkRateLimit.test.ts` (real rate-limit
-      + dedup arithmetic through `sendVerificationRequest`, not mocked) and
-      `__tests__/loginActions.test.ts` (the `actions.ts` catch-block
-      mapping); 354 total passing; `npm run build` clean.
-      `SECURITY_AUDIT.md` updated: H1 marked ✅ resolved with all three
-      limit values, coverage-matrix cells updated. Explicitly out of scope
-      this session: other auth paths (`createUser`, session handling), the
-      allowlist itself, M-tier/L-tier findings, authenticated/session-scoped
-      rate limiting (different abuse profile, own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
@@ -227,6 +95,32 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **Amazon: reminder for every email, not just the deadline-driven
+      schedule** — Amazon orders are high-volume and frequently multi-item;
+      users need to know about each individual email because linking is
+      fragile and refunds/partial-shipments are common. Currently the
+      reminder pipeline treats Amazon like any other retailer — same
+      deadline-threshold schedule (7/2/1/same-day), no per-email touchpoint.
+      Open design question: does this become a retailer-policy-DB flag
+      (per-retailer reminder cadence), or an Amazon-specific branch in
+      `lib/reminders.ts`? Needs a spec pass before code. Slug:
+      `amazon-per-email-reminder-cadence`.
+- [ ] **Amazon dashboard card as folder, not single order** — Amazon orders
+      fan out into many shipments and often several "orders" that are
+      really one shopping session, and the current card-per-order treatment
+      makes the Amazon section of the dashboard chaotic. Proposal: collapse
+      Amazon into a single folder-style card that expands to show the
+      underlying orders. Open design question: does this generalize to
+      other high-volume retailers (Poshmark maybe), or stay Amazon-only?
+      Related to the Gap Inc. brand-family item already in this section.
+      Slug: `amazon-dashboard-folder-view`.
+- [ ] **Mobile UX audit pass** — multiple mobile issues already logged
+      individually in this section (order-number + item-summary overflow,
+      sidebar email truncation, order detail long-order-number wrap).
+      Rather than fixing them one at a time, do a proper mobile audit pass
+      — real device, real orders, catalog everything at once — then
+      prioritize as one workstream instead of a trickle of one-off fixes.
+      Slug: `mobile-ux-audit-pass`.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
       e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
       to near-nothing after the (already-shortened) order number eats the
@@ -653,6 +547,13 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **H1 rate limiting shipped and owner-verified live across all three
+      public endpoints** — `/api/inbound` (30/hr per token), `/api/beta-signup`
+      (3/hr per IP, plus per-email admin-notification dedup), and magic-link
+      send (8/hr per email AND 20/hr per IP, loud user-facing message on
+      block). `SECURITY_AUDIT.md`'s H1 finding closed. Full detail (three
+      phases, three sets of limits, three product decisions, an IP-threading
+      finding, and a vitest/next-auth import workaround) in HISTORY.md.
 - [x] **Desktop visual polish — Phase 2, all six items owner-verified live.**
       All six items from TRUST_AUDIT.md applied in one commit: (1)
       avatar-initials bug fix ("On (On-Running)" → "OO", no longer "O("),
@@ -1027,6 +928,24 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`vitest-nextauth-import-fragility`: importing `auth.ts`, or even bare
+  `"next-auth"`, fails under vitest/plain Node** — `next-auth`'s own entry
+  point transitively imports `next/server` (via `next-auth/lib/env.js`),
+  which only resolves inside Next.js's own bundler, not plain Node ESM
+  resolution. Pre-existing, not introduced by any recent change (a bare
+  `import "next-auth"` fails identically with zero other code involved).
+  Surfaced 2026-07-16 while adding tests for H1 Phase 3 (magic-link rate
+  limiting); worked around by extracting `auth.ts`'s
+  rate-limit-plus-allowlist logic into `lib/magicLinkRateLimit.ts`,
+  sourcing `AuthError` from `@auth/core/errors` directly instead of via
+  `"next-auth"` (confirmed to be the exact same re-exported class, so
+  `instanceof` checks still work). This is the **second** session in a row
+  a test-environment gotcha like this has surfaced — the first was the
+  Sidekick backfill's mock-vs-real question. If a third instance shows up,
+  it graduates from "pre-existing fragility, work around it" to "test
+  setup needs its own investigation" (e.g. a vitest alias/mock for
+  `next/server`, or a documented pattern for what's safe to import
+  directly in a test vs. what needs extraction first).
 - **Good Eggs order showing "Return by Jul 21, 2025" on the active
   dashboard with a live "Start return" button** — the deadline is in the
   past (2025, over a year ago relative to the current session date), so

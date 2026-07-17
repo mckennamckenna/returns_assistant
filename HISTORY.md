@@ -5,6 +5,177 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-16 — H1 rate limiting shipped across all three public endpoints, staged rollout (`9ea5ced`, `9357f5b`, `1f073ad`, `b44ac0f`, `903a9eb`, owner-verified live)
+
+Closes `SECURITY_AUDIT.md`'s H1 finding ("no rate limiting or abuse controls
+on any public endpoint"), rolled out one endpoint at a time across four
+sessions, each phase deployed and owner-reviewed/verified before the next
+began.
+
+**Storage — Postgres, not Vercel KV/Upstash** (`9ea5ced`). New
+`RateLimitCounter` model (`key` PK, `windowStart`, `count`), reusing the
+existing Neon DB — zero new deps, effectively zero added cost at current
+scale, and rate limiting itself reduces DB load under abuse (rejects before
+hitting expensive paths). `lib/rateLimit.ts` exports `rateLimit({ key,
+limit, windowSeconds })`. Fixed-window approximation (`windowStart` rounded
+down to a `windowSeconds` boundary), explicitly not true sliding window —
+the code comment names the trade directly: a burst straddling a window edge
+can admit up to ~2x the limit in the worst case, judged not worth the
+storage/read complexity of a real sliding window at this app's traffic
+volume. Guarded atomic increment on the happy path mirrors
+`lib/inboundVolume.ts`'s two-phase `updateMany` pattern (learned during the
+Postmark C1 hardening work) — Postgres serializes concurrent `UPDATE`s to
+the same row, so a burst can't lose an increment. One deliberate deviation
+from that mirror, flagged and owner-approved: the miss/rollover path uses
+`upsert` instead of a second guarded `updateMany`, because `RateLimitCounter`
+rows don't pre-exist a key the way a `User` row always does (inbound
+volume only ever updates an always-existing row) — `upsert` is Postgres's
+correct atomic primitive for insert-or-update, with the same
+tolerated-race properties as `inboundVolume.ts`'s own reset path. Cron
+route (`app/api/cron/route.ts`) sweeps rows older than 24h alongside its
+existing cleanup steps, no new `vercel.json` entry. 8 unit tests, shipped
+inert (nothing wired into any endpoint yet).
+
+**Phase 1 — `/api/inbound`, 30 messages/hour per `inboundToken`** (`9357f5b`).
+Checked immediately after token resolution, before the volume counter,
+Gmail-verification branch, or any classification/extraction work — a
+blocked request does none of that. On block: 429 + `Retry-After`, no
+`Email` row, `runExtraction` never called, inbound volume counter
+untouched (a legitimate-flow signal, not an abuse signal — deliberately
+kept as a separate concern). New `inbound_rate_limited` `NotificationKind`,
+deduped 1/hour per token (`hasRecentNotification` gained an optional
+`windowMs` param for this — every other existing caller keeps the 24h
+default). 5 tests exercise the real rate-limit arithmetic through the
+route (not mocked): 30 succeed, 31st blocks, window rollover resets, dedup
+fires once across 5 rapid rejections, key carries the `inbound:` prefix.
+Could not complete the originally-planned live 31-request curl stress test
+against production — `INBOUND_WEBHOOK_PASSWORD` came back empty from
+`vercel env pull`, consistent with being a write-only/sensitive Vercel env
+var (matches the original Postmark-hardening rollout note: shown to the
+owner once, never logged again). Owner's call: skip the live stress test
+(unit tests already prove the 30/31 boundary; a real burst against
+production proves wiring, not arithmetic) in favor of a single local curl
+plus a real forwarded test email. **Verified live 2026-07-16** via
+Postmark's activity log and a real forwarded email landing in the
+dashboard.
+
+**Phase 2 — `/api/beta-signup`, 3 signups/hour per IP** (`1f073ad`,
+mislabeled "Phase 3" in that commit's own message — a clerical error, not
+corrected via amend/force-push per the project's git-safety rule; this
+entry and TASKS.md carry the correct numbering). IP read via the existing
+`x-vercel-forwarded-for` `getClientIp` convention already used by
+`app/api/action/{archive,returned}/route.ts` — diagnostic-first catch: the
+task brief suggested `x-forwarded-for`/`x-real-ip`, but this codebase
+already had an established, deliberate pattern for exactly this lookup
+(mirrored per-route rather than shared, matching that existing
+duplication style, with a documented `"unknown"` fallback if the header
+is ever absent). On block: 429, no `BetaSignup` row created, no admin
+notification for the block itself (low-value endpoint, don't clutter the
+inbox). Separately fixes the H1-flagged notification-flood gap: the
+pre-existing `notifyAdmin("beta_signup", ...)` call fired unconditionally
+on every signup attempt; now gated through `hasRecentNotification` (24h
+window, mirrors `allowlist_rejection`'s existing pattern) so repeat
+submissions of an already-registered email can't flood the admin inbox.
+8 tests. **Verified live 2026-07-16** via a real signup through the
+marketing form.
+
+**Phase 2 correction — tests + documentation, not a bug fix** (`b44ac0f`).
+A later review flagged the `beta_signup` notification dedup as "per-kind,
+one email per 24h regardless of unique signups," asking for per-email
+dedup instead. Diagnostic check before writing any code: the shipped code
+already deduped per kind+email, not per kind alone —
+`hasRecentNotification`'s `relatedEmail` parameter is required for every
+existing caller, so two different emails already produced two separate
+notifications; only repeats of the *same* email within 24h were
+suppressed, which is exactly the behavior the review asked for. The
+review's test could only have used a single repeated email — that case
+looks identical whether the dedup key is `kind` alone or `kind+email`, so
+the two designs are indistinguishable without a second, different email in
+the test. Reported to the owner before touching any code; confirmed as a
+correct-code/wrong-assumption case, not a bug. Landed instead: 3
+behavioral tests against the real `hasRecentNotification` logic (not
+mocked) in `__tests__/betaSignupNotificationDedup.test.ts` (same email ×4
+→ 1 admin email; two different emails → 2; same email again after the 24h
+window → fires again), a one-line comment at the beta-signup call site
+making the per-email intent visible rather than just implicit in argument
+order, and a new Decisions log entry: attack-shaped signals
+(`allowlist_rejection`, `inbound_rate_limited`) dedup per-kind; real-user
+signals (`beta_signup`) dedup per-identifier — the rate limit is the flood
+protection, the notification dedup shapes visibility, not security.
+
+**Phase 3 — magic-link send, two limits both must pass: 8/hour per email
+AND 20/hour per IP** (`903a9eb`), the last H1 endpoint. Three deliberate
+owner decisions, all in the Decisions log: (1) **loud, not silent** — the
+user sees "You've requested several sign-in links recently. Please wait a
+few minutes and try again." on block, a departure from the allowlist
+gate's silent-success pattern right beside it in the same function,
+because this app has no password for "silently succeed" to protect and a
+magic-link app failing silently is one of the worst UX patterns a small
+app can have (the residual leak risk is negligible: both allowlisted and
+non-allowlisted emails hit the identical limit and see the identical
+message, so the block itself reveals nothing about allowlist membership);
+(2) **8/hour**, chosen over 5 (too tight for legitimate resend behavior —
+two attempts per link plus a couple of retries hits it fast) or 10
+(looser than needed); (3) **admin notified on a block**, deduped
+per-email/24h (same shape as `beta_signup`'s corrected dedup above), but
+only when the affected email is allowlisted — an unknown email hammering
+the limit is exactly the noise the existing `allowlist_rejection` path
+already reports on, so a second alert would add nothing.
+
+Two diagnostic findings shaped the implementation. First: threading the
+client IP through `app/login/actions.ts` turned out to need no surgery at
+all — Auth.js v5 already passes the raw `Request` object into
+`sendVerificationRequest` (`EmailProviderSendVerificationRequestParams`
+includes `request: Request`), so the IP is read the same
+`x-vercel-forwarded-for` way as Phases 1-2, right where the rate limit
+check already runs. Second, surfaced mid-implementation while adding
+tests: importing `auth.ts` — or even bare `"next-auth"` — fails under
+plain Node/vitest, because `next-auth`'s own entry point transitively
+imports `next/server` (via `next-auth/lib/env.js`), which only resolves
+inside Next.js's own bundler. Confirmed pre-existing (a bare `import
+"next-auth"` fails identically outside this session's changes entirely),
+not something this session introduced. Resolved by extracting the
+rate-limit-plus-allowlist logic out of `auth.ts` into a new
+`lib/magicLinkRateLimit.ts`, sourcing `AuthError` from `@auth/core/errors`
+directly instead of via `"next-auth"` — confirmed via `next-auth`'s own
+source (`export { AuthError, CredentialsSignin } from "@auth/core/errors"`)
+to be the exact same class, just re-exported, so `instanceof` checks work
+identically either way. This is the second session in a row a
+test-environment gotcha has surfaced (the first was the Sidekick backfill's
+mock-vs-real question) — logged as a Known Issue
+(`vitest-nextauth-import-fragility`) rather than dismissed, with an
+explicit "third instance graduates this to its own investigation" marker.
+
+The block signal reaches the login form via a custom `AuthError` subclass,
+`MagicLinkRateLimitError` — Auth.js's own supported extension point for a
+sign-in provider to signal a specific failure — thrown in
+`sendVerificationRequest` and caught in `app/login/actions.ts` ahead of
+the generic `AuthError` branch. Not pre-approved verbatim in the original
+task brief; judged not to be "meaningful surgery" (additive only, doesn't
+touch session handling, the allowlist logic itself, or any other auth
+path) and called out explicitly rather than done silently. No change
+needed to `LoginForm.tsx` — its existing `state.error && <p>...</p>`
+pattern already renders whatever string comes back generically. 13 new
+tests: `__tests__/magicLinkRateLimit.test.ts` exercises the real
+rate-limit and notification-dedup arithmetic through
+`sendVerificationRequest` directly (not mocked) — 8/9 email boundary,
+20/21 IP boundary, window rollover, admin-notify dedup and
+allowlist-gating, key namespacing (`magic_link_email:`/`magic_link_ip:`,
+distinct from `inbound:`/`beta_signup:`); `__tests__/loginActions.test.ts`
+covers the `actions.ts` catch-block mapping (with `"next-auth"` itself
+mocked, re-exporting the real `AuthError` class, since importing it for
+real isn't viable under vitest either). 354 total tests passing, `npm run
+build` clean. **Verified live 2026-07-16** via a normal sign-in through
+the real login form.
+
+`SECURITY_AUDIT.md` updated same-session (`903a9eb`): H1's own entry
+marked ✅ resolved with all three endpoints and their limit values listed;
+the coverage-matrix's three H1 cells updated from `⚠︎ H1` to `✓` with the
+limit noted inline; the "Suggested order of work" list's H1 line marked
+done.
+
+---
+
 ## 2026-07-15 — sidekick-deadline-anchor-mismatch fixed: null anchor defaults to orderDate, shipping buffer tightened 7→5 (`72274c2`, owner-verified live)
 
 Reported symptom: Sidekick order #SK213978 showed "Return by Aug 31, 2026" —
