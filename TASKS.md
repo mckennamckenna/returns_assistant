@@ -26,6 +26,133 @@
 ---
 
 ## 🔴 Now
+- [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
+      🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
+      Real-device pass, real orders, catalog-before-fixing per this item's
+      original framing. Eight findings below, in the owner's priority order —
+      **preserve this order**, it is the triage, not just a list. Each entry
+      states what it is, severity, code location (where known), and whether
+      the next step is a fix, a spec pass, or an investigation.
+
+      **1. Bell icon alignment on bottom nav — fix, cheap, visible everywhere.**
+      The unread-count badge pushes the bell icon up/out of place instead of
+      overlaying it. Visible on every screen that renders the bottom nav with
+      a nonzero count — no dependencies, nothing blocking a fix. Code:
+      `app/BottomNav.tsx` — the badge (`<span className="absolute -top-1
+      -right-1.5 ...">`, lines ~50-59) is nested inside `<span
+      className="relative">` wrapping `<BellIcon />`. The classes read as a
+      standard overlay pattern, so the actual rendering root cause isn't
+      obvious from source alone — needs on-device inspection before fixing,
+      not just a code read.
+
+      **2. "This will stop all reminders" caption scoping — fix, already
+      diagnosed.** Diagnosed in full in `ac173f2` (2026-07-17 diagnostic
+      session): `KEPT_WARNING_CAPTION` (`lib/displayStatus.ts`) is spec'd in
+      BUILD.md only for "I'm keeping this," but in `app/OrderCard.tsx` it
+      renders as a sibling `<p>` after the whole button row (gated only by
+      `canKeep`) rather than nested inside Keeping-it's own markup — so when
+      Start return and Keeping it render side by side (the common case), it
+      visually reads as captioning Start return too. **Not a behavior bug** —
+      confirmed `SKIP_DISPLAY_STATUSES` in `lib/reminders.ts` deliberately
+      excludes `return_requested`; Start return does not stop reminders. Fix
+      is scoped: move the caption inside `OrderCard.tsx`'s `{canKeep && (...)}`
+      block, matching the already-correct pattern in
+      `app/(app)/orders/[id]/page.tsx`.
+
+      **3. "..." overflow menu replacement — spec, propose don't decide.**
+      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
+      tracking links when present) behind a "⋯" button. Two
+      always-available items don't justify a menu, and hiding
+      destructive-only actions (Delete) behind an ambiguous affordance is the
+      wrong pattern — a user has no visual cue that anything destructive
+      lives there. Proposed replacement, for owner decision, not decided
+      here: an explicit icon affordance (e.g. a trash-can icon with its own
+      confirm step, matching `handleDelete`'s existing
+      `window.confirm`) rather than a generic overflow glyph, with Archive
+      surfaced as its own always-visible action rather than tucked away
+      alongside a destructive one.
+
+      **4. State-label contradictions + button hierarchy — one workstream,
+      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
+      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
+      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
+      render independently of each other), and primary-CTA visual weight
+      shifts unpredictably between cards (two side-by-side buttons, two
+      buttons with different primary treatment, one full-width button, or
+      none, depending on `getVisibleActions()`'s combination for that order).
+      Underlying issue: the app has no consistent notion of "the user already
+      made a decision about this order" that other UI elements can defer to
+      — each label/badge/button is computed independently. Needs a spec pass
+      (what should suppress what, once a decision is made) before any design
+      or code change. The specific "Kept + at risk" combination observed
+      during this audit was a testing artifact (see note below), but the
+      broader label-fighting pattern is real independent of that instance.
+
+      **5. Quick-check (needs-review) surface doesn't explain itself — spec
+      needed before design.** `app/ReviewCard.tsx` asks users to arbitrate
+      between "looks correct" and "split into separate order" with no visible
+      evidence supporting either option and no explanation of why the system
+      isn't confident in the first place. Same root concern as the existing
+      Next item about this card's missing "why" line (`TRUST_AUDIT.md` row
+      6), but broader: it's not just a missing explanation string, it's that
+      the whole surface asks for a judgment call without giving the
+      information needed to make one. Needs a spec pass, not a copy tweak.
+
+      **6. Order-linking — two distinct findings, do not conflate:**
+      - **6a. Auto-link fails on an exact order-number match — investigation
+        needed, root cause unknown.** Observed: a Shopbop quick-check card
+        asked for confirmation on order #142770152 while a Shopbop
+        #142770152 order already existed on the dashboard, status Kept. Same
+        retailer, same exact order number — this should have auto-linked
+        without a quick-check at all. Entry point to trace:
+        `lib/linkOrder.ts`'s `linkEmailToOrder()` and the exact-match path it
+        calls before falling through to prefix/fallback matching. Do not
+        guess at a fix before finding the actual cause.
+      - **6b. No order number present — design decision needed, connects to
+        an existing Next item.** Refund/return emails without an order
+        number can't be linked at all today. Proposal: match on item
+        name/description when order number is absent. This is the same
+        underlying gap as the existing `shopbop-goods-based-matching` Next
+        item (`findRefundFallbackOrder()` in `lib/linkOrder.ts`, currently
+        retailer + amount + recency only) — don't spec these separately;
+        the confidence-threshold decision is shared.
+
+      **7. Full-width "Mark as refunded" button on Returned cards — design
+      judgment, not a bug.** `app/MarkRefundedButton.tsx`, styled full-width
+      via `app/OrderCard.tsx`'s `flex-1` wrapper when it's the sole action on
+      a Returned card. It's a status update the user is confirming, not a
+      decision they're weighing, so primary-CTA visual weight overstates it.
+      Options for a future design pass: shrink it to secondary-button
+      weight, or move it into `OrderActionsMenu`. **Explicitly out of
+      scope, per owner:** auto-detecting the refund from a follow-up email
+      instead of a manual button.
+
+      **8. Truncation, reconfirmed at real-device scale — not new, do not
+      re-log.** Order-number and item-name overflow reconfirmed live on
+      Shopbop, Loeffler Randall, On, and every Amazon card. These are the
+      same findings already tracked as `TRUST_AUDIT.md` rows 7 (order-number
+      + item-summary overflow), 8 (sidebar email truncation — desktop
+      analog), and 14 (order-detail long-order-number wrap). This audit adds
+      real-device confirmation, not new scope.
+
+      **Cross-reference, not a fix here:** image 7 of this audit shows three
+      Amazon cards in sequence with similar visual weight and truncated order
+      numbers — this is the live, concrete case the existing
+      `amazon-dashboard-folder-view` Next item was proposing to solve. This
+      mobile pass confirms that item's premise; it does not attempt Amazon
+      clustering itself.
+
+      **Testing-artifact note, flagged not prioritized:** some observed
+      contradictory states — specifically "Kept" cards also showing "at
+      risk" + a return-by date — were produced by the owner manually moving
+      test orders in and out of Kept during this audit, not a natural user
+      path. Real (finding 4 above is still valid beyond this instance), but
+      this specific combination shouldn't be treated as a live bug to chase.
+
+      **Not in scope, flagged for separate handling:** Mango and Gap Inc.
+      "Returned" cards showing "Return by —" and prompting the user to
+      forward original order confirmations. Owner flagged these as edge
+      cases to handle separately, not part of this workstream.
 - [ ] **Decide on proposed finding C2 — no SPF/DKIM check on inbound mail
       (surfaced by the Item 3 C1 dig, 2026-07-17).** `SECURITY_AUDIT.md` now
       has a full write-up under C2 (CRITICAL, proposed, not yet accepted) —
@@ -215,13 +342,8 @@
       other high-volume retailers (Poshmark maybe), or stay Amazon-only?
       Related to the Gap Inc. brand-family item already in this section.
       Slug: `amazon-dashboard-folder-view`.
-- [ ] **Mobile UX audit pass** — multiple mobile issues already logged
-      individually in this section (order-number + item-summary overflow,
-      sidebar email truncation, order detail long-order-number wrap).
-      Rather than fixing them one at a time, do a proper mobile audit pass
-      — real device, real orders, catalog everything at once — then
-      prioritize as one workstream instead of a trickle of one-off fixes.
-      Slug: `mobile-ux-audit-pass`.
+- [ ] **PROMOTED to 🔴 Now 2026-07-17 — see Now section.** Slug:
+      `mobile-ux-audit-pass`.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
       e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
       to near-nothing after the (already-shortened) order number eats the
