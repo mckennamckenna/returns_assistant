@@ -76,10 +76,20 @@ vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 const mockSendEmail = vi.fn();
 vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail }));
 
-const { sendVerificationRequest, MagicLinkRateLimitError } = await import("../lib/magicLinkRateLimit");
+const { sendVerificationRequest, MagicLinkRateLimitError, buildSignInEmailPayload, buildSignInAdminNotification } = await import(
+  "../lib/magicLinkRateLimit"
+);
 
 function sendCallsTo(recipient: string) {
   return mockSendEmail.mock.calls.filter((call) => call[0].to === recipient);
+}
+
+// Rate-limit-hit and sign-in-sent notifications both go `to: ADMIN_EMAIL`;
+// tests that care specifically about the rate-limit notification (not the
+// new per-successful-send one added for M1) filter on this instead of just
+// recipient.
+function adminCallsWithSubjectContaining(fragment: string) {
+  return sendCallsTo(ADMIN_EMAIL).filter((call) => call[0].subject?.includes(fragment));
 }
 
 function makeRequest(ip: string): Request {
@@ -97,23 +107,25 @@ async function send(email: string, ip: string = freshIp()) {
   return sendVerificationRequest({ identifier: email, url: "https://app.myreturnwindow.com/callback", request: makeRequest(ip) });
 }
 
-describe("auth.ts sendVerificationRequest rate limiting", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useRealTimers();
-    fakeRateLimitTable = makeFakeRateLimitTable();
-    fakeAdminNotificationTable = makeFakeAdminNotificationTable();
-    nextIp = 1;
-    mockSendEmail.mockResolvedValue(undefined);
-    vi.stubEnv("ADMIN_EMAIL", ADMIN_EMAIL);
-    vi.stubEnv("REMINDER_FROM_EMAIL", FROM_EMAIL);
-    vi.stubEnv("LOGIN_FROM_EMAIL", FROM_EMAIL);
+function resetMocks() {
+  vi.clearAllMocks();
+  vi.useRealTimers();
+  fakeRateLimitTable = makeFakeRateLimitTable();
+  fakeAdminNotificationTable = makeFakeAdminNotificationTable();
+  nextIp = 1;
+  mockSendEmail.mockResolvedValue(undefined);
+  vi.stubEnv("ADMIN_EMAIL", ADMIN_EMAIL);
+  vi.stubEnv("REMINDER_FROM_EMAIL", FROM_EMAIL);
+  vi.stubEnv("LOGIN_FROM_EMAIL", FROM_EMAIL);
 
-    mockPrisma.user.findUnique.mockImplementation(async ({ where }: { where: { email: string } }) =>
-      where.email === ALLOWLISTED_EMAIL ? { id: "user_1", email: ALLOWLISTED_EMAIL } : null,
-    );
-    mockPrisma.allowedSignIn.findUnique.mockResolvedValue(null);
-  });
+  mockPrisma.user.findUnique.mockImplementation(async ({ where }: { where: { email: string } }) =>
+    where.email === ALLOWLISTED_EMAIL ? { id: "user_1", email: ALLOWLISTED_EMAIL } : null,
+  );
+  mockPrisma.allowedSignIn.findUnique.mockResolvedValue(null);
+}
+
+describe("auth.ts sendVerificationRequest rate limiting", () => {
+  beforeEach(resetMocks);
 
   it("allows 8 sends to the same email within the hour, all trigger delivery", async () => {
     vi.useFakeTimers();
@@ -152,7 +164,10 @@ describe("auth.ts sendVerificationRequest rate limiting", () => {
       await send(`user${i}@example.com`, ip);
     }
 
-    expect(mockSendEmail.mock.calls.filter((call) => call[0].to?.includes("@example.com"))).toHaveLength(20);
+    // Excludes ADMIN_EMAIL, which also matches "@example.com" and — since
+    // every one of these 20 sends is to an allowlisted address — now also
+    // triggers its own magic_link_sent admin notification (M1 fix).
+    expect(mockSendEmail.mock.calls.filter((call) => call[0].to?.includes("@example.com") && call[0].to !== ADMIN_EMAIL)).toHaveLength(20);
 
     vi.useRealTimers();
   });
@@ -201,7 +216,10 @@ describe("auth.ts sendVerificationRequest rate limiting", () => {
       await expect(send(ALLOWLISTED_EMAIL)).rejects.toThrow(MagicLinkRateLimitError);
     }
 
-    expect(sendCallsTo(ADMIN_EMAIL)).toHaveLength(1);
+    // The 8 successful sends before the block each also fire their own
+    // magic_link_sent admin notification (M1 fix) — this test is only
+    // about the rate-limit-hit notification staying deduped to 1.
+    expect(adminCallsWithSubjectContaining("Magic-link rate limit")).toHaveLength(1);
 
     vi.useRealTimers();
   });
@@ -236,7 +254,7 @@ describe("auth.ts sendVerificationRequest rate limiting", () => {
     }
     await expect(send(ALLOWLISTED_EMAIL)).rejects.toThrow(MagicLinkRateLimitError);
 
-    const [adminCall] = sendCallsTo(ADMIN_EMAIL);
+    const [adminCall] = adminCallsWithSubjectContaining("Magic-link rate limit");
     expect(adminCall[0].textBody).toContain("per-email limit");
 
     vi.useRealTimers();
@@ -254,5 +272,53 @@ describe("auth.ts sendVerificationRequest rate limiting", () => {
     expect(keys.some((k) => k.startsWith("inbound:") || k.startsWith("beta_signup:"))).toBe(false);
 
     vi.useRealTimers();
+  });
+});
+
+describe("M1 fix — sign-in email no longer bcc's the admin with a live link", () => {
+  beforeEach(resetMocks);
+
+  const TEST_URL = "https://app.myreturnwindow.com/api/auth/callback/nodemailer?token=SECRET_TOKEN_VALUE";
+
+  it("buildSignInEmailPayload never includes a bcc field", () => {
+    const payload = buildSignInEmailPayload({ to: ALLOWLISTED_EMAIL, from: FROM_EMAIL, url: TEST_URL });
+    expect(payload).not.toHaveProperty("bcc");
+    expect(Object.keys(payload)).toEqual(["to", "from", "subject", "textBody"]);
+  });
+
+  it("buildSignInAdminNotification never includes the url/token", () => {
+    const { subject, body } = buildSignInAdminNotification({ email: ALLOWLISTED_EMAIL, signedInAt: new Date("2026-07-18T12:00:00Z") });
+    expect(subject).not.toContain(TEST_URL);
+    expect(body).not.toContain(TEST_URL);
+    expect(body).not.toContain("SECRET_TOKEN_VALUE");
+    expect(body).not.toContain("http");
+  });
+
+  it("buildSignInAdminNotification identifies who signed in and when", () => {
+    const { subject, body } = buildSignInAdminNotification({ email: ALLOWLISTED_EMAIL, signedInAt: new Date("2026-07-18T12:00:00Z") });
+    expect(subject).toContain(ALLOWLISTED_EMAIL);
+    expect(body).toContain(ALLOWLISTED_EMAIL);
+    expect(body).toContain("2026-07-18T12:00:00.000Z");
+  });
+
+  it("a successful send delivers a bcc-free email to the user and a separate link-free notification to the admin", async () => {
+    await sendVerificationRequest({ identifier: ALLOWLISTED_EMAIL, url: TEST_URL, request: makeRequest(freshIp()) });
+
+    const [userCall] = sendCallsTo(ALLOWLISTED_EMAIL);
+    expect(userCall[0]).not.toHaveProperty("bcc");
+    expect(userCall[0].textBody).toContain(TEST_URL); // the real recipient still gets the real link
+
+    const adminCalls = adminCallsWithSubjectContaining("Sign-in link sent");
+    expect(adminCalls).toHaveLength(1);
+    expect(adminCalls[0][0].textBody).not.toContain(TEST_URL);
+    expect(adminCalls[0][0].textBody).not.toContain("SECRET_TOKEN_VALUE");
+    expect(adminCalls[0][0].textBody).toContain(ALLOWLISTED_EMAIL);
+  });
+
+  it("a non-allowlisted email never triggers a magic_link_sent notification", async () => {
+    await sendVerificationRequest({ identifier: UNKNOWN_EMAIL, url: TEST_URL, request: makeRequest(freshIp()) });
+
+    expect(sendCallsTo(UNKNOWN_EMAIL)).toHaveLength(0); // silent skip, unchanged existing behavior
+    expect(adminCallsWithSubjectContaining("Sign-in link sent")).toHaveLength(0);
   });
 });

@@ -26,6 +26,32 @@
 ---
 
 ## 🔴 Now
+- [ ] **Item 1 — Fix M1: sign-in email no longer BCCs admin with a live magic link
+      (security work 2026-07-18, commit 1 of 3).** `bcc: process.env.ADMIN_EMAIL`
+      removed from the sign-in send (`lib/magicLinkRateLimit.ts`); replaced with a
+      separate `magic_link_sent` admin notification (who + when, no url/token),
+      persisted as an `AdminNotification` row. `SECURITY_AUDIT.md` M1 updated to
+      ✅ RESOLVED same commit. 5 new tests, 359 total passing, build clean.
+      Deployed. **Not Done until owner hand-verifies:** sign in, confirm no link
+      reaches the admin mailbox, confirm the notification does.
+- [ ] **Item 2 — L5 re-rate: nodemailer HIGH advisory in the runtime dependency
+      tree (security work 2026-07-18, commit 2 of 3).** `SECURITY_AUDIT.md`'s
+      claim "runtime deps came back clean" is false — `nodemailer` is a direct
+      dependency (`^7.0.13`) with a HIGH-severity advisory (GHSA-p6gq-j5cr-w38f).
+      Check for a clean version upgrade first; if none, verify (not assume)
+      whether the vulnerable code path is actually reachable given Postmark's
+      HTTP API is used instead of SMTP transport. Re-rate and correct the audit's
+      false runtime-tree claim either way.
+- [ ] **Item 3 — C1 dig: is entropy rotation the right remaining fix, or is
+      inbound trust the real gap? (security work 2026-07-18, commit 3 of 3,
+      analysis only, no code).** With webhook Basic Auth confirmed live, test
+      the premise that `inboundToken` entropy is the remaining gap rather than
+      assuming it. Check whether Postmark's inbound payload carries SPF/DKIM
+      results and whether they're checked; trace what injected mail can reach
+      (M2, L4); quantify real CUID enumeration risk at alpha scale. Write
+      findings directly into `SECURITY_AUDIT.md`'s C1 entry. If inbound trust
+      turns out to be the real issue, propose it as a new finding ID rather
+      than folding it into C1.
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
@@ -547,6 +573,19 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Security status reconciliation — diagnostic only, no fixes (2026-07-17).**
+      Full read against `SECURITY_AUDIT.md`/TASKS.md/live code, reported in-session
+      (not a written artifact). Findings: C1 was 3-of-4 remediated (webhook auth ✅,
+      token/secret separation ✅, rate limit ✅ via H1, entropy rotation ❌ open) —
+      TASKS.md's Done-section note overclaimed full resolution, the audit doc's
+      `⚠︎ C1` marker underclaimed by not crediting the 3 done parts. M1 was open
+      and untracked anywhere in TASKS.md, silently relocated (not fixed) from
+      `auth.ts` to `lib/magicLinkRateLimit.ts:121` by the unrelated H1 Phase 3
+      refactor (`903a9eb`). M2/M3/M4/L1/L2/L3/L4/L6 all confirmed unchanged since
+      the audit was written, none tracked in TASKS.md anywhere. L5's "runtime deps
+      came back clean" claim was contradicted by `npm audit --omit=dev`: `nodemailer`
+      is a direct dependency with a HIGH-severity advisory. This report is the
+      source that spawned the three-item security work above/below.
 - [x] **H1 rate limiting shipped and owner-verified live across all three
       public endpoints** — `/api/inbound` (30/hr per token), `/api/beta-signup`
       (3/hr per IP, plus per-email admin-notification dedup), and magic-link
@@ -1059,6 +1098,26 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- **Principle: never BCC credential-bearing email** (2026-07-18, M1 fix). A
+  BCC copies the *entire message*, including any live link, token, or code
+  inside it — there's no way to BCC "the fact that this happened" without
+  also BCCing the credential itself. If the admin needs visibility into a
+  sign-in/verification event, send a separate notification that names the
+  event (who, when) without including the sensitive payload — the
+  `createUser` event already did this correctly; M1's sign-in-email BCC
+  didn't, and has now been brought in line with it (`lib/magicLinkRateLimit.ts`,
+  `buildSignInAdminNotification`).
+  ⚠️ **Unresolved conflict, surfaced not resolved:** this principle directly
+  contradicts the existing decision below ("Gmail confirmation code will be
+  delivered to users via email... with owner BCC'd") and the 🟡 Next item
+  `Auto-email Gmail confirmation code` that depends on it — a Gmail
+  verification code is exactly the same shape of credential-bearing content
+  this principle says not to BCC. Not fixed here (out of M1's scope, and
+  the Gmail-code feature isn't built yet regardless) — flagging for an
+  explicit decision before that Next item is picked up: either the
+  BCC-avoidance principle gets an exception for time-boxed one-time codes,
+  or the auto-email design changes to a link/event-only admin notification
+  the same shape as M1's fix.
 - Magic-link rate limiting is loud, not silent, unlike the allowlist gate
   right below it in the same function. When a real user hits the 8/hr
   (per email) or 20/hr (per IP) limit, they see a message explaining

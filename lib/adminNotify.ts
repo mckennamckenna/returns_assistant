@@ -11,7 +11,8 @@ export type NotificationKind =
   | "weekly_digest_summary"
   | "inbound_volume_spike"
   | "inbound_rate_limited"
-  | "magic_link_rate_limited";
+  | "magic_link_rate_limited"
+  | "magic_link_sent";
 
 // Centralizes "never let an admin notification failure break the real flow
 // it's attached to" — a missing ADMIN_EMAIL or a Postmark hiccup here

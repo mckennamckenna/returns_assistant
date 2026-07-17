@@ -77,15 +77,19 @@ All three limits verified via unit tests exercising the real rate-limit arithmet
 
 ## MEDIUM
 
-### M1 — Admin is BCC'd on every user's sign-in email, which contains a live magic link
+### M1 — Admin is BCC'd on every user's sign-in email, which contains a live magic link — ✅ RESOLVED 2026-07-18
 **Class:** Authentication / Authorization (blast radius)
-**Location:** `auth.ts`, `sendVerificationRequest` — `bcc: process.env.ADMIN_EMAIL` on the sign-in email whose body contains the magic-link `url`.
+**Location:** `lib/magicLinkRateLimit.ts` (moved here from `auth.ts` by the unrelated H1 Phase 3 refactor, `903a9eb`, 2026-07-16 — the bcc itself was not touched by that commit, only relocated).
 
-**What it is.** Every user's sign-in email — magic link included — is copied to the admin mailbox. Anyone with access to that inbox (a mailbox breach, a forwarding rule, a shared/again-BCC'd address) obtains working sign-in links for arbitrary users and can complete login *as that user*, racing the real user for the single-use link.
+**Resolution.** The `bcc: process.env.ADMIN_EMAIL` on the sign-in send is removed. The admin now gets a separate notification — `notifyAdmin(..., "magic_link_sent", email)`, persisted as an `AdminNotification` row via the existing pattern — that identifies who signed in and when, and deliberately contains no url, token, or any part of the link:
+- `buildSignInEmailPayload()` — pure function, the user's email payload; has no `bcc` field.
+- `buildSignInAdminNotification({ email, signedInAt })` — pure function, returns `{ subject, body }` with no link/url/token, only the email address and an ISO timestamp.
 
-**Why it's Medium not higher.** The link is single-use and time-limited, and a legitimate admin already has broad visibility through the admin pages — so the marginal risk is specifically the *expansion of an admin-mailbox compromise into full user impersonation*, plus every user's login secret sitting in a second mailbox in plaintext.
+A compromised admin mailbox can no longer be escalated into completing login as an arbitrary user — the worst it now leaks is *that* and *when* someone signed in, not a usable credential.
 
-**Remediation direction.** Don't BCC credential-bearing emails. If the admin needs a "new sign-in" signal, send a separate notification that names the event without including the link (the `createUser` event already does exactly this for new users).
+**Verified:** unit tests (`__tests__/magicLinkRateLimit.test.ts`) assert the user-facing payload has no `bcc` key, the admin payload contains neither the test URL nor its token, and a non-allowlisted sign-in attempt (which never reaches the send path) triggers no `magic_link_sent` notification. 359 tests passing, `npm run build` clean. Per this project's "no jsdom" component-testing philosophy, both send-payload builders are pure functions tested directly, not through a mocked DOM. Deployed; **awaiting owner hand-verification** (sign in, confirm no link reaches the admin mailbox, confirm the notification does) before this can move to TASKS.md Done.
+
+**Original finding, for reference.** Every user's sign-in email — magic link included — was copied to the admin mailbox. Anyone with access to that inbox (a mailbox breach, a forwarding rule, a shared/again-BCC'd address) could obtain working sign-in links for arbitrary users and complete login *as that user*, racing the real user for the single-use link. Rated Medium, not higher, because the link is single-use/time-limited and a legitimate admin already has broad visibility through the admin pages — the marginal risk was specifically the *expansion of an admin-mailbox compromise into full user impersonation*.
 
 ### M2 — AI-extracted "return portal" URL is surfaced as a trusted link (phishing via prompt injection)
 **Class:** Prompt injection / XSS-adjacent
@@ -137,7 +141,7 @@ All three limits verified via unit tests exercising the real rate-limit arithmet
 ### Suggested order of work
 1. **C1** — authenticate the inbound webhook (Postmark Basic Auth / secret) — this is the one genuinely exploitable-at-scale issue.
 2. **H1** — ✅ done 2026-07-16 — rate limiting added (inbound, beta-signup, sign-in send) and the beta-signup admin notification deduped. See H1's own entry above for detail.
-3. **M1–M4** — stop BCimplifying magic links to admin, treat AI URLs as untrusted, move the admin gate off the query string, and stop logging plaintext payloads.
+3. **M1–M4** — M1 ✅ done 2026-07-18 (see M1's own entry above), awaiting owner verification. Remaining: treat AI URLs as untrusted, move the admin gate off the query string, and stop logging plaintext payloads.
 4. **L1–L6** — hardening and hygiene as time allows.
 
 *This audit reviews the code as written; it does not cover Vercel/Postmark/Neon platform configuration (e.g. whether webhook Basic Auth or a WAF is already set at the platform layer), which should be confirmed separately.*

@@ -22,6 +22,45 @@ import { rateLimit } from "@/lib/rateLimit";
 // unlike the allowlist gate below.
 export class MagicLinkRateLimitError extends AuthError {}
 
+// Pure so SECURITY_AUDIT.md's M1 fix (no bcc, no link ever reaches the
+// admin mailbox) is verifiable without mocking sendEmail/Postmark — see
+// __tests__/magicLinkRateLimit.test.ts.
+export function buildSignInEmailPayload({
+  to,
+  from,
+  url,
+}: {
+  to: string;
+  from: string;
+  url: string;
+}): { to: string; from: string; subject: string; textBody: string } {
+  return {
+    to,
+    from,
+    subject: "Sign in to Return Window",
+    textBody: `Click the link below to sign in to Return Window.\n\n${url}\n\nIf you didn't request this, you can safely ignore this email — no account changes were made.`,
+  };
+}
+
+// Replaces the old bcc: process.env.ADMIN_EMAIL on the sign-in send
+// (SECURITY_AUDIT.md M1 — a BCC'd sign-in email put a live, single-use
+// magic link into a second mailbox, letting anyone with access to it race
+// the real user for login). This carries no url/token — only that a
+// sign-in happened, to whom, and when — so a compromised admin mailbox can
+// no longer be escalated into impersonating any user who signs in.
+export function buildSignInAdminNotification({
+  email,
+  signedInAt,
+}: {
+  email: string;
+  signedInAt: Date;
+}): { subject: string; body: string } {
+  return {
+    subject: `Sign-in link sent: ${email}`,
+    body: `${email} was sent a sign-in link at ${signedInAt.toISOString()}. (This notification deliberately excludes the link itself — see SECURITY_AUDIT.md M1.)`,
+  };
+}
+
 const MAGIC_LINK_EMAIL_RATE_LIMIT = 8;
 const MAGIC_LINK_IP_RATE_LIMIT = 20;
 const MAGIC_LINK_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
@@ -115,11 +154,14 @@ export async function sendVerificationRequest({
     }
     return;
   }
-  await sendEmail({
-    to: identifier,
-    from: (process.env.LOGIN_FROM_EMAIL ?? process.env.REMINDER_FROM_EMAIL)!,
-    bcc: process.env.ADMIN_EMAIL,
-    subject: "Sign in to Return Window",
-    textBody: `Click the link below to sign in to Return Window.\n\n${url}\n\nIf you didn't request this, you can safely ignore this email — no account changes were made.`,
-  });
+  await sendEmail(
+    buildSignInEmailPayload({
+      to: identifier,
+      from: (process.env.LOGIN_FROM_EMAIL ?? process.env.REMINDER_FROM_EMAIL)!,
+      url,
+    }),
+  );
+
+  const { subject, body } = buildSignInAdminNotification({ email, signedInAt: new Date() });
+  await notifyAdmin(subject, body, "magic_link_sent", email);
 }
