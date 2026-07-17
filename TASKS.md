@@ -43,16 +43,34 @@
       rows don't pre-exist a key the way a `User` row always does; owner
       confirmed this is fine) + migration + 8 unit tests, inert (nothing
       wired in yet).
-      **Phase 1 — in progress this session:** wire `/api/inbound` only
-      (429 + `Retry-After`, no Email row/extraction/volume-counter touch on
-      block, new `inbound_rate_limited` notification kind deduped 1/hr per
-      token). Stop after deploy + curl verification; do not proceed to
-      Phase 2 until owner confirms a real forwarded email still lands.
-      Phase 2 (`/api/beta-signup`) and Phase 3 (magic-link send) not
-      started. Explicitly out of scope this session: beta-signup,
-      magic-link, M-tier/L-tier findings, and rate limiting any
-      authenticated/session-scoped endpoint (different abuse profile, own
-      decision later).
+      **Phase 1 — code shipped (`9357f5b`), deployed, awaiting owner
+      verification before Phase 2.** `/api/inbound` now rate-limits at
+      30/hr per `inboundToken` (429 + `Retry-After`, no Email
+      row/extraction/volume-counter touch on block, new
+      `inbound_rate_limited` notification kind deduped 1/hr per token —
+      `hasRecentNotification` gained an optional `windowMs` param for this,
+      defaults to the existing 24h for every other caller). 5 new tests
+      exercise the real rate-limit arithmetic through the route (30 succeed,
+      31st blocks, window rollover resets, dedup fires once across 5 rapid
+      rejections, key carries the `inbound:` prefix); 330 total passing,
+      build clean. Deploy confirmed Ready + aliased to
+      `app.myreturnwindow.com` (`dpl_7bWox7hssc4RSy1pcqzSrCHa47Zu`).
+      **Could not complete the planned live 31-request curl stress test
+      myself** — `INBOUND_WEBHOOK_PASSWORD` came back empty from
+      `vercel env pull`, consistent with being a write-only/sensitive var
+      (matches HISTORY.md: shown to owner once, never logged again).
+      Owner's call: skip the live stress test (the unit tests already prove
+      the 30/31 boundary; a real 31-request burst against production proves
+      wiring, not arithmetic) — instead owner runs a single real curl
+      locally (credentials + their own `inboundToken` never leave their
+      machine) to confirm the endpoint still returns 200 under normal load,
+      then forwards one real test email through Postmark to confirm it
+      still lands in the dashboard. **Awaiting both before Phase 2.** Do not
+      proceed to Phase 2 (`/api/beta-signup`) until confirmed.
+      Phase 3 (magic-link send) not started. Explicitly out of scope this
+      session: beta-signup, magic-link, M-tier/L-tier findings, and rate
+      limiting any authenticated/session-scoped endpoint (different abuse
+      profile, own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
