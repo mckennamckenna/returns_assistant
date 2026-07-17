@@ -48,7 +48,24 @@
       separate, non-overlay implementation (inline pill next to text, no
       icon), unaffected by and unrelated to this fix. 359 tests still
       passing (no test coverage for this — CSS/layout, no jsdom per
-      component testing philosophy), `npm run build` clean. **Not Done until
+      component testing philosophy), `npm run build` clean.
+      **Follow-up 2026-07-17:** owner found the fix correct in Safari iOS
+      but Bell still nudged relative to Home/Gear in Chrome iOS — a
+      cross-browser rendering difference, not a failed fix. Root cause:
+      Bell is the only icon wrapped in an extra `<span>` (Home/Gear are bare
+      `<svg>` flex items); that wrapper inherits line-height with no
+      explicit value, and Chrome/Safari disagree on how much of that leaks
+      into the computed box height of a nested inline-flex flex item.
+      Considered removing the wrapper entirely (anchor the badge to `Link`,
+      which already has `relative`) so Bell's DOM matches Home/Gear exactly
+      — rejected: the badge's `-top-1/-right-1.5` offsets are only valid
+      measured from the icon's own tight box; `Link` is a much wider
+      `flex-1` tap target with the icon centered inside it, so anchoring
+      there would put the badge tens of pixels from the actual bell, and
+      that distance isn't expressible as a fixed offset since it varies
+      with viewport width. Applied the smaller, correct fallback instead:
+      added `leading-none` to the wrapper to cancel the line-height
+      inheritance directly. **Not Done until
       owner verifies live on their phone.**
 
       **2. "This will stop all reminders" caption scoping — fix, already
