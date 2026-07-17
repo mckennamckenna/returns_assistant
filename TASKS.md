@@ -83,11 +83,28 @@
       the existing `notifyAdmin("beta_signup", ...)` call via
       `hasRecentNotification` (24h window, mirrors `allowlist_rejection`) —
       today every signup attempt emails the admin regardless of repeats.
-      8 new tests, 338 total passing; `npm run build` clean. **Awaiting
-      owner verification** (a real signup attempt + confirming no admin
-      email floods) **before Phase 3.** Phase 3 (magic-link send) not
-      started this session. Explicitly out of scope: magic-link,
-      M-tier/L-tier findings, authenticated/session-scoped rate limiting
+      8 new tests, 338 total passing; `npm run build` clean.
+      **Correction requested this session:** owner review flagged the
+      `beta_signup` dedup as "per-kind, one email per 24h regardless of
+      unique signups" and asked for per-email dedup instead (rate limit
+      stays the flood protection; dedup should shape visibility, not
+      suppress it). **Diagnostic check before any change: the shipped
+      code already dedups per kind+email, not per kind alone** —
+      `hasRecentNotification(kind, relatedEmail, windowMs)`'s query is
+      `where: { kind, relatedEmail, attemptedAt: {...} }`, and
+      `relatedEmail` is a required (non-optional) parameter for every
+      existing caller, including beta-signup's own
+      `hasRecentNotification("beta_signup", email)` call. Two different
+      emails already get two separate notifications today; only repeats
+      of the *same* email within 24h get deduped — which is exactly the
+      requested behavior, already shipped. Reported to owner before
+      writing any code, per diagnostic-first habit — awaiting owner
+      confirmation on how to proceed (likely: no code change needed,
+      just the requested Decisions log entry documenting the
+      per-kind-vs-per-identifier dedup principle for future callers).
+      Phase 3 (magic-link send) not started this session. Explicitly out
+      of scope: magic-link, M-tier/L-tier findings,
+      authenticated/session-scoped rate limiting
       (different abuse profile, own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
