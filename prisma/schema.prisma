@@ -297,6 +297,19 @@ model DiscardLog {
   occurredAt DateTime @default(now())
 }
 
+// Fixed-window rate-limit counters (SECURITY_AUDIT.md H1). `key` encodes both
+// the scope and the identity being limited (e.g. "inbound:<inboundToken>",
+// "beta_signup_ip:<ip>", "magic_link_email:<email>") so every caller of
+// lib/rateLimit.ts shares one table without collisions. Fixed-window, not
+// true sliding-window — see lib/rateLimit.ts for why that approximation is
+// fine at this scale. Swept by the existing cron alongside other cleanup
+// steps once a row's window is older than the longest window in use.
+model RateLimitCounter {
+  key         String   @id
+  windowStart DateTime
+  count       Int
+}
+
 // Marketing-page beta signups, collected pre-auth from myreturnwindow.com.
 // Unrelated to User — these are prospects, not accounts.
 model BetaSignup {

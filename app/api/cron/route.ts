@@ -14,6 +14,7 @@ import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
 import { runRefundCheckinReminders } from "@/lib/refundCheckin";
 import { buildActionLink } from "@/lib/actionLinks";
 import { autoArchiveOrderWhere } from "@/lib/autoArchive";
+import { rateLimitSweepWhere } from "@/lib/rateLimit";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 
 export const dynamic = "force-dynamic";
@@ -174,6 +175,13 @@ export async function GET(request: NextRequest) {
     data: { archivedAt: new Date() },
   });
 
+  // Sweep stale rate-limit counter rows (SECURITY_AUDIT.md H1) — content-free
+  // cleanup, no admin notification needed, same reasoning as the hard-delete
+  // step above.
+  const { count: rateLimitRowsSwept } = await prisma.rateLimitCounter.deleteMany({
+    where: rateLimitSweepWhere(today),
+  });
+
   // Each order's reminder goes to its own owner now, not a single global
   // recipient — see BUILD.md Milestone 8. Archived/deleted orders are excluded.
   const orders = await prisma.order.findMany({
@@ -303,6 +311,7 @@ export async function GET(request: NextRequest) {
     force,
     hardDeleted,
     autoArchived,
+    rateLimitRowsSwept,
     totalOrders: orders.length,
     sent,
     skippedAlreadySent,
