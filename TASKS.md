@@ -26,16 +26,8 @@
 ---
 
 ## 🔴 Now
-- [ ] **Item 1 — Fix M1: sign-in email no longer BCCs admin with a live magic link
-      (security work 2026-07-18, commit 1 of 3).** `bcc: process.env.ADMIN_EMAIL`
-      removed from the sign-in send (`lib/magicLinkRateLimit.ts`); replaced with a
-      separate `magic_link_sent` admin notification (who + when, no url/token),
-      persisted as an `AdminNotification` row. `SECURITY_AUDIT.md` M1 updated to
-      ✅ RESOLVED same commit. 5 new tests, 359 total passing, build clean.
-      Deployed. **Not Done until owner hand-verifies:** sign in, confirm no link
-      reaches the admin mailbox, confirm the notification does.
 - [ ] **Item 2 — L5 re-rate: nodemailer HIGH advisory in the runtime dependency
-      tree (security work 2026-07-18, commit 2 of 3).** `SECURITY_AUDIT.md`'s
+      tree (security work 2026-07-17, commit 2 of 3).** `SECURITY_AUDIT.md`'s
       claim "runtime deps came back clean" is false — `nodemailer` is a direct
       dependency (`^7.0.13`) with a HIGH-severity advisory (GHSA-p6gq-j5cr-w38f).
       Check for a clean version upgrade first; if none, verify (not assume)
@@ -43,7 +35,7 @@
       HTTP API is used instead of SMTP transport. Re-rate and correct the audit's
       false runtime-tree claim either way.
 - [ ] **Item 3 — C1 dig: is entropy rotation the right remaining fix, or is
-      inbound trust the real gap? (security work 2026-07-18, commit 3 of 3,
+      inbound trust the real gap? (security work 2026-07-17, commit 3 of 3,
       analysis only, no code).** With webhook Basic Auth confirmed live, test
       the premise that `inboundToken` entropy is the remaining gap rather than
       assuming it. Check whether Postmark's inbound payload carries SPF/DKIM
@@ -573,6 +565,11 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **M1 fixed and owner-verified live 2026-07-17** — sign-in email no longer
+      BCCs the admin with a live magic link; separate link-free admin
+      notification confirmed working, second allowlisted user's sign-in
+      confirmed no email reached the admin mailbox. `SECURITY_AUDIT.md` M1
+      closed. Full detail in HISTORY.md.
 - [x] **Security status reconciliation — diagnostic only, no fixes (2026-07-17).**
       Full read against `SECURITY_AUDIT.md`/TASKS.md/live code, reported in-session
       (not a written artifact). Findings: C1 was 3-of-4 remediated (webhook auth ✅,
@@ -1098,7 +1095,7 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
-- **Principle: never BCC credential-bearing email** (2026-07-18, M1 fix). A
+- **Principle: never BCC credential-bearing email** (2026-07-17, M1 fix). A
   BCC copies the *entire message*, including any live link, token, or code
   inside it — there's no way to BCC "the fact that this happened" without
   also BCCing the credential itself. If the admin needs visibility into a

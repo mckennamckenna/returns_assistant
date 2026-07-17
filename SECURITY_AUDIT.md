@@ -77,7 +77,7 @@ All three limits verified via unit tests exercising the real rate-limit arithmet
 
 ## MEDIUM
 
-### M1 — Admin is BCC'd on every user's sign-in email, which contains a live magic link — ✅ RESOLVED 2026-07-18
+### M1 — Admin is BCC'd on every user's sign-in email, which contains a live magic link — ✅ RESOLVED, owner-verified live 2026-07-17
 **Class:** Authentication / Authorization (blast radius)
 **Location:** `lib/magicLinkRateLimit.ts` (moved here from `auth.ts` by the unrelated H1 Phase 3 refactor, `903a9eb`, 2026-07-16 — the bcc itself was not touched by that commit, only relocated).
 
@@ -87,7 +87,9 @@ All three limits verified via unit tests exercising the real rate-limit arithmet
 
 A compromised admin mailbox can no longer be escalated into completing login as an arbitrary user — the worst it now leaks is *that* and *when* someone signed in, not a usable credential.
 
-**Verified:** unit tests (`__tests__/magicLinkRateLimit.test.ts`) assert the user-facing payload has no `bcc` key, the admin payload contains neither the test URL nor its token, and a non-allowlisted sign-in attempt (which never reaches the send path) triggers no `magic_link_sent` notification. 359 tests passing, `npm run build` clean. Per this project's "no jsdom" component-testing philosophy, both send-payload builders are pure functions tested directly, not through a mocked DOM. Deployed; **awaiting owner hand-verification** (sign in, confirm no link reaches the admin mailbox, confirm the notification does) before this can move to TASKS.md Done.
+**Verified:** unit tests (`__tests__/magicLinkRateLimit.test.ts`) assert the user-facing payload has no `bcc` key, the admin payload contains neither the test URL nor its token, and a non-allowlisted sign-in attempt (which never reaches the send path) triggers no `magic_link_sent` notification. 359 tests passing, `npm run build` clean. Per this project's "no jsdom" component-testing philosophy, both send-payload builders are pure functions tested directly, not through a mocked DOM.
+
+**Owner-verified live in production, 2026-07-17:** a second allowlisted user signed in successfully; the admin mailbox received the `magic_link_sent` notification with no link present, and received no sign-in email at all. Independently confirmed at the data layer too — the persisted `AdminNotification` row was queried directly (not just the test suite): `deliveryStatus: "sent"`, body contains no `http://`/`https://`. Closed.
 
 **Original finding, for reference.** Every user's sign-in email — magic link included — was copied to the admin mailbox. Anyone with access to that inbox (a mailbox breach, a forwarding rule, a shared/again-BCC'd address) could obtain working sign-in links for arbitrary users and complete login *as that user*, racing the real user for the single-use link. Rated Medium, not higher, because the link is single-use/time-limited and a legitimate admin already has broad visibility through the admin pages — the marginal risk was specifically the *expansion of an admin-mailbox compromise into full user impersonation*.
 
@@ -141,7 +143,7 @@ A compromised admin mailbox can no longer be escalated into completing login as 
 ### Suggested order of work
 1. **C1** — authenticate the inbound webhook (Postmark Basic Auth / secret) — this is the one genuinely exploitable-at-scale issue.
 2. **H1** — ✅ done 2026-07-16 — rate limiting added (inbound, beta-signup, sign-in send) and the beta-signup admin notification deduped. See H1's own entry above for detail.
-3. **M1–M4** — M1 ✅ done 2026-07-18 (see M1's own entry above), awaiting owner verification. Remaining: treat AI URLs as untrusted, move the admin gate off the query string, and stop logging plaintext payloads.
+3. **M1–M4** — M1 ✅ done and owner-verified live 2026-07-17 (see M1's own entry above). Remaining: treat AI URLs as untrusted, move the admin gate off the query string, and stop logging plaintext payloads.
 4. **L1–L6** — hardening and hygiene as time allows.
 
 *This audit reviews the code as written; it does not cover Vercel/Postmark/Neon platform configuration (e.g. whether webhook Basic Auth or a WAF is already set at the platform layer), which should be confirmed separately.*

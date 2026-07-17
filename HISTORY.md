@@ -5,6 +5,61 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-17 — M1 fixed and owner-verified live: sign-in email no longer BCCs the admin (`505c7fb`)
+
+Closes `SECURITY_AUDIT.md`'s M1 finding. The sign-in send (`lib/magicLinkRateLimit.ts`,
+where the H1 Phase 3 refactor had incidentally relocated it from `auth.ts` without
+touching it) carried `bcc: process.env.ADMIN_EMAIL` — every sign-in email, live
+magic link included, was copied to the admin mailbox. Anyone with access to that
+mailbox could complete login as any user by racing them for the single-use link.
+
+**Investigation before the fix.** Audited every `bcc` and `ADMIN_EMAIL` reference
+in the codebase first, per the session's explicit ask ("is any OTHER
+credential-bearing email BCC'd anywhere"). Found exactly one BCC site
+(`lib/magicLinkRateLimit.ts:121`) and confirmed `lib/postmark.ts`'s `bcc` param
+is just the generic mechanism, not a second usage — no second finding to report.
+
+**Fix.** Removed the bcc. Added a separate admin notification —
+`notifyAdmin(subject, body, "magic_link_sent", email)`, new `NotificationKind`,
+persisted as an `AdminNotification` row via the existing pattern — that names
+who signed in and when, with no url/token/link. Two pure functions extracted so
+this is unit-testable without jsdom, per the project's component-testing
+philosophy: `buildSignInEmailPayload()` (the real user email, still contains the
+real link, has no `bcc` field) and `buildSignInAdminNotification({ email,
+signedInAt })` (the admin notification, an ISO timestamp + email only). 5 new
+tests added; 2 pre-existing tests in the same file needed fixing because the new
+per-successful-send admin notification changed call counts they were implicitly
+relying on (`admin@example.com` also matches a `.includes("@example.com")`
+filter one test used, and another destructured "the first admin call" assuming
+only the rate-limit notification could produce one) — both switched to filtering
+by notification subject instead of raw recipient/position. 359 total tests
+passing, `npm run build` clean.
+
+**Verification — two layers.** (1) Unit tests assert the properties directly:
+no `bcc` key on the user payload, no url/token in the admin payload, no
+notification at all for a non-allowlisted attempt (which never reaches the send
+path). (2) Live production: after the fix deployed, a real `AdminNotification`
+row was queried directly from the DB (not just observed via the test suite) —
+`deliveryStatus: "sent"`, timestamp matched a real sign-in attempt, body
+contained no `http://`/`https://`. Owner then independently verified end-to-end
+in production 2026-07-17: a second allowlisted user (`mckenna@metaxmoda.com`,
+added via `scripts/addAllowedSignIn.ts` mid-session) signed in successfully; the
+admin mailbox received the link-free `magic_link_sent` notification and received
+**no** sign-in email at all. `SECURITY_AUDIT.md` M1 closed same-day.
+
+**Also flagged, not resolved.** `TASKS.md`'s Decisions log records the general
+principle this fix embodies ("never BCC credential-bearing email") and explicitly
+flags — without resolving — that it conflicts with the existing "Gmail
+confirmation code will be delivered via email with owner BCC'd" decision and the
+still-unbuilt `Auto-email Gmail confirmation code` Next item that depends on it.
+Left for an explicit call before that item is picked up.
+
+Committed (`505c7fb`), pushed, deployed (`dpl_2jsqLVFFAJbPHKT8KNxbTuEk1gAt`,
+confirmed Ready and aliased to both `app.myreturnwindow.com` and
+`returns-assistant.vercel.app`).
+
+---
+
 ## 2026-07-16 — H1 rate limiting shipped across all three public endpoints, staged rollout (`9ea5ced`, `9357f5b`, `1f073ad`, `b44ac0f`, `903a9eb`, owner-verified live)
 
 Closes `SECURITY_AUDIT.md`'s H1 finding ("no rate limiting or abuse controls
