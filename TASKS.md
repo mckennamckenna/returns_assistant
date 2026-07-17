@@ -68,9 +68,12 @@
       still lands in the dashboard. **Verified live 2026-07-16 by owner**
       (Postmark activity log + a real forwarded email landing in the
       dashboard) — Phase 1 done.
-      **Phase 2 — in progress this session:** wire `/api/beta-signup` (3/hr
-      per IP, key `beta_signup:<ip>`, IP read from the existing
-      `x-vercel-forwarded-for` `getClientIp` pattern already used by
+      **Phase 2 — code shipped (`1f073ad`, mislabeled "Phase 3" in the
+      commit message — TASKS.md's numbering here is the correct one),
+      deployed (`dpl_6kEWmKMqDwYujC9D99NHuty342rM`, confirmed Ready),
+      awaiting owner verification before Phase 3.** `/api/beta-signup` now
+      rate-limits at 3/hr per IP, key `beta_signup:<ip>`, IP read from the
+      existing `x-vercel-forwarded-for` `getClientIp` pattern already used by
       `app/api/action/{archive,returned}/route.ts` — not the
       x-forwarded-for/x-real-ip pair originally suggested, since this
       codebase already has an established, deliberate convention here;
@@ -80,10 +83,12 @@
       the existing `notifyAdmin("beta_signup", ...)` call via
       `hasRecentNotification` (24h window, mirrors `allowlist_rejection`) —
       today every signup attempt emails the admin regardless of repeats.
-      Stop after this phase; do not touch magic-link send (Phase 3) this
-      session. Explicitly out of scope: magic-link, M-tier/L-tier findings,
-      authenticated/session-scoped rate limiting (different abuse profile,
-      own decision later).
+      8 new tests, 338 total passing; `npm run build` clean. **Awaiting
+      owner verification** (a real signup attempt + confirming no admin
+      email floods) **before Phase 3.** Phase 3 (magic-link send) not
+      started this session. Explicitly out of scope: magic-link,
+      M-tier/L-tier findings, authenticated/session-scoped rate limiting
+      (different abuse profile, own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
