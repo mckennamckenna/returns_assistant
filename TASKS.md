@@ -110,10 +110,38 @@
       on per-kind-vs-per-identifier dedup granularity, referencing this
       as the reason it's worth writing down. 341 total tests passing,
       `npm run build` clean.
-      Phase 3 (magic-link send) not started this session. Explicitly out
-      of scope: magic-link, M-tier/L-tier findings,
-      authenticated/session-scoped rate limiting
-      (different abuse profile, own decision later).
+      **Phase 3 — in progress this session:** magic-link send
+      (`auth.ts`'s `sendVerificationRequest`), the last H1 endpoint. Two
+      limits, both must pass: 8/hr per email (`magic_link_email:<email>`),
+      20/hr per IP (`magic_link_ip:<ip>`). Owner decisions on the record:
+      (1) loud, not silent — user sees "You've requested several sign-in
+      links recently. Please wait a few minutes and try again." on block,
+      unlike the allowlist gate's silent-success pattern, because this app
+      has no password to protect via silence and a magic-link app failing
+      silently is worse UX than a small, non-leaking rate-limit message;
+      (2) 8/hr chosen over 5 (too tight for real resend behavior) or 10
+      (looser than needed); (3) admin notified on a block, deduped
+      per-email/24h (same shape as `beta_signup`), but only when the email
+      is allowlisted — an unknown email hitting the limit is attacker
+      noise the existing `allowlist_rejection` path already covers, not a
+      second alert. Diagnostic finding before writing code: IP is already
+      available via the `request: Request` param Auth.js v5 passes into
+      `sendVerificationRequest` — no surgery needed to thread it through
+      `app/login/actions.ts`. Design note: getting the block signal back
+      to the login form required a small, contained addition — a custom
+      `AuthError` subclass (`MagicLinkRateLimitError`, Auth.js's own
+      supported extension point for distinguishing sign-in failures)
+      thrown on block and caught in `app/login/actions.ts` — not
+      pre-approved verbatim in the brief, judged not to be "meaningful
+      surgery" (additive, doesn't touch session handling, allowlist logic,
+      or other auth paths), called out here for the record.
+      `sendVerificationRequest`'s body extracted to a named exported
+      function in `auth.ts` (same behavior, needed for unit testing —
+      mirrors how Phase 1/2 test the exported route handlers directly).
+      Explicitly out of scope this session: other auth paths (`createUser`,
+      session handling), the allowlist itself, M-tier/L-tier findings,
+      authenticated/session-scoped rate limiting (different abuse profile,
+      own decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
