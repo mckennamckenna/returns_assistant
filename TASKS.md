@@ -26,14 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **Item 2 — L5 re-rate: nodemailer HIGH advisory in the runtime dependency
-      tree (security work 2026-07-17, commit 2 of 3).** `SECURITY_AUDIT.md`'s
-      claim "runtime deps came back clean" is false — `nodemailer` is a direct
-      dependency (`^7.0.13`) with a HIGH-severity advisory (GHSA-p6gq-j5cr-w38f).
-      Check for a clean version upgrade first; if none, verify (not assume)
-      whether the vulnerable code path is actually reachable given Postmark's
-      HTTP API is used instead of SMTP transport. Re-rate and correct the audit's
-      false runtime-tree claim either way.
 - [ ] **Item 3 — C1 dig: is entropy rotation the right remaining fix, or is
       inbound trust the real gap? (security work 2026-07-17, commit 3 of 3,
       analysis only, no code).** With webhook Basic Auth confirmed live, test
@@ -565,6 +557,17 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **L5 re-rated 2026-07-17 (docs-only, no code change)** — `SECURITY_AUDIT.md`'s
+      "runtime deps came back clean" claim was false; `nodemailer` (direct
+      dependency) carries a HIGH advisory. No clean upgrade exists (next-auth's
+      beta pin caps it at `^7.0.7`, and 7.x was never patched). Confirmed via
+      source-level trace, not the code comment, that the vulnerable
+      `createTransport`/`sendMail` path is unreachable — our own
+      `sendVerificationRequest` override replaces it before any request is
+      handled. Re-rated LOW but flagged as a fragile LOW, not closed outright —
+      revisit alongside the next-auth-stable upgrade (L6). Full detail in
+      SECURITY_AUDIT.md's L5 entry itself (small enough not to duplicate into
+      HISTORY.md).
 - [x] **M1 fixed and owner-verified live 2026-07-17** — sign-in email no longer
       BCCs the admin with a live magic link; separate link-free admin
       notification confirmed working, second allowlisted user's sign-in
