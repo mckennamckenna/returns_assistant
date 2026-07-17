@@ -109,6 +109,34 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **"This will stop all reminders" caption is misleading on the dashboard
+      card when Start return is also visible — diagnostic completed 2026-07-17,
+      confirmed copy bug, not a behavior bug.** Traced `Start return` end to
+      end: `StartReturnButton` → `markReturnRequestedAction` →
+      `advanceDisplayStatus(orderId, "return_requested")` →
+      `buildStatusTransitionData` sets **only** `{ displayStatus:
+      "return_requested" }` — no `archivedAt`, no other flag. The reminder
+      pipeline's `SKIP_DISPLAY_STATUSES` (`lib/reminders.ts`) deliberately
+      excludes `return_requested`, with an explicit comment: "the window is
+      still open and the package may not have shipped yet, so the reminder
+      still matters." (The only thing that actually stops reminders is the
+      separate `order.status === "return_started"`, set by
+      `computeOrderStatus()` only when a real `return_label` email is linked —
+      unrelated to the manual button.) So **Start return does not stop
+      reminders — confirmed correct, working as designed.**
+      `KEPT_WARNING_CAPTION` (`lib/displayStatus.ts`) was spec'd in BUILD.md's
+      "Add Mark kept" milestone explicitly and only for "I'm keeping this," in
+      all three surfaces (card, list/table, detail) — never scoped to Start
+      return in any spec or Decisions log entry. On the order detail page it's
+      correctly nested inside Keeping-it's own `<form>`, unambiguous. On the
+      **dashboard card** (`OrderCard.tsx`), it's rendered as a sibling `<p>`
+      below the *entire* button row rather than scoped inside Keeping-it's own
+      markup — so on the common case where an order is `ordered`/`shipped`
+      rank (both `canStartReturn` and `canKeep` true), it visually reads as
+      captioning both buttons even though it's gated only by `canKeep`.
+      Proposed fix (not applied — report-only diagnostic): move the caption
+      inside `OrderCard.tsx`'s `{canKeep && (...)}` block, matching the detail
+      page's already-correct scoping.
 - [ ] **`vitest-nextauth-import-fragility` needs its own investigation** —
       promoted from Known Issues 2026-07-17 per its own stated graduation
       criteria ("if a third instance shows up, it graduates from 'pre-existing
