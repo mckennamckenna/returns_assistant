@@ -55,6 +55,10 @@ export async function POST(req: NextRequest) {
   // script repeatedly submitting the same already-registered email can't
   // flood the admin inbox even though it can't create duplicate rows.
   // Same pattern as auth.ts's allowlist_rejection.
+  // Deduped per-email via hasRecentNotification — one admin notification
+  // per unique signup email per 24h, not per-kind: a different email
+  // always gets its own notification, since real signups are high-signal
+  // pre-alpha and the rate limit above is the actual flood protection.
   const subject = "New beta signup";
   const notifyBody = `New beta signup: ${email}`;
   if (await hasRecentNotification("beta_signup", email)) {

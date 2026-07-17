@@ -98,10 +98,18 @@
       emails already get two separate notifications today; only repeats
       of the *same* email within 24h get deduped — which is exactly the
       requested behavior, already shipped. Reported to owner before
-      writing any code, per diagnostic-first habit — awaiting owner
-      confirmation on how to proceed (likely: no code change needed,
-      just the requested Decisions log entry documenting the
-      per-kind-vs-per-identifier dedup principle for future callers).
+      writing any code, per diagnostic-first habit. **Outcome: tests +
+      documentation, not a bug fix** — owner confirmed the review
+      assumption (per-kind dedup) was the wrong read, not the code.
+      Landed: 3 behavioral tests against the real `hasRecentNotification`
+      logic (same email × 4 → 1 admin email; two different emails → 2;
+      same email again after the 24h window → fires again) in
+      `__tests__/betaSignupNotificationDedup.test.ts`, a one-line comment
+      at the beta-signup call site making the per-email intent visible
+      (not just implicit in argument order), and the Decisions log entry
+      on per-kind-vs-per-identifier dedup granularity, referencing this
+      as the reason it's worth writing down. 341 total tests passing,
+      `npm run build` clean.
       Phase 3 (magic-link send) not started this session. Explicitly out
       of scope: magic-link, M-tier/L-tier findings,
       authenticated/session-scoped rate limiting
@@ -1088,6 +1096,20 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- Admin notification dedup granularity depends on the signal's meaning.
+  Attack-shaped signals (`allowlist_rejection`, `inbound_rate_limited`) dedup
+  per-kind — one alert per window is enough. Real-user signals
+  (`beta_signup`) dedup per-user identifier — every real user is worth its
+  own alert. The rate limit at the endpoint is the flood protection; the
+  notification dedup shapes visibility, not security. Written down after a
+  2026-07-16 review flagged `beta_signup`'s dedup as "per-kind, one email
+  per 24h regardless of unique signups" — the actual shipped code was
+  already correct (`hasRecentNotification`'s `relatedEmail` param makes
+  every existing caller dedup per kind+identifier, not kind alone), but
+  that correctness wasn't obvious from the code shape, and testing with
+  only a single repeated email can't distinguish the two designs from each
+  other. Documenting the principle so a future caller doesn't have to
+  re-derive it under review.
 - List view is the primary interaction surface for routine order actions; card/detail
   view is for orders needing attention. Buttons for routine transitions (returning,
   keeping) belong in list view.
