@@ -17,7 +17,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const alertCount = (await getAlertOrders(session.user.id)).length;
 
   return (
-    <div className="flex min-h-screen">
+    // min-h-[100vh] first as a fallback for browsers without dvh support
+    // (Safari <15.4, Chrome <108) — min-h-[100dvh] overrides it where
+    // supported. Swapped from plain min-h-screen (2026-07-17) as an
+    // experiment for the Chrome-iOS bell-baseline bug: 100vh doesn't track
+    // the actual visible viewport through iOS's URL-bar collapse/expand
+    // animation, 100dvh does.
+    <div className="flex min-h-[100vh] min-h-[100dvh]">
       <Sidebar alertCount={alertCount} accountLabel={session.user.email ?? "Your account"} />
       <BottomNav alertCount={alertCount} />
       {children}

@@ -65,8 +65,38 @@
       that distance isn't expressible as a fixed offset since it varies
       with viewport width. Applied the smaller, correct fallback instead:
       added `leading-none` to the wrapper to cancel the line-height
-      inheritance directly. **Not Done until
-      owner verifies live on their phone.**
+      inheritance directly.
+      **Re-diagnosis 2026-07-17:** owner caught two Chrome-iOS screenshots,
+      same session, seconds apart — misaligned with the URL bar expanded,
+      correctly baselined with it collapsed. `leading-none` was the correct
+      class of fix (wrapper asymmetry) but the wrong mechanism — the real
+      driver is iOS's dynamic-toolbar viewport resize, not a static
+      line-height leak. No `vh`/`dvh` unit exists in `BottomNav.tsx` itself,
+      but its ancestor `app/(app)/layout.tsx` used `min-h-screen` (100vh,
+      the classic non-dynamic unit) one level up — `position:fixed;
+      bottom:0` nav bars are exactly the combination WebKit-based mobile
+      browsers handle inconsistently during that toolbar animation, and
+      Bell's extra nested-flex layer gives the browser more layout work to
+      redo mid-resize than Home/Gear's bare, fixed-size `<svg>`. Swapped to
+      `min-h-[100vh] min-h-[100dvh]` (dvh tracks the real visible viewport
+      through the toolbar animation; vh stays as a fallback for Safari
+      <15.4/Chrome <108) in `app/(app)/layout.tsx` — the only place inside
+      the `(app)` route group declaring `min-h-screen`. `leading-none` left
+      in place (harmless, avoids confounding the test). Sanity-checked
+      every other `min-h-screen`/`h-screen`/`100vh` usage in the app: all
+      are on separate, unrelated routes outside the `(app)` group
+      (`/login`, `/login/verify`, `/privacy`, `/admin/*`, `/action/*`,
+      `/marketing`) with their own independent declarations, untouched by
+      this change. One adjacent-but-unaffected note: `Sidebar.tsx`'s
+      desktop `<aside>` uses `h-screen` (its own direct `100vh`, not a
+      percentage of the layout div's height) — same unit class, but
+      desktop-only (`md:flex`) and not implicated in a mobile
+      toolbar-resize bug, left alone. `npm run build` clean, 359 tests
+      passing (no test coverage — CSS/layout). **Experiment, not confirmed
+      — owner verifying live: scroll through the dashboard on Chrome iOS
+      watching Bell through the URL-bar collapse/expand animation. If it
+      stays baselined throughout, mechanism confirmed; if it still shifts,
+      back to re-examining. Not Done until then.**
 
       **2. "This will stop all reminders" caption scoping — fix, already
       diagnosed.** Diagnosed in full in `ac173f2` (2026-07-17 diagnostic
