@@ -34,16 +34,22 @@
       states what it is, severity, code location (where known), and whether
       the next step is a fix, a spec pass, or an investigation.
 
-      **1. Bell icon alignment on bottom nav — fix, cheap, visible everywhere.**
-      The unread-count badge pushes the bell icon up/out of place instead of
-      overlaying it. Visible on every screen that renders the bottom nav with
-      a nonzero count — no dependencies, nothing blocking a fix. Code:
-      `app/BottomNav.tsx` — the badge (`<span className="absolute -top-1
-      -right-1.5 ...">`, lines ~50-59) is nested inside `<span
-      className="relative">` wrapping `<BellIcon />`. The classes read as a
-      standard overlay pattern, so the actual rendering root cause isn't
-      obvious from source alone — needs on-device inspection before fixing,
-      not just a code read.
+      **1. Bell icon alignment on bottom nav — FIXED 2026-07-17, awaiting
+      owner verification on a real device.** Root cause: the badge
+      (`app/BottomNav.tsx`) was correctly `position: absolute`, not a
+      normal-flow sibling — but its wrapping `<span className="relative">`
+      had no explicit `display`, defaulting to `inline`. An absolutely
+      positioned child of a plain `inline` container is inconsistently
+      handled across mobile browser layout engines, which is what surfaced
+      as the icon being pushed even though nothing was a true document-flow
+      sibling. Fix: wrapper changed to `className="relative inline-flex"`,
+      giving it an unambiguous, size-locked containing block. No other file
+      uses this badge pattern — `Sidebar.tsx`'s desktop "Alerts" badge is a
+      separate, non-overlay implementation (inline pill next to text, no
+      icon), unaffected by and unrelated to this fix. 359 tests still
+      passing (no test coverage for this — CSS/layout, no jsdom per
+      component testing philosophy), `npm run build` clean. **Not Done until
+      owner verifies live on their phone.**
 
       **2. "This will stop all reminders" caption scoping — fix, already
       diagnosed.** Diagnosed in full in `ac173f2` (2026-07-17 diagnostic

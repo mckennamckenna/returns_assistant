@@ -48,7 +48,7 @@ export function BottomNav({ alertCount }: { alertCount: number }) {
         <span className="text-[10px] font-medium">Dashboard</span>
       </Link>
       <Link href="/alerts" className={`${tabClass("/alerts")} relative`}>
-        <span className="relative">
+        <span className="relative inline-flex">
           <BellIcon />
           {alertCount > 0 && (
             <span className="absolute -top-1 -right-1.5 text-[10px] font-semibold bg-ink text-page px-1 rounded-full min-w-[1rem] text-center leading-[1rem]">
