@@ -475,11 +475,6 @@
       correction changes a user-facing fact (deadline, status, amount), what
       triggers a notification vs. silent correction? Matters more as backfills
       become more routine.
-- [ ] **Auto-email Gmail confirmation code** —
-      deliver the confirmation code to the user via email (in addition to
-      dashboard surfacing), owner BCC'd — see Decisions log for the
-      "meets them where their attention actually is" rationale. Do a 15-minute
-      spec pass before writing code; ship only if the spec holds up.
 - [ ] **`orderDate` column on admin dashboard user
       detail table** — small, clean addition; deferred out of admin dashboard
       v1.1. Not urgent since order date is already visible on the order
@@ -1320,17 +1315,10 @@
   `createUser` event already did this correctly; M1's sign-in-email BCC
   didn't, and has now been brought in line with it (`lib/magicLinkRateLimit.ts`,
   `buildSignInAdminNotification`).
-  ⚠️ **Unresolved conflict, surfaced not resolved:** this principle directly
-  contradicts the existing decision below ("Gmail confirmation code will be
-  delivered to users via email... with owner BCC'd") and the 🟡 Next item
-  `Auto-email Gmail confirmation code` that depends on it — a Gmail
-  verification code is exactly the same shape of credential-bearing content
-  this principle says not to BCC. Not fixed here (out of M1's scope, and
-  the Gmail-code feature isn't built yet regardless) — flagging for an
-  explicit decision before that Next item is picked up: either the
-  BCC-avoidance principle gets an exception for time-boxed one-time codes,
-  or the auto-email design changes to a link/event-only admin notification
-  the same shape as M1's fix.
+  ✅ **RESOLVED 2026-07-17** — see the superseding entry below, right after
+  the original Gmail-confirmation-code BCC decision. Killed the
+  `Auto-email Gmail confirmation code` Next item rather than carving out an
+  exception; this principle now applies without a carve-out.
 - Magic-link rate limiting is loud, not silent, unlike the allowlist gate
   right below it in the same function. When a real user hits the 8/hr
   (per email) or 20/hr (per IP) limit, they see a message explaining
@@ -1417,6 +1405,24 @@
   dashboard; email meets them where they are. Codes are also time-sensitive
   (Google ~24hr expiration) and dashboard-only surfacing risks stale codes on
   return visits.
+  **SUPERSEDED 2026-07-17 — killed, not built.** The BCC half of this
+  decision conflicts directly with M1's "never BCC credential-bearing email"
+  principle (see that entry above) — a Gmail confirmation code is exactly
+  the same shape of credential-bearing content M1 fixed for magic links,
+  time-limited or not. Decision: kill `Auto-email Gmail confirmation code`
+  entirely rather than carve out an exception. Reasoning: (1) M1's principle
+  applies to time-limited codes, not just magic links — there's no
+  principled reason a code expiring in ~24h is exempt from a rule justified
+  by "don't put credentials in a second mailbox"; (2) during alpha the owner
+  is the only one setting up forwarding, so the code already lands in the
+  right place (the owner's own inbox) without any user-facing email flow —
+  there's no real gap this was filling yet; (3) the forwarding architecture
+  itself is not the long-term plan, so building a user-facing code-delivery
+  flow now means building a feature for a system expected to be replaced.
+  If forwarding outlives that expectation and self-serve setup becomes real,
+  this can be revisited — but the redesign should respect M1's principle
+  from the start (e.g. surface the code in the dashboard only, no BCC'd
+  email), not reintroduce the conflict this entry closes.
 - Mark refunded is available from email, with a two-tap confirmation. This accepts
   the risk that a compromised email account could permanently archive an order in a
   state that stops all reminders. Rationale: the target user shouldn't be forced into
