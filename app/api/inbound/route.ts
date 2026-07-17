@@ -8,6 +8,11 @@ import { isGmailForwardingVerification, extractVerificationDetails } from "@/lib
 import { notifyAdmin, hasRecentNotification, recordDedupedNotification } from "@/lib/adminNotify";
 import { getInboundAddress } from "@/lib/inboundAddress";
 import { recordInboundArrival, INBOUND_FLOOD_THRESHOLD } from "@/lib/inboundVolume";
+import { rateLimit } from "@/lib/rateLimit";
+
+const INBOUND_RATE_LIMIT = 30;
+const INBOUND_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const INBOUND_RATE_LIMIT_NOTIFY_WINDOW_MS = 60 * 60 * 1000;
 
 interface PostmarkInboundPayload {
   FromFull?: { Email?: string; Name?: string };
@@ -94,6 +99,35 @@ export async function POST(request: NextRequest) {
       // domain didn't match what extractInboundToken expected."
       console.log("Discarded inbound email with unrecognized routing token. Recipient:", payload.OriginalRecipient || payload.To);
       return NextResponse.json({ ok: true });
+    }
+
+    // Abuse control (SECURITY_AUDIT.md H1), keyed on the resolved token —
+    // deliberately ahead of the volume counter, the Gmail-verification
+    // branch, and any classification/extraction work below, so a blocked
+    // request does none of that work. "inbound:" namespaces the key so
+    // other future callers of the shared RateLimitCounter table can't
+    // collide with this one. This is the second deliberate exception to
+    // this file's otherwise-universal 200 response — see the 401 check
+    // above for the first; a blocked request never reaches processing, so
+    // there's nothing to "always 200" here either.
+    const rateLimitResult = await rateLimit({
+      key: `inbound:${user.inboundToken}`,
+      limit: INBOUND_RATE_LIMIT,
+      windowSeconds: INBOUND_RATE_LIMIT_WINDOW_SECONDS,
+    });
+    if (!rateLimitResult.allowed) {
+      const retryAfterSeconds = Math.max(0, Math.ceil((rateLimitResult.resetAt.getTime() - Date.now()) / 1000));
+      console.warn("Inbound message rejected by rate limit:", user.email);
+
+      const subject = `Inbound rate limit hit: ${user.email}`;
+      const body = `${user.email}'s forwarding address hit the inbound rate limit (${INBOUND_RATE_LIMIT} messages/hour) and this message was rejected. If unexpected, check their forwarding address for abuse (a leaked/guessed token — see SECURITY_AUDIT.md C1) or a misconfigured filter.`;
+      if (await hasRecentNotification("inbound_rate_limited", user.email, INBOUND_RATE_LIMIT_NOTIFY_WINDOW_MS)) {
+        await recordDedupedNotification("inbound_rate_limited", subject, body, user.email);
+      } else {
+        await notifyAdmin(subject, body, "inbound_rate_limited", user.email);
+      }
+
+      return NextResponse.json({ error: "Too Many Requests" }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
     }
 
     // Counted here — before the Gmail-verification branch and before the

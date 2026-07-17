@@ -9,7 +9,8 @@ export type NotificationKind =
   | "reminder_summary"
   | "weekly_coverage_summary"
   | "weekly_digest_summary"
-  | "inbound_volume_spike";
+  | "inbound_volume_spike"
+  | "inbound_rate_limited";
 
 // Centralizes "never let an admin notification failure break the real flow
 // it's attached to" — a missing ADMIN_EMAIL or a Postmark hiccup here
@@ -65,8 +66,17 @@ const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 // rate limit (a bot cycling through many distinct emails would sail
 // straight through this) — that's a different attack shape that hasn't
 // shown up yet; add it if the table ever shows that pattern.
-export async function hasRecentNotification(kind: NotificationKind, relatedEmail: string): Promise<boolean> {
-  const since = new Date(Date.now() - DEDUP_WINDOW_MS);
+// windowMs defaults to the 24h dedup every existing caller uses; callers
+// whose own event is already rate-limited on a shorter cycle (e.g.
+// inbound_rate_limited, one notification per token per hour) pass a
+// shorter window explicitly so the notification cadence matches the
+// thing it's reporting on.
+export async function hasRecentNotification(
+  kind: NotificationKind,
+  relatedEmail: string,
+  windowMs: number = DEDUP_WINDOW_MS,
+): Promise<boolean> {
+  const since = new Date(Date.now() - windowMs);
   const existing = await prisma.adminNotification.findFirst({
     where: { kind, relatedEmail, attemptedAt: { gte: since } },
   });
