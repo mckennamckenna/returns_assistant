@@ -30,22 +30,29 @@
       time, stopping for owner review between each.** Implements
       `SECURITY_AUDIT.md`'s H1 finding (no rate limiting on any public
       endpoint). Storage: Postgres via a new `RateLimitCounter` model
-      (reuses existing Neon DB, no new deps), guarded-atomic-upsert pattern
-      mirroring `lib/inboundVolume.ts`. Agreed limits: `/api/inbound` 30/hr
-      per `inboundToken`; `/api/beta-signup` 3/hr per IP plus 24hr dedup on
-      the `beta_signup` admin notification (mirrors `allowlist_rejection`);
-      magic-link send 5/hr per email AND 20/hr per IP, silent drop (no
-      error shown, don't leak allowlist membership), admin notified once
-      per hour per email on a hit. Phase 0: build `lib/rateLimit.ts` +
-      migration + unit tests only, no endpoint wiring — stop for review.
-      Phase 1: wire `/api/inbound` (429 + `Retry-After`, no Email row on
-      block, new `inbound_rate_limited` notification kind, deduped) — stop,
-      confirm live with a real forward before Phase 2. Phase 2:
-      `/api/beta-signup` (429 on block, no admin notify for the block
-      itself). Phase 3: magic-link send (both limits, silent to user).
-      Explicitly out of scope this session: M-tier/L-tier findings, and
-      rate limiting any authenticated/session-scoped endpoint (different
-      abuse profile, own decision later).
+      (reuses existing Neon DB, no new deps). Agreed limits: `/api/inbound`
+      30/hr per `inboundToken`; `/api/beta-signup` 3/hr per IP plus 24hr
+      dedup on the `beta_signup` admin notification (mirrors
+      `allowlist_rejection`); magic-link send 5/hr per email AND 20/hr per
+      IP, silent drop (no error shown, don't leak allowlist membership),
+      admin notified once per hour per email on a hit.
+      **Phase 0 — done, owner-approved (`9ea5ced`):** `lib/rateLimit.ts`
+      (fixed-window approximation, guarded-atomic-increment on the happy
+      path, `upsert` on the miss/rollover path — a deliberate deviation
+      from mirroring `lib/inboundVolume.ts` exactly, since `RateLimitCounter`
+      rows don't pre-exist a key the way a `User` row always does; owner
+      confirmed this is fine) + migration + 8 unit tests, inert (nothing
+      wired in yet).
+      **Phase 1 — in progress this session:** wire `/api/inbound` only
+      (429 + `Retry-After`, no Email row/extraction/volume-counter touch on
+      block, new `inbound_rate_limited` notification kind deduped 1/hr per
+      token). Stop after deploy + curl verification; do not proceed to
+      Phase 2 until owner confirms a real forwarded email still lands.
+      Phase 2 (`/api/beta-signup`) and Phase 3 (magic-link send) not
+      started. Explicitly out of scope this session: beta-signup,
+      magic-link, M-tier/L-tier findings, and rate limiting any
+      authenticated/session-scoped endpoint (different abuse profile, own
+      decision later).
 - [ ] **returnwindow-label-anchor-uncertainty** — order detail's
       `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
       a `null`/unknown `returnWindowStartsFrom` to the label "from
