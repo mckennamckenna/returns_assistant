@@ -26,35 +26,49 @@
 ---
 
 ## 🔴 Now
-- [ ] **Fix: `isCommerceEmail()` silently discarding genuine commerce email —
-      diagnostic complete 2026-07-17, root cause found, not yet fixed.** A
-      real Amazon order confirmation forwarded by an alpha user never reached
-      her dashboard. Vercel function logs for the window were unavailable
-      (outside retention, confirmed via a failed historical range query vs. a
-      working relative one — not a tooling gap). DB evidence instead: no
-      `Email`/`Order` row exists for it anywhere, but a `DiscardLog`
-      (`reason: "non_commerce"`) row's timestamp matches the reported
-      Postmark processing time to within 17 seconds — and that code path is
-      only reachable *after* Basic Auth, token resolution, and rate limiting
-      all already succeeded. This refutes the original leading hypothesis
-      (C1 Basic Auth rollout dead zone — the timeline argues against a 401:
-      Postmark's dashboard was updated with credentials before the redeploy
-      that activated the check, per the rollout's own documented ordering).
-      Real cause: `lib/classify.ts`'s `isCommerceEmail()` classified a
-      genuine order confirmation as non-commerce (or hit its `if (!text)
-      return false` empty-body early-return before ever calling the model —
-      can't distinguish between the two; the actual email content is
-      unrecoverable, `DiscardLog` is deliberately content-free and no
-      `Email` row means no encrypted copy exists either). Also flagging a
-      real discrepancy while in this code: that early-return fails *closed*
-      ("nothing to classify" → discard), contradicting the function's own
-      comment two lines above it that classification errors fail *open*.
-      Not fixed — diagnostic only per instruction. Needs a decision: improve
-      the classifier prompt/threshold, change the empty-body case to fail
-      open instead of closed, and/or surface silent commerce-discards
-      somewhere reviewable (today they're anonymous by design — no way to
-      know a real order was dropped without a user reporting it, as happened
-      here).
+- [ ] **Fix: `isCommerceEmail()`'s "pharmacy or prescriptions" exclusion
+      catches ordinary OTC retail products — diagnostic complete 2026-07-17
+      with the actual payload confirmed, root cause isolated, not yet fixed.**
+      A real Amazon order confirmation forwarded by an alpha user never
+      reached her dashboard. Initial DB-only diagnostic (Vercel logs
+      unavailable, outside retention) narrowed it to `isCommerceEmail()`
+      via a `DiscardLog` timestamp matching the reported Postmark time to
+      within 17 seconds — refuting the original C1-rollout-dead-zone
+      hypothesis (timeline argues against a 401: Postmark had credentials
+      before the redeploy that activated Basic Auth, per that rollout's
+      documented ordering).
+      **Confirmed directly against the real payload** (retrieved via
+      Postmark's inbound search API by recipient+date — no need for a
+      manually-supplied MessageID; both SPF/DKIM/DMARC pass, genuinely
+      authenticated Amazon mail): both the order confirmation *and* the
+      next-day shipping confirmation for the same order return
+      `NOT_COMMERCE` when run through the actual `isCommerceEmail()` today.
+      TextBody was present and substantial in both (~2000 chars,
+      `resolveBodyText()` used it normally) — **fully rules out the
+      empty-body early-return and any MIME/encoding issue.** Isolated the
+      exact trigger with a controlled test: swapping only the
+      product-description line (from an over-the-counter allergy
+      medicine/nasal-spray item to an unrelated electronics item, same
+      Amazon template otherwise) flips the result from `NOT_COMMERCE` to
+      `COMMERCE`. Root cause: the prompt's own exclusion list
+      ("NOT commerce if it's about: pharmacy or prescriptions...") is
+      catching a normal retail purchase of an OTC health-adjacent product
+      by category/wording alone — there's no actual pharmacy or
+      prescription involved, just a product name that reads as
+      medicine-adjacent. One bug, confirmed to affect both emails in this
+      order's lifecycle (order confirmation and shipping confirmation both
+      trip the same exclusion), not two separate issues.
+      Also still flagging, unconfirmed but not yet ruled out either: the
+      same function's `if (!text) return false` empty-body early-return
+      fails *closed*, contradicting its own comment that classification
+      errors fail *open* — a real discrepancy, just not what happened in
+      *this* case.
+      Not fixed — diagnostic only per instruction. Needs a decision: narrow
+      the "pharmacy or prescriptions" exclusion to actual pharmacy/
+      prescription transactions rather than product category/wording, and/or
+      surface silent commerce-discards somewhere reviewable (today they're
+      anonymous by design — a real order was dropped with zero visibility
+      until the user happened to notice and report it).
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's
