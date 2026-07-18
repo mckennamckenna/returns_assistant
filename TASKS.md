@@ -141,19 +141,31 @@
       stays baselined throughout, mechanism confirmed; if it still shifts,
       back to re-examining. Not Done until then.**
 
-      **2. "This will stop all reminders" caption scoping — fix, already
-      diagnosed.** Diagnosed in full in `ac173f2` (2026-07-17 diagnostic
-      session): `KEPT_WARNING_CAPTION` (`lib/displayStatus.ts`) is spec'd in
-      BUILD.md only for "I'm keeping this," but in `app/OrderCard.tsx` it
-      renders as a sibling `<p>` after the whole button row (gated only by
-      `canKeep`) rather than nested inside Keeping-it's own markup — so when
-      Start return and Keeping it render side by side (the common case), it
-      visually reads as captioning Start return too. **Not a behavior bug** —
-      confirmed `SKIP_DISPLAY_STATUSES` in `lib/reminders.ts` deliberately
-      excludes `return_requested`; Start return does not stop reminders. Fix
-      is scoped: move the caption inside `OrderCard.tsx`'s `{canKeep && (...)}`
-      block, matching the already-correct pattern in
-      `app/(app)/orders/[id]/page.tsx`.
+      **2. "This will stop all reminders" caption scoping — FIXED 2026-07-17,
+      awaiting owner verification on a real device.** Diagnosed in full in
+      `ac173f2` (2026-07-17 diagnostic session): `KEPT_WARNING_CAPTION`
+      (`lib/displayStatus.ts`) is spec'd in BUILD.md only for "I'm keeping
+      this," but in `app/OrderCard.tsx` it rendered as a sibling `<p>` after
+      the whole button row (gated only by `canKeep`) rather than nested
+      inside Keeping-it's own markup — so when Start return and Keeping it
+      render side by side (the common case), it visually read as captioning
+      Start return too. **Not a behavior bug** — confirmed
+      `SKIP_DISPLAY_STATUSES` in `lib/reminders.ts` deliberately excludes
+      `return_requested`; Start return does not stop reminders. Fix applied:
+      moved the caption inside `OrderCard.tsx`'s `{canKeep && (...)}` form,
+      stacked under the button via `flex flex-col items-start gap-1`,
+      matching the already-correct pattern in `app/(app)/orders/[id]/page.tsx`.
+      Single-file change, only this finding touched — the "..." menu and the
+      bell (finding #1 in this list's own numbering, already fixed) untouched.
+      Verified: no dev-auth-bypass or seed mechanism exists in this repo, and
+      `npm run dev` would hit the same production DB (no separate dev DB
+      established anywhere in this project), so a full browser render wasn't
+      attempted for a JSX-scoping change this scoped — checked instead that
+      the dual-button state is real and common in production (24 of 33
+      active orders currently have both `canStartReturn` and `canKeep` true,
+      not an edge case). `npm run build` clean, 359 tests passing (no new
+      coverage — no jsdom, per component testing philosophy). **Not Done
+      until owner verifies on device.**
 
       **3. "..." overflow menu replacement — spec, propose don't decide.**
       `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus

@@ -162,10 +162,11 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
           />
         )}
         {canKeep && (
-          <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none">
+          <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none flex flex-col items-start gap-1">
             <button type="submit" className="w-full md:w-auto truncate border border-border text-ink text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-page">
               Keeping it
             </button>
+            <p className="text-[10px] text-muted">{KEPT_WARNING_CAPTION}</p>
           </form>
         )}
         <OrderActionsMenu
@@ -176,7 +177,6 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
           className="md:ml-auto"
         />
       </div>
-      {canKeep && <p className="text-[10px] text-muted mt-1">{KEPT_WARNING_CAPTION}</p>}
 
       {order.displayStatus === "return_requested" && (
         <button
