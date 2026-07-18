@@ -245,7 +245,7 @@ export default async function OrderDetail({
           <ArchiveOrderButton
             orderId={order.id}
             isArchived={order.archivedAt !== null}
-            className="bg-page text-secondary text-sm font-medium rounded-lg px-4 py-2 hover:bg-border"
+            className="border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
           />
         </div>
 

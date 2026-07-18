@@ -252,29 +252,25 @@
       tonight. The inbound webhook auth rollout (completed `d5772a8`,
       2026-07-15) is directly relevant context to start from — its
       findings inform this cleanse, not blocking work.
-- [ ] **archive-button-styling-mismatch** — order detail's "Archive" button
-      renders as bare text with no border, while "Keeping it" (outlined),
-      "Track package" (outlined), and "Mark as returned" (filled black) all
-      render as proper buttons. Owner screenshots 2026-07-15 confirm this
-      on Shopbop (Return requested state) and Poshmark (Kept state). Fix:
-      Archive should be an outlined button matching "Keeping it" — same
-      shape, same weight. Applies to the order detail page; worth checking
-      dashboard card overflow menus too during the fix, in case the same
-      pattern recurs there. Directly violates the owner's stated hierarchy
-      rule (see Decisions log): "one black button is fine as long as the
-      others look like buttons and are equal." Surfaced as the leftover
-      piece of Follow-up polish's item 3 (hierarchy) after items 1-2
-      verified live and the MarkRefundedButton judgment call was confirmed
-      correct.
-      **Re-surfaced by the 2026-07-17 mobile audit** (that pass's finding
-      #12 — same issue, not a new one; merged here rather than logged as a
-      duplicate) with an added cross-reference: this may share root cause
-      with the mobile audit's "..." overflow menu finding (`app/
-      OrderActionsMenu.tsx`, which hides Archive behind an ambiguous glyph
-      alongside Delete) — Archive as an action has no consistent visual
-      treatment anywhere in the app (unstyled text link here, tucked into
-      an overflow menu there). Worth deciding both together rather than
-      fixing this one in isolation.
+- [ ] **archive-button-styling-mismatch** — order-detail-page styling piece
+      RESOLVED in code, pending commit/deploy verification; overflow-menu
+      placement question stays parked, not fixed here. Order detail's
+      Archive button (`ArchiveOrderButton`) already rendered a real
+      `<button>`, but the `className` passed at its one call site
+      (`app/(app)/orders/[id]/page.tsx`) used `bg-page text-secondary`
+      with no border — same color as the page background, reading as bare
+      text next to "Keeping it"/"Track package"'s outlined treatment.
+      Swapped to the exact "Keeping it" class string
+      (`border border-border text-ink text-sm font-medium rounded-lg
+      px-4 py-2 hover:bg-page`) — styling only, in place; no change to
+      `ArchiveOrderButton.tsx`, no placement change, no touch to
+      `OrderActionsMenu.tsx` or the dashboard card overflow menu. The
+      broader "should Archive match its siblings' weight or be quieter"
+      hierarchy question, and whether the overflow-menu's Archive
+      treatment shares this root cause, are deliberately deferred to the
+      owner's mock pass — this fix is "match what's already there,"
+      not a hierarchy decision. Move to Done once committed, pushed, and
+      verified live.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
