@@ -26,49 +26,6 @@
 ---
 
 ## 🔴 Now
-- [ ] **Fix: `isCommerceEmail()`'s "pharmacy or prescriptions" exclusion
-      catches ordinary OTC retail products — diagnostic complete 2026-07-17
-      with the actual payload confirmed, root cause isolated, not yet fixed.**
-      A real Amazon order confirmation forwarded by an alpha user never
-      reached her dashboard. Initial DB-only diagnostic (Vercel logs
-      unavailable, outside retention) narrowed it to `isCommerceEmail()`
-      via a `DiscardLog` timestamp matching the reported Postmark time to
-      within 17 seconds — refuting the original C1-rollout-dead-zone
-      hypothesis (timeline argues against a 401: Postmark had credentials
-      before the redeploy that activated Basic Auth, per that rollout's
-      documented ordering).
-      **Confirmed directly against the real payload** (retrieved via
-      Postmark's inbound search API by recipient+date — no need for a
-      manually-supplied MessageID; both SPF/DKIM/DMARC pass, genuinely
-      authenticated Amazon mail): both the order confirmation *and* the
-      next-day shipping confirmation for the same order return
-      `NOT_COMMERCE` when run through the actual `isCommerceEmail()` today.
-      TextBody was present and substantial in both (~2000 chars,
-      `resolveBodyText()` used it normally) — **fully rules out the
-      empty-body early-return and any MIME/encoding issue.** Isolated the
-      exact trigger with a controlled test: swapping only the
-      product-description line (from an over-the-counter allergy
-      medicine/nasal-spray item to an unrelated electronics item, same
-      Amazon template otherwise) flips the result from `NOT_COMMERCE` to
-      `COMMERCE`. Root cause: the prompt's own exclusion list
-      ("NOT commerce if it's about: pharmacy or prescriptions...") is
-      catching a normal retail purchase of an OTC health-adjacent product
-      by category/wording alone — there's no actual pharmacy or
-      prescription involved, just a product name that reads as
-      medicine-adjacent. One bug, confirmed to affect both emails in this
-      order's lifecycle (order confirmation and shipping confirmation both
-      trip the same exclusion), not two separate issues.
-      Also still flagging, unconfirmed but not yet ruled out either: the
-      same function's `if (!text) return false` empty-body early-return
-      fails *closed*, contradicting its own comment that classification
-      errors fail *open* — a real discrepancy, just not what happened in
-      *this* case.
-      Not fixed — diagnostic only per instruction. Needs a decision: narrow
-      the "pharmacy or prescriptions" exclusion to actual pharmacy/
-      prescription transactions rather than product category/wording, and/or
-      surface silent commerce-discards somewhere reviewable (today they're
-      anonymous by design — a real order was dropped with zero visibility
-      until the user happened to notice and report it).
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's
@@ -135,37 +92,26 @@
       percentage of the layout div's height) — same unit class, but
       desktop-only (`md:flex`) and not implicated in a mobile
       toolbar-resize bug, left alone. `npm run build` clean, 359 tests
-      passing (no test coverage — CSS/layout). **Experiment, not confirmed
-      — owner verifying live: scroll through the dashboard on Chrome iOS
-      watching Bell through the URL-bar collapse/expand animation. If it
-      stays baselined throughout, mechanism confirmed; if it still shifts,
-      back to re-examining. Not Done until then.**
+      passing (no test coverage — CSS/layout).
+      **REMAINS OPEN 2026-07-17 — stop attempting further remote-reasoning
+      fixes.** Owner's on-device scroll test still shows misalignment. This
+      is the fourth diagnostic/fix round on this one finding (`leading-none`;
+      considered and rejected wrapper removal; `min-h-dvh` + vh fallback;
+      this checkpoint) with no confirmed fix landed — 0-for-4. Working
+      hypothesis, unconfirmed: Bell's wrapper span establishes an extra
+      formatting context Home/Gear don't have, making it sensitive to
+      viewport-reflow timing during iOS Chrome's URL-bar animation in a way
+      the `min-h-dvh` swap didn't fully address. Per this session's own
+      lesson (see Decisions log): when a class of bug goes 0-for-N on
+      remote reasoning, stop patching and start measuring. Needs an
+      on-device Safari Web Inspector (remote-debug a real iPhone from a
+      Mac) session to actually observe the computed box/line-height values
+      during the toolbar animation before another fix attempt — owner needs
+      a Mac + iPhone cable for this, not more diagnosis-by-code-reading.
 
-      **2. "This will stop all reminders" caption scoping — FIXED 2026-07-17,
-      awaiting owner verification on a real device.** Diagnosed in full in
-      `ac173f2` (2026-07-17 diagnostic session): `KEPT_WARNING_CAPTION`
-      (`lib/displayStatus.ts`) is spec'd in BUILD.md only for "I'm keeping
-      this," but in `app/OrderCard.tsx` it rendered as a sibling `<p>` after
-      the whole button row (gated only by `canKeep`) rather than nested
-      inside Keeping-it's own markup — so when Start return and Keeping it
-      render side by side (the common case), it visually read as captioning
-      Start return too. **Not a behavior bug** — confirmed
-      `SKIP_DISPLAY_STATUSES` in `lib/reminders.ts` deliberately excludes
-      `return_requested`; Start return does not stop reminders. Fix applied:
-      moved the caption inside `OrderCard.tsx`'s `{canKeep && (...)}` form,
-      stacked under the button via `flex flex-col items-start gap-1`,
-      matching the already-correct pattern in `app/(app)/orders/[id]/page.tsx`.
-      Single-file change, only this finding touched — the "..." menu and the
-      bell (finding #1 in this list's own numbering, already fixed) untouched.
-      Verified: no dev-auth-bypass or seed mechanism exists in this repo, and
-      `npm run dev` would hit the same production DB (no separate dev DB
-      established anywhere in this project), so a full browser render wasn't
-      attempted for a JSX-scoping change this scoped — checked instead that
-      the dual-button state is real and common in production (24 of 33
-      active orders currently have both `canStartReturn` and `canKeep` true,
-      not an edge case). `npm run build` clean, 359 tests passing (no new
-      coverage — no jsdom, per component testing philosophy). **Not Done
-      until owner verifies on device.**
+      **2. "This will stop all reminders" caption scoping — ✅ semantic fix
+      DONE, owner-verified 2026-07-17; visual follow-up split out as
+      finding #1b (🟡 Next).** Full detail moved to the Done section.
 
       **3. "..." overflow menu replacement — spec, propose don't decide.**
       `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
@@ -307,6 +253,15 @@
       piece of Follow-up polish's item 3 (hierarchy) after items 1-2
       verified live and the MarkRefundedButton judgment call was confirmed
       correct.
+      **Re-surfaced by the 2026-07-17 mobile audit** (that pass's finding
+      #12 — same issue, not a new one; merged here rather than logged as a
+      duplicate) with an added cross-reference: this may share root cause
+      with the mobile audit's "..." overflow menu finding (`app/
+      OrderActionsMenu.tsx`, which hides Archive behind an ambiguous glyph
+      alongside Delete) — Archive as an action has no consistent visual
+      treatment anywhere in the app (unstyled text link here, tucked into
+      an overflow menu there). Worth deciding both together rather than
+      fixing this one in isolation.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
@@ -344,34 +299,65 @@
       any non-owner user.
 
 ## 🟡 Next
-- [ ] **"This will stop all reminders" caption is misleading on the dashboard
-      card when Start return is also visible — diagnostic completed 2026-07-17,
-      confirmed copy bug, not a behavior bug.** Traced `Start return` end to
-      end: `StartReturnButton` → `markReturnRequestedAction` →
-      `advanceDisplayStatus(orderId, "return_requested")` →
-      `buildStatusTransitionData` sets **only** `{ displayStatus:
-      "return_requested" }` — no `archivedAt`, no other flag. The reminder
-      pipeline's `SKIP_DISPLAY_STATUSES` (`lib/reminders.ts`) deliberately
-      excludes `return_requested`, with an explicit comment: "the window is
-      still open and the package may not have shipped yet, so the reminder
-      still matters." (The only thing that actually stops reminders is the
-      separate `order.status === "return_started"`, set by
-      `computeOrderStatus()` only when a real `return_label` email is linked —
-      unrelated to the manual button.) So **Start return does not stop
-      reminders — confirmed correct, working as designed.**
-      `KEPT_WARNING_CAPTION` (`lib/displayStatus.ts`) was spec'd in BUILD.md's
-      "Add Mark kept" milestone explicitly and only for "I'm keeping this," in
-      all three surfaces (card, list/table, detail) — never scoped to Start
-      return in any spec or Decisions log entry. On the order detail page it's
-      correctly nested inside Keeping-it's own `<form>`, unambiguous. On the
-      **dashboard card** (`OrderCard.tsx`), it's rendered as a sibling `<p>`
-      below the *entire* button row rather than scoped inside Keeping-it's own
-      markup — so on the common case where an order is `ordered`/`shipped`
-      rank (both `canStartReturn` and `canKeep` true), it visually reads as
-      captioning both buttons even though it's gated only by `canKeep`.
-      Proposed fix (not applied — report-only diagnostic): move the caption
-      inside `OrderCard.tsx`'s `{canKeep && (...)}` block, matching the detail
-      page's already-correct scoping.
+- [ ] **Mobile audit finding #1b — caption visual re-do (follow-up to the
+      #1 scoping fix, `131d800`).** The semantic fix is correct and
+      owner-verified (caption now associates only with "Keeping it" —
+      see Done), but the visual result is bad: on the dashboard card, the
+      caption now wraps into a cramped two-line column squeezed beside the
+      "..." menu (`app/OrderCard.tsx`). **Do NOT re-attempt from a written
+      spec** — the pattern-match approach (copying the order detail page's
+      `flex flex-col items-start gap-1` placement) has now failed twice in
+      one day on this exact finding: it matched the *source* pattern
+      correctly but didn't account for the dashboard card being
+      meaningfully narrower than the detail page, so the same structure
+      produces a different, worse visual result in the new context. Owner
+      will provide a mockup before the next attempt. See Decisions log for
+      the general lesson this surfaced (pattern-matching across differing
+      contexts needs verification in the new context, not just fidelity to
+      the source).
+- [ ] **Pharmacy handling — scope decision, disputed diagnosis, needs
+      resolution before either "spec" or "bug" framing is final.**
+      Surfaced by the missing-Amazon-order investigation (`97bca38`,
+      `523996b`): the real payload was an Amazon retail order for Flonase
+      Allergy Relief Nasal Spray (an over-the-counter product, ordinary
+      Amazon checkout — no prescription, no pharmacy branding, no doctor/
+      insurance signal anywhere in the email). Two live characterizations
+      of this exist and are **not yet reconciled**:
+      (a) `isCommerceEmail()`'s "pharmacy or prescriptions" exclusion is
+      too broad and is catching ordinary OTC retail purchases by
+      product-category wording alone — confirmed by a controlled test this
+      session (swapping only the product-description line to an unrelated
+      electronics item flipped the classifier's result from `NOT_COMMERCE`
+      to `COMMERCE`, template otherwise identical) — i.e., this is the same
+      classifier bug already diagnosed, not a new, separate, correct
+      behavior.
+      (b) A same-day session-close characterization states the classifier
+      "correctly filtered a prescription drug" and treats this as settled,
+      non-bug behavior needing only a product/spec decision (does Return
+      Window want to process pharmacy-adjacent commerce at all, and how).
+      These two characterizations disagree on the underlying fact (was this
+      a genuine pharmacy/prescription transaction, or an OTC retail
+      purchase that merely reads as medicine-adjacent) and need to be
+      reconciled together before this item's framing (bug fix vs. spec
+      pass) is finalized. If (a) holds, the fix is narrowing the exclusion
+      to actual pharmacy transactions. If (b) holds — or if Return Window
+      decides OTC health-adjacent products should also be excluded as a
+      deliberate policy, not just an accident of the current prompt — then
+      this becomes the spec question as originally framed: does the app
+      want to touch pharmacy/health-adjacent commerce at all, given
+      regulatory/privacy considerations (PHI-aware handling, explicit
+      opt-in, a separate flow), and if not, document that as an intentional
+      decision (Decisions log) and update `isCommerceEmail()`'s comments so
+      a future session doesn't "fix" deliberate behavior.
+- [ ] **Security cadence remaining — reminder pointer, not a full backfill.**
+      `SECURITY_AUDIT.md` open findings not yet given their own `TASKS.md`
+      item: M4 (plaintext payload logging), M3 (`ADMIN_SECRET` in URL +
+      non-constant-time compare), M2 (return-portal URL trust), L1–L6 (L5
+      already closed/tracked). Per the session's own structural note below
+      (Decisions log), every open audit finding should have a corresponding
+      `TASKS.md` item — this pointer exists so the reminder itself isn't
+      lost, but a proper one-item-per-finding backfill pass is still owed
+      separately, not done as part of this docs sweep.
 - [ ] **`vitest-nextauth-import-fragility` needs its own investigation** —
       promoted from Known Issues 2026-07-17 per its own stated graduation
       criteria ("if a third instance shows up, it graduates from 'pre-existing
@@ -873,6 +859,17 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Mobile audit finding #1 (caption scoping on `OrderCard.tsx`) — semantic
+      fix owner-verified live 2026-07-17 (`131d800`).** `KEPT_WARNING_CAPTION`
+      moved inside `{canKeep && (...)}`'s own form, matching the order detail
+      page's already-correct pattern — confirmed the caption now visually
+      associates with "Keeping it" only, not with Start return. **Scoping
+      confirmed correct; visual outcome is not** — owner reports the caption
+      now wraps into a cramped two-line column beside the "..." menu. Closing
+      this item for the semantic-scoping fix specifically; the visual re-do
+      is tracked separately as finding #1b in 🟡 Next (owner providing a
+      mockup before the next attempt — see that item and the Decisions log
+      for why a written-spec re-attempt isn't the right next step).
 - [x] **C1 dig completed 2026-07-17 (analysis only, no code)** — tested the audit's
       "rotate to high entropy" premise instead of assuming it. Verified the CUID
       v1 algorithm against Prisma's actual generator source (no `cuid` package —
@@ -1297,6 +1294,9 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Untracked `LOGO_COVERAGE.md` sitting in the working tree** — noticed
+  2026-07-17, been there long enough to flag. Not added, not deleted; owner
+  will decide next session.
 - **`vitest-nextauth-import-fragility` — PROMOTED to 🟡 Next 2026-07-17.** Now
   shaped three separate decisions (H1 Phase 3 extraction, M1's test strategy,
   the L5 guard proposal); per its own graduation criteria below, that's the
@@ -1414,6 +1414,30 @@
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- **Principle: "match the existing pattern" is not sufficient guidance when
+  contexts differ** (2026-07-17, mobile audit finding #1/#1b). The caption
+  fix copied the order detail page's `flex flex-col items-start gap-1`
+  placement verbatim — the pattern itself was correct and already proven on
+  the detail page, but the dashboard card is meaningfully narrower, and the
+  same structure produced a cramped, wrapped result there instead. Fidelity
+  to a source pattern isn't the same as verifying the pattern still holds in
+  the destination context. Going forward: when a fix references an existing
+  pattern, check that the pattern's assumptions (available width, sibling
+  layout, etc.) actually hold where it's being applied, not just that the
+  code matches.
+- **Principle: remote-reasoning about browser CSS layout has a limit — when
+  a bug goes 0-for-N, stop patching and start measuring** (2026-07-17, bell
+  alignment, mobile audit finding #7). Four rounds on this one finding
+  (`leading-none`, a rejected wrapper-removal option, `min-h-dvh` + vh
+  fallback, and the checkpoint that confirmed it still isn't fixed) each
+  produced a more refined diagnosis than the last but never landed a
+  confirmed fix — every round was reasoning about how Chrome/Safari iOS
+  *probably* handle a given CSS mechanism, with no way to directly observe
+  the actual computed values during the failure. General principle, not
+  bell-specific: after a couple of remote-reasoning rounds fail to resolve a
+  rendering bug, the next step should be getting real instrumentation (here,
+  an on-device Safari Web Inspector session) rather than another round of
+  more-refined guessing.
 - **Principle: never BCC credential-bearing email** (2026-07-17, M1 fix). A
   BCC copies the *entire message*, including any live link, token, or code
   inside it — there's no way to BCC "the fact that this happened" without

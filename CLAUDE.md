@@ -129,6 +129,15 @@ Return Window matters until it has happy users.
   user-facing examples without confirming ownership first. This isn't just
   a bug-avoidance rule — it's a data-scoping discipline. Verify ownership
   first, then propose.
+- **Session-start `SECURITY_AUDIT.md` ↔ `TASKS.md` reconciliation.** Before
+  starting work in any session that touches security-adjacent code, confirm
+  every open finding in `SECURITY_AUDIT.md` has a corresponding `TASKS.md`
+  item, and every ✅ in the audit has a matching Done entry. This isn't a
+  per-session ask — it's a standing habit, because the gap between the two
+  docs has already caused a full mis-brief once (2026-07-17: a session
+  started off a stale `TASKS.md` that didn't reflect the audit's actual
+  state, and vice versa). Flag drift immediately, the same way you'd flag
+  git sync drift.
 - **Minimize real user data in session logs and written artifacts.**
   Verification codes, email addresses, order specifics, personal names, and
   dollar amounts on real orders should be minimized in session logs and
