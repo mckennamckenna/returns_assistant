@@ -11,6 +11,7 @@ import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
 import { CopyButton } from "@/app/CopyButton";
 import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { getVisibleActions } from "@/lib/orderActions";
+import { returnWindowFromLabel } from "@/lib/returnWindowLabel";
 
 export const dynamic = "force-dynamic";
 
@@ -45,12 +46,6 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
       <dd className="text-sm text-ink mt-0.5">{value ?? "—"}</dd>
     </div>
   );
-}
-
-function returnWindowFromLabel(startsFrom: string | null): string {
-  if (startsFrom === "order_date") return "from order date";
-  if (startsFrom === "delivery_date") return "from delivery date";
-  return "from purchase";
 }
 
 // Combines what used to be two separate fields ("Return window" /

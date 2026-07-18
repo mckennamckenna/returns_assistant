@@ -231,18 +231,21 @@
       inspection, not a code question. `[needs clarification]` on priority
       relative to other Now/Next work.
       than folding it into C1.
-- [ ] **returnwindow-label-anchor-uncertainty** — order detail's
-      `returnWindowFromLabel()` (`app/(app)/orders/[id]/page.tsx`) defaults
-      a `null`/unknown `returnWindowStartsFrom` to the label "from
-      purchase," with the same certainty as a confirmed order-date policy.
-      Sidekick's page reads "60 days from purchase — Web lookup" even
-      though the anchor is genuinely unconfirmed — that ambiguity is
-      exactly why `computeDeadline()` sets `deadlineIsEstimated: true` for
-      this case. The "(est.)"/"some dates are estimated" flag communicates
-      uncertainty; the "from purchase" label communicates certainty, on
-      the same page, about the same fact. Not urgent enough to fix today,
-      but it's the visible follow-up to sidekick-deadline-anchor-mismatch
-      (just shipped), not backlog.
+- [ ] **returnwindow-label-anchor-uncertainty** — RESOLVED in code, pending
+      commit/deploy verification. `returnWindowFromLabel()` extracted from
+      `app/(app)/orders/[id]/page.tsx` into `lib/returnWindowLabel.ts`
+      (matches the `lib/archivePageState.ts`/`returnedPageState.ts`
+      precedent for testable page logic). Null/unknown
+      `returnWindowStartsFrom` now reads "from purchase (est.)" instead of
+      asserting the same certainty as a confirmed anchor — reusing the
+      existing `" (est.)"` idiom from `DaysLeftChip.tsx`, not new copy.
+      `"order_date"`/`"delivery_date"` labels unchanged. Deliberately keyed
+      on `startsFrom === null`, not `deadlineIsEstimated` — that field also
+      goes true for a *confirmed* `delivery_date` anchor whenever the
+      delivery date itself is a carrier ETA/shipping-buffer guess, which
+      would have wrongly hedged a confirmed label. `computeDeadline()`
+      untouched. Pure-function test added (`returnWindowLabel.test.ts`).
+      Move to Done once committed, pushed, and verified live.
 - [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
       pass, prep for a more public-facing alpha: env vars, auth, API
       routes, input validation, rate limiting, data exposure. Not started
