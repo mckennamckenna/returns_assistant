@@ -312,6 +312,30 @@ async function applyReturnTracking(orderId: string, email: Email): Promise<void>
   }
 }
 
+// Exported for unit testing.
+// A return_label or refund email reaching an order already marked "kept" is
+// new information contradicting a settled decision — surfaced via
+// needsReview regardless of match confidence, since even an exact
+// order-number match wouldn't otherwise force a review. Deliberately scoped
+// to "kept": "returned"/"refunded" are the states these email types are the
+// expected path toward, so applying the same guard there would flag the
+// app's most ordinary flow instead of a genuine contradiction. Never touches
+// displayStatus — that stays one-way via lib/displayStatus.ts's own guard;
+// this only asks a human to look.
+export function computeKeptStatusConflict(
+  matchedOrderDisplayStatus: string | null,
+  emailType: string | null,
+): { isKeptStatusConflict: boolean; note: string | null } {
+  const isKeptStatusConflict =
+    matchedOrderDisplayStatus === "kept" && (emailType === "return_label" || emailType === "refund");
+  return {
+    isKeptStatusConflict,
+    note: isKeptStatusConflict
+      ? `[auto] a "${emailType}" email arrived on an order already marked "Kept" — resurfaced for review`
+      : null,
+  };
+}
+
 function isPrefixMatch(a: string, b: string): boolean {
   const lowerA = a.toLowerCase();
   const lowerB = b.toLowerCase();
@@ -594,6 +618,11 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   let retailerPrefixNote: string | null = null;
   let isRefundFallbackMatch = false;
   let refundFallbackNote: string | null = null;
+  // Pre-merge displayStatus of whichever existing order this email lands on
+  // (null when a brand-new order is created instead) — captured before
+  // mergeEmailIntoOrder runs, since "kept" is one-way and this is the only
+  // point where the prior value is still visible.
+  let matchedOrderDisplayStatus: string | null = null;
 
   if (isOrphanedRefund) {
     const refundFallback = await findRefundFallbackOrder(
@@ -604,6 +633,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
     );
 
     if (refundFallback) {
+      matchedOrderDisplayStatus = refundFallback.order.displayStatus;
       orderId = await mergeEmailIntoOrder(refundFallback.order, email, returnPortalUrl);
       isRefundFallbackMatch = true;
       refundFallbackNote = `[auto] refund fallback match (${refundFallback.tier}): no order number on refund email; matched to "${refundFallback.order.retailer}" #${refundFallback.order.orderNumber ?? "(none)"}`;
@@ -629,11 +659,13 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
     });
 
     if (existing) {
+      matchedOrderDisplayStatus = existing.displayStatus;
       orderId = await mergeEmailIntoOrder(existing, email, returnPortalUrl);
     } else {
       const prefixMatch = await findPrefixMatchOrder(email.userId, email.retailer, email.orderNumber!);
 
       if (prefixMatch) {
+        matchedOrderDisplayStatus = prefixMatch.displayStatus;
         orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
         isPrefixMatchedOrder = true;
       } else {
@@ -643,6 +675,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
           email.orderNumber!,
         );
         if (retailerPrefixMatch) {
+          matchedOrderDisplayStatus = retailerPrefixMatch.displayStatus;
           orderId = await mergeEmailIntoOrder(retailerPrefixMatch, email, returnPortalUrl);
           isPrefixMatchedOrder = true;
           retailerPrefixNote = `[auto] retailer prefix match: "${retailerPrefixMatch.retailer}" ← "${email.retailer}"`;
@@ -660,6 +693,11 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   await applyReturnTracking(orderId, email);
   await recomputeDisplayStatus(orderId);
 
+  const { isKeptStatusConflict, note: keptConflictNote } = computeKeptStatusConflict(
+    matchedOrderDisplayStatus,
+    email.emailType,
+  );
+
   // recomputeOrderStatus derives needsReview from data completeness, which
   // would happily clear it the moment the order looks complete — but any
   // prefix match (or refund-fallback match) needs a human to confirm it
@@ -667,8 +705,8 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   // regardless of how complete the data looks. Force it true after
   // recompute, not before. Also append an audit note to userNote so the
   // merge reason is visible without having to diff order records.
-  if (isPrefixMatchedOrder || isRefundFallbackMatch) {
-    const note = retailerPrefixNote ?? refundFallbackNote;
+  if (isPrefixMatchedOrder || isRefundFallbackMatch || isKeptStatusConflict) {
+    const note = retailerPrefixNote ?? refundFallbackNote ?? keptConflictNote;
     const noteUpdate: { needsReview: boolean; userNote?: string } = { needsReview: true };
     if (note) {
       const merged = await prisma.order.findUnique({ where: { id: orderId }, select: { userNote: true } });

@@ -25,7 +25,8 @@ vi.mock("@/lib/trackingParser", () => ({
   parseTracking: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
 }));
 
-const { isRetailerPrefixMatch, parseForwardedHeaderDate, applyFallbackOrderDate } = await import("../lib/linkOrder");
+const { isRetailerPrefixMatch, parseForwardedHeaderDate, applyFallbackOrderDate, computeKeptStatusConflict } =
+  await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
   // ── Real fixture ──────────────────────────────────────────────────────────
@@ -88,6 +89,37 @@ describe("isRetailerPrefixMatch", () => {
     expect(isRetailerPrefixMatch("American", "American Eagle")).toBe(true);
     expect(isRetailerPrefixMatch("American", "American Vintage")).toBe(true);
     // Both return true. Any merge they produce is needsReview + logged.
+  });
+});
+
+describe("computeKeptStatusConflict", () => {
+  it("flags a return_label email arriving on a kept order, with a note", () => {
+    const result = computeKeptStatusConflict("kept", "return_label");
+    expect(result.isKeptStatusConflict).toBe(true);
+    expect(result.note).toContain("return_label");
+    expect(result.note).toContain("Kept");
+  });
+
+  it("flags a refund email arriving on a kept order, with a note", () => {
+    const result = computeKeptStatusConflict("kept", "refund");
+    expect(result.isKeptStatusConflict).toBe(true);
+    expect(result.note).toContain("refund");
+    expect(result.note).toContain("Kept");
+  });
+
+  it("does not flag other email types arriving on a kept order", () => {
+    for (const emailType of ["order_confirmation", "shipping_confirmation", "delivery", "other", null]) {
+      const result = computeKeptStatusConflict("kept", emailType);
+      expect(result.isKeptStatusConflict).toBe(false);
+      expect(result.note).toBeNull();
+    }
+  });
+
+  it("does not flag return_label/refund emails on a non-kept order", () => {
+    for (const displayStatus of ["ordered", "shipped", "return_requested", "returned", "refunded", null]) {
+      expect(computeKeptStatusConflict(displayStatus, "return_label").isKeptStatusConflict).toBe(false);
+      expect(computeKeptStatusConflict(displayStatus, "refund").isKeptStatusConflict).toBe(false);
+    }
   });
 });
 

@@ -153,15 +153,25 @@
       information needed to make one. Needs a spec pass, not a copy tweak.
 
       **6. Order-linking — two distinct findings, do not conflate:**
-      - **6a. Auto-link fails on an exact order-number match — investigation
-        needed, root cause unknown.** Observed: a Shopbop quick-check card
-        asked for confirmation on order #142770152 while a Shopbop
-        #142770152 order already existed on the dashboard, status Kept. Same
-        retailer, same exact order number — this should have auto-linked
-        without a quick-check at all. Entry point to trace:
-        `lib/linkOrder.ts`'s `linkEmailToOrder()` and the exact-match path it
-        calls before falling through to prefix/fallback matching. Do not
-        guess at a fix before finding the actual cause.
+      - **6a. Auto-link fails on an exact order-number match — RESOLVED,
+        pending deploy verification.** Originally observed: a Shopbop
+        quick-check card asked for confirmation on order #142770152 while a
+        Shopbop #142770152 order already existed on the dashboard, status
+        Kept. Diagnostic (2026-07-18) found the exact-match query was never
+        the bug — every email carrying that order number matched
+        byte-identically. The actual cause: an orphaned no-order-number
+        refund email correctly fallback-matched to the same order and
+        (correctly) forced `needsReview`, which surfaced as a quick-check on
+        an order that was already "Kept." Follow-up fix (same session):
+        `computeKeptStatusConflict()` in `lib/linkOrder.ts` now also forces
+        `needsReview` (with an audit note) when a `return_label`/`refund`
+        email reaches a `"kept"` order via an *exact* match, which
+        previously wasn't caught at all — closing the one real gap found.
+        `isPrefixMatchedOrder`/`isRefundFallbackMatch` semantics (Mango
+        `F4VLSF`/`F4VLSF00`) untouched. `displayStatus` itself is never
+        touched — stays "kept," per `lib/displayStatus.ts`'s own guard.
+        BUILD.md order-linking + Decisions log updated in the same commit.
+        Move to Done once pushed and verified live.
       - **6b. No order number present — design decision needed, connects to
         an existing Next item.** Refund/return emails without an order
         number can't be linked at all today. Proposal: match on item
