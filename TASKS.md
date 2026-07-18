@@ -26,6 +26,35 @@
 ---
 
 ## 🔴 Now
+- [ ] **Fix: `isCommerceEmail()` silently discarding genuine commerce email —
+      diagnostic complete 2026-07-17, root cause found, not yet fixed.** A
+      real Amazon order confirmation forwarded by an alpha user never reached
+      her dashboard. Vercel function logs for the window were unavailable
+      (outside retention, confirmed via a failed historical range query vs. a
+      working relative one — not a tooling gap). DB evidence instead: no
+      `Email`/`Order` row exists for it anywhere, but a `DiscardLog`
+      (`reason: "non_commerce"`) row's timestamp matches the reported
+      Postmark processing time to within 17 seconds — and that code path is
+      only reachable *after* Basic Auth, token resolution, and rate limiting
+      all already succeeded. This refutes the original leading hypothesis
+      (C1 Basic Auth rollout dead zone — the timeline argues against a 401:
+      Postmark's dashboard was updated with credentials before the redeploy
+      that activated the check, per the rollout's own documented ordering).
+      Real cause: `lib/classify.ts`'s `isCommerceEmail()` classified a
+      genuine order confirmation as non-commerce (or hit its `if (!text)
+      return false` empty-body early-return before ever calling the model —
+      can't distinguish between the two; the actual email content is
+      unrecoverable, `DiscardLog` is deliberately content-free and no
+      `Email` row means no encrypted copy exists either). Also flagging a
+      real discrepancy while in this code: that early-return fails *closed*
+      ("nothing to classify" → discard), contradicting the function's own
+      comment two lines above it that classification errors fail *open*.
+      Not fixed — diagnostic only per instruction. Needs a decision: improve
+      the classifier prompt/threshold, change the empty-body case to fail
+      open instead of closed, and/or surface silent commerce-discards
+      somewhere reviewable (today they're anonymous by design — no way to
+      know a real order was dropped without a user reporting it, as happened
+      here).
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's
