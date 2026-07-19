@@ -4,7 +4,7 @@
 **Method:** Static read of every route handler, server action, middleware, the admin surface, the crypto/extraction pipeline, and all render paths, plus a dependency advisory scan.
 **Deliverable:** Findings only, prioritized. No fixes applied. Remediation *directions* are given, not patches.
 
-**Overall disposition:** The core app is in notably good shape on the things that usually go wrong — authorization/IDOR is correct on every user-scoped route, the one-click email-action tokens are properly signed and single-use, secrets and crypto are handled well, and there is no raw-HTML rendering of email content. The concentrated risk is at the **one public, unauthenticated ingestion point (`/api/inbound`)** and the **complete absence of rate limiting**. Those two, together, are where attention should go first.
+**Overall disposition (updated 2026-07-19):** The core app is in notably good shape on the things that usually go wrong — authorization/IDOR is correct on every user-scoped route, the one-click email-action tokens are properly signed and single-use, secrets and crypto are handled well, and there is no raw-HTML rendering of email content. The inbound ingestion point is now authenticated (**C1**) and rate-limited (**H1**); the remaining gap there — no sender-authentication check on forwarded mail (**C2**) — is accepted at LOW, with remediation scoped to a conservative `needsReview` flag rather than a deeper investment in a forwarding path the planned Gmail-OAuth ingestion is set to demote anyway. The primary open item is now **M2** — an AI-extracted return-portal URL surfaced with the app's own trust chrome — which doesn't depend on sender authentication and whose fix is provider-agnostic, surviving that same OAuth pivot. **L4** (a forged email auto-advancing another user's order status) is accepted as risk under the current trusted-alpha threat model, to be revisited if the app admits non-trusted users.
 
 ---
 
@@ -186,9 +186,10 @@ A compromised admin mailbox can no longer be escalated into completing login as 
 ---
 
 ### Suggested order of work
-1. **C1** — ✅ 3 of 4 parts done 2026-07-15/16 (webhook Basic Auth, token/secret separation, rate limiting). 4th part (entropy rotation) re-assessed 2026-07-17 and recommended *against* — see C1's own entry for the quantified reasoning. **C2 (proposed)** — no sender authentication on inbound mail — is the actual highest-priority open item now; awaiting a decision on whether to accept it as tracked.
-2. **H1** — ✅ done 2026-07-16 — rate limiting added (inbound, beta-signup, sign-in send) and the beta-signup admin notification deduped. See H1's own entry above for detail.
-3. **M1–M4** — M1 ✅ done and owner-verified live 2026-07-17 (see M1's own entry above). Remaining: treat AI URLs as untrusted, move the admin gate off the query string, and stop logging plaintext payloads.
-4. **L1–L6** — hardening and hygiene as time allows; L5 re-rated 2026-07-17 (see its own entry).
+1. **M2** — the primary open finding as of 2026-07-19 (AI-extracted return-portal URL surfaced with the app's own trust chrome). Not yet built — see M2's own entry for remediation direction.
+2. **C1** — ✅ fully resolved 2026-07-19 (3 of 4 parts done 2026-07-15/16; 4th part, entropy rotation, consciously rejected — see C1's own entry). **C2** — ✅ accepted 2026-07-19, downgraded CRITICAL → LOW; remediation narrowed to a conservative `needsReview` flag on unverifiable-sender forwarded mail, not yet built, low priority given the planned Gmail-OAuth pivot — see C2's own entry.
+3. **H1** — ✅ done 2026-07-16 — rate limiting added (inbound, beta-signup, sign-in send) and the beta-signup admin notification deduped. See H1's own entry above for detail.
+4. **M1–M4** — M1 ✅ done and owner-verified live 2026-07-17 (see M1's own entry above). M2 promoted to #1 above. Remaining: M3 (move the admin gate off the query string), M4 (stop logging plaintext payloads).
+5. **L1–L6** — hardening and hygiene as time allows; L4 accepted as risk 2026-07-19 (see its own entry); L5 re-rated 2026-07-17 (see its own entry).
 
 *This audit reviews the code as written; it does not cover Vercel/Postmark/Neon platform configuration (e.g. whether webhook Basic Auth or a WAF is already set at the platform layer), which should be confirmed separately.*
