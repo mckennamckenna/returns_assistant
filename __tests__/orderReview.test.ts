@@ -6,6 +6,9 @@ const base = {
   orderDate: new Date("2026-07-01"),
   orderTotal: 42,
   userNote: null as string | null,
+  retailer: "Nordstrom",
+  returnPortalUrl: "https://www.nordstrom.com/returns",
+  policySource: "stated_in_email" as string | null,
   emails: [{ orderNumber: "ABC123", confidence: "high" }],
 };
 
@@ -31,6 +34,27 @@ describe("reviewReasonLabel", () => {
 
   it("falls back to the order-number-mismatch message when no [auto] marker exists", () => {
     const order = { ...base, emails: [{ orderNumber: "DIFFERENT", confidence: "high" }] };
+    expect(reviewReasonLabel(order)).toBe("We matched this return email to an existing order — please confirm it's correct");
+  });
+
+  it("surfaces the M2 unverified-return-link reason, re-derived live rather than stored", () => {
+    const order = { ...base, returnPortalUrl: "https://u24515401.ct.sendgrid.net/ls/click?upn=abc" };
+    expect(reviewReasonLabel(order)).toBe(
+      "The return link on this order could not be verified against the retailer's domain",
+    );
+  });
+
+  it("does not surface the M2 reason for a known third-party return portal", () => {
+    const order = { ...base, returnPortalUrl: "https://api.loopreturns.com/api/redirect/return/123" };
+    expect(reviewReasonLabel(order)).toBe("This order needs a quick check");
+  });
+
+  it("prefers the order-number-mismatch reason over M2 when both apply", () => {
+    const order = {
+      ...base,
+      returnPortalUrl: "https://u24515401.ct.sendgrid.net/ls/click?upn=abc",
+      emails: [{ orderNumber: "DIFFERENT", confidence: "high" }],
+    };
     expect(reviewReasonLabel(order)).toBe("We matched this return email to an existing order — please confirm it's correct");
   });
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { createOrderFromEmail, rebuildOrderFromRemainingEmails, applyFallbackOrderDate, recomputeOrderStatus } from "@/lib/linkOrder";
+import { classifyReturnPortalTrust } from "@/lib/extract";
 
 // Shared by both the user-facing "Needs Review" cards and the admin
 // dashboard — callers are responsible for their own access control
@@ -80,6 +81,9 @@ type ReviewOrderForLabel = {
   orderDate: Date | null;
   orderTotal: number | null;
   userNote: string | null;
+  retailer: string | null;
+  returnPortalUrl: string | null;
+  policySource: string | null;
   emails: { orderNumber: string | null; confidence: string | null }[];
 };
 
@@ -106,6 +110,19 @@ export function reviewReasonLabel(order: ReviewOrderForLabel): string {
   const isOrderNumberMismatch = order.emails.some((email) => email.orderNumber && email.orderNumber !== order.orderNumber);
   if (isOrderNumberMismatch) {
     return "We matched this return email to an existing order — please confirm it's correct";
+  }
+  // M2 (SECURITY_AUDIT.md) — re-derived live, not stored: unlike the
+  // [auto] merge notes above, this reason is a pure function of data
+  // already on the row (returnPortalUrl/retailer/policySource), so there's
+  // nothing to persist — recomputing it here can never go stale. Contrast
+  // with lib/linkOrder.ts's computeKeptStatusConflict, whose reason
+  // depends on a point-in-time fact (was displayStatus "kept" at the
+  // moment the conflicting email arrived) that isn't recoverable from the
+  // order's current state alone; that one still has no dedicated reason
+  // field either (falls through to the generic fallback below) — a known
+  // gap, not fixed here.
+  if (classifyReturnPortalTrust(order.returnPortalUrl, order.retailer, order.policySource) === "unknown-unverified") {
+    return "The return link on this order could not be verified against the retailer's domain";
   }
   if (!order.orderDate) {
     return "We couldn't find a purchase date — the return deadline may be estimated";

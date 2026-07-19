@@ -5,6 +5,7 @@ import {
   notesIndicateTieredWindow,
   computeNeedsReview,
   TIERED_WINDOW_NOTE_MARKER,
+  classifyReturnPortalTrust,
 } from "../lib/extract";
 
 // ── normalizeReturnPortalUrl ──────────────────────────────────────────────────
@@ -70,6 +71,114 @@ describe("resolveReturnPortalUrlForWrite", () => {
 
   it("returns null when neither source has a URL", () => {
     expect(resolveReturnPortalUrlForWrite(null, null)).toBe(null);
+  });
+});
+
+// ── classifyReturnPortalTrust (SECURITY_AUDIT.md M2) ──────────────────────────
+// A SIGNAL feeding Order.needsReview, never a hard block. The core security
+// property under test: matching happens on the REGISTRABLE domain only,
+// never the raw hostname/subdomain chain — a hostname can contain the
+// retailer's name as a subdomain label while a different party entirely
+// controls the actual registrable domain.
+
+describe("classifyReturnPortalTrust", () => {
+  it("does NOT classify a look-alike subdomain as the retailer's own domain — the bloomreach/evil-cdn trap", () => {
+    // Real shape observed in production: a Hanna Andersson marketing email's
+    // link hostname contains "hannaandersson" as a subdomain label, but the
+    // domain that actually controls the content is bloomreach.co, a
+    // third-party ESP. A naive "hostname contains retailer name" check would
+    // grant this the highest trust tier — the same shape an attacker domain
+    // like "amazon.evil-cdn.com" would exploit to impersonate Amazon.
+    expect(
+      classifyReturnPortalTrust("https://hannaandersson-cdn.bloomreach.co/e/abc123", "Hanna Andersson", "stated_in_email"),
+    ).toBe("unknown-unverified");
+  });
+
+  it("returns null when there's no URL at all — a missing link isn't itself suspicious", () => {
+    expect(classifyReturnPortalTrust(null, "Nordstrom", "stated_in_email")).toBe(null);
+  });
+
+  it("classifies the retailer's own domain when the normalized name exactly matches the registrable domain", () => {
+    expect(classifyReturnPortalTrust("https://shop.mango.com/us/en/my-returns", "MANGO", "web_lookup")).toBe(
+      "retailer-own-domain",
+    );
+  });
+
+  it("matches the retailer's own domain through punctuation/spacing differences (J.Crew / jcrew.com)", () => {
+    expect(classifyReturnPortalTrust("https://www.jcrew.com/help/returns-exchanges", "J.Crew", "web_lookup")).toBe(
+      "retailer-own-domain",
+    );
+  });
+
+  it("does not grant retailer-own-domain trust via a short substring collision (\"On\" vs on.com is NOT an exact match)", () => {
+    // "On (On-Running)" normalizes to "ononrunning", which does not exactly
+    // equal "on" — deliberately no substring/contains matching here (see the
+    // function's own comment): a short domain label like "on" would
+    // otherwise match almost any retailer name containing those two letters.
+    // This specific real retailer's own domain lands in unknown-unverified —
+    // an accepted, measured trade-off, not a bug.
+    expect(classifyReturnPortalTrust("https://on.com/en-us/faq/returns-and-exchanges", "On (On-Running)", "stated_in_email")).toBe(
+      "unknown-unverified",
+    );
+  });
+
+  it("classifies a confirmed-live known third-party portal domain (Loop Returns), even on a non-retailer-named subdomain", () => {
+    expect(
+      classifyReturnPortalTrust("https://api.loopreturns.com/api/redirect/return/123", "Ruti", "stated_in_email"),
+    ).toBe("known-third-party-portal");
+  });
+
+  it("classifies a confirmed-live known third-party portal domain (Narvar)", () => {
+    expect(classifyReturnPortalTrust("https://cta.narvar.com/f/a/abc", "Old Navy", "web_lookup")).toBe(
+      "known-third-party-portal",
+    );
+  });
+
+  it("checks the known-portal allowlist before retailer-domain matching", () => {
+    // A known portal domain should never fall through to unknown-unverified
+    // just because the retailer name happens not to match it — portal
+    // domains are never expected to relate to the retailer's name at all.
+    expect(classifyReturnPortalTrust("https://shopruti.loopreturns.com/", "Ruti", "stated_in_email")).toBe(
+      "known-third-party-portal",
+    );
+  });
+
+  it("correctly extracts the registrable domain across a multi-label ccTLD (co.uk)", () => {
+    expect(
+      classifyReturnPortalTrust("https://shop.southbankcentre.co.uk/pages/refund-policy", "Southbank Centre", "web_lookup"),
+    ).toBe("retailer-own-domain");
+  });
+
+  it("classifies web-lookup-sourced as its own measurement-only tier when the domain doesn't textually match the retailer name", () => {
+    // Real shape observed in production: COMMENSE's actual return-policy
+    // page is thecommense.com — a legitimate retailer domain, but the
+    // normalized retailer name ("commense") doesn't exactly match the
+    // registrable domain's label ("thecommense"), so it can't earn
+    // retailer-own-domain trust. Since the URL came via web lookup, it
+    // lands in the measurement-only tier rather than unknown-unverified —
+    // demonstrating the tier is doing real classification work here, not
+    // just falling through.
+    expect(classifyReturnPortalTrust("https://thecommense.com/pages/return-policy", "COMMENSE", "web_lookup")).toBe(
+      "web-lookup-sourced",
+    );
+  });
+
+  it("classifies unknown-unverified for a real click-tracking/ESP redirect that matches neither list", () => {
+    // Real shape observed in production: a SendGrid click-tracking link for
+    // a genuine Gap Inc. email — entirely legitimate, but neither the
+    // retailer's own domain nor a known return-portal provider. Correctly a
+    // SIGNAL (one review glance), never a block.
+    expect(
+      classifyReturnPortalTrust(
+        "https://u24515401.ct.sendgrid.net/ls/click?upn=abc",
+        "Gap Inc.",
+        "stated_in_email",
+      ),
+    ).toBe("unknown-unverified");
+  });
+
+  it("fails safe (unknown-unverified), never toward trust, on an unparseable URL", () => {
+    expect(classifyReturnPortalTrust("not a url", "Nordstrom", "stated_in_email")).toBe("unknown-unverified");
   });
 });
 

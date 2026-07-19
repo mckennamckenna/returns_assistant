@@ -138,6 +138,8 @@ A compromised admin mailbox can no longer be escalated into completing login as 
 
 **Remediation direction.** Treat AI-sourced URLs as untrusted: display the resolved domain to the user, don't auto-open, and/or constrain to the retailer's own domain (or a vetted list) before presenting it as "the" return link. Mark web-lookup/email-sourced links visibly as unverified.
 
+**Update 2026-07-19 — partial: the review-signal half is built, the UI half is not.** `classifyReturnPortalTrust()` (`lib/extract.ts`) now classifies every incoming `returnPortalUrl` into a trust tier (`known-third-party-portal` / `retailer-own-domain` / `web-lookup-sourced` / `unknown-unverified`, registrable-domain matching only — never the raw hostname/subdomain chain) and forces `Order.needsReview: true` on `unknown-unverified`, via the same gate `computeKeptStatusConflict` (#6a) uses. This surfaces an unverifiable link for human review; it does **not** implement the remediation direction above — the link still renders and opens exactly as before, with no domain display, no auto-open gating, and no visible "unverified" mark. That UI work is intentionally deferred to the pending review-disclosure spec, which handles presentation for all `needsReview` reasons uniformly rather than a bespoke M2 treatment. Full detail in `BUILD.md`'s Order-linking section and Decisions log.
+
 ### M3 — `ADMIN_SECRET` travels in the URL query string; comparison isn't constant-time
 **Class:** Authentication
 **Location:** `app/admin/page.tsx` (`?secret=`), `lib/adminAuth.ts` (`secret === expected`).

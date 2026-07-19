@@ -217,21 +217,26 @@
       "Returned" cards showing "Return by —" and prompting the user to
       forward original order confirmations. Owner flagged these as edge
       cases to handle separately, not part of this workstream.
-- [ ] **M2 — return-portal URL phishing risk, now the primary open security
-      finding (2026-07-19).** With C1 fully resolved, C2 accepted at LOW, and
-      L4 accepted as risk (see `SECURITY_AUDIT.md`'s reconciled entries), M2
-      — an AI-extracted "return portal" URL rendered as the trusted "Start a
-      return" action, sourced from attacker-influenceable email body text —
-      is the highest-severity finding still genuinely open. Independent of
-      C1/C2: doesn't need a forged sender, a genuinely-forwarded email can
-      carry the injection in its own body via prompt injection. Fix is
-      provider-agnostic — survives the planned Gmail-OAuth ingestion pivot
-      unchanged, since it's about what the app does with an extracted URL,
-      not how the email arrived. `SECURITY_AUDIT.md`'s M2 entry has the full
-      remediation direction: treat AI-sourced URLs as untrusted (show the
-      resolved domain, don't auto-open, and/or constrain to the retailer's
-      own domain or a vetted list before presenting it as "the" return
-      link). Not built yet.
+- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
+      review-signal half RESOLVED in code 2026-07-19, pending deploy
+      verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
+      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
+      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
+      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
+      `retailer-own-domain` — exact registrable-domain match only, never a
+      substring/contains check; `web-lookup-sourced` — measurement-only, not a
+      security boundary; `unknown-unverified`) and forces `Order.needsReview`
+      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
+      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
+      renders/opens exactly as before. Reason is re-derived live in
+      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
+      (it's a pure function of data already on the row). Tier distribution
+      logged count-only (no URL/retailer/order id). **What's still open:** no
+      domain display, no auto-open gating, no visible "unverified" mark — the
+      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
+      deferred to the pending review-disclosure spec (handles all
+      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
+      detail in `BUILD.md`'s Order-linking section + Decisions log.
 - [ ] **returnwindow-label-anchor-uncertainty** — RESOLVED in code, pending
       commit/deploy verification. `returnWindowFromLabel()` extracted from
       `app/(app)/orders/[id]/page.tsx` into `lib/returnWindowLabel.ts`
@@ -309,6 +314,16 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **m2-tier-log-remove-after-measurement** — pull the
+      `console.log("[M2 portal-trust tier]", ...)` line added in
+      `lib/linkOrder.ts` for M2 (`classifyReturnPortalTrust`) once the tier
+      distribution has actually been observed. It's a finite measurement
+      instrument (how often does `unknown-unverified` really fire?), not
+      standing production logging — and it sits in the inbound path right
+      next to the still-open M4 finding ("stop logging plaintext in
+      inbound"), so it shouldn't quietly become permanent furniture next to
+      the exact problem M4 is about. Count-only, no PII, so not urgent —
+      just don't forget it.
 - [ ] **Mobile audit finding #1b — caption visual re-do (follow-up to the
       #1 scoping fix, `131d800`).** The semantic fix is correct and
       owner-verified (caption now associates only with "Keeping it" —

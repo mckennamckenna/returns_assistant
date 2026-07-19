@@ -359,6 +359,122 @@ export function resolveReturnPortalUrlForWrite(
   return normalizeReturnPortalUrl(fromEmail ?? fromLookup);
 }
 
+// A handful of ccTLDs that are themselves two labels — without this list,
+// naive "last two labels" registrable-domain extraction would misparse
+// e.g. "shop.southbankcentre.co.uk" as domain "co.uk" instead of
+// "southbankcentre.co.uk". No public-suffix-list dependency for this
+// signal-only classifier: anything outside this small hardcoded set fails
+// SAFE (falls through to unknown-unverified, an extra review flag on a
+// legitimate domain), never toward false trust.
+const MULTI_LABEL_TLDS = new Set([
+  "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk",
+  "com.au", "net.au", "org.au",
+  "co.nz", "co.jp", "co.in", "co.za",
+  "com.br", "com.mx",
+]);
+
+// The registrable domain (eTLD+1) — never the raw hostname/subdomain
+// chain. A hostname like "hannaandersson-cdn.bloomreach.co" contains the
+// retailer's name as a subdomain label while the domain that actually
+// controls the content is bloomreach.co, a third party; matching on the
+// full hostname would grant this the highest trust tier — the same shape
+// an attacker domain like "amazon.evil-cdn.com" would exploit. Only the
+// registrable domain is ever compared against anything.
+function registrableDomain(hostname: string): string {
+  const labels = hostname.toLowerCase().split(".").filter(Boolean);
+  if (labels.length <= 2) return labels.join(".");
+  const lastTwo = labels.slice(-2).join(".");
+  return MULTI_LABEL_TLDS.has(lastTwo) ? labels.slice(-3).join(".") : lastTwo;
+}
+
+function normalizeForDomainMatch(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Small vetted allowlist of third-party return-management platforms whose
+// domains never relate to the retailer's own name by design — checked
+// before retailer-domain matching for exactly that reason. Domains marked
+// "confirmed live" were observed in this app's own production
+// returnPortalUrl data (2026-07-19 diagnostic, retailers: Ruti/Julia Amory
+// → loopreturns.com, Old Navy → narvar.com, H&M → parcellab.com, With
+// Nothing Underneath → reveni.io, Janie and Jack → letslinc.com). Happy
+// Returns and ReBOUND are seeded from public knowledge — named in
+// SECURITY_AUDIT.md's M2 finding and TASKS.md's Mango order-number-drift
+// history respectively — but not yet confirmed against our own data.
+const KNOWN_THIRD_PARTY_PORTAL_DOMAINS = new Set([
+  "loopreturns.com", // confirmed live
+  "narvar.com", // confirmed live
+  "parcellab.com", // confirmed live
+  "reveni.io", // confirmed live
+  "letslinc.com", // confirmed live
+  "happyreturns.com", // seeded, unverified against our own data
+  "reboundreturns.com", // seeded, unverified against our own data
+]);
+
+export type ReturnPortalTrustTier =
+  | "known-third-party-portal"
+  | "retailer-own-domain"
+  | "web-lookup-sourced"
+  | "unknown-unverified";
+
+// A SIGNAL feeding needsReview (SECURITY_AUDIT.md M2), never a hard block —
+// legitimate portals and retailer domains must always be classifiable as
+// trusted, and returnPortalUrl still renders/opens exactly as it does
+// today regardless of tier. Returns null when there's no URL at all — a
+// missing link isn't itself suspicious, so it never contributes a tier.
+//
+// Priority order: known-portal domains are checked first, since by design
+// they never relate to the retailer's name; retailer-own-domain requires
+// an EXACT match between the normalized retailer name and the registrable
+// domain's own label (deliberately not a substring/contains check — a
+// short domain label like "on" (on.com, "On (On-Running)") would otherwise
+// match almost any retailer name containing those two letters, the same
+// short-string collision risk this codebase already guards against
+// elsewhere via MIN_PREFIX_MATCH_LENGTH/MIN_RETAILER_PREFIX_LENGTH in
+// lib/linkOrder.ts). This means some real retailer-owned domains that
+// don't textually match their brand name (Tuckernuck's tnuck.com, On's
+// on.com) will land in unknown-unverified instead — an accepted,
+// measured trade-off (see the tier-distribution log at the call site),
+// not a bug: the failure direction is always an extra review glance on a
+// legitimate link, never false trust.
+//
+// web-lookup-sourced is measurement-only, NOT a security boundary:
+// policySource reflects where the return WINDOW came from, not
+// necessarily this specific URL — an email can state a portal URL with no
+// explicit window (window from lookup, URL still from the
+// attacker-influenceable email body), so this tier has a known
+// false-negative rate against the actual threat model and must never be
+// treated as proof the URL is safe.
+export function classifyReturnPortalTrust(
+  returnPortalUrl: string | null,
+  retailer: string | null,
+  policySource: string | null,
+): ReturnPortalTrustTier | null {
+  if (!returnPortalUrl) return null;
+
+  let hostname: string;
+  try {
+    hostname = new URL(returnPortalUrl).hostname;
+  } catch {
+    return "unknown-unverified"; // unparseable — fails safe, never toward trust
+  }
+
+  const domain = registrableDomain(hostname);
+
+  if (KNOWN_THIRD_PARTY_PORTAL_DOMAINS.has(domain)) return "known-third-party-portal";
+
+  if (retailer) {
+    const sld = domain.split(".")[0] ?? "";
+    if (normalizeForDomainMatch(retailer) === normalizeForDomainMatch(sld)) {
+      return "retailer-own-domain";
+    }
+  }
+
+  if (policySource === "web_lookup") return "web-lookup-sourced";
+
+  return "unknown-unverified";
+}
+
 // The exact marker both prompts (TIERED RETURN WINDOWS / buildPolicyLookupPrompt)
 // are instructed to prepend to notes when they detect and resolve a tiered
 // return policy — e.g. "30 days full-price, 14 days sale." Neither

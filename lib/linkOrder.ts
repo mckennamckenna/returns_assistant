@@ -1,6 +1,6 @@
 import type { Order, Email } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { computeDeadline, normalizeReturnPortalUrl } from "@/lib/extract";
+import { computeDeadline, normalizeReturnPortalUrl, classifyReturnPortalTrust } from "@/lib/extract";
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyText } from "@/lib/emailBodyText";
 import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displayStatus";
@@ -698,6 +698,22 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
     email.emailType,
   );
 
+  // M2 (SECURITY_AUDIT.md) — a SIGNAL feeding needsReview, never a hard
+  // block; returnPortalUrl still renders/opens exactly as before regardless
+  // of tier. Count-only log, no URL/retailer/order id — matches this
+  // project's existing count-level-only logging convention (see BUILD.md's
+  // privacy invariants) and specifically avoids ever logging a full
+  // returnPortalUrl, some of which carry PII in their query string (a real
+  // observed case: a Linc return-tracking URL embedding the user's email
+  // address). Reason text is NOT written here — lib/orderReview.ts's
+  // reviewReasonLabel() re-derives it live from the order's own
+  // returnPortalUrl/retailer at render time (see that file's comment for
+  // why this one's reason doesn't need a stored field, unlike the
+  // point-in-time facts above).
+  const portalTrustTier = classifyReturnPortalTrust(returnPortalUrl, email.retailer, email.policySource);
+  console.log("[M2 portal-trust tier]", portalTrustTier ?? "none");
+  const isPortalUntrusted = portalTrustTier === "unknown-unverified";
+
   // recomputeOrderStatus derives needsReview from data completeness, which
   // would happily clear it the moment the order looks complete — but any
   // prefix match (or refund-fallback match) needs a human to confirm it
@@ -705,7 +721,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   // regardless of how complete the data looks. Force it true after
   // recompute, not before. Also append an audit note to userNote so the
   // merge reason is visible without having to diff order records.
-  if (isPrefixMatchedOrder || isRefundFallbackMatch || isKeptStatusConflict) {
+  if (isPrefixMatchedOrder || isRefundFallbackMatch || isKeptStatusConflict || isPortalUntrusted) {
     const note = retailerPrefixNote ?? refundFallbackNote ?? keptConflictNote;
     const noteUpdate: { needsReview: boolean; userNote?: string } = { needsReview: true };
     if (note) {
