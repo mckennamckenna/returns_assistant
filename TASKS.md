@@ -143,35 +143,31 @@
       broader label-fighting pattern is real independent of that instance.
 
       **5. Quick-check (needs-review) surface doesn't explain itself — spec
-      needed before design.** `app/ReviewCard.tsx` asks users to arbitrate
-      between "looks correct" and "split into separate order" with no visible
-      evidence supporting either option and no explanation of why the system
-      isn't confident in the first place. Same root concern as the existing
-      Next item about this card's missing "why" line (`TRUST_AUDIT.md` row
-      6), but broader: it's not just a missing explanation string, it's that
-      the whole surface asks for a judgment call without giving the
-      information needed to make one. Needs a spec pass, not a copy tweak.
+      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
+      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
+      and "split into separate order" with no visible evidence supporting
+      either option and no explanation of why the system isn't confident in
+      the first place. Same root concern as the existing Next item about
+      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
+      it's not just a missing explanation string, it's that the whole
+      surface asks for a judgment call without giving the information
+      needed to make one. Needs a spec pass, not a copy tweak. **This is now
+      the hub for three distinct `needsReview` reasons that all need this
+      same disclosure surface to actually explain themselves:** #6a's
+      kept-status-conflict (`computeKeptStatusConflict()`), M2's
+      return-portal trust tier (`classifyReturnPortalTrust()`), and the
+      original missing-deadline case. Two more gaps in this space are
+      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
+      `reviewreasonlabel-missing-reasons`). Every session that adds a new
+      review-flagging mechanism makes this spec pass more overdue, not less
+      — it's gated on owner mockups, but it's the current highest-leverage
+      piece of unblocked work once those land.
 
-      **6. Order-linking — two distinct findings, do not conflate:**
-      - **6a. Auto-link fails on an exact order-number match — RESOLVED,
-        pending deploy verification.** Originally observed: a Shopbop
-        quick-check card asked for confirmation on order #142770152 while a
-        Shopbop #142770152 order already existed on the dashboard, status
-        Kept. Diagnostic (2026-07-18) found the exact-match query was never
-        the bug — every email carrying that order number matched
-        byte-identically. The actual cause: an orphaned no-order-number
-        refund email correctly fallback-matched to the same order and
-        (correctly) forced `needsReview`, which surfaced as a quick-check on
-        an order that was already "Kept." Follow-up fix (same session):
-        `computeKeptStatusConflict()` in `lib/linkOrder.ts` now also forces
-        `needsReview` (with an audit note) when a `return_label`/`refund`
-        email reaches a `"kept"` order via an *exact* match, which
-        previously wasn't caught at all — closing the one real gap found.
-        `isPrefixMatchedOrder`/`isRefundFallbackMatch` semantics (Mango
-        `F4VLSF`/`F4VLSF00`) untouched. `displayStatus` itself is never
-        touched — stays "kept," per `lib/displayStatus.ts`'s own guard.
-        BUILD.md order-linking + Decisions log updated in the same commit.
-        Move to Done once pushed and verified live.
+      **6. Order-linking:**
+      - **6a. SHIPPED (`3f5677f`) — moved to Done.** Turned out not to be an
+        exact-match bug at all (the exact-match query was always correct);
+        see Done section for the actual root cause and `BUILD.md`'s
+        Order-linking notes for the fix.
       - **6b. No order number present — design decision needed, connects to
         an existing Next item.** Refund/return emails without an order
         number can't be linked at all today. Proposal: match on item
@@ -218,8 +214,8 @@
       forward original order confirmations. Owner flagged these as edge
       cases to handle separately, not part of this workstream.
 - [ ] **M2 — return-portal URL phishing risk, primary open security finding —
-      review-signal half RESOLVED in code 2026-07-19, pending deploy
-      verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
+      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
+      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
       (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
       trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
       Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
@@ -237,46 +233,12 @@
       deferred to the pending review-disclosure spec (handles all
       `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
       detail in `BUILD.md`'s Order-linking section + Decisions log.
-- [ ] **returnwindow-label-anchor-uncertainty** — RESOLVED in code, pending
-      commit/deploy verification. `returnWindowFromLabel()` extracted from
-      `app/(app)/orders/[id]/page.tsx` into `lib/returnWindowLabel.ts`
-      (matches the `lib/archivePageState.ts`/`returnedPageState.ts`
-      precedent for testable page logic). Null/unknown
-      `returnWindowStartsFrom` now reads "from purchase (est.)" instead of
-      asserting the same certainty as a confirmed anchor — reusing the
-      existing `" (est.)"` idiom from `DaysLeftChip.tsx`, not new copy.
-      `"order_date"`/`"delivery_date"` labels unchanged. Deliberately keyed
-      on `startsFrom === null`, not `deadlineIsEstimated` — that field also
-      goes true for a *confirmed* `delivery_date` anchor whenever the
-      delivery date itself is a carrier ETA/shipping-buffer guess, which
-      would have wrongly hedged a confirmed label. `computeDeadline()`
-      untouched. Pure-function test added (`returnWindowLabel.test.ts`).
-      Move to Done once committed, pushed, and verified live.
 - [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
       pass, prep for a more public-facing alpha: env vars, auth, API
       routes, input validation, rate limiting, data exposure. Not started
       tonight. The inbound webhook auth rollout (completed `d5772a8`,
       2026-07-15) is directly relevant context to start from — its
       findings inform this cleanse, not blocking work.
-- [ ] **archive-button-styling-mismatch** — order-detail-page styling piece
-      RESOLVED in code, pending commit/deploy verification; overflow-menu
-      placement question stays parked, not fixed here. Order detail's
-      Archive button (`ArchiveOrderButton`) already rendered a real
-      `<button>`, but the `className` passed at its one call site
-      (`app/(app)/orders/[id]/page.tsx`) used `bg-page text-secondary`
-      with no border — same color as the page background, reading as bare
-      text next to "Keeping it"/"Track package"'s outlined treatment.
-      Swapped to the exact "Keeping it" class string
-      (`border border-border text-ink text-sm font-medium rounded-lg
-      px-4 py-2 hover:bg-page`) — styling only, in place; no change to
-      `ArchiveOrderButton.tsx`, no placement change, no touch to
-      `OrderActionsMenu.tsx` or the dashboard card overflow menu. The
-      broader "should Archive match its siblings' weight or be quieter"
-      hierarchy question, and whether the overflow-menu's Archive
-      treatment shares this root cause, are deliberately deferred to the
-      owner's mock pass — this fix is "match what's already there,"
-      not a hierarchy decision. Move to Done once committed, pushed, and
-      verified live.
 - [ ] **Retailer logo coverage test — investigation only, both passes now run
       live against Logo.dev.** Domain pass (real observed sender domains):
       15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
@@ -324,6 +286,30 @@
       inbound"), so it shouldn't quietly become permanent furniture next to
       the exact problem M4 is about. Count-only, no PII, so not urgent —
       just don't forget it.
+- [ ] **policysource-url-provenance-imprecision** — surfaced during M2's
+      build (2026-07-19). `policySource` is an imprecise proxy for which
+      source actually produced a given `returnPortalUrl`: an email can
+      state a portal URL with no explicit return window (window comes from
+      web lookup, URL still from the attacker-influenceable email body),
+      so `policySource === "web_lookup"` doesn't reliably mean *this URL*
+      came from the lookup. Any reasoning built on that field (M2's
+      `web-lookup-sourced` tier included) carries a known false-negative
+      rate against the actual threat model. Not fixed — would need
+      threading the URL's actual source through as its own value rather
+      than reusing `policySource`. Disclosure-spec fuel: feeds the
+      quick-check surface (mobile audit finding #5, 🔴 Now) the same way
+      M2's tier does — cross-reference there before designing.
+- [ ] **reviewreasonlabel-missing-reasons** — pre-existing gap, surfaced
+      (not introduced) during M2's build (2026-07-19). `reviewReasonLabel()`
+      (`lib/orderReview.ts`) has no branch for #6a's kept-status-conflict
+      reason — an order flagged by `computeKeptStatusConflict()` falls
+      through to the generic "This order needs a quick check" fallback
+      instead of naming the actual trigger. Same underlying shape as the
+      `userNote`-parsing fragility already tracked ("move retailer-prefix
+      marker off `userNote`," 🟡 Next) — every `needsReview` trigger needs
+      a reason the UI can actually surface, and today only some do.
+      Disclosure-spec fuel: feeds the quick-check surface (mobile audit
+      finding #5, 🔴 Now) — cross-reference there before designing.
 - [ ] **Mobile audit finding #1b — caption visual re-do (follow-up to the
       #1 scoping fix, `131d800`).** The semantic fix is correct and
       owner-verified (caption now associates only with "Keeping it" —
@@ -379,14 +365,17 @@
       item: M4 (plaintext payload logging), M3 (`ADMIN_SECRET` in URL +
       non-constant-time compare), C2's own narrowed remediation (flag
       unverifiable-sender forwarded mail as `needsReview` — LOW priority,
-      not yet built), L1–L6 (L5 already closed/tracked). M2 no longer
-      belongs on this list — it was pulled out into its own dedicated Now
-      item 2026-07-19 (primary open finding). Per the session's own
-      structural note below (Decisions log), every open audit finding
-      should have a corresponding `TASKS.md` item — this pointer exists so
-      the reminder itself isn't lost, but a proper one-item-per-finding
-      backfill pass is still owed separately, not done as part of this
-      docs sweep.
+      not yet built), L1, L2, L3, L6 (L5 already closed/tracked). **L4 is
+      not on this list either** — accepted as risk 2026-07-19 for the
+      current trusted-alpha threat model (not open, not fixed; revisit
+      trigger recorded in `SECURITY_AUDIT.md`: re-open when the app admits
+      non-trusted users). M2 no longer belongs on this list — it was pulled
+      out into its own dedicated Now item 2026-07-19 (primary open
+      finding). Per the session's own structural note below (Decisions
+      log), every open audit finding should have a corresponding
+      `TASKS.md` item — this pointer exists so the reminder itself isn't
+      lost, but a proper one-item-per-finding backfill pass is still owed
+      separately, not done as part of this docs sweep.
 - [ ] **`vitest-nextauth-import-fragility` needs its own investigation** —
       promoted from Known Issues 2026-07-17 per its own stated graduation
       criteria ("if a third instance shows up, it graduates from 'pre-existing
@@ -455,7 +444,9 @@
       Open design question: does this become a retailer-policy-DB flag
       (per-retailer reminder cadence), or an Amazon-specific branch in
       `lib/reminders.ts`? Needs a spec pass before code. Slug:
-      `amazon-per-email-reminder-cadence`.
+      `amazon-per-email-reminder-cadence`. **Committed work, gated on
+      `amazon-first-class-case` landing first (2026-07-19 decision) — not
+      "someday," but not started ahead of that spec either.**
 - [ ] **Amazon dashboard card as folder, not single order** — Amazon orders
       fan out into many shipments and often several "orders" that are
       really one shopping session, and the current card-per-order treatment
@@ -464,7 +455,9 @@
       underlying orders. Open design question: does this generalize to
       other high-volume retailers (Poshmark maybe), or stay Amazon-only?
       Related to the Gap Inc. brand-family item already in this section.
-      Slug: `amazon-dashboard-folder-view`.
+      Slug: `amazon-dashboard-folder-view`. **Committed work, gated on
+      `amazon-first-class-case` landing first (2026-07-19 decision) — not
+      "someday," but not started ahead of that spec either.**
 - [ ] **PROMOTED to 🔴 Now 2026-07-17 — see Now section.** Slug:
       `mobile-ux-audit-pass`.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
@@ -716,20 +709,25 @@
       next since it's the most common transition. Estimate: probably 2-3 hours per
       action once you get in a rhythm.
 - [ ] **Amazon: think it through as a first-class case, not a series of
-      patches.** Every session so far has surfaced Amazon-specific
-      adaptations: no `order_confirmation` email type (Bug 8), never provides
-      purchase date (Bug 8 `receivedAt` fallback), variable formats across
-      sub-brands (Fresh, Prime Video, marketplace, Whole Foods, digital),
-      category-dependent return policies, refund emails without dollar
-      amounts, Amazon-hosted return portals instead of retailer "start
-      return" links, likely order_date vs delivery_date anchor mismatch
-      (surfaced in tier 3 verification). Before adding another
-      Amazon-specific patch, do a spec pass: what would it look like to
-      treat Amazon as a first-class case, with its own extraction rules, its
-      own policy lookup, its own reminder cadence if warranted? Output a
-      written proposal (`AMAZON_HANDLING.md` in repo root) before any
-      implementation. Ideally by the time we have real alpha data from users
-      with a lot of Amazon volume.
+      patches. Slug: `amazon-first-class-case`.** Every session so far has
+      surfaced Amazon-specific adaptations: no `order_confirmation` email
+      type (Bug 8), never provides purchase date (Bug 8 `receivedAt`
+      fallback), variable formats across sub-brands (Fresh, Prime Video,
+      marketplace, Whole Foods, digital), category-dependent return
+      policies, refund emails without dollar amounts, Amazon-hosted return
+      portals instead of retailer "start return" links, likely order_date
+      vs delivery_date anchor mismatch (surfaced in tier 3 verification).
+      Before adding another Amazon-specific patch, do a spec pass: what
+      would it look like to treat Amazon as a first-class case, with its
+      own extraction rules, its own policy lookup, its own reminder cadence
+      if warranted? Output a written proposal (`AMAZON_HANDLING.md` in repo
+      root, not yet written) before any implementation. Ideally by the time
+      we have real alpha data from users with a lot of Amazon volume.
+      **Committed work, not "someday" (2026-07-19 decision — see Decisions
+      log): `amazon-dashboard-folder-view` (UX) and
+      `amazon-per-email-reminder-cadence` (digest/reminder) are both in
+      scope, bound to this spec landing first — no more piecemeal Amazon
+      patches ahead of it.**
 - [ ] **Watching: Jul 12 Sunday digest** — verify actual scheduled fire produces
       Reminder rows. If clean, Jul 5 was likely a Vercel platform hiccup. If also
       silent, real runtime bug needing dashboard log investigation.
@@ -888,6 +886,9 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **#6a: a return_label/refund email reaching an order already marked Kept now flags needsReview instead of merging silently, closing the one real gap found — the exact-match query itself was never the bug.** Deployed, awaiting natural verification (needs a real Kept order to receive a genuine return/refund email) — not ✅.
+- [x] **A null/unknown return-window anchor now reads "from purchase (est.)" instead of asserting the same certainty as a confirmed anchor.** Shipped, verified in diff.
+- [x] **Order detail's Archive button restyled to match its sibling outlined buttons, in place.** Placement stays parked with the separate overflow-menu question. Deployed, awaiting visual verification.
 - [x] **Security reconciliation, docs-only (2026-07-19) — C1 fully resolved,
       C2 accepted at LOW, L4 accepted as risk, M2 elevated to primary open
       finding.** Owner decision, recorded in `SECURITY_AUDIT.md`: C1's 4th
@@ -1686,3 +1687,22 @@
   resolved: its 4th remediation part (entropy rotation) was consciously
   rejected rather than left outstanding. See `SECURITY_AUDIT.md`'s C1/C2/L4/M2
   entries for full detail.
+- **#6a's real root cause was a missing `needsReview` guard on manual-terminal-state
+  orders, not the exact-match query (2026-07-18/19).** Recorded so the original
+  hypothesis doesn't get mistaken for the actual fix later: the exact-match query
+  in `lib/linkOrder.ts` was correct the entire time, byte-for-byte, for every
+  email carrying the same order number. What actually produced the reported
+  symptom was a separate, already-existing mechanism (an orphaned no-order-number
+  refund correctly fallback-matching and correctly forcing review) landing on an
+  order already manually marked "Kept" — the fix (`computeKeptStatusConflict()`)
+  closes the one real gap (an *exact*-matched return/refund reaching a kept order
+  wasn't triggering the same review), not the query itself.
+- **Amazon is committed work, not "someday" (2026-07-19).** `amazon-dashboard-folder-view`
+  (UX) and `amazon-per-email-reminder-cadence` (digest/reminder cadence) are both
+  in scope, not backlog — but bound to `amazon-first-class-case` (the
+  `AMAZON_HANDLING.md` spec pass) landing first. Rationale: this codebase has
+  taken an Amazon-specific patch almost every session (no `order_confirmation`
+  type, no purchase date, sub-brand format variance, category-dependent
+  policies, refund emails with no dollar amount, Amazon-hosted return portals,
+  anchor mismatches) — spec-first avoids the next patch being the Nth
+  ad hoc special-case instead of an instance of a considered design.
