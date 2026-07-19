@@ -217,20 +217,21 @@
       "Returned" cards showing "Return by —" and prompting the user to
       forward original order confirmations. Owner flagged these as edge
       cases to handle separately, not part of this workstream.
-- [ ] **Decide on proposed finding C2 — no SPF/DKIM check on inbound mail
-      (surfaced by the Item 3 C1 dig, 2026-07-17).** `SECURITY_AUDIT.md` now
-      has a full write-up under C2 (CRITICAL, proposed, not yet accepted) —
-      `PostmarkInboundPayload` has no authentication-result field and nothing
-      checks sender identity; a forged-sender email to a known/leaked address
-      reaches the same M2 (phishing return-portal link)/L4 (forged refund
-      auto-advancing status) impact the original C1 was worried about, without
-      needing to forge the webhook request at all. Needs: (1) a decision on
-      whether to accept it as tracked, (2) if accepted, a real check of what
-      Postmark's inbound payload actually exposes for this account (raw
-      `Headers` array with `Received-SPF`/`Authentication-Results`?) — platform
-      inspection, not a code question. `[needs clarification]` on priority
-      relative to other Now/Next work.
-      than folding it into C1.
+- [ ] **M2 — return-portal URL phishing risk, now the primary open security
+      finding (2026-07-19).** With C1 fully resolved, C2 accepted at LOW, and
+      L4 accepted as risk (see `SECURITY_AUDIT.md`'s reconciled entries), M2
+      — an AI-extracted "return portal" URL rendered as the trusted "Start a
+      return" action, sourced from attacker-influenceable email body text —
+      is the highest-severity finding still genuinely open. Independent of
+      C1/C2: doesn't need a forged sender, a genuinely-forwarded email can
+      carry the injection in its own body via prompt injection. Fix is
+      provider-agnostic — survives the planned Gmail-OAuth ingestion pivot
+      unchanged, since it's about what the app does with an extracted URL,
+      not how the email arrived. `SECURITY_AUDIT.md`'s M2 entry has the full
+      remediation direction: treat AI-sourced URLs as untrusted (show the
+      resolved domain, don't auto-open, and/or constrain to the retailer's
+      own domain or a vetted list before presenting it as "the" return
+      link). Not built yet.
 - [ ] **returnwindow-label-anchor-uncertainty** — RESOLVED in code, pending
       commit/deploy verification. `returnWindowFromLabel()` extracted from
       `app/(app)/orders/[id]/page.tsx` into `lib/returnWindowLabel.ts`
@@ -361,12 +362,16 @@
 - [ ] **Security cadence remaining — reminder pointer, not a full backfill.**
       `SECURITY_AUDIT.md` open findings not yet given their own `TASKS.md`
       item: M4 (plaintext payload logging), M3 (`ADMIN_SECRET` in URL +
-      non-constant-time compare), M2 (return-portal URL trust), L1–L6 (L5
-      already closed/tracked). Per the session's own structural note below
-      (Decisions log), every open audit finding should have a corresponding
-      `TASKS.md` item — this pointer exists so the reminder itself isn't
-      lost, but a proper one-item-per-finding backfill pass is still owed
-      separately, not done as part of this docs sweep.
+      non-constant-time compare), C2's own narrowed remediation (flag
+      unverifiable-sender forwarded mail as `needsReview` — LOW priority,
+      not yet built), L1–L6 (L5 already closed/tracked). M2 no longer
+      belongs on this list — it was pulled out into its own dedicated Now
+      item 2026-07-19 (primary open finding). Per the session's own
+      structural note below (Decisions log), every open audit finding
+      should have a corresponding `TASKS.md` item — this pointer exists so
+      the reminder itself isn't lost, but a proper one-item-per-finding
+      backfill pass is still owed separately, not done as part of this
+      docs sweep.
 - [ ] **`vitest-nextauth-import-fragility` needs its own investigation** —
       promoted from Known Issues 2026-07-17 per its own stated graduation
       criteria ("if a third instance shows up, it graduates from 'pre-existing
@@ -868,6 +873,26 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Security reconciliation, docs-only (2026-07-19) — C1 fully resolved,
+      C2 accepted at LOW, L4 accepted as risk, M2 elevated to primary open
+      finding.** Owner decision, recorded in `SECURITY_AUDIT.md`: C1's 4th
+      remediation part (entropy rotation) consciously rejected rather than
+      left outstanding, closing C1 with no open marker. C2 (no SPF/DKIM
+      check on inbound mail) accepted as a tracked finding but downgraded
+      CRITICAL → LOW — its original rating double-counted M2 (doesn't
+      depend on C2) and L4 (now itself accepted risk); C2's own isolated
+      residual is single-account dashboard integrity plus rate-limited LLM
+      cost, no cross-user leak or escalation. C2's remediation narrowed to a
+      conservative `needsReview` flag on unverifiable-sender forwarded mail
+      — explicitly not multi-provider auth parsing, since the forwarding
+      ingestion path itself is being demoted by the planned Gmail-OAuth
+      pivot. L4 (prompt-injection-driven status changes) marked ACCEPTED
+      RISK under the current trusted-alpha threat model, with an explicit
+      revisit trigger (re-open when the app admits non-trusted users). M2
+      (return-portal URL phishing) elevated to the primary open security
+      finding and given its own dedicated `TASKS.md` item, on the reasoning
+      that it's independent of C1/C2 and its fix is provider-agnostic
+      (survives the OAuth pivot). No code touched.
 - [x] **Mobile audit finding #1 (caption scoping on `OrderCard.tsx`) — semantic
       fix owner-verified live 2026-07-17 (`131d800`).** `KEPT_WARNING_CAPTION`
       moved inside `{canKeep && (...)}`'s own form, matching the order detail
@@ -1631,3 +1656,18 @@
   occasionally start a return a couple days before they strictly needed to
   (minor inconvenience) in exchange for never computing a deadline later than
   the real one (real cost, a missed return).
+- **Security reconciliation (2026-07-19): C2 accepted at LOW rather than CRITICAL,
+  L4 accepted as risk under the current trusted-alpha threat model, M2 elevated
+  to the primary open security finding.** C2's original CRITICAL rating double-
+  counted M2 (phishing — doesn't depend on C2) and L4 (auto-advance — now itself
+  accepted risk); isolated on its own, C2's residual is single-account dashboard
+  integrity plus rate-limited LLM cost, not a cross-user leak or escalation.
+  C2's remediation is scoped to a conservative `needsReview` flag on
+  unverifiable-sender forwarded mail, deliberately not multi-provider auth
+  parsing — the forwarding ingestion path itself is being demoted by the
+  planned Gmail-OAuth pivot, so a brittle forwarding-specific fix isn't worth
+  building for a path headed to secondary status, unlike M2's fix, which is
+  provider-agnostic and survives that pivot unchanged. C1 is now fully
+  resolved: its 4th remediation part (entropy rotation) was consciously
+  rejected rather than left outstanding. See `SECURITY_AUDIT.md`'s C1/C2/L4/M2
+  entries for full detail.
