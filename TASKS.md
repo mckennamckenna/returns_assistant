@@ -281,6 +281,116 @@
       any commerce email actually forward through. Poll him tomorrow; if he
       responds, log verbatim what he did. Step 5 UX is still unverified for
       any non-owner user.
+- [ ] **Docs: create `## 🐛 Bugs` section in TASKS.md** — capture-only.
+      Relocate existing trust-breaking/annoying/cosmetic bug items out of
+      🟡 Next into a dedicated section right after 🔴 Now, preserving each
+      item's text verbatim. No fixes this session.
+
+## 🐛 Bugs
+
+### Trust-breaking
+- [ ] **"Unlinked emails" section shows a raw tracking-style URL in the body
+      preview** — e.g. `click.mkt.isdnn.com/...` visible in a forwarded
+      promotional email's preview text, reads as spam/phishing leaking into
+      the app's own UI. Surfaced by trust audit (`TRUST_AUDIT.md` row 12),
+      not in today's scope. Proposed fix: strip/hide raw URLs from the
+      preview snippet before display.
+- [ ] **Bare "Delivery date —" / "Return by — (est.)" renders with zero
+      explanatory context** when the field is simply not yet known — could
+      read as "the app failed to fetch this" rather than "we don't have a
+      delivery email yet, that's normal." Surfaced by trust audit
+      (`TRUST_AUDIT.md` row 15), not in today's scope. Proposed fix: a short
+      inline hint on the fields most central to the app's promise.
+- [ ] **Delivery date renders "—" even when `estimatedDeliveryDate` exists —
+      display bug**, split out from the design question in
+      `delivery-date-first-class-surface` (🟡 Next). Cross-ref that item;
+      that item itself is not moved or edited.
+- [ ] **Diagnose Gmail deep-link URL construction bug** [latent: button
+      removed as stopgap] — 2/2 non-owner
+      test users (mom, then brother) whose filters matched their entire
+      inbox instead of the intended commerce search, forwarding personal
+      email into Return Window's extraction pipeline. Byte-identical URL to
+      the owner's own (which works correctly) — not a "user followed
+      instructions wrong" case. Deep debugging is high-cost without ability
+      to instrument the browser. Root cause suspected: search query not
+      carrying through the URL to Gmail. **2026-07-13: the button itself
+      removed from Settings** (see Known Issues) as an immediate stopgap —
+      this item is now purely about the underlying fix. When fixed and
+      verified against a third non-owner account (using the
+      filter-matches-everything monitoring alert — being built in a
+      separate session, per owner — as the verification signal: no alert
+      firing = fix confirmed), re-introduce the button + explanatory copy at
+      `settings/page.tsx` (previously at lines 22-24 and 45-56 pre-removal —
+      reference commit `3658947` — the removal commit — to see the original
+      implementation via `git show 3658947^:app/\(app\)/settings/page.tsx`).
+      Real evidence supporting OAuth prioritization as the eventual real fix.
+      Slug: `gmail-deeplink-cross-account-parsing`.
+- [ ] **Investigate duplicate Order rows for On order 101130827062601745**
+      [needs repro] — two
+      separate Order records with the same `orderNumber`, found while diagnosing the
+      returnPortalUrl scheme bug (`lib/linkOrder.ts` matching). LinkOrder merge bug, or
+      intentional? Cheap check, not urgent.
+- [ ] **Coverage-check dedup should key off scheduled-run-week, not rolling 7-day
+      lookback** [email delivery], so test invocations don't perturb production cadence — currently a
+      stray Jun 27 test send caused three users (owner, kathleen, alexandra) to be
+      deduped from the Jul 3 real run.
+- [ ] **Verify whether the coverage-check route on `?force=true` writes the Reminder
+      row identically to a scheduled run** [email delivery] — if so, tests will keep affecting the
+      schedule. Consider not writing a Reminder row on force invocations.
+
+### Annoying
+- [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
+      e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
+      to near-nothing after the (already-shortened) order number eats the
+      line. Surfaced by 2026-07-13 trust audit (`TRUST_AUDIT.md` row 7), not
+      in the six-item Phase 2 scope. Proposed fix: drop item summary from
+      this line at narrow widths, or stack the two on separate lines below
+      ~480px.
+- [ ] **Non-Amazon orders still stuck with `orderDate: null`** — Bug 8's
+      backfill was deliberately scoped to Amazon only. Found while running its
+      dry-run: H&M #66993117803 and Tuckernuck #TNK6772725 (both delivery-only,
+      no shipping_confirmation — same root cause as the "Post-beta:
+      delivery-only orders" 👀 Watching item) and Lola Blankets #1158308
+      (refund-only, already tracked under Bugs 9+10+11). Same
+      `applyFallbackOrderDate` fallback would likely resolve these too, but
+      wasn't run against them without a separate go-ahead.
+- [ ] **Mobile audit finding #1b — caption visual re-do (follow-up to the
+      #1 scoping fix, `131d800`).** [blocked: owner mock] The semantic fix is correct and
+      owner-verified (caption now associates only with "Keeping it" —
+      see Done), but the visual result is bad: on the dashboard card, the
+      caption now wraps into a cramped two-line column squeezed beside the
+      "..." menu (`app/OrderCard.tsx`). **Do NOT re-attempt from a written
+      spec** — the pattern-match approach (copying the order detail page's
+      `flex flex-col items-start gap-1` placement) has now failed twice in
+      one day on this exact finding: it matched the *source* pattern
+      correctly but didn't account for the dashboard card being
+      meaningfully narrower than the detail page, so the same structure
+      produces a different, worse visual result in the new context. Owner
+      will provide a mockup before the next attempt. See Decisions log for
+      the general lesson this surfaced (pattern-matching across differing
+      contexts needs verification in the new context, not just fidelity to
+      the source).
+- [ ] **[blocked: on-device] Bell-icon nav misalignment** — pointer only;
+      full diagnostic history stays in the mobile-ux-audit finding #1 item
+      (🔴 Now). That item is not moved or edited.
+
+### Cosmetic
+- [ ] **Sidebar account email truncates with no `title` fallback** — e.g.
+      `mckenna.sweazey@g…`, no way to see the full address without editing
+      the DOM. Surfaced by trust audit (`TRUST_AUDIT.md` row 8), not in
+      today's six-item scope. Proposed fix: add a `title` attribute, same
+      pattern as the order-number display fix.
+- [ ] **Order detail page: long order number wraps awkwardly on mobile** —
+      24-char Poshmark-style numbers wrap across 3 lines with the Copy
+      button sitting mid-wrap rather than below the value. Cosmetic only,
+      not broken. Surfaced by trust audit (`TRUST_AUDIT.md` row 14).
+      Proposed fix: stack Copy button below the value at narrow widths.
+- [ ] **[cosmetic] Dead `"delivered"` status value** [internal, not
+      user-visible] — clear when
+      convenient. (Listed in the `status` schema comment, `OrderStatus`
+      type, and `OPEN_STATUSES`, but `computeOrderStatus()` never actually
+      writes it — always `"returnable"` instead. Harmless, just
+      inaccurate.)
 
 ## 🟡 Next
 - [ ] **[unconfirmed] Grocery / non-returnable parsed as returnable** — no
@@ -292,11 +402,6 @@
       arguably correct; the open risk is the web-lookup step finding a
       real but inapplicable merchandise-returns policy for a perishable
       order. Same shape as `final-sale-nonreturnable-handling`.)
-- [ ] **[cosmetic] Dead `"delivered"` status value** — clear when
-      convenient. (Listed in the `status` schema comment, `OrderStatus`
-      type, and `OPEN_STATUSES`, but `computeOrderStatus()` never actually
-      writes it — always `"returnable"` instead. Harmless, just
-      inaccurate.)
 - [ ] **m2-tier-log-remove-after-measurement** — pull the
       `console.log("[M2 portal-trust tier]", ...)` line added in
       `lib/linkOrder.ts` for M2 (`classifyReturnPortalTrust`) once the tier
@@ -349,22 +454,6 @@
       count. **Not started — waiting on the owner's mock**, per the
       original mobile-audit finding #5 framing (spec pass needed before
       design/code).
-- [ ] **Mobile audit finding #1b — caption visual re-do (follow-up to the
-      #1 scoping fix, `131d800`).** The semantic fix is correct and
-      owner-verified (caption now associates only with "Keeping it" —
-      see Done), but the visual result is bad: on the dashboard card, the
-      caption now wraps into a cramped two-line column squeezed beside the
-      "..." menu (`app/OrderCard.tsx`). **Do NOT re-attempt from a written
-      spec** — the pattern-match approach (copying the order detail page's
-      `flex flex-col items-start gap-1` placement) has now failed twice in
-      one day on this exact finding: it matched the *source* pattern
-      correctly but didn't account for the dashboard card being
-      meaningfully narrower than the detail page, so the same structure
-      produces a different, worse visual result in the new context. Owner
-      will provide a mockup before the next attempt. See Decisions log for
-      the general lesson this surfaced (pattern-matching across differing
-      contexts needs verification in the new context, not just fidelity to
-      the source).
 - [ ] **Pharmacy handling — scope decision, disputed diagnosis, needs
       resolution before either "spec" or "bug" framing is final.**
       Surfaced by the missing-Amazon-order investigation (`97bca38`,
@@ -517,35 +606,6 @@
       spec either.**
 - [ ] **PROMOTED to 🔴 Now 2026-07-17 — see Now section.** Slug:
       `mobile-ux-audit-pass`.
-- [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
-      e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
-      to near-nothing after the (already-shortened) order number eats the
-      line. Surfaced by 2026-07-13 trust audit (`TRUST_AUDIT.md` row 7), not
-      in the six-item Phase 2 scope. Proposed fix: drop item summary from
-      this line at narrow widths, or stack the two on separate lines below
-      ~480px.
-- [ ] **Sidebar account email truncates with no `title` fallback** — e.g.
-      `mckenna.sweazey@g…`, no way to see the full address without editing
-      the DOM. Surfaced by trust audit (`TRUST_AUDIT.md` row 8), not in
-      today's six-item scope. Proposed fix: add a `title` attribute, same
-      pattern as the order-number display fix.
-- [ ] **"Unlinked emails" section shows a raw tracking-style URL in the body
-      preview** — e.g. `click.mkt.isdnn.com/...` visible in a forwarded
-      promotional email's preview text, reads as spam/phishing leaking into
-      the app's own UI. Surfaced by trust audit (`TRUST_AUDIT.md` row 12),
-      not in today's scope. Proposed fix: strip/hide raw URLs from the
-      preview snippet before display.
-- [ ] **Order detail page: long order number wraps awkwardly on mobile** —
-      24-char Poshmark-style numbers wrap across 3 lines with the Copy
-      button sitting mid-wrap rather than below the value. Cosmetic only,
-      not broken. Surfaced by trust audit (`TRUST_AUDIT.md` row 14).
-      Proposed fix: stack Copy button below the value at narrow widths.
-- [ ] **Bare "Delivery date —" / "Return by — (est.)" renders with zero
-      explanatory context** when the field is simply not yet known — could
-      read as "the app failed to fetch this" rather than "we don't have a
-      delivery email yet, that's normal." Surfaced by trust audit
-      (`TRUST_AUDIT.md` row 15), not in today's scope. Proposed fix: a short
-      inline hint on the fields most central to the app's promise.
 - [ ] **Retailer logos** — `RetailerAvatar` currently shows initials only
       (deliberately, per Commit 2: "logo integration is a separate future
       task"). Needs a logo source/lookup strategy — not spec'd yet.
@@ -568,25 +628,6 @@
       today; investigate adding line-item/goods-description as another
       signal. Needs real investigation, not a quick patch. Slug:
       `shopbop-goods-based-matching`.
-- [ ] **Diagnose Gmail deep-link URL construction bug** — 2/2 non-owner
-      test users (mom, then brother) whose filters matched their entire
-      inbox instead of the intended commerce search, forwarding personal
-      email into Return Window's extraction pipeline. Byte-identical URL to
-      the owner's own (which works correctly) — not a "user followed
-      instructions wrong" case. Deep debugging is high-cost without ability
-      to instrument the browser. Root cause suspected: search query not
-      carrying through the URL to Gmail. **2026-07-13: the button itself
-      removed from Settings** (see Known Issues) as an immediate stopgap —
-      this item is now purely about the underlying fix. When fixed and
-      verified against a third non-owner account (using the
-      filter-matches-everything monitoring alert — being built in a
-      separate session, per owner — as the verification signal: no alert
-      firing = fix confirmed), re-introduce the button + explanatory copy at
-      `settings/page.tsx` (previously at lines 22-24 and 45-56 pre-removal —
-      reference commit `3658947` — the removal commit — to see the original
-      implementation via `git show 3658947^:app/\(app\)/settings/page.tsx`).
-      Real evidence supporting OAuth prioritization as the eventual real fix.
-      Slug: `gmail-deeplink-cross-account-parsing`.
 - [ ] **Surface delivery date as first-class dashboard info** — currently
       `estimatedDeliveryDate`, `deliveredAt`, `deliveryDate` drive deadline
       computation and are extracted from emails, but the user-facing
@@ -803,13 +844,6 @@
       orders as "here's what we're watching," show recent 30-day refund wins, or skip
       the email on zero-return weeks. Under email-first every email should earn its
       place.
-- [ ] **Coverage-check dedup should key off scheduled-run-week, not rolling 7-day
-      lookback**, so test invocations don't perturb production cadence — currently a
-      stray Jun 27 test send caused three users (owner, kathleen, alexandra) to be
-      deduped from the Jul 3 real run.
-- [ ] **Verify whether the coverage-check route on `?force=true` writes the Reminder
-      row identically to a scheduled run** — if so, tests will keep affecting the
-      schedule. Consider not writing a Reminder row on force invocations.
 - [ ] **Refund verification loop** — plan is complete, spec'd in
       `REFUND_VERIFICATION_LOOP_PLAN.md` at repo root. Ready to execute. Two
       timestamps (`refundVerifiedAt`, `refundDisputedAt`), Yes/No signed-token
@@ -844,14 +878,6 @@
 - [ ] Buy domains: `returnwindow.com` (+ `closetwindow.com`, `windowshopping.com`)
 - [ ] Smoke-test the full flow on production after Mango fix: sign in → forward
       an order email → see it parsed → see the return window / deadline
-- [ ] **Non-Amazon orders still stuck with `orderDate: null`** — Bug 8's
-      backfill was deliberately scoped to Amazon only. Found while running its
-      dry-run: H&M #66993117803 and Tuckernuck #TNK6772725 (both delivery-only,
-      no shipping_confirmation — same root cause as the "Post-beta:
-      delivery-only orders" 👀 Watching item) and Lola Blankets #1158308
-      (refund-only, already tracked under Bugs 9+10+11). Same
-      `applyFallbackOrderDate` fallback would likely resolve these too, but
-      wasn't run against them without a separate go-ahead.
 - [ ] **Move retailer-prefix merge marker off `Order.userNote`** — today's
       backfill wrote `[auto] retailer prefix match: ...` into `userNote`, which
       per Milestone 10 is the user-authored review note. If `[auto]`-prefixed
@@ -861,11 +887,6 @@
 - [ ] Archive page tidy-up — strip to essentials: archived orders + static chrome (nav,
       menus) only. No filter dropdowns, no cross-bucket counts, no nudges toward active
       orders. Archive is a quiet room, not another dashboard.
-- [ ] **Investigate duplicate Order rows for On order 101130827062601745** — two
-      separate Order records with the same `orderNumber`, found while diagnosing the
-      returnPortalUrl scheme bug (`lib/linkOrder.ts` matching). LinkOrder merge bug, or
-      intentional? Cheap check, not urgent.
-
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **Post-beta: delivery-only orders (no `shipping_confirmation`)** — during alpha,
       4 orders (H&M, Freda Salvador, Tuckernuck, Shopbop) had only a delivery email,
@@ -1555,8 +1576,8 @@
   `needsReview` to a first-class AI-set JSON field, with the string-match
   kept only as an OR'd fallback. Leaving this entry as a record that the
   prediction was correct, not removing it outright.
-- **Duplicate "On (On-Running)" order rows** — see 🟡 Next: "Investigate duplicate Order
-  rows for On order 101130827062601745."
+- **Duplicate "On (On-Running)" order rows** — see 🐛 Bugs (Trust-breaking):
+  "Investigate duplicate Order rows for On order 101130827062601745."
 - Order-number normalization is brittle across retailers (Mango is the first
   case; expect more retailer-specific suffix quirks).
 - Retailer-name prefix matching has a known collision risk: "American" (8 chars)
