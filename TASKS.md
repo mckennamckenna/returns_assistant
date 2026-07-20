@@ -276,7 +276,31 @@
       any non-owner user.
 
 ## 🟡 Next
-- [ ] **`"delivered"` is a dead `status` value** — surfaced during the
+- [ ] **Grocery / non-returnable orders parsed as returnable retail —
+      UNCONFIRMED, investigated 2026-07-20, no code-level bug found, no
+      real-order evidence either way.** `isCommerceEmail()`'s exclusion
+      list (`lib/classify.ts:13`) doesn't exclude groceries, but that's
+      arguably correct classification (groceries are commerce) — the
+      concern is a bogus return countdown, not the commerce gate itself.
+      Checked `lib/extract.ts` for a fallback/default `returnWindowDays`:
+      none exists — both the email-extraction prompt (line 172) and the
+      web-lookup step (line 199) explicitly instruct "never guess, return
+      null" rather than defaulting. Checked production directly: **0
+      grocery-retailer orders exist right now** (Whole Foods, Instacart,
+      Kroger, Trader Joe's, Safeway all zero) — no real order to test
+      against, and no prior mention of this in TASKS.md/HISTORY.md/BUILD.md.
+      Plausible but unverified failure mode: the web-lookup step could find
+      a real generic Whole Foods/Amazon merchandise-returns policy page and
+      apply its `returnWindowDays` to a perishable grocery order the policy
+      doesn't actually cover — there's no perishable/grocery carve-out the
+      way there is a pharmacy exclusion. Same underlying shape as the
+      already-tracked `final-sale-nonreturnable-handling` item (whole-order
+      case). **Next step to confirm: send a real grocery order-confirmation
+      email through the actual extraction pipeline and observe the
+      output** — don't guess at the answer the way the extraction code
+      itself is designed not to.
+- [ ] **`"delivered"` is a dead `status` value — cosmetic, clear when
+      convenient (owner priority call 2026-07-20).** Surfaced during the
       status-vs-displayStatus investigation (2026-07-19/20). It's listed in
       the `status` field's schema comment (`prisma/schema.prisma`,
       `BUILD.md:139-140`), the `OrderStatus` TS type (`lib/linkOrder.ts:38`),
@@ -346,6 +370,24 @@
       a reason the UI can actually surface, and today only some do.
       Disclosure-spec fuel: feeds the quick-check surface (mobile audit
       finding #5, 🔴 Now) — cross-reference there before designing.
+- [ ] **Needs Review panel ("Need attention" disclosure surface) — ACTION
+      DECISIONS RESOLVED 2026-07-20, build blocked on mock.** This is the
+      panel implementation of the quick-check surface spec (mobile audit
+      finding #5, 🔴 Now) — same underlying data
+      (`needsReview`/`userNote`/`reviewReasonLabel()`), now with in-panel
+      actions decided: **confirm** and **fix** both resolve the flag
+      in-panel; **delete** routes to the order detail page, behind a
+      confirmation (matches the existing `handleDelete` confirm pattern,
+      not a bespoke one); **ignore is explicitly out of v1**. Panel shows,
+      per order: retailer, order total, and the reason — reason types the
+      system already produces: uncertain/fallback match ("is this an
+      order?"), missing deadline, kept-conflict (#6a's
+      `computeKeptStatusConflict()`), tiered-window (shortest window
+      picked), unverified return-portal link (M2's
+      `classifyReturnPortalTrust()`). Wires to the top-bar "Need attention"
+      count. **Not started — waiting on the owner's mock**, per the
+      original mobile-audit finding #5 framing (spec pass needed before
+      design/code).
 - [ ] **Mobile audit finding #1b — caption visual re-do (follow-up to the
       #1 scoping fix, `131d800`).** The semantic fix is correct and
       owner-verified (caption now associates only with "Keeping it" —
@@ -483,17 +525,27 @@
       `amazon-per-email-reminder-cadence`. **Committed work, gated on
       `amazon-first-class-case` landing first (2026-07-19 decision) — not
       "someday," but not started ahead of that spec either.**
-- [ ] **Amazon dashboard card as folder, not single order** — Amazon orders
-      fan out into many shipments and often several "orders" that are
-      really one shopping session, and the current card-per-order treatment
-      makes the Amazon section of the dashboard chaotic. Proposal: collapse
-      Amazon into a single folder-style card that expands to show the
-      underlying orders. Open design question: does this generalize to
-      other high-volume retailers (Poshmark maybe), or stay Amazon-only?
-      Related to the Gap Inc. brand-family item already in this section.
-      Slug: `amazon-dashboard-folder-view`. **Committed work, gated on
-      `amazon-first-class-case` landing first (2026-07-19 decision) — not
-      "someday," but not started ahead of that spec either.**
+- [ ] **Amazon dashboard card as folder, not single order — GROUPING
+      RESOLVED 2026-07-20: strict `isAmazonOrder` only.** No Zappos, no
+      Whole Foods, no marketplace-adjacent brands folded in — the open
+      design question below (generalize to other retailers?) is
+      **answered: no, Amazon-only.** Card is meant to stay out of the way,
+      not be smart about brand-family membership. Amazon orders fan out
+      into many shipments and often several "orders" that are really one
+      shopping session, and the current card-per-order treatment makes the
+      Amazon section of the dashboard chaotic. Proposal: collapse Amazon
+      into a single folder-style card that expands to show the underlying
+      orders — model bundling (net-new field/grouping), earliest-deadline
+      aggregation across returnable/return-in-progress children (ignore
+      not-yet-delivered), one standard-size card with expanded rows
+      showing keep/return actions on delivered rows only, >5 rows links to
+      a full page, sorts by its earliest child deadline like any other
+      retailer card. Not related to the Gap Inc. brand-family item in this
+      section — that item explicitly stays out of this grouping per the
+      strict-`isAmazonOrder`-only decision. Slug: `amazon-dashboard-folder-view`.
+      **Committed work, gated on `amazon-first-class-case` landing first
+      (2026-07-19 decision) — not "someday," but not started ahead of that
+      spec either.**
 - [ ] **PROMOTED to 🔴 Now 2026-07-17 — see Now section.** Slug:
       `mobile-ux-audit-pass`.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
