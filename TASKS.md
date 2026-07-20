@@ -276,6 +276,28 @@
       any non-owner user.
 
 ## 🟡 Next
+- [ ] **`"delivered"` is a dead `status` value** — surfaced during the
+      status-vs-displayStatus investigation (2026-07-19/20). It's listed in
+      the `status` field's schema comment (`prisma/schema.prisma`,
+      `BUILD.md:139-140`), the `OrderStatus` TS type (`lib/linkOrder.ts:38`),
+      and `OPEN_STATUSES` (`lib/alerts.ts`) — but `computeOrderStatus()`'s
+      delivery branch always writes `"returnable"`, never `"delivered"`.
+      Harmless (an unreachable list membership, not a bug), just
+      inaccurate. Low priority: drop the value from the type/comment/list.
+- [ ] **`SKIP_STATUSES` omits `"refund_pending"` — possible stale-reminder
+      gap** — surfaced during the same investigation. After
+      `RETURN_PROCESSING_DAYS` (14 days) since a `return_label` email,
+      internal `status` flips `return_started` → `refund_pending`
+      (`lib/linkOrder.ts`), but only `return_started` is in
+      `SKIP_STATUSES` (`lib/reminders.ts`). If `displayStatus` is still
+      sitting at `return_requested` (user hasn't manually advanced it) and
+      `returnDeadline` happens to land on a 7/2/1/same-day mark after that
+      14-day point, a deadline reminder could fire on an order that
+      already has a return label filed. Narrow edge case (needs a
+      long-enough return window that the deadline is still ahead 14+ days
+      after the label), not confirmed to have happened in production —
+      investigate before deciding whether to add `"refund_pending"` to
+      `SKIP_STATUSES`.
 - [ ] **m2-tier-log-remove-after-measurement** — pull the
       `console.log("[M2 portal-trust tier]", ...)` line added in
       `lib/linkOrder.ts` for M2 (`classifyReturnPortalTrust`) once the tier
@@ -886,6 +908,34 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Session-1 doc-hygiene board items 3 & 4 closed as invalid premise
+      (2026-07-19/20), docs-only, no schema/code change.** Item 3 ("drop the
+      dead internal `status` field") — **`status` is live, not dead.**
+      Written by `recomputeOrderStatus`/`computeOrderStatus`
+      (`lib/linkOrder.ts`) on every order create/relink/review-resolve; read
+      by `isEligibleForReminder()`'s `SKIP_STATUSES` gate (`lib/reminders.ts`)
+      and `OPEN_STATUSES` dashboard filtering (`lib/alerts.ts`,
+      `app/(app)/page.tsx`). Dropping it would have silently broken
+      deadline-reminder eligibility and the dashboard's "open"/"closing
+      soon" views — did not touch schema. Item 4 ("align design-doc
+      vocabulary to `displayStatus`") — no actual drift found.
+      `return-window-design-tokens.md` never uses the old-vocab words; every
+      `status`-vocabulary mention in TASKS.md/HISTORY.md/BUILD.md correctly
+      describes the real internal `status` field, already distinguished
+      from `displayStatus` (BUILD.md:697). **Why both fields exist (owner
+      asked, answered in session):** `status` is a purely automatic,
+      email-evidence-only signal (no user input ever writes it);
+      `displayStatus` is the user-facing state, part auto-derived / part
+      directly settable via `PATCH /api/orders/:id/status`. Not kept in
+      sync by any single mechanism — **they can legitimately disagree** for
+      the same order, confirmed by a real 2026-07-03 production case
+      (`status: "return_started"`, `displayStatus: "returned"`
+      simultaneously — see HISTORY.md), which is exactly why
+      `isEligibleForReminder()` checks both independently (`SKIP_STATUSES` +
+      `SKIP_DISPLAY_STATUSES`) instead of relying on one.
+      **Recommendation, accepted: keep both as intentional separate
+      concerns — do not consolidate.** Committed and pushed — docs-only, no
+      deploy to verify.
 - [x] **Deploy-mechanism doc conflict resolved (2026-07-19), docs-only.** CLAUDE.md was right, BUILD.md was wrong. Verified against Vercel deployment history: the last 4 production deployments each landed 6-7s after their triggering commit — consistent, matches the GitHub-webhook auto-deploy signature, not a manually-run `vercel --prod`. `BUILD.md`'s "How to deploy" section corrected to match CLAUDE.md (auto-deploy on push, don't run `vercel --prod`). Committed and pushed — docs-only, no deploy to verify.
 - [x] **`keptAt` column check (2026-07-19), docs-only.** Confirmed `keptAt DateTime?` exists on the Order model (`prisma/schema.prisma:206`) — not a bug, `buildStatusTransitionData` writes to a real column. Updated BUILD.md's Order snippet (~line 160-163) to include it, plus fixed the adjacent `displayStatus` comment which was missing `"kept"` from its value list. Committed and pushed — docs-only, no deploy to verify.
 - [x] **#6a: a return_label/refund email reaching an order already marked Kept now flags needsReview instead of merging silently, closing the one real gap found — the exact-match query itself was never the bug.** Deployed, awaiting natural verification (needs a real Kept order to receive a genuine return/refund email) — not ✅.
