@@ -285,6 +285,27 @@
       Relocate existing trust-breaking/annoying/cosmetic bug items out of
       🟡 Next into a dedicated section right after 🔴 Now, preserving each
       item's text verbatim. No fixes this session.
+- [ ] **`AMAZON_HANDLING.md` drafted 2026-07-20 — awaiting owner approval,
+      not Done.** Owner's design spec for `amazon-dashboard-folder-view` and
+      `amazon-per-email-reminder-cadence`, written to repo root. O1–O3
+      resolved (Amazon-only scope, implied-state badge, grocery/health
+      blocked upstream); O4 (reminder cadence trigger) and O5 (Amazon-portal
+      trust tier) open, build-time. **Owner flagged a strategic caveat in the
+      doc itself: Part 1.3's per-order action machinery (Keep/Return buttons,
+      Awaiting-Drop-off/Awaiting-Refund states) may be over-built if Amazon's
+      real value is awareness, not driving return actions — do not build
+      Part 1.3 until that's settled.** Two reference conflicts found and
+      flagged inline in the doc (not silently fixed): (1) the "2×2 card
+      geometry" cited at `return-window-design-tokens.md §2` doesn't actually
+      exist there — §2 is Type scale, and the file's only card-anatomy
+      content describes a left-to-right layout, not a 2×2 grid; this
+      mismatch predates this doc (TASKS.md's own 2026-07-20 Decisions log
+      entry cites the same wrong section). (2) Part 2.3's status-mapping
+      table conflates `status` and `displayStatus` (two separate schema
+      fields) under one column, and names `Awaiting Drop-off` as
+      `return_requested` when the analogous `status` enum value is actually
+      `return_started`. Neither conflict fixed here — both need resolving
+      before Part 1/2.3 are coded.
 
 ## 🐛 Bugs
 
@@ -818,9 +839,8 @@
       Before adding another Amazon-specific patch, do a spec pass: what
       would it look like to treat Amazon as a first-class case, with its
       own extraction rules, its own policy lookup, its own reminder cadence
-      if warranted? Output a written proposal (`AMAZON_HANDLING.md` in repo
-      root, not yet written) before any implementation. Ideally by the time
-      we have real alpha data from users with a lot of Amazon volume.
+      if warranted? **`AMAZON_HANDLING.md` drafted 2026-07-20 (see 🔴 Now) —
+      DRAFT status, awaiting owner approval, not yet a green light to build.**
       **Committed work, not "someday" (2026-07-19 decision — see Decisions
       log): `amazon-dashboard-folder-view` (UX) and
       `amazon-per-email-reminder-cadence` (digest/reminder) are both in
