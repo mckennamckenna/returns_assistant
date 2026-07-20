@@ -141,7 +141,7 @@ model Order {
   status String @default("ordered")
 
   // User-facing status — separate from `status`, drives UI and return workflow.
-  // "ordered" | "shipped" | "return_requested" | "returned" | "refunded"
+  // "ordered" | "shipped" | "return_requested" | "returned" | "refunded" | "kept"
   displayStatus String @default("ordered")
 
   needsReview Boolean @default(false)
@@ -159,6 +159,7 @@ model Order {
 
   // Lifecycle timestamps
   returnedAt DateTime? // Set once on first transition to displayStatus="returned"; never reset
+  keptAt     DateTime? // Set once on first transition to displayStatus="kept"; never reset. One-way, unlike archivedAt.
   archivedAt DateTime? // Reversible, no confirm needed. Null = active.
   deletedAt  DateTime? // Soft delete. Hard-deleted after HARD_DELETE_DAYS (30) by nightly cron.
 
@@ -789,6 +790,6 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 - Build (also type-checks): `npm run build`
 - Tests: `npx vitest run`
 - Migrate: `npx prisma migrate dev --name <description>`
-- Deploy: **manual** — `npx vercel --prod` from repo root. No GitHub auto-deploy.
+- Deploy: **automatic on push.** `mckennamckenna/returns_assistant` is connected to this Vercel project via the GitHub integration (connected 2026-06-21) — every push to `main` triggers a production deploy on its own, including docs-only commits, typically live within a few seconds. Do **not** run `vercel --prod` — it creates a redundant duplicate deployment alongside the one GitHub already triggered. (Corrected 2026-07-19: this section previously said deploys were manual/no auto-deploy — verified wrong against actual Vercel deployment timestamps, which land ~6-7s after each commit, the signature of the GitHub webhook, not a manually-run CLI command.)
 - Env vars: `npx vercel env add <NAME> <environment>` — new/changed vars take effect on the next deploy, not immediately.
-- Verify: `npx vercel inspect returns-assistant.vercel.app | grep "Git Commit"` to confirm the live deploy matches the expected commit.
+- Verify: `npx vercel inspect returns-assistant.vercel.app | grep "Git Commit"` (or `app.myreturnwindow.com`) to confirm the live deploy matches the expected commit.

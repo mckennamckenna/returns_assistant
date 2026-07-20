@@ -886,6 +886,8 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Deploy-mechanism doc conflict resolved (2026-07-19), docs-only.** CLAUDE.md was right, BUILD.md was wrong. Verified against Vercel deployment history: the last 4 production deployments each landed 6-7s after their triggering commit — consistent, matches the GitHub-webhook auto-deploy signature, not a manually-run `vercel --prod`. `BUILD.md`'s "How to deploy" section corrected to match CLAUDE.md (auto-deploy on push, don't run `vercel --prod`). Committed and pushed — docs-only, no deploy to verify.
+- [x] **`keptAt` column check (2026-07-19), docs-only.** Confirmed `keptAt DateTime?` exists on the Order model (`prisma/schema.prisma:206`) — not a bug, `buildStatusTransitionData` writes to a real column. Updated BUILD.md's Order snippet (~line 160-163) to include it, plus fixed the adjacent `displayStatus` comment which was missing `"kept"` from its value list. Committed and pushed — docs-only, no deploy to verify.
 - [x] **#6a: a return_label/refund email reaching an order already marked Kept now flags needsReview instead of merging silently, closing the one real gap found — the exact-match query itself was never the bug.** Deployed, awaiting natural verification (needs a real Kept order to receive a genuine return/refund email) — not ✅.
 - [x] **A null/unknown return-window anchor now reads "from purchase (est.)" instead of asserting the same certainty as a confirmed anchor.** Shipped, verified in diff.
 - [x] **Order detail's Archive button restyled to match its sibling outlined buttons, in place.** Placement stays parked with the separate overflow-menu question. Deployed, awaiting visual verification.
