@@ -308,34 +308,6 @@
       delivery branch always writes `"returnable"`, never `"delivered"`.
       Harmless (an unreachable list membership, not a bug), just
       inaccurate. Low priority: drop the value from the type/comment/list.
-- [ ] **`SKIP_STATUSES` omits `"refund_pending"` — CONFIRMED real via direct
-      verification 2026-07-20 (not just code trace), narrower than first
-      described, not fixed (owner asked to be told before fixing).**
-      Verified two ways: (1) queried production directly — 0 active orders
-      currently hold `status="refund_pending"`; the 7 currently at the
-      precursor `return_started` state are all ≤13 days since their return
-      label (none have crossed the 14-day `RETURN_PROCESSING_DAYS` mark
-      yet). (2) Called the real, unmodified `reminderTypeForOrder`/
-      `isEligibleForReminder` (`lib/reminders.ts`, not a reimplementation)
-      against a constructed order matching exactly what
-      `computeOrderStatus`/`deriveDisplayStatus` would produce
-      (`status: "refund_pending"`, `displayStatus: "return_requested"`,
-      deadline 2 days out) → `isEligibleForReminder: true`,
-      `reminderTypeForOrder: "2_day"`. A `status: "return_started"` control
-      on the same order correctly returned `null`, isolating `status` as
-      the exact determining factor. **Correction to the earlier trace:**
-      `status` is event-driven only — `recomputeOrderStatus()`
-      (`lib/linkOrder.ts:592,691`, `lib/orderReview.ts:58`) fires solely
-      when a new email links to the order, never on a schedule. So elapsed
-      time alone does **not** flip `return_started` → `refund_pending`; it
-      requires 14+ days since the label **and** a subsequent, unrelated
-      email getting linked to that same order afterward (e.g. a delayed
-      shipping confirmation on another line item) to re-trigger the
-      recompute. Real and reachable, not a no-op, but rarer than "wait 14
-      days" — won't happen from silence alone. Fix candidate: add
-      `"refund_pending"` to `SKIP_STATUSES` (`lib/reminders.ts:13`) — a
-      one-line, zero-risk change. Not applied — awaiting go-ahead.
-      `SKIP_STATUSES`.
 - [ ] **m2-tier-log-remove-after-measurement** — pull the
       `console.log("[M2 portal-trust tier]", ...)` line added in
       `lib/linkOrder.ts` for M2 (`classifyReturnPortalTrust`) once the tier
@@ -974,6 +946,22 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **`refund_pending` added to `SKIP_STATUSES`, pushed, awaiting deploy
+      verification (2026-07-20).** `lib/reminders.ts:13` — one-line fix,
+      owner-approved after direct verification against production data and
+      the real reminder functions (see investigation history above/in
+      HISTORY.md). Prevents a deadline reminder firing on an order whose
+      return label has been on file 14+ days, on the (narrow, event-driven)
+      path where a later unrelated email re-triggers `status` recompute
+      past that point. Added test coverage for the internal `status` skip
+      path in `__tests__/reminders.test.ts` — this was previously untested
+      entirely (only `displayStatus` skip had coverage): `completed`,
+      `expired`, `return_started`, and the new `refund_pending` all
+      suppress; `shipped` still fires. 386/386 tests passing, `npm run
+      build` clean. No real order currently in the `refund_pending` state
+      to hand-verify against in production — can't be browser-verified
+      until one occurs naturally; deploy-only verification (commit lands,
+      Vercel builds clean) is what's available today.
 - [x] **Session-1 doc-hygiene board items 3 & 4 closed as invalid premise
       (2026-07-19/20), docs-only, no schema/code change.** Item 3 ("drop the
       dead internal `status` field") — **`status` is live, not dead.**

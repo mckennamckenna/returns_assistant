@@ -42,6 +42,45 @@ describe("deadline reminders vs. displayStatus", () => {
   });
 });
 
+// ── Deadline reminders vs. internal status ───────────────────────────────────
+// status is the email-evidence-only state machine (lib/linkOrder.ts), never
+// user-set. return_started and its own successor refund_pending both mean
+// "a return label was received" — just at different points in processing —
+// and both must suppress the same way completed/expired do.
+describe("deadline reminders vs. internal status", () => {
+  const today = new Date("2026-07-03T12:00:00.000Z");
+  const sevenDaysOut = new Date("2026-07-10T12:00:00.000Z");
+
+  function order(status: string): OrderForReminder {
+    return { returnDeadline: sevenDaysOut, status, displayStatus: "return_requested", deadlineIsEstimated: false };
+  }
+
+  it("suppresses the reminder when status is 'completed'", () => {
+    expect(isEligibleForReminder(order("completed"))).toBe(false);
+    expect(reminderTypeForOrder(order("completed"), today)).toBe(null);
+  });
+
+  it("suppresses the reminder when status is 'expired'", () => {
+    expect(isEligibleForReminder(order("expired"))).toBe(false);
+    expect(reminderTypeForOrder(order("expired"), today)).toBe(null);
+  });
+
+  it("suppresses the reminder when status is 'return_started'", () => {
+    expect(isEligibleForReminder(order("return_started"))).toBe(false);
+    expect(reminderTypeForOrder(order("return_started"), today)).toBe(null);
+  });
+
+  it("suppresses the reminder when status is 'refund_pending'", () => {
+    expect(isEligibleForReminder(order("refund_pending"))).toBe(false);
+    expect(reminderTypeForOrder(order("refund_pending"), today)).toBe(null);
+  });
+
+  it("still fires the reminder when status is 'shipped'", () => {
+    expect(isEligibleForReminder(order("shipped"))).toBe(true);
+    expect(reminderTypeForOrder(order("shipped"), today)).toBe("7_day");
+  });
+});
+
 // ── Estimated-deadline reminder suppression ──────────────────────────────────
 // A carrier delay on an estimated deadline shouldn't cause false urgency on
 // the two thresholds closest to it — see lib/extract.ts's computeDeadline

@@ -9,8 +9,13 @@ const DAYS_BEFORE_DEADLINE: Record<ReminderType, number> = {
 
 // Statuses where reminding is pointless or actively wrong: the order is
 // already done, the window is already gone, or the user already started
-// the return.
-const SKIP_STATUSES = ["completed", "expired", "return_started"];
+// the return. "refund_pending" is return_started's own successor (same
+// underlying event — a return_label was received — just further along in
+// processing, see RETURN_PROCESSING_DAYS in lib/linkOrder.ts) and needs the
+// same suppression; omitting it let a deadline reminder fire on an order
+// that already has a return label filed, once status recomputed past the
+// 14-day mark.
+const SKIP_STATUSES = ["completed", "expired", "return_started", "refund_pending"];
 
 // User-facing statuses where a deadline reminder is a silent violation of
 // the email-first principle: the user has told us this is finished
