@@ -285,27 +285,30 @@
       Relocate existing trust-breaking/annoying/cosmetic bug items out of
       🟡 Next into a dedicated section right after 🔴 Now, preserving each
       item's text verbatim. No fixes this session.
-- [ ] **`AMAZON_HANDLING.md` drafted 2026-07-20 — awaiting owner approval,
-      not Done.** Owner's design spec for `amazon-dashboard-folder-view` and
-      `amazon-per-email-reminder-cadence`, written to repo root. O1–O3
-      resolved (Amazon-only scope, implied-state badge, grocery/health
-      blocked upstream); O4 (reminder cadence trigger) and O5 (Amazon-portal
-      trust tier) open, build-time. **Owner flagged a strategic caveat in the
-      doc itself: Part 1.3's per-order action machinery (Keep/Return buttons,
-      Awaiting-Drop-off/Awaiting-Refund states) may be over-built if Amazon's
-      real value is awareness, not driving return actions — do not build
-      Part 1.3 until that's settled.** Two reference conflicts found and
-      flagged inline in the doc (not silently fixed): (1) the "2×2 card
-      geometry" cited at `return-window-design-tokens.md §2` doesn't actually
-      exist there — §2 is Type scale, and the file's only card-anatomy
-      content describes a left-to-right layout, not a 2×2 grid; this
-      mismatch predates this doc (TASKS.md's own 2026-07-20 Decisions log
-      entry cites the same wrong section). (2) Part 2.3's status-mapping
-      table conflates `status` and `displayStatus` (two separate schema
-      fields) under one column, and names `Awaiting Drop-off` as
-      `return_requested` when the analogous `status` enum value is actually
-      `return_started`. Neither conflict fixed here — both need resolving
-      before Part 1/2.3 are coded.
+- [ ] **`AMAZON_HANDLING.md` — rewritten to v1 (awareness-only), 2026-07-20 —
+      awaiting owner approval, not Done.** Owner resolved the strategic
+      caveat toward **v1 = awareness-only**: Amazon card lists orders
+      read-only, no in-app keep/return. The full action model (Keep/Return
+      buttons, return state machine, refund-dispute branch, per-email
+      cadence) is preserved in the doc's "Deferred to a possible v2" section,
+      not deleted. O1–O3 resolved (Amazon-only scope, implied-state badge,
+      grocery/health blocked upstream); O4/O5 deferred with v2. Two
+      build-time opens remain, both flagged inline in the doc:
+      **O6** (card layout — doc now correctly says build from the mock, not
+      `return-window-design-tokens.md`, whose §2 is Type scale and §6 a
+      single-column layout, not a 2×2 grid — this was already caught last
+      pass). **O7** (which field drives each row's status label) — the v1
+      draft assumed `displayStatus` alone would suffice; **checked against
+      `lib/displayStatus.ts` and it doesn't** — `DISPLAY_STATUS_LABELS` only
+      covers 6 values and both "in transit" and "delivered, decision
+      pending" collapse to the same `"shipped"` value under
+      `deriveDisplayStatus()`'s ladder, so `displayStatus` can't distinguish
+      1.2's `arrives 7/29` row from its `12 days` row. "Returnable" doesn't
+      exist as a `displayStatus` value at all — it's a separate internal
+      `status` enum value (`lib/linkOrder.ts`). O7 is flagged as **not yet
+      actually resolved** — needs `deliveredAt`/`estimatedDeliveryDate`
+      and/or internal `status` in the mix, a real decision still owed before
+      Part 1.2 is coded.
 
 ## 🐛 Bugs
 
@@ -800,6 +803,16 @@
       failed row. Cheap once the table exists; only worth it once
       notification volume warrants scrolling more than Prisma Studio's
       default view.
+- [ ] **Email CRM / engagement tracking** — per-recipient view of email history +
+      engagement (delivered / opened / clicked) across reminders, digests, and
+      refund check-ins. Purpose: see who's actually engaging vs. gone cold —
+      especially useful while driving auto-forwarding adoption in alpha. Likely
+      surfaces data the ESP (Postmark, assuming outbound = Postmark) already
+      records — check before building new instrumentation. Caution: enabling click
+      tracking rewrites links through a redirect domain; use a branded tracking
+      domain (e.g. link.myreturnwindow.com) so it doesn't read as the raw-tracking-
+      URL phishing smell already flagged as a trust bug. Supersedes / absorbs the
+      earlier "opens/clicks view" note. Slug: email-crm-engagement-tracking.
 - [ ] **Extend self-serve email setup to non-Gmail providers** — Outlook,
       iCloud, ProtonMail each have their own filter/forward flow. Alpha is
       Gmail-only; when the first non-Gmail user shows up, revisit the setup
