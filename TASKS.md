@@ -26,6 +26,13 @@
 ---
 
 ## 🔴 Now
+- [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
+      (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
+      go-ahead given, fix deployed. Still needs a code comment explaining
+      *why* the guard exists despite nothing being in the state right now:
+      `status` recomputes only on new-email-link, never on a schedule — so
+      this needs 14+ days in `return_started` plus a later, unrelated
+      email to actually fire; 0 orders currently affected.
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's
@@ -276,38 +283,20 @@
       any non-owner user.
 
 ## 🟡 Next
-- [ ] **Grocery / non-returnable orders parsed as returnable retail —
-      UNCONFIRMED, investigated 2026-07-20, no code-level bug found, no
-      real-order evidence either way.** `isCommerceEmail()`'s exclusion
-      list (`lib/classify.ts:13`) doesn't exclude groceries, but that's
-      arguably correct classification (groceries are commerce) — the
-      concern is a bogus return countdown, not the commerce gate itself.
-      Checked `lib/extract.ts` for a fallback/default `returnWindowDays`:
-      none exists — both the email-extraction prompt (line 172) and the
-      web-lookup step (line 199) explicitly instruct "never guess, return
-      null" rather than defaulting. Checked production directly: **0
-      grocery-retailer orders exist right now** (Whole Foods, Instacart,
-      Kroger, Trader Joe's, Safeway all zero) — no real order to test
-      against, and no prior mention of this in TASKS.md/HISTORY.md/BUILD.md.
-      Plausible but unverified failure mode: the web-lookup step could find
-      a real generic Whole Foods/Amazon merchandise-returns policy page and
-      apply its `returnWindowDays` to a perishable grocery order the policy
-      doesn't actually cover — there's no perishable/grocery carve-out the
-      way there is a pharmacy exclusion. Same underlying shape as the
-      already-tracked `final-sale-nonreturnable-handling` item (whole-order
-      case). **Next step to confirm: send a real grocery order-confirmation
-      email through the actual extraction pipeline and observe the
-      output** — don't guess at the answer the way the extraction code
-      itself is designed not to.
-- [ ] **`"delivered"` is a dead `status` value — cosmetic, clear when
-      convenient (owner priority call 2026-07-20).** Surfaced during the
-      status-vs-displayStatus investigation (2026-07-19/20). It's listed in
-      the `status` field's schema comment (`prisma/schema.prisma`,
-      `BUILD.md:139-140`), the `OrderStatus` TS type (`lib/linkOrder.ts:38`),
-      and `OPEN_STATUSES` (`lib/alerts.ts`) — but `computeOrderStatus()`'s
-      delivery branch always writes `"returnable"`, never `"delivered"`.
-      Harmless (an unreachable list membership, not a bug), just
-      inaccurate. Low priority: drop the value from the type/comment/list.
+- [ ] **[unconfirmed] Grocery / non-returnable parsed as returnable** — no
+      repro in prod, 0 grocery orders exist to test against; needs a real
+      test email to settle. Related to Amazon's "what counts as returnable
+      retail." (Investigated 2026-07-20: no fallback/default
+      `returnWindowDays` in `lib/extract.ts`, no code-level bug found —
+      `isCommerceEmail()`'s classification of groceries as commerce is
+      arguably correct; the open risk is the web-lookup step finding a
+      real but inapplicable merchandise-returns policy for a perishable
+      order. Same shape as `final-sale-nonreturnable-handling`.)
+- [ ] **[cosmetic] Dead `"delivered"` status value** — clear when
+      convenient. (Listed in the `status` schema comment, `OrderStatus`
+      type, and `OPEN_STATUSES`, but `computeOrderStatus()` never actually
+      writes it — always `"returnable"` instead. Harmless, just
+      inaccurate.)
 - [ ] **m2-tier-log-remove-after-measurement** — pull the
       `console.log("[M2 portal-trust tier]", ...)` line added in
       `lib/linkOrder.ts` for M2 (`classifyReturnPortalTrust`) once the tier
@@ -1812,3 +1801,18 @@
   policies, refund emails with no dollar amount, Amazon-hosted return portals,
   anchor mismatches) — spec-first avoids the next patch being the Nth
   ad hoc special-case instead of an instance of a considered design.
+- **Needs Review panel actions resolved (2026-07-20).** Confirm + fix
+  in-panel (both resolve the flag); delete → detail page behind confirm;
+  ignore cut from v1. See Next item for full spec context — build still
+  blocked on the owner's mock.
+- **Amazon bundle grouping resolved (2026-07-20): strict `isAmazonOrder`
+  only** — no Zappos, Whole Foods, or marketplace-adjacent. Card is meant
+  to stay out of the way, not be smart about brand-family membership.
+- **Collapsed-card contract resolved (mock 2026-07-20).** Action lives on
+  the collapsed card (inline, per image 6), not revealed on expand — this
+  was the one open placement question. Geometry is the 2×2 already specced
+  in the design doc (`return-window-design-tokens.md` §2): retailer/price
+  stacked left, timeline/action stacked right. Bottom-right action is
+  state-dependent (Keep·Return / Dropped it off? / Refund received?), same
+  cell, content driven by state. Keep/Return must render as TWO distinct
+  buttons — S3 acceptance criterion, not cosmetic.
