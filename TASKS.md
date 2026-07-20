@@ -501,9 +501,17 @@
       not-yet-delivered), one standard-size card with expanded rows
       showing keep/return actions on delivered rows only, >5 rows links to
       a full page, sorts by its earliest child deadline like any other
-      retailer card. Not related to the Gap Inc. brand-family item in this
-      section — that item explicitly stays out of this grouping per the
-      strict-`isAmazonOrder`-only decision. Slug: `amazon-dashboard-folder-view`.
+      retailer card. **Collapsed-state contract reconciled against the
+      standard card's own collapsed-action contract (2026-07-20, see
+      Decisions log): this card's collapsed bottom-right is a summary
+      (earliest deadline), NOT an action** — unlike a standard retailer
+      card, which puts the state-dependent action there. Amazon inherits
+      the 2×2 geometry but not the action-on-collapse rule; per-order
+      keep/return stays expanded-rows-only, delivered rows only, as
+      already specced above. Not related to the Gap Inc. brand-family item
+      in this section — that item explicitly stays out of this grouping
+      per the strict-`isAmazonOrder`-only decision. Slug:
+      `amazon-dashboard-folder-view`.
       **Committed work, gated on `amazon-first-class-case` landing first
       (2026-07-19 decision) — not "someday," but not started ahead of that
       spec either.**
@@ -1816,3 +1824,11 @@
   state-dependent (Keep·Return / Dropped it off? / Refund received?), same
   cell, content driven by state. Keep/Return must render as TWO distinct
   buttons — S3 acceptance criterion, not cosmetic.
+- **Card contract vs. Amazon rows — reconciled (2026-07-20): not a
+  conflict, two layers of the same card.** Standard retailer card carries
+  its state-dependent action in the collapsed 2×2 bottom-right. Amazon is
+  the deliberate exception: collapsed bottom-right is a summary (earliest
+  deadline), NOT an action — per-order keep/return lives only on the
+  expanded rows (delivered rows only). Amazon inherits the 2×2 geometry
+  but not the "action on collapsed card" rule, because it's a bundle, not
+  a single order.
