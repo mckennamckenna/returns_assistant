@@ -36,6 +36,15 @@ interface RawExtraction {
   orderNumber: string | null;
   orderDate: string | null;
   deliveryDate: string | null;
+  // A preorder/backorder's stated future ship date (e.g. "Preorder: ships
+  // by 8/19/2026") — distinct from deliveryDate, which is an actual/
+  // estimated ARRIVAL date. Not a new anchor concept: routed into
+  // estimatedDeliveryDate at the same point deliveryDate would be (see
+  // extractEmail below), so computeDeadline's existing
+  // estimatedDeliveryDate case handles it with no changes of its own.
+  // Null for the vast majority of (non-preorder) emails — no behavior
+  // change for those.
+  shipByDate: string | null;
   returnWindowDays: number | null;
   returnWindowStartsFrom: "order_date" | "delivery_date" | null;
   orderTotal: number | null;
@@ -120,6 +129,7 @@ From the email subject and body below, extract:
 - orderNumber (string or null — may appear in the subject line OR the body)
 - orderDate (ISO date string or null)
 - deliveryDate (ISO date string or null — only if explicitly stated; common in shipping confirmations as "estimated delivery")
+- shipByDate (ISO date string or null — see PREORDER SHIP DATE below)
 - returnWindowDays (integer or null — e.g. 30; only if explicitly stated in THIS email)
 - returnWindowStartsFrom ("order_date" | "delivery_date" | null — what the window counts from, only if stated)
 - orderTotal (number or null — see ORDER TOTAL below)
@@ -151,6 +161,8 @@ REFUND AMOUNT — only for the dollar figure explicitly identified as the amount
 LINE ITEMS — extract from any email type that lists them, not just order confirmations. Shipping and delivery confirmations frequently list "what's in this shipment" with names and prices — extract those exactly the same way you would from an order confirmation.
 
 ORDER DATE — look for it in shipping and delivery confirmations too, not just order confirmations. Retailers often restate it as "you placed this order on [date]", "order placed: [date]", or similar, even in a shipping notification. Extract it as orderDate whenever it's explicitly stated, regardless of emailType.
+
+PREORDER SHIP DATE — only when the email explicitly signals this item is a preorder, backorder, or otherwise not yet ready to ship (e.g. "Preorder: ships by 8/19/2026", "Expected ship date: 8/19", "This item will ship on or around [date]", "Backordered — ships when available: [date]"), extract that date as shipByDate. This is different from deliveryDate: shipByDate is when the item is expected to LEAVE the retailer, extracted before any real delivery estimate exists. Never infer or guess a preorder situation for an ordinary in-stock order — only extract shipByDate when the email itself uses preorder/backorder language with a stated future date. Leave null otherwise (which is nearly every email). If you extract shipByDate, mention it in notes (e.g. "preorder, ships by 8/19").
 
 RETURN POLICY LINK — if the email contains a link to a returns page, a return policy, a "how to return this item" section, or similar, extract that URL as returnPortalUrlFromEmail. Only extract an actual URL present in the email text — never construct or guess one.
 
@@ -240,6 +252,20 @@ export function routeDeliveryDate(
   return emailType === "delivery"
     ? { estimatedDeliveryDate: null, deliveredAt: deliveryDate }
     : { estimatedDeliveryDate: deliveryDate, deliveredAt: null };
+}
+
+// A preorder/backorder's shipByDate reuses the existing estimatedDeliveryDate
+// anchor rather than introducing a new one — it's only a fallback when this
+// same email stated no real delivery signal (routedEstimate) of its own, so
+// it can never override a genuine estimate. computeDeadline needs no changes:
+// its existing estimatedDeliveryDate case (deadlineIsEstimated: true) already
+// handles whatever lands here. Returns null for the vast majority of
+// (non-preorder) emails, same as before this existed.
+export function resolveEstimatedDeliveryDate(
+  routedEstimate: string | null,
+  shipByDate: string | null,
+): string | null {
+  return routedEstimate ?? shipByDate ?? null;
 }
 
 async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult> {
@@ -575,7 +601,9 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
     }
   }
 
-  const { estimatedDeliveryDate, deliveredAt } = routeDeliveryDate(parsed.emailType, parsed.deliveryDate);
+  const routedDelivery = routeDeliveryDate(parsed.emailType, parsed.deliveryDate);
+  const estimatedDeliveryDate = resolveEstimatedDeliveryDate(routedDelivery.estimatedDeliveryDate, parsed.shipByDate);
+  const { deliveredAt } = routedDelivery;
   const { returnDeadline, deadlineIsEstimated } = computeDeadline({
     orderDate: parsed.orderDate,
     deliveredAt,

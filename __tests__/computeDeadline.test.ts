@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDeadline, routeDeliveryDate } from "../lib/extract";
+import { computeDeadline, routeDeliveryDate, resolveEstimatedDeliveryDate } from "../lib/extract";
 
 describe("routeDeliveryDate", () => {
   it("routes a delivery email's date to deliveredAt", () => {
@@ -25,6 +25,20 @@ describe("routeDeliveryDate", () => {
 
   it("returns nulls when there's no date to route", () => {
     expect(routeDeliveryDate("delivery", null)).toEqual({ estimatedDeliveryDate: null, deliveredAt: null });
+  });
+});
+
+describe("resolveEstimatedDeliveryDate", () => {
+  it("prefers a real routed estimate (shipping_confirmation/delivery) over a preorder shipByDate", () => {
+    expect(resolveEstimatedDeliveryDate("2026-07-07", "2026-08-19")).toBe("2026-07-07");
+  });
+
+  it("falls back to shipByDate when this email had no delivery signal of its own", () => {
+    expect(resolveEstimatedDeliveryDate(null, "2026-08-19")).toBe("2026-08-19");
+  });
+
+  it("returns null when neither is present — no behavior change for a normal order", () => {
+    expect(resolveEstimatedDeliveryDate(null, null)).toBeNull();
   });
 });
 
@@ -139,6 +153,36 @@ describe("computeDeadline", () => {
     it("returns null when there's no orderDate and no delivery signal at all", () => {
       const result = computeDeadline({ ...base, orderDate: null, returnWindowStartsFrom: null });
       expect(result).toEqual({ returnDeadline: null, deadlineIsEstimated: false });
+    });
+  });
+
+  describe("preorder ship-date handling (Loeffler Randall #512867 case)", () => {
+    // Real reported inputs: orderDate 6/29, returnWindowStartsFrom
+    // "delivery_date" (stated in-email), returnWindowDays 21, no delivery
+    // signal at all — this is exactly what produced the wrong "Jul 25"
+    // deadline (6/29 + 5-day fallback + 21 days), about a month before the
+    // item's real 8/19 ship-by date.
+    const lrBase = {
+      orderDate: "2026-06-29T00:00:00.000Z",
+      deliveredAt: null as string | null,
+      estimatedDeliveryDate: null as string | null,
+      returnWindowDays: 21,
+      returnWindowStartsFrom: "delivery_date" as "order_date" | "delivery_date" | null,
+    };
+
+    it("reproduces the original bug: falls back to the 5-day buffer with no ship-date awareness", () => {
+      const result = computeDeadline(lrBase);
+      expect(result.deadlineIsEstimated).toBe(true);
+      // 6/29 + 5 + 21 = 7/25 — the actual wrong deadline observed in production.
+      expect(result.returnDeadline).toBe(new Date("2026-07-25T00:00:00.000Z").toISOString());
+    });
+
+    it("anchors on a preorder's shipByDate (routed into estimatedDeliveryDate) instead, once known", () => {
+      const result = computeDeadline({ ...lrBase, estimatedDeliveryDate: "2026-08-19T00:00:00.000Z" });
+      expect(result.deadlineIsEstimated).toBe(true);
+      // 8/19 + 21 = 9/9 — sane, and no longer before the item even ships.
+      expect(result.returnDeadline).toBe(new Date("2026-09-09T00:00:00.000Z").toISOString());
+      expect(new Date(result.returnDeadline!).getTime()).toBeGreaterThan(new Date(lrBase.orderDate).getTime() + 5 * 24 * 60 * 60 * 1000 + 21 * 24 * 60 * 60 * 1000);
     });
   });
 });

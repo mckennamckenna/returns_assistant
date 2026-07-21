@@ -501,6 +501,57 @@
       user-editable) is it "locked"; an `estimatedDeliveryDate`/fallback
       value stays user-overridable until a confirmed one arrives.
       Not spec'd further — owner to decide direction before any build.
+- [ ] **Preorder ship-date handling — IMPLEMENTED 2026-07-20, pushed — live
+      re-extraction test BLOCKED, not Done.** Step 1 (read-only) confirmed
+      clean: `computeDeadline()`'s `estimatedDeliveryDate` case (case 3)
+      already runs before the `orderDate+5` fallback (case 4); a later
+      shipping-confirmation's own restated estimate already overwrites it
+      via `mergeEmailIntoOrder`'s existing `??` merge. No changes needed to
+      either function.
+      **Implemented (`lib/extract.ts`):** new `RawExtraction.shipByDate`
+      field + a new "PREORDER SHIP DATE" prompt section (only fires on
+      explicit preorder/backorder language with a stated future date, null
+      otherwise — no behavior change for normal orders). New exported
+      `resolveEstimatedDeliveryDate(routedEstimate, shipByDate)` composes it
+      with the existing `routeDeliveryDate` output — a real routed estimate
+      always wins; `shipByDate` is a pure fallback. No schema change, no
+      persisted field — reuses `estimatedDeliveryDate` exactly as scoped.
+      13 new unit tests (`__tests__/computeDeadline.test.ts`), including a
+      direct reproduction of LR's real numbers: confirms the old code
+      produces the actual wrong Jul 25 deadline, and that supplying the
+      8/19 ship date via this new path produces Sep 9 instead (sane,
+      correctly marked `deadlineIsEstimated: true`). 435/435 tests passing,
+      `npm run build` clean.
+      **ACCEPTED ASSUMPTION (per owner, log this — see Decisions log too):**
+      a preorder is handled as a known-later estimate, not a new concept —
+      relies on the retailer eventually sending a shipping-confirmation
+      email that moves the anchor to reality. **Watch-item:** if a retailer
+      never sends one (or sends one that doesn't restate its own delivery
+      estimate), that order's deadline keeps the original ship-by estimate
+      and may drift from the true delivery date. Not a bug — an accepted,
+      logged trade-off.
+      **Could not complete the live re-extraction test.** Attempted against
+      the real email (`runExtraction` on LR's actual `order_confirmation`)
+      — the Anthropic API call failed: *"Your credit balance is too low to
+      access the Anthropic API."* Not a code issue — confirmed the Order
+      row was completely untouched by the failed attempt (before/after
+      identical). One real side effect from the attempt itself: it flipped
+      the linked `Email.needsReview` to `true` (this project's
+      `runExtraction` catch-block behavior on any extraction failure) —
+      reverted back to `false` immediately, since it reflected my test
+      hitting a billing wall, not a genuine data-quality signal.
+      **⚠️ URGENT, separate from this task:** this account-level billing
+      failure likely affects **production**, not just this local test —
+      `ANTHROPIC_API_KEY` is confirmed set in Vercel Production (`vercel env
+      ls`), and "credit balance too low" is an Anthropic-account-level
+      error, not specific to one key. **If production shares this same
+      Anthropic account, every real inbound email extraction is currently
+      failing silently** (same catch-block behavior: `needsReview: true`,
+      no real data extracted) — this would mean the core product function
+      is down right now. Owner should check Anthropic Console billing
+      immediately, independent of whether this preorder fix ever gets its
+      live test. Not verified further here (didn't want to spend more of a
+      possibly-already-critical budget testing this).
 
 ## 🐛 Bugs
 
@@ -1711,6 +1762,22 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **🔴 URGENT, unverified — Anthropic API account appears out of credit,
+  possibly affecting production right now (2026-07-20).** Discovered
+  incidentally: a real `extractEmail()` call (via `runExtraction`, testing
+  the preorder ship-date fix, see 🔴 Now) failed with `"Your credit balance
+  is too low to access the Anthropic API."` This is an account-level
+  billing error, not specific to a key or environment. `ANTHROPIC_API_KEY`
+  is confirmed set in Vercel Production (`vercel env ls`) — if it's the
+  same Anthropic account as local dev (likely, given this project's
+  established pattern of one shared Neon DB across `.env`/`.env.local`/
+  Vercel), **every real inbound email extraction in production is
+  currently failing silently** the same way my test did (caught by
+  `runExtraction`'s try/catch, which just sets `Email.needsReview: true`
+  with no real data extracted — no loud failure anywhere). Not confirmed
+  against production directly (didn't want to spend more of a
+  possibly-critical budget testing it) — **owner should check Anthropic
+  Console billing immediately**, independent of any other task.
 - **RESOLVED 2026-07-20 (see 🔴 Now):** ~~`app/api/cron/weekly-digest/route.ts`
   has the same force/dedup bug just fixed in `weekly-coverage`~~ — fixed by
   mirroring `9163d0b`. New known issue instead of the old one:
@@ -2107,3 +2174,17 @@
   expanded rows (delivered rows only). Amazon inherits the 2×2 geometry
   but not the "action on collapsed card" rule, because it's a bundle, not
   a single order.
+- **Explicit assumption accepted, preorder deadline model (2026-07-20):**
+  this is an email-based tool. Delivery is assumed = orderDate + 5 days
+  (estimated) UNLESS an email moves it. A preorder is handled as a
+  known-later ESTIMATED ship date, not a new concept — it reuses the
+  existing `estimatedDeliveryDate` anchor (`lib/extract.ts`'s
+  `resolveEstimatedDeliveryDate`), same as a shipping-confirmation's
+  carrier ETA. **Assumption we are accepting:** the retailer sends a
+  shipping email when the preorder actually ships, which moves the anchor
+  to reality via the existing merge logic (`mergeEmailIntoOrder`). **Watch
+  item, not a bug:** if a retailer doesn't send one (or sends one that
+  doesn't restate its own delivery estimate), that order keeps the
+  original ship-by estimate and its deadline may drift from the true
+  delivery date. Revisit if this recurs across real orders — see 🔴 Now
+  for the implementation this decision shaped.
