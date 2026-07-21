@@ -309,6 +309,51 @@
       actually resolved** — needs `deliveredAt`/`estimatedDeliveryDate`
       and/or internal `status` in the mix, a real decision still owed before
       Part 1.2 is coded.
+- [ ] **Amazon dashboard folder card (v1, awareness-only) — BUILT
+      2026-07-20, pushed, awaiting owner verification in production —
+      NOT Done.** Per `AMAZON_HANDLING.md`, refined by owner build
+      instructions this session. New: `lib/amazonBundle.ts` (`isAmazonOrder`,
+      `isDeliveredDecisionPending`, `amazonRowLabel`, `amazonComposition`,
+      `earliestAmazonDeadline`, `compareNullableDate` — all pure, 25 unit
+      tests in `__tests__/amazonBundle.test.ts`), `app/AmazonBundleCard.tsx`
+      (collapsed/expanded folder card), `app/(app)/amazon/page.tsx` (the
+      "View all" read-only full list). `app/(app)/page.tsx` now excludes
+      active Amazon orders from the regular per-order list and renders the
+      bundle card once instead (archived Amazon orders are unaffected — still
+      render individually on the Archived tab, since the bundle only covers
+      active orders).
+      **O7 resolved in code, matching this session's earlier verification:**
+      "delivered" is `deliveredAt !== null` (not `displayStatus`), with
+      `return_requested`/`returned` always taking priority over a stale
+      delivered/countdown reading. Confirmed against real data:
+      `retailer` is a clean, consistent `"Amazon"` string in production (no
+      sub-brand variants yet), so the `isAmazonOrder` substring match is
+      solid for now.
+      **Known simplifications, not silently made — flagging here:**
+      (1) The doc's 2.1 says the bundle "sorts among other retailer cards ...
+      like any other card"; built instead as its own always-visible section
+      (same pattern as the existing Needs-review block), not interleaved
+      into the sorted per-order list — cross-type sort interleaving across
+      all 6 sort fields wasn't specified and isn't built. (2) The bundle
+      ignores the search box entirely (same as Needs-review). (3)
+      `earliestAmazonDeadline` and the "5 delivered" row filter both exclude
+      `return_requested` orders — the doc's drop-off/label-expiry deadline
+      isn't tracked as a distinct field in the schema, so v1 doesn't attempt
+      it. (4) The bundle's `DaysLeftChip` badge always passes
+      `isEstimated={false}` — bundle-level deadline-estimation-aggregation
+      isn't attempted.
+      **Verified locally before push:** `npm run build` clean, all 411 tests
+      passing (386 pre-existing + 25 new). Browser-checked against a live
+      dev server pointed at production data, authenticated as the owner's
+      own account via a temporary Auth.js session row (created, verified,
+      then deleted immediately after — no lasting change): dashboard loads
+      with no console errors, the bundle card renders with real data ("2
+      orders · $75.41 · 1 in transit · 1 ordered", dash badge since neither
+      is delivered yet), expand/collapse works, `/amazon` renders both real
+      orders with working Archive links, and clicking through to
+      `/orders/[id]` works. **Not yet checked live in production** (only
+      locally against a dev server) — owner should verify on
+      app.myreturnwindow.com once deployed.
 
 ## 🐛 Bugs
 

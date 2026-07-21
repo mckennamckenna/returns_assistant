@@ -12,6 +12,8 @@ import { daysUntil } from "@/lib/reminders";
 import { OPEN_STATUSES, isClosingSoon } from "@/lib/alerts";
 import { SummaryCard } from "@/app/SummaryCard";
 import { OrderCard } from "@/app/OrderCard";
+import { AmazonBundleCard } from "@/app/AmazonBundleCard";
+import { isAmazonOrder } from "@/lib/amazonBundle";
 
 export const dynamic = "force-dynamic";
 
@@ -104,8 +106,15 @@ export default async function Home({
   const closingSoonOrders = openOrders.filter((o) => isClosingSoon(o, now));
   const valueAtRisk = closingSoonOrders.reduce((sum, o) => sum + (o.orderTotal ?? 0), 0);
 
+  // Active strict-Amazon orders fold into a single bundle card (below,
+  // AMAZON_HANDLING.md v1) instead of rendering as individual cards.
+  // Archived Amazon orders are unaffected — the bundle only covers active
+  // orders, so they still render individually on the Archived tab.
+  const amazonOrders = activeOrders.filter((o) => isAmazonOrder(o.retailer));
+
   // Search + status filter
   let visibleOrders = allOrders.filter((order) => {
+    if (isAmazonOrder(order.retailer) && order.archivedAt === null) return false;
     if (q) {
       const haystack = `${order.retailer ?? ""} ${order.orderNumber ?? ""}`.toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -183,6 +192,10 @@ export default async function Home({
             ))}
           </div>
         </details>
+      )}
+
+      {amazonOrders.length > 0 && statusFilter !== "archived" && (
+        <AmazonBundleCard orders={amazonOrders} now={now} />
       )}
 
       {allOrders.length === 0 && orphanedEmails.length === 0 ? (
