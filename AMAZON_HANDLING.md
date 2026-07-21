@@ -151,6 +151,20 @@ extraction matures — kept separate so improving the parser doesn't touch the U
 - **Amazon-hosted return portals** — `returnPortalUrl` points at Amazon itself.
 - **Anchor mismatch** (order-date vs delivery-date) — must obey `computeDeadline()`
   (order-date when unconfirmed; a wrong deadline is worse than a missing one).
+- **Item data is category counts, not product names** (real order emails,
+  2026-07-20) — e.g. "2 items: 1 Essentials, 1 Electronics." No real product
+  names or photos available at extraction time. Any UI row showing an "item
+  description" is really showing a category summary at best; copy should not
+  imply a specific product name.
+- **Delivery dates are relative, not absolute** (real order emails,
+  2026-07-20) — e.g. "Arriving tomorrow" / "Arriving Wednesday." Must be
+  resolved to an absolute date against the email's `receivedAt` at extraction
+  time, not displayed or stored as the relative phrase.
+- **One order number can span multiple shipments within a single email**
+  (real order emails, 2026-07-20) — observed `111-7078168-2781034` listed
+  as both "Arriving Wednesday" and "Arriving tomorrow" in the same email.
+  Split-shipment dedup risk: this must not be extracted/rendered as two
+  separate orders.
 
 > Don't build Amazon-specific parsing until 10+ real users justify it ("Watching:
 > Amazon extraction quality"). This section records limitations, not a mandate.

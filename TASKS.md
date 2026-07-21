@@ -354,6 +354,14 @@
       `/orders/[id]` works. **Not yet checked live in production** (only
       locally against a dev server) — owner should verify on
       app.myreturnwindow.com once deployed.
+- [ ] **`AMAZON_HANDLING.md` Part 3 — three new parser limitations logged
+      2026-07-20, from real order emails.** Docs-only. (1) Item data is
+      category counts, not product names/photos — row copy needs to stop
+      implying a product name. (2) Delivery dates are relative ("Arriving
+      tomorrow") and need resolving against the email's `receivedAt`. (3)
+      One order number can span multiple shipments in a single email
+      (`111-7078168-2781034` seen as both "Arriving Wednesday" and "Arriving
+      tomorrow") — split-shipment dedup risk, must not render as two orders.
 
 ## 🐛 Bugs
 
