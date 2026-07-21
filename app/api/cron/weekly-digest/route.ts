@@ -6,6 +6,7 @@ import { DISPLAY_STATUS_LABELS } from "@/lib/displayStatus";
 import { activeOrderFilter } from "@/lib/orderFilters";
 import { buildActionLink } from "@/lib/actionLinks";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
+import { scheduledRunWeekStart } from "@/lib/weeklyDigestDedup";
 
 export const dynamic = "force-dynamic";
 
@@ -126,7 +127,10 @@ export async function GET(request: NextRequest) {
 
   const now = new Date();
   const sevenDaysOut = new Date(now.getTime() + LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-  const lookbackStart = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  // Dedup window — scheduled-run-week, not rolling. See
+  // lib/weeklyDigestDedup.ts. (sevenDaysOut above is unrelated — it defines
+  // which orders are "due this week" for the digest content, not dedup.)
+  const dedupWindowStart = scheduledRunWeekStart(now);
 
   const users = await prisma.user.findMany();
 
@@ -139,7 +143,7 @@ export async function GET(request: NextRequest) {
     // row of this type, so the @@unique constraint doesn't apply).
     if (!force) {
       const recentSend = await prisma.reminder.findFirst({
-        where: { userId: user.id, reminderType: REMINDER_TYPE, sentAt: { gte: lookbackStart } },
+        where: { userId: user.id, reminderType: REMINDER_TYPE, sentAt: { gte: dedupWindowStart } },
       });
       if (recentSend) {
         skippedAlreadySent.push({ userId: user.id, userEmail: user.email });
@@ -176,7 +180,12 @@ export async function GET(request: NextRequest) {
         textBody: body,
         htmlBody,
       });
-      await prisma.reminder.create({ data: { userId: user.id, reminderType: REMINDER_TYPE } });
+      // Load-bearing: a force/test send must never write a Reminder row —
+      // otherwise it dedup-suppresses the next real scheduled run, mirroring
+      // the weekly-coverage fix (commit 9163d0b, TASKS.md 2026-07-20).
+      if (!force) {
+        await prisma.reminder.create({ data: { userId: user.id, reminderType: REMINDER_TYPE } });
+      }
 
       sent.push({ userId: user.id, userEmail: user.email, orderCount: orders.length });
     } catch (error) {

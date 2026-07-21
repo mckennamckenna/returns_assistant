@@ -393,7 +393,29 @@
       new). **Real-world verification still needs a real Friday run** — not
       Done until confirmed live. Out of scope, untouched: cron alerting,
       subject/tone, zero-returns fallback.
-
+- [ ] **weekly-digest dedup bug (Sunday "your returns this week") — FIXED
+      2026-07-20, pushed, not deployed/verified yet — the real product
+      email, all users, higher stakes than the Friday coverage-check.**
+      Sanity-check confirmed the two routes **duplicate** the dedup logic
+      (no shared module) — mirrored the fix rather than unifying at the
+      source, duplication flagged as tech debt below. New
+      `lib/weeklyDigestDedup.ts` (deliberately a near-duplicate of
+      `lib/coverageCheck.ts`, Sunday/16:00 UTC instead of Friday/16:00 UTC)
+      — dedup now keys off the most recent scheduled Sunday-16:00-UTC
+      instant instead of a rolling 7-day lookback. `prisma.reminder.create(...)`
+      in `weekly-digest/route.ts` now skipped entirely when `force === true`
+      (the load-bearing fix, same as `9163d0b`). The "due this week" content
+      window (`sevenDaysOut`, a forward-looking query — different shape than
+      coverage-check's backward-looking content window, unrelated to dedup)
+      is untouched. 9 new tests in `__tests__/weeklyDigestDedup.test.ts`,
+      including a constructed same-week test-send-vs-real-run scenario
+      (Jun 29 Monday off-schedule send vs. Jul 5 Sunday real run, 6 days
+      apart, mirroring the real weekly-coverage incident's shape since there
+      was no real reported incident date for this route specifically) —
+      proves the old boundary would have dropped the user and the new one
+      doesn't. Verified locally: `npm run build` clean, 430/430 tests
+      passing (9 new). **Real-world verification still needs a real Sunday
+      run** — not Done until confirmed live.
 ## 🐛 Bugs
 
 ### Trust-breaking
@@ -446,13 +468,18 @@
       separate Order records with the same `orderNumber`, found while diagnosing the
       returnPortalUrl scheme bug (`lib/linkOrder.ts` matching). LinkOrder merge bug, or
       intentional? Cheap check, not urgent.
-- [ ] **Coverage-check dedup should key off scheduled-run-week, not rolling 7-day
-      lookback** [email delivery], so test invocations don't perturb production cadence — currently a
-      stray Jun 27 test send caused three users (owner, kathleen, alexandra) to be
-      deduped from the Jul 3 real run.
-- [ ] **Verify whether the coverage-check route on `?force=true` writes the Reminder
-      row identically to a scheduled run** [email delivery] — if so, tests will keep affecting the
-      schedule. Consider not writing a Reminder row on force invocations.
+- **RESOLVED 2026-07-20 (`9163d0b`, see 🔴 Now):** ~~Coverage-check dedup
+  should key off scheduled-run-week, not rolling 7-day lookback~~ [email
+  delivery] — fixed: `lib/coverageCheck.ts`'s `scheduledRunWeekStart`, dedup
+  now keyed off the scheduled Friday run instead of a rolling window.
+  Real-world verification still pending the next Friday.
+- **RESOLVED 2026-07-20 (`9163d0b`, see 🔴 Now):** ~~Verify whether the
+  coverage-check route on `?force=true` writes the Reminder row identically
+  to a scheduled run~~ [email delivery] — confirmed it did (this was the
+  load-bearing half of the bug); fixed by skipping the Reminder write
+  entirely when `force === true`. Same class of bug also found and fixed in
+  `weekly-digest/route.ts` this session (Sunday digest, higher stakes) —
+  see 🔴 Now.
 
 ### Annoying
 - [ ] **Pre-orders extract incorrectly** (Loeffler Randall was a pre-order and
@@ -1598,16 +1625,17 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **`app/api/cron/weekly-digest/route.ts` has the same force/dedup bug just
-  fixed in `weekly-coverage`** — surfaced 2026-07-20 while diagnosing the
-  coverage-check dedup bug. Identical pattern: rolling 7-day lookback, and
-  `prisma.reminder.create(...)` runs unconditionally regardless of `force`,
-  so a force/test send of the Sunday digest would suppress the next real
-  Sunday run the same way. Not fixed — out of scope for that session, flagged
-  only. Same fix shape would apply: skip the Reminder write when `force`,
-  and key dedup off scheduled-run-week (`lib/coverageCheck.ts`'s
-  `scheduledRunWeekStart` could likely be generalized/reused with a
-  Sunday/16:00 schedule instead of hardcoding it a second time).
+- **RESOLVED 2026-07-20 (see 🔴 Now):** ~~`app/api/cron/weekly-digest/route.ts`
+  has the same force/dedup bug just fixed in `weekly-coverage`~~ — fixed by
+  mirroring `9163d0b`. New known issue instead of the old one:
+  `lib/coverageCheck.ts` and `lib/weeklyDigestDedup.ts` are now two
+  near-identical files (same `scheduledRunWeekStart` date math, different
+  hardcoded day/hour) — a deliberate choice this session (mirror + flag,
+  per the task's own instruction, rather than unify while fixing a live
+  bug), but genuine duplication. Worth generalizing into one parameterized
+  `scheduledRunWeekStart(now, dayOfWeekUTC, hourUTC)` in a future pass, once
+  both routes' fixes are confirmed live and there's no live-bug time
+  pressure.
 - **Untracked `LOGO_COVERAGE.md` sitting in the working tree** — noticed
   2026-07-17, been there long enough to flag. Not added, not deleted; owner
   will decide next session.
