@@ -552,6 +552,23 @@
       immediately, independent of whether this preorder fix ever gets its
       live test. Not verified further here (didn't want to spend more of a
       possibly-already-critical budget testing this).
+      **CONFIRMED 2026-07-20 — this was real, credit has since been
+      restored by owner.** See the outage-scope item directly below.
+- [ ] **Scope Anthropic billing-outage extraction failures — INVESTIGATION
+      ONLY, 2026-07-20, no re-extraction yet (owner instruction).** Window:
+      ~4pm–9pm PDT (`2026-07-20T23:00:00Z` to now). Signal used:
+      `needsReview: true` AND `emailType: null` (the precise fingerprint of
+      `runExtraction`'s catch-block failure path — a genuinely-successful
+      extraction always sets `emailType` to something, even `"other"`).
+      **Found: 8 emails across 4 real users**, all orphaned (`orderId:
+      null`, so each already shows in that user's "Unlinked emails"
+      section with a "Needs review" badge — not fully silent, but not
+      labeled as an outage either). For comparison: 23 similar
+      failed-extraction emails exist from *before* this window —
+      pre-existing, unrelated, not part of this count. **Next step (not
+      done): re-extract these 8 once explicitly approved** — straightforward
+      via `runExtraction(emailId)` per email, same as the preorder test
+      earlier, now that credit is restored.
 
 ## 🐛 Bugs
 
