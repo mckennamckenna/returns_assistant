@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
+import { scheduledRunWeekStart } from "@/lib/coverageCheck";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +89,13 @@ export async function GET(request: NextRequest) {
   }
 
   const now = new Date();
+  // Content window (what emails this week's coverage summary includes) —
+  // rolling 7-day, unchanged by this fix. Deliberately separate from the
+  // dedup window below: this governs what a real run *shows*, which must
+  // not change.
   const lookbackStart = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  // Dedup window — scheduled-run-week, not rolling. See lib/coverageCheck.ts.
+  const dedupWindowStart = scheduledRunWeekStart(now);
 
   const users = await prisma.user.findMany();
 
@@ -102,7 +109,7 @@ export async function GET(request: NextRequest) {
     // type), so the dedupe check is a recent-send lookup instead.
     if (!force) {
       const recentSend = await prisma.reminder.findFirst({
-        where: { userId: user.id, reminderType: REMINDER_TYPE, sentAt: { gte: lookbackStart } },
+        where: { userId: user.id, reminderType: REMINDER_TYPE, sentAt: { gte: dedupWindowStart } },
       });
       if (recentSend) {
         skippedAlreadySent.push({ userId: user.id, userEmail: user.email });
@@ -143,7 +150,14 @@ export async function GET(request: NextRequest) {
         subject: "Did we catch everything you bought this week? 🛍",
         textBody: body,
       });
-      await prisma.reminder.create({ data: { userId: user.id, reminderType: REMINDER_TYPE } });
+      // Load-bearing: a force/test send must never write a Reminder row —
+      // otherwise it dedup-suppresses the next real scheduled run, which is
+      // exactly how an off-schedule Jun 27 force send silently knocked 3
+      // users out of the real Jul 3 run. Scheduled-week keying above closes
+      // the same gap defensively, but this is what actually stops it.
+      if (!force) {
+        await prisma.reminder.create({ data: { userId: user.id, reminderType: REMINDER_TYPE } });
+      }
 
       sent.push({ userId: user.id, userEmail: user.email, orderCount: items.length });
     } catch (error) {

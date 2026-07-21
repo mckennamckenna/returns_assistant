@@ -362,6 +362,37 @@
       One order number can span multiple shipments in a single email
       (`111-7078168-2781034` seen as both "Arriving Wednesday" and "Arriving
       tomorrow") — split-shipment dedup risk, must not render as two orders.
+- [ ] **Coverage-check dedup bug — FIXED 2026-07-20, pushed, not deployed
+      /verified yet.** Step 1 (read-only) confirmed both suspected
+      mechanisms exactly: dedup was a rolling 7-day lookback from the exact
+      invocation instant, and `?force=true` wrote a Reminder row identically
+      to a scheduled run (only skipped the pre-check, not the write).
+      Confirmed against real dates: Jun 27, 2026 was a **Saturday**
+      (off-schedule force/test — the cron only runs **Fridays**,
+      `0 16 * * 5` per `vercel.json`), Jul 3 was the real scheduled Friday
+      run, 6 days later — inside the old 7-day trailing window computed
+      from Jul 3. **Correction to this item's own framing:** the original
+      ask said verification "waits for a real Sunday," but this route's
+      schedule is Friday, not Sunday (that's `weekly-digest`, a separate
+      route) — flagging since the fix's real-world verification should
+      watch the next Friday, not Sunday.
+      Fix: new `lib/coverageCheck.ts` (`scheduledRunWeekStart()`, pure,
+      10 unit tests including a direct reproduction of the Jun 27/Jul 3
+      incident using the real dates) — dedup now keys off the most recent
+      scheduled Friday-16:00-UTC instant, not a rolling window. Separately,
+      `prisma.reminder.create(...)` in the route is now skipped entirely
+      when `force === true` (the load-bearing fix — this is what actually
+      stops a force send suppressing a same-week real run; the week-keying
+      is defense-in-depth on top). The content window (what emails a real
+      run's summary includes) is untouched — only the dedup boundary
+      changed. Also found, out of scope, flagged only:
+      **`app/api/cron/weekly-digest/route.ts` has the identical bug pattern**
+      (same rolling lookback, same unconditional `reminder.create` under
+      force) — the Sunday digest is equally exposed; not fixed here.
+      Verified locally: `npm run build` clean, 421/421 tests passing (10
+      new). **Real-world verification still needs a real Friday run** — not
+      Done until confirmed live. Out of scope, untouched: cron alerting,
+      subject/tone, zero-returns fallback.
 
 ## 🐛 Bugs
 
@@ -1567,6 +1598,16 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`app/api/cron/weekly-digest/route.ts` has the same force/dedup bug just
+  fixed in `weekly-coverage`** — surfaced 2026-07-20 while diagnosing the
+  coverage-check dedup bug. Identical pattern: rolling 7-day lookback, and
+  `prisma.reminder.create(...)` runs unconditionally regardless of `force`,
+  so a force/test send of the Sunday digest would suppress the next real
+  Sunday run the same way. Not fixed — out of scope for that session, flagged
+  only. Same fix shape would apply: skip the Reminder write when `force`,
+  and key dedup off scheduled-run-week (`lib/coverageCheck.ts`'s
+  `scheduledRunWeekStart` could likely be generalized/reused with a
+  Sunday/16:00 schedule instead of hardcoding it a second time).
 - **Untracked `LOGO_COVERAGE.md` sitting in the working tree** — noticed
   2026-07-17, been there long enough to flag. Not added, not deleted; owner
   will decide next session.
