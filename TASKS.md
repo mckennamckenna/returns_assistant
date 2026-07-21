@@ -424,6 +424,11 @@
       schedule. Consider not writing a Reminder row on force invocations.
 
 ### Annoying
+- [ ] **Pre-orders extract incorrectly** (Loeffler Randall was a pre-order and
+      came through wrong). [needs repro — what's wrong: dates? deadline?
+      status?] **Bucket unconfirmed** — owner flagged this could be
+      trust-breaking instead of annoying; re-bucket once the actual failure
+      mode is known.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
       e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
       to near-nothing after the (already-shortened) order number eats the
