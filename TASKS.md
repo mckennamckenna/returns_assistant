@@ -590,6 +590,52 @@
       return deadline, an ambiguous dual-order-number Amazon email, an
       obscure B2B-style retailer name) that a human should actually confirm,
       same as any other real order.
+- [ ] **Investigation only, 2026-07-20 — why does LR #512867 show "Kept" +
+      an active countdown/"at risk"? No fix.** Real root cause found, not
+      guessed:
+      **(1) No dedicated audit trail exists for in-app status actions.**
+      `ActionLog` only covers the token-based email-link actions (Archive,
+      Mark Returned via signed links) — confirmed via every `actionLog.create`
+      call site. The in-app "Keeping it" button and the `PATCH
+      /api/orders/:id/status` route write no log at all; the only evidence
+      is `keptAt` (`2026-07-18T21:23:31.647Z`) and the row's own `updatedAt`.
+      **(2) Exactly two code paths can ever set `displayStatus: "kept"`** —
+      `markKeptAction` (`app/actions.ts:94`, the UI button) and `PATCH
+      /api/orders/:id/status` (`app/api/orders/[id]/status/route.ts`) — both
+      route through the same shared, rank-gated `buildStatusTransitionData`
+      (`lib/displayStatus.ts:126`). Confirmed exhaustively (grepped every
+      `displayStatus: "kept"` write in the codebase): no automated/derived
+      path exists — `deriveDisplayStatus`'s auto-derivation ladder never
+      produces `"kept"`, only preserves it if already set. Manual-only, as
+      documented.
+      **The real finding: both paths correctly auto-archive in the SAME
+      atomic write** (`buildStatusTransitionData` sets `archivedAt` whenever
+      `nextStatus === "kept"` and none exists yet) — so the code is not
+      buggy at the moment Kept is set. The only way to reach "kept +
+      `archivedAt: null`" afterward is a **separate, later Unarchive action**
+      (`PATCH /api/orders/:id/archive`) — which only ever touches
+      `archivedAt` and has zero awareness of `displayStatus`/`keptAt`. No
+      logged proof of this specific event exists (per finding 1), but it's
+      the only sequence consistent with the code — `buildStatusTransitionData`
+      cannot itself produce this state.
+      **(3) Confirmed: display logic does NOT suppress the countdown when
+      Kept, anywhere.** `OrderCard.tsx`'s `atRisk = isClosingSoon(order, now)`
+      and `<DaysLeftChip returnDeadline={order.returnDeadline} .../>` both
+      run unconditionally — no `displayStatus` check in either. `isClosingSoon`
+      itself (`lib/alerts.ts:12`) takes only `returnDeadline`, nothing else.
+      Under normal conditions this combination is invisible on the main
+      dashboard simply because a kept order is *also* archived (filtered out
+      entirely) — the contradiction only surfaces once an order is kept
+      **and then separately unarchived**, exactly what appears to have
+      happened here. This is mobile-audit finding #4, confirmed live on a
+      real production order, not just the previously-logged testing
+      artifact (owner manually toggling test orders) — a second, distinct,
+      real path to the same symptom.
+      **Not fixed.** Two real gaps to weigh together, not separately: (a)
+      Unarchive should probably reconcile/warn when unarchiving a
+      kept/refunded order, and (b) the underlying finding #4 label-coherence
+      spec pass (already queued) needs to cover this specific sequence, not
+      just simultaneous badge/button rendering.
 
 ## 🐛 Bugs
 
