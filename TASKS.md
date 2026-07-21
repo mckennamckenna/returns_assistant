@@ -552,18 +552,6 @@
       immediately, independent of whether this preorder fix ever gets its
       live test. Not verified further here (didn't want to spend more of a
       possibly-already-critical budget testing this).
-- [ ] **Q&A only, 2026-07-20: what's on the Anthropic API bill —
-      answered, no code changed.** Confirmed 3 real call sites total:
-      `lib/extract.ts`'s `extractEmail()` (Sonnet 4.6, main extraction) and
-      `lookupReturnPolicy()` (Sonnet 4.6 + web_search, conditional), plus a
-      previously-undiscussed third file, `lib/classify.ts`'s
-      `isCommerceEmail()` (Haiku 4.5, runs on every single inbound email as
-      a privacy/commerce gate before extraction even runs) — this is the
-      source of the Haiku usage in the Console. Also clarified: Claude
-      Code's own operation is not billed to this project's
-      `ANTHROPIC_API_KEY` — except the one real `runExtraction` test call
-      made testing the preorder fix (previous session), which explicitly
-      loaded `.env` and did hit the production key.
 
 ## 🐛 Bugs
 
@@ -690,6 +678,33 @@
       inaccurate.)
 
 ## 🟡 Next
+- [ ] **`extraction-cost-visibility` — cost structure mapped 2026-07-20, real
+      lever identified, not built.** Confirmed 3 call-sites total (see
+      today's Done entry): Haiku commerce-gate on every inbound email,
+      Sonnet `extractEmail` on commerce-classified emails, Sonnet+web_search
+      `lookupReturnPolicy` conditionally on those. **The gate-then-extract
+      design itself is already efficient — not a fix target.**
+      **Real cost lever: `lookupReturnPolicy()` is the priciest call**
+      (Sonnet + per-search web billing) and re-runs on every order from a
+      retailer with no in-email return window, even when that retailer's
+      policy was already looked up for a different order. Add a
+      per-retailer return-policy cache (by retailer name/domain) so a
+      policy is looked up once and reused — biggest single lever available,
+      compounds as user volume grows. Already anticipated in the
+      `Cost / token efficiency pass` Someday item below ("Cache return
+      policies by retailer domain") — this promotes that specific piece to
+      Next now that there's a concrete trigger (today's Anthropic billing
+      exhaustion). Entangled with the retailer-policy-database Someday item
+      too — likely one shared cache/schema, not two.
+      **Still worth doing: a dedicated Anthropic API key for this app**
+      (separate from whatever else shares the current one), so the Console's
+      per-key view is pure production cost — makes future cost investigation
+      (like today's) trivial instead of requiring a code-reading session.
+      **Watch item, not a bug:** manual re-extraction (email detail page
+      action) and the `reextract-all-emails.ts` backfill script both re-run
+      the full Sonnet path per email — a backfill session can spike Sonnet
+      usage independent of real inbound volume. Don't misread a backfill
+      spike as organic growth when reviewing the Console later.
 - [ ] **[unconfirmed] Grocery / non-returnable parsed as returnable** — no
       repro in prod, 0 grocery orders exist to test against; needs a real
       test email to settle. Related to Amazon's "what counts as returnable
@@ -1256,20 +1271,28 @@
       keywords) and for retailer policy DB coverage strategy. Test: sample
       30-50 shipping emails across retailers, look at structural similarity
       metric. Not urgent.
-- [ ] Cost / token efficiency pass (post-beta) — Anthropic prompt caching on the
+- [ ] Cost / token efficiency pass (post-beta) — **trigger met 2026-07-20**
+      (Anthropic account hit zero credit balance) — **"cache return policies
+      by retailer domain" promoted to 🟡 Next as `extraction-cost-visibility`,
+      the biggest identified lever; the rest of this item stays Someday.**
+      Anthropic prompt caching on the
       extraction API call (biggest lever, ~1 session of work, drops input cost ~80%, no
-      quality risk). Cache return policies by retailer domain (compounds with user
-      growth). Move any remaining Sonnet calls that don't need Sonnet-quality to Haiku
-      4.5 (audit which calls actually need extraction-grade reasoning vs.
-      classification-grade). Retailer-specific template parsers for the top ~10
+      quality risk). Move any remaining Sonnet calls that don't need Sonnet-quality to Haiku
+      4.5 — **audited 2026-07-20: already correctly split** (Haiku on the
+      commerce gate, Sonnet only on the two extraction-grade calls) — this
+      part of the item is resolved, no further audit needed. Retailer-specific template parsers for the top ~10
       retailers as short-circuit before AI extraction (higher effort, needs monitoring
       for template drift). Batch
-      API for non-urgent backend work. None urgent at current volume — but revisit
-      before >20 real users, or when a monthly Anthropic bill first makes you flinch.
+      API for non-urgent backend work. Revisit the rest before >20 real users.
       Prompt caching alone can be pulled forward from Someday if pre-beta AI cost
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Anthropic API bill Q&A, 2026-07-20 (docs-only, no deploy to verify).**
+      Mapped all 3 real call-sites (`lib/extract.ts` ×2 Sonnet,
+      `lib/classify.ts` ×1 Haiku) and clarified Claude Code's own operation
+      isn't billed to this project's key. Folded into `extraction-cost-visibility`
+      (🟡 Next) for the actual cost-reduction follow-up.
 - [x] **`refund_pending` added to `SKIP_STATUSES`, pushed, awaiting deploy
       verification (2026-07-20).** `lib/reminders.ts:13` — one-line fix,
       owner-approved after direct verification against production data and
@@ -1774,6 +1797,13 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Standing practice, adopted 2026-07-20: test/verification scripts must
+  default to a NON-PROD Anthropic key.** Surfaced when the preorder
+  ship-date fix's live verification used `--env-file=.env` and billed the
+  real production key once (disclosed at the time). Accepted as a one-off
+  given there's currently no separate dev/test Anthropic key to use instead
+  — but shouldn't become routine. Revisit once a dedicated key exists (see
+  `extraction-cost-visibility`, 🟡 Next).
 - **🔴 URGENT, unverified — Anthropic API account appears out of credit,
   possibly affecting production right now (2026-07-20).** Discovered
   incidentally: a real `extractEmail()` call (via `runExtraction`, testing
