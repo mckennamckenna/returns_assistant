@@ -565,10 +565,31 @@
       section with a "Needs review" badge — not fully silent, but not
       labeled as an outage either). For comparison: 23 similar
       failed-extraction emails exist from *before* this window —
-      pre-existing, unrelated, not part of this count. **Next step (not
-      done): re-extract these 8 once explicitly approved** — straightforward
-      via `runExtraction(emailId)` per email, same as the preorder test
-      earlier, now that credit is restored.
+      pre-existing, unrelated, not part of this count.
+      **Re-extraction complete 2026-07-20 — clean, no real extraction bug
+      found.** All 8 re-ran successfully (no errors), scoped to exactly
+      those 8 IDs, no broader backfill.
+      **6 of 8 linked to a real order** (2 Amazon, 1 H&M, 1 Anthropic PBC
+      billing receipt, 2 ACE Visalia RSC/FedEx shipping emails that
+      correctly merged into ONE order, not two) — all now cleared from
+      their user's "Unlinked emails" list.
+      **2 of 8 extracted cleanly but correctly did NOT link** — both are
+      genuine marketing/promotional emails (a Target promo, a Bloomingdale's
+      promo) that the Haiku commerce-gate let through at inbound time but
+      Sonnet's more careful extraction pass correctly identified as
+      non-commerce on re-extraction. Working as designed, not a bug — they
+      remain in "Unlinked emails" because they aren't orders, not because
+      extraction failed. One minor inconsistency worth a future glance: the
+      Target email got `emailType: "other"` (correct) but `retailer:
+      "Target"` (the prompt's own rule says retailer should be null when
+      emailType is `"other"` — the Bloomingdale's one followed that rule
+      correctly, this one didn't). Cosmetic/low-priority, not investigated
+      further.
+      **`needsReview` is still `true` on all 8** — this is expected, not a
+      residual failure: each has its own genuine, unrelated reason (missing
+      return deadline, an ambiguous dual-order-number Amazon email, an
+      obscure B2B-style retailer name) that a human should actually confirm,
+      same as any other real order.
 
 ## 🐛 Bugs
 
