@@ -436,6 +436,71 @@
       430/430 tests passing (no test coverage added — CSS/layout, no jsdom
       per this project's component-testing philosophy). Browser-verifiable
       on deploy — owner should confirm on production, no cron wait needed.
+- [ ] **Preorder / unconfirmed-delivery wrong-deadline — INVESTIGATION
+      COMPLETE 2026-07-20, no code changed.** Confirmed against real data
+      (LR #512867: `orderDate` 6/29, no delivery fields at all,
+      `returnWindowStartsFrom: "delivery_date"` stated in-email,
+      `returnDeadline` 7/25 = 6/29 + 5-day fallback + 21-day window, exactly
+      reproducing the bug; AquaTru: `status: "returnable"` but
+      `displayStatus: "shipped"` after a real `delivery` email).
+      **(1) Ship/preorder date: not captured anywhere.** `lib/extract.ts`'s
+      `RawExtraction`/prompt (`buildPrompt`) has no ship-date/preorder field
+      or instruction at all — dropped entirely, not mis-mapped into
+      `deliveryDate`.
+      **(2) Confirmed vs. estimated: a real, deliberate 3-way split exists**
+      — `routeDeliveryDate()` (`lib/extract.ts:235`) routes the AI's one
+      `deliveryDate` field to `deliveredAt` (confirmed, only when
+      `emailType === "delivery"`) or `estimatedDeliveryDate` (a carrier ETA,
+      every other type); `deadlineIsEstimated` is set per-case in
+      `computeDeadline()` (`lib/extract.ts:287`).
+      **(3) 5-day fallback confirmed firing exactly as suspected.**
+      `STANDARD_SHIPPING_DAYS = 5` (`lib/extract.ts:13`), case 4 of
+      `computeDeadline()` (lines 327-333): fires when `orderDate` is known
+      but neither `deliveredAt` nor `estimatedDeliveryDate` exist —
+      unconditional, no ship-date awareness (none could exist, per (1)).
+      **(4) AquaTru: state-transition miss, not classification miss.** The
+      `delivery` email WAS correctly typed (confirmed in `extractionNotes`)
+      and internal `status` correctly derived to `"returnable"`
+      (`computeOrderStatus`, `lib/linkOrder.ts:204`). But `displayStatus`'s
+      ladder (`deriveDisplayStatus`, `lib/displayStatus.ts:87-94`) has **no
+      "delivered" rung at all** — `shipping_confirmation` and `delivery`
+      both derive to the same `"shipped"` value, and `DISPLAY_STATUS_LABELS`
+      (same file) has no `"delivered"` entry — so `DisplayStatusBadge.tsx`
+      renders the literal word "Shipped" on a package delivered days ago.
+      The countdown itself isn't affected (`DaysLeftChip` reads
+      `returnDeadline` directly, not `displayStatus`) — this is a
+      user-facing label gap, not a deadline-computation bug.
+      **(5) No existing "user-set, don't overwrite" pattern for date
+      fields.** `mergeEmailIntoOrder` (`lib/linkOrder.ts:475`) merges every
+      delivery/date field via `email.X ?? existing.X` — a new email's
+      non-null value always wins, with zero concept of "already
+      user-corrected, don't touch." The closest existing precedent is
+      `displayStatus`'s rank-based downgrade guard
+      (`DISPLAY_STATUS_RANK`/`deriveDisplayStatus`, `lib/displayStatus.ts`)
+      and `orderDateEstimated`'s provenance flag — neither actually protects
+      a value from being *replaced* by a different non-null value, only
+      from being erased by a null or downgraded in rank. A new boolean
+      flag per protected field (shape TBD) would be net-new, not a reuse.
+      **Recommended fix shapes (not implemented, for owner decision):**
+      **(A)** add a captured ship/preorder-date field (new prompt
+      instruction + schema column, e.g. `shipByDate`) and make
+      `computeDeadline()`'s case 4 preorder-aware: never estimate a delivery
+      date earlier than a known ship date, and treat a stated future
+      ship-by date as its own backstop regardless of anchor.
+      **(B) two independent options, not mutually exclusive:** add a
+      "delivered" rung to `displayStatus` (schema comment + `DISPLAY_STATUS_RANK`
+      + `DISPLAY_STATUS_LABELS` + `deriveDisplayStatus`'s ladder), OR leave
+      `displayStatus` as steps-toward-a-decision and have the UI read
+      `status === "returnable"` for the label instead — smaller blast radius
+      since `displayStatus`'s rank system is load-bearing elsewhere (kept/
+      refunded auto-archive gating).
+      **(C)** a new boolean per overridable field (e.g. `deliveryDateUserSet`),
+      checked in `mergeEmailIntoOrder`'s merge (skip the `??` overwrite when
+      set) — set only via a new manual-entry endpoint, and only when the
+      value came from a real `deliveredAt` (confirmed carrier email, never
+      user-editable) is it "locked"; an `estimatedDeliveryDate`/fallback
+      value stays user-overridable until a confirmed one arrives.
+      Not spec'd further — owner to decide direction before any build.
 
 ## 🐛 Bugs
 
