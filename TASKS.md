@@ -366,6 +366,14 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **Amazon order-confirmation emails extract to ALL BLANK** (email type,
+      retailer, order #, total empty) → stuck in Needs Review → order never
+      reaches the dashboard. [needs repro] User forwards an Amazon order,
+      nothing shows = silent failure. Likely the known "no
+      `order_confirmation` email type" gap (Part 3 / Bug 8), but **VERIFY
+      scope with a fresh non-Amazon forward** — if non-Amazon also blanks,
+      it's a P0 regression, not contained. Even for confirmations, should
+      still capture retailer / order # / total.
 - [ ] **"Unlinked emails" section shows a raw tracking-style URL in the body
       preview** — e.g. `click.mkt.isdnn.com/...` visible in a forwarded
       promotional email's preview text, reads as spam/phishing leaking into
