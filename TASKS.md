@@ -552,6 +552,18 @@
       immediately, independent of whether this preorder fix ever gets its
       live test. Not verified further here (didn't want to spend more of a
       possibly-already-critical budget testing this).
+- [ ] **Q&A only, 2026-07-20: what's on the Anthropic API bill —
+      answered, no code changed.** Confirmed 3 real call sites total:
+      `lib/extract.ts`'s `extractEmail()` (Sonnet 4.6, main extraction) and
+      `lookupReturnPolicy()` (Sonnet 4.6 + web_search, conditional), plus a
+      previously-undiscussed third file, `lib/classify.ts`'s
+      `isCommerceEmail()` (Haiku 4.5, runs on every single inbound email as
+      a privacy/commerce gate before extraction even runs) — this is the
+      source of the Haiku usage in the Console. Also clarified: Claude
+      Code's own operation is not billed to this project's
+      `ANTHROPIC_API_KEY` — except the one real `runExtraction` test call
+      made testing the preorder fix (previous session), which explicitly
+      loaded `.env` and did hit the production key.
 
 ## 🐛 Bugs
 
