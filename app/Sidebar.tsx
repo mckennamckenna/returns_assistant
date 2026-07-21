@@ -75,7 +75,9 @@ export function Sidebar({ alertCount, accountLabel }: { alertCount: number; acco
           <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card text-ink border border-border text-sm font-semibold">
             {accountLabel.slice(0, 1).toUpperCase()}
           </span>
-          <span className="text-[13px] text-muted truncate">{accountLabel}</span>
+          <span className="text-[13px] text-muted truncate" title={accountLabel}>
+            {accountLabel}
+          </span>
         </div>
         <form action={signOutAction}>
           <button type="submit" className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-muted hover:bg-card">

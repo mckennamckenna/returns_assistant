@@ -416,6 +416,27 @@
       doesn't. Verified locally: `npm run build` clean, 430/430 tests
       passing (9 new). **Real-world verification still needs a real Sunday
       run** — not Done until confirmed live.
+- [ ] **Sidebar account-email truncation (cosmetic) — FIXED 2026-07-20,
+      pushed, awaiting owner verification in production — not Done.**
+      `app/Sidebar.tsx` — added a `title={accountLabel}` attribute to the
+      existing `truncate` span, same pattern already used for order-number
+      display elsewhere in the app. **Diagnostic note:** `Sidebar` is
+      `hidden md:flex` — desktop-only, no mobile equivalent exists (checked
+      `BottomNav.tsx`, confirmed no account-email display there at all). Its
+      column is a fixed `w-60` (240px) regardless of overall viewport width
+      once ≥768px, so "narrow width" for this specific element means the
+      sidebar's own fixed column, not the page's overall width — verified at
+      both 768px (the `md` breakpoint boundary, the narrowest real case)
+      and 1440px with a synthetic long email created solely for this check
+      (`mckenna.sweazey+truncationtest@metaxmoda-extremely-long-example-domain.com`,
+      a throwaway test user + session, deleted immediately after — not a
+      real account). Confirmed at both widths: `scrollWidth > clientWidth`
+      (ellipsis actually engaging, not just visually plausible) and the
+      `title` attribute holds the exact full address. `npm run build` clean,
+      430/430 tests passing (no test coverage added — CSS/layout, no jsdom
+      per this project's component-testing philosophy). Browser-verifiable
+      on deploy — owner should confirm on production, no cron wait needed.
+
 ## 🐛 Bugs
 
 ### Trust-breaking
@@ -523,11 +544,11 @@
       (🔴 Now). That item is not moved or edited.
 
 ### Cosmetic
-- [ ] **Sidebar account email truncates with no `title` fallback** — e.g.
-      `mckenna.sweazey@g…`, no way to see the full address without editing
-      the DOM. Surfaced by trust audit (`TRUST_AUDIT.md` row 8), not in
-      today's six-item scope. Proposed fix: add a `title` attribute, same
-      pattern as the order-number display fix.
+- **RESOLVED 2026-07-20 (see 🔴 Now):** ~~Sidebar account email truncates
+  with no `title` fallback~~ — e.g. `mckenna.sweazey@g…`, no way to see the
+  full address without editing the DOM. Surfaced by trust audit
+  (`TRUST_AUDIT.md` row 8). Fixed: `title` attribute added, same pattern as
+  the order-number display fix. Awaiting owner verification in production.
 - [ ] **Order detail page: long order number wraps awkwardly on mobile** —
       24-char Poshmark-style numbers wrap across 3 lines with the Copy
       button sitting mid-wrap rather than below the value. Cosmetic only,
