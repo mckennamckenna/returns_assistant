@@ -636,6 +636,20 @@
   see 🔴 Now.
 
 ### Annoying
+- [ ] **AquaTru (and any delivered order) shows "Shipped" badge forever —
+      state-transition miss, not classification miss.** Diagnosed in full
+      2026-07-20 (see the preorder/wrong-deadline investigation in Done/
+      history): the `delivery` email is correctly typed and internal
+      `status` correctly derives to `"returnable"`, but `displayStatus`'s
+      ladder (`lib/displayStatus.ts`'s `deriveDisplayStatus`) has no
+      "delivered" rung at all — `shipping_confirmation` and `delivery` both
+      derive to the same `"shipped"` value, so `DisplayStatusBadge` renders
+      "Shipped" on orders delivered days ago. Deadline countdown itself is
+      unaffected (reads `returnDeadline` directly). Two proposed fix shapes,
+      not built: add a "delivered" rung to `displayStatus`'s rank/label/
+      ladder, OR simpler — have the badge read internal `status ===
+      "returnable"` instead, smaller blast radius since `displayStatus`'s
+      rank system already gates auto-archive elsewhere. Not spec'd further.
 - [ ] **Pre-orders extract incorrectly** (Loeffler Randall was a pre-order and
       came through wrong). [needs repro — what's wrong: dates? deadline?
       status?] **Bucket unconfirmed** — owner flagged this could be
