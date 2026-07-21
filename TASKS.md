@@ -640,6 +640,27 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **Mobile-audit finding #4, CONFIRMED via 2 mechanisms 2026-07-20: display
+      never suppresses countdown/at-risk for Kept (or Refunded) orders.**
+      `OrderCard.tsx`'s `atRisk` and `DaysLeftChip` both run on
+      `returnDeadline` with no `displayStatus` check anywhere. Normally
+      invisible because kept = archived = filtered off the dashboard;
+      surfaces on unarchive (see the Unarchive bug directly below) or any
+      future view that shows kept/refunded orders alongside active ones.
+      Full diagnostic trail: the LR #512867 Kept-status investigation
+      (🔴 Now, `45574af`). **The queued label-coherence spec pass must
+      explicitly cover this "kept-then-unarchived" sequence, not just the
+      simultaneous-badge/button case it was originally scoped for.**
+- [ ] **Unarchive doesn't reconcile status — state bug, produces the finding
+      #4 contradiction above.** Unarchiving a kept/refunded order un-hides
+      it with its decided state AND a live deadline intact (`PATCH
+      /api/orders/:id/archive` only ever touches `archivedAt`, zero
+      awareness of `displayStatus`/`keptAt`/`returnedAt`) — confirmed this is
+      the only sequence consistent with `buildStatusTransitionData`'s
+      atomic archive-on-kept write (see the same LR #512867 investigation).
+      Proposed direction, not built: Unarchive should reconcile
+      (downgrade/clear the decided status) or at minimum warn before
+      un-hiding a kept/refunded order.
 - [ ] **Amazon order-confirmation emails extract to ALL BLANK** (email type,
       retailer, order #, total empty) → stuck in Needs Review → order never
       reaches the dashboard. [needs repro] User forwards an Amazon order,
@@ -776,6 +797,18 @@
       inaccurate.)
 
 ## 🟡 Next
+- [ ] **No audit trail for IN-APP actions — operational gap, high leverage,
+      surfaced 2026-07-20.** `ActionLog` only covers token/email-link
+      actions (Archive, Mark Returned via signed links) — the in-app
+      "Keeping it" button and `PATCH /api/orders/:id/status` log nothing at
+      all today. Confirmed the hard way investigating LR #512867's Kept
+      status (🔴 Now, `45574af`): no way to answer "who set this / when"
+      without reading code and inferring from timestamps. Add logging (most
+      likely: extend `ActionLog` writes to `advanceDisplayStatus` and the
+      status/archive PATCH routes, same shape already proven for the
+      token-action paths) so this is answerable directly going forward.
+      Matters more with every new user — not urgent today, but the gap
+      compounds.
 - [ ] **`extraction-cost-visibility` — cost structure mapped 2026-07-20, real
       lever identified, not built.** Confirmed 3 call-sites total (see
       today's Done entry): Haiku commerce-gate on every inbound email,
