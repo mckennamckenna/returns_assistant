@@ -735,6 +735,76 @@
       **Verified locally:** `npm run build` clean, 445/445 tests passing (2
       more added post-review). **Status (2026-07-21 close-out): committed
       locally. Pushed? No. Deployed? No.** Awaiting owner go-ahead to push.
+- [ ] **PROBE (2026-07-21) — carrier-link resolve + forward-classification
+      audit. READ-ONLY, IN PROGRESS.** Spawned directly by the AquaTru
+      delivery-date gap above: deciding whether to (a) estimate delivery
+      deadlines from the forward date on auto-forwarded emails, and (b)
+      resolve the carrier tracking link for an authoritative delivery date
+      when not reliably dated. Both hinge on auto-vs-manual forward
+      detection being correct — live reason to doubt it: AquaTru's UI shows
+      "Forwarded by you" (manual), owner believes it was actually
+      auto-forwarded. No writes this pass — no `displayStatus`, no
+      deadline, no schema change. Explicitly does not touch the
+      delivered-rung/decouple work shipping separately in this same
+      session (`lib/displayStatus.ts`, `lib/linkOrder.ts`,
+      `lib/autoArchive.ts`, `prisma/schema.prisma` — all still uncommitted
+      from that item above). Scope: (1) forward-classification audit across
+      all delivery-typed emails, raw headers → derived verdict → stored
+      value → UI render, AquaTru first, any mismatch becomes its own 🔴 Now
+      item; (2) send-vs-forward date delta distribution where both are
+      parseable; (3) link-resolve probe on the gated subset only
+      (delivery-typed AND not-reliably-dated), rate-limited, failures
+      bucketed by reason (never conflated with "no delivery"). Output is
+      findings + a recommendation, not a fix. Full detail to HISTORY.md on
+      close, one line here, item stays open pending owner read.
+      **COMPLETE 2026-07-21 — findings in, no fix built.** AquaTru confirmed
+      auto-forwarded via raw headers (Gmail's own `+caf_=` Content-Auto-Forward
+      Return-Path marker + `X-Forwarded-For`/`X-Forwarded-To`, original DKIM
+      still validating). Split across all 34 delivery-typed emails: 24
+      header-verdict auto, 10 manual — UI mismatch on all 24 (see the new bug
+      item below). Gated subset (needs link-resolve): 16 by a literal
+      OR-reading of the given definition, 9 under a stricter reading that
+      only counts emails neither auto-forwarded nor already body-dated —
+      flagged as a real ambiguity in the task's own definition, not resolved
+      here. Link-resolve probe on 6 representative targets: 0/6 resolved via
+      plain fetch (1 render-required/confirmed real — H&M's page ships raw
+      unrendered template placeholders; 1 rate-limited but its redirect
+      chain *did* reach a real tracking URL before the 429; 4 parse-failed
+      for three different underlying reasons — single-use/expired
+      click-tracker token, login wall, and a redirect to google.com that
+      looks like bot-detection). Send-vs-forward delta: manual bucket
+      (using the quoted original Date line in the forwarded body) ranged
+      ~1–165 hours — genuinely variable, confirms manual forwarding delay is
+      real and unpredictable; auto bucket (using the earliest independent
+      `Received:` hop, not the same field as `receivedAt` — an earlier
+      version of this check was circular and got corrected mid-investigation)
+      was consistently under 3 minutes across all 24. Recommendation:
+      auto-forward classification (the raw header signal) is trustworthy
+      enough to gate on; link-resolve via plain fetch is not viable as
+      built/tested — would need real headless-browser rendering plus
+      session handling, and at least one target (Shopbop) may not be
+      resolvable at all without the user's own login. Full detail in
+      `HISTORY.md`, 2026-07-21 entry. Item stays open pending owner read.
+      **Close-out decisions, 2026-07-21:**
+      **Carrier-link resolve: RULED OUT for now**, not just "not viable
+      today" — reason preserved so it isn't re-litigated from scratch later:
+      0/6 resolved via plain fetch, for three structurally different
+      reasons (single-use/expired click-tracker tokens on two targets,
+      confirmed genuine JS-render-required on one, an auth/login wall on
+      one that a headless browser wouldn't even fix). The raw-tracking-
+      -number-in-body alternative (mentioned in the original ask, e.g.
+      AquaTru's own USPS number) is **parked in 🟡 Next as a later
+      initiative, explicitly not near-term** — it would mean a real paid
+      multi-carrier tracking API integration plus a privacy decision
+      (sending a user's raw tracking number to a third-party API), both
+      outside this probe's scope and not something to back into via a
+      quick follow-up.
+      **Auto-forward dating: GREENLIT, pending the classifier build below.**
+      24/34 header-verdict auto with under-3-minute forward lag — safe to
+      treat forward date ≈ send date once the classifier is real and
+      stored, not just inferred per-investigation. The 10-email manual
+      bucket (1–165 hour delta) stays explicitly excluded from any
+      forward-date estimation — too unpredictable to trust.
 
 ## 🐛 Bugs
 
@@ -887,6 +957,17 @@
       inaccurate.)
 
 ## 🟡 Next
+- [ ] **Carrier tracking-number API integration — parked, explicitly NOT
+      near-term, from the 2026-07-21 carrier-link-resolve probe (🔴 Now).**
+      The probe found plain-fetch link-resolve unviable (0/6, see that
+      item's close-out) but also found raw carrier tracking numbers
+      (USPS/UPS-shaped) directly extractable from some delivery-email
+      bodies as a body-text-only alternative — not resolved further because
+      it means: (a) a real paid multi-carrier tracking API (USPS/UPS/FedEx
+      each have their own, none free at volume), and (b) a privacy decision
+      the owner hasn't made — sending a user's raw tracking number to a
+      third-party API on their behalf. Do not pick this up opportunistically
+      as a quick add-on to another task; it's its own initiative.
 - [ ] **"delivery" emails that confirm delivery but state no date — real,
       project-wide extraction gap, surfaced 2026-07-21 while verifying the
       AquaTru "Shipped forever" fix.** Confirmed against real data: 15 of 33

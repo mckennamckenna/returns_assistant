@@ -5,6 +5,159 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-21 — Probe: carrier-link resolve + forward-classification audit (read-only, no fix)
+
+Spawned by the AquaTru "Shipped forever" fix (same day, see below): AquaTru's
+delivery email has no captured date anywhere, and the app was about to be asked
+to decide between two possible fixes — (a) estimate a delivery date from the
+forward timestamp when an email was auto-forwarded, (b) resolve the email's
+carrier tracking link for an authoritative date. Both depend entirely on
+knowing whether an email was actually auto-forwarded or manually forwarded —
+and the UI's own "Forwarded by you" label, which the owner suspected was wrong
+for AquaTru, turned out to be worth checking at the source rather than trusted.
+Read-only throughout: no `displayStatus`, deadline, or schema writes.
+
+**Finding 1 — the UI label isn't a classifier, it's a hardcoded string.**
+`app/(app)/page.tsx:230` and `app/(app)/emails/[id]/page.tsx:76` both render the
+literal text `"Forwarded by you"` unconditionally — no field on `Email` stores
+an auto/manual verdict at all, so there was nothing to "get wrong" in the sense
+of a broken derivation. Every email, regardless of actual origin, shows the
+same string. This is a more fundamental gap than "the classifier misfires" —
+logged as a new 🔴 Now bug (`forward-auto-manual-misclassification`).
+
+**Finding 2 — AquaTru was in fact auto-forwarded, confirmed from raw headers.**
+Decrypted `Email.rawJson` (the full stored Postmark inbound payload) for both
+of AquaTru's delivery-typed emails and read the actual MIME headers Postmark
+received:
+- `Return-Path` contains Gmail's own `+caf_=` marker — Gmail's literal internal
+  designation for **C**ontent **A**uto **F**orward, distinct from a manual
+  "Forward" click.
+- `X-Forwarded-For` / `X-Forwarded-To` headers present — Gmail's auto-forward
+  relay headers, added only by that feature.
+- The original sender's DKIM signatures (`aquatru.com`, `amazonses.com`) still
+  validate (`dkim=pass`) and the top-level `From` is still `info@aquatru.com`
+  — a manually-composed forward re-wraps the message and would break both.
+- Timing: the earliest independent `Received:` hop (Gmail's own mail server
+  logging receipt from AquaTru's ESP) to Postmark's own receipt was ~3 seconds
+  — a fully automated relay chain, not human-paced.
+This is as close to unambiguous as raw email headers get. The UI's "Forwarded
+by you" label is simply wrong for this email.
+
+**Finding 3 — full audit across all 34 delivery-typed emails: 24 auto, 10
+manual, header-verdict vs. UI mismatch on all 24.** Same signal (`+caf_=` /
+`X-Forwarded-For` presence, cross-checked against whether the top-level `From`
+is the retailer's own domain vs. the user's own Gmail address) applied
+uniformly. Spot-checked the "manual" bucket directly: e.g. an Old Navy delivery
+email's top-level `From` is literally `mckenna.sweazey@gmail.com` (the user's
+own address) — the unambiguous signature of a real manual forward, confirming
+the heuristic isn't just pattern-matching noise. No "unknown" verdicts — every
+email resolved cleanly to one bucket or the other.
+
+**Finding 4 — send-vs-forward delta, two different (and correctly different)
+measurement methods per bucket, one self-correction along the way.** First
+pass compared `receivedAt` against the top-level `Date` header for the "auto"
+bucket and got 0 for all of them — which is meaningless, not confirmatory: in
+this codebase `Email.receivedAt` is set directly from the same Postmark
+`payload.Date` field the top-level `Date` header populates
+(`app/api/inbound/route.ts:239`), so that comparison was circular, not a real
+test. Corrected it to use the earliest independent `Received:` header hop (the
+receiving mail server's own logged timestamp, genuinely separate from the
+message's self-reported `Date:` header) against `receivedAt` — this gave a real
+signal: consistently under 3 minutes across all 24 auto-verdict emails
+(max ~2.8 minutes, one DONNI email with an unusually long 9-hop relay chain).
+For the 10 manual-verdict emails, `parseForwardedHeaderDate()` (existing
+function, `lib/linkOrder.ts`, parses a quoted `"Date:"` line out of the
+forwarded body text — this **is** a genuinely independent original-sender
+timestamp for a manual forward) found a parseable original date on all 10,
+with deltas ranging ~1 hour to ~165 hours (about a week) — real, meaningful
+variance that confirms manual-forward delay is unpredictable and would make a
+forward-date deadline estimate unreliable for that bucket, exactly as assumed.
+
+**Finding 5 — gated subset size is genuinely ambiguous under the task's own
+given definition, flagged rather than silently resolved.** "Not reliably
+dated" was defined as "manually forwarded, OR body states no delivery date."
+Read literally as an OR of two independent conditions, the gated subset
+(delivery-typed AND not-reliably-dated) is 16 of 34. Read against the probe's
+own stated purpose — forward-date estimation (feature a) already resolves any
+auto-forwarded email with no body date, so only emails that are *both*
+manually-forwarded *and* undated would still need a link-resolve (feature b)
+— the gated subset is 9. The two readings disagree specifically on whether an
+auto-forwarded-but-undated email (AquaTru's own shape) belongs in the
+link-resolve subset or is fully handled by feature (a) alone. Reported both;
+did not pick one to build against, since only the owner can settle this.
+
+**Finding 6 — link-resolve probe: 0/6 resolved via plain fetch, real and
+distinct failure reasons per target, one useful partial signal.** Attempted
+paced (3s apart), real fetches against one representative link from each
+distinct wrapper pattern found in the gated subset — did not attempt the full
+set given the rate-limit hit on the third real content fetch (see below),
+consistent with the "assume the endpoint rate-limits" guard:
+- **AquaTru (`awstrack.me` → `wm.gy` → WISMOlabs):** HTTP 400, empty body.
+  Consistent with a single-use or session-bound click-tracker token rather
+  than a stable resolvable URL.
+- **H&M (`hm.delivery-status.com`, parcelLab-branded, tracking number embedded
+  directly in the URL query string):** HTTP 200, but the returned HTML is a
+  raw, unrendered template — literal placeholders like `{{address_header}}`
+  and `{{0.articleName}}` still in the markup, not filled in. Confirmed
+  **render-required**, not a parsing gap on this probe's side — the real
+  status data is populated by JS after page load, genuinely absent from the
+  initial response.
+- **Shopbop (own `orderdetail` page, UPS number embedded in the URL):**
+  redirected straight to an Amazon/Shopbop OpenID sign-in wall. Not resolvable
+  by plain fetch under any circumstances — would need the user's own
+  authenticated session, not just a headless browser.
+- **Old Navy (Narvar click-CTA):** redirected all the way to
+  `https://www.google.com/?!=!` — looks like a bot-detection bailout rather
+  than an expired link; a real browser session/UA might behave differently,
+  unconfirmed here.
+- **Tuckernuck (Klaviyo click-tracker):** HTTP 429 (rate-limited) on the
+  content fetch — but notably the redirect chain *itself* resolved cleanly to
+  a real, meaningful tracking page URL (`tnuck.com/pages/tracking?search=...`)
+  before the 429 hit. The click-tracker unwrapping works; only the final
+  content fetch was throttled. Worth a retry-with-backoff in any real build,
+  not a dead end.
+- **SilkSilky (Mailgun click-tracker):** HTTP 400, 11-byte body — same class
+  of failure as AquaTru's, likely an expired or single-use token.
+Per the operational guard, none of these are reported as "no delivery" or
+"expired" — every failure is about the fetch, not the package. The task's
+given failure taxonomy (timeout / not-found / render-required / rate-limited /
+parse-failed) doesn't have a clean bucket for "redirected to a login wall" or
+"redirected to what looks like a bot-detection page" — both were folded into
+"parse-failed" for bucket-counting purposes but called out by name here since
+they're operationally different problems (one needs the user's own session,
+the other might need real browser fingerprinting/headers) than a generic
+unparseable-response.
+**Alternative path (raw carrier number in body, not resolved via API per
+instructions — report only):** of the 16-email gated subset (interpretation
+A), exactly 1 (Freda Salvador) had a directly regex-extractable raw USPS
+tracking number in the body text under this probe's narrow pattern. AquaTru
+itself also has one, matching the task's own claim, found under a separate,
+looser check earlier in the investigation. Not a high hit rate across the full
+gated set, but a real, cheap fallback signal worth keeping in mind for
+whichever subset direction is chosen.
+
+**Recommendation.** Auto-forward classification via the raw header signal
+(`+caf_=` Return-Path marker, `X-Forwarded-For`/`X-Forwarded-To` presence) is
+trustworthy enough to gate deadline-estimation logic on — it's unambiguous,
+cheap to compute at ingestion time, and held up across all 34 emails with zero
+ambiguous cases. Link-resolve, as tested here, is **not** viable via a plain
+fetch — 0/6 succeeded, for at least three structurally different reasons
+(single-use tokens, JS-rendered templates, auth walls) that a full
+headless-browser render would only partially fix (it would not help the
+Shopbop auth-wall case at all). Building link-resolve for real would mean a
+real rendering pipeline plus session handling, a materially bigger lift than
+this probe's scope, for a payoff that may not even be resolvable for every
+retailer.
+
+**Not built:** no classifier, no new schema field, no UI change, no
+carrier-API integration. All temporary investigation scripts (`scripts/tmp/`)
+deleted after use — nothing left behind beyond this write-up.
+Committed locally at 2026-07-21 close-out (investigation-only commit,
+`TASKS.md` + this entry). Not pushed, not deployed — there's no code to
+deploy either way.
+
+---
+
 ## 2026-07-21 — AquaTru "Shipped forever": new `displayStatus: "delivered"` rung, built and locally verified — not yet pushed/deployed/owner-verified
 
 Promoted from the Annoying bucket into 🔴 Now same day. The bug: a delivered
