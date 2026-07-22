@@ -26,6 +26,23 @@
 ---
 
 ## 🔴 Now
+
+> **Start here tomorrow (left 2026-07-21 close-out):** in order —
+> 1. Resolve the decouple question first (owner decision needed: should
+>    "delivered" ever derive from a delivery-typed email's existence alone,
+>    not just a captured `deliveredAt`? Answers whether AquaTru ever shows
+>    "Delivered" without the forward-classifier/link-resolve work landing
+>    first). Not built as of close-out — see the delivered-rung item below.
+> 2. Then the three loose ends on the delivered rung, all already
+>    tested/confirmed, just listed here as the paste-and-go verification
+>    checklist: (a) the delivered-AND-mid-return evaluation-order test, (b)
+>    no hardcoded rank integers anywhere, (c) the existing-row backfill on
+>    deploy. All three passed as of 2026-07-21 — this is a re-confirm, not
+>    new work, unless something changed underneath.
+> 3. Then the Needs Review mobile surface spec pass (`app/ReviewCard.tsx`,
+>    mobile-audit finding #5, 🔴 Now below) — already spec-ready, gated only
+>    on owner mockups landing.
+
 - [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
       (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
       go-ahead given, fix deployed. Still needs a code comment explaining
@@ -805,6 +822,45 @@
       stored, not just inferred per-investigation. The 10-email manual
       bucket (1–165 hour delta) stays explicitly excluded from any
       forward-date estimation — too unpredictable to trust.
+- [ ] **Forward auto/manual mis-classification — deadline gate depends on
+      this. NEW 2026-07-21, from the probe above — NOT a "classifier picked
+      wrong" bug, more severe: no classifier exists at all.** `app/(app)/page.tsx:230`
+      and `app/(app)/emails/[id]/page.tsx:76` both render the literal
+      hardcoded string `"Forwarded by you"` — not a lookup, not conditional
+      on any stored field, no such field exists on `Email` at all. Every
+      email shows this same label regardless of how it actually arrived.
+      Confirmed via raw Postmark headers (rawJson, decrypted) that this is
+      wrong for the majority case: 24 of 34 delivery-typed emails carry
+      unambiguous Gmail auto-forward evidence (`Return-Path` with the
+      `+caf_=` Content-Auto-Forward marker, `X-Forwarded-For`/
+      `X-Forwarded-To` headers, original sender's DKIM still validating) —
+      AquaTru among them. The UI has been telling the owner every
+      auto-forwarded order was manually forwarded. Both planned features
+      ((a) forward-date deadline estimation, (b) carrier-link resolve
+      gating) depend on this signal being real and stored, not just
+      inferred ad hoc per investigation. Needs: a real classifier (the
+      header signal — `+caf_=` / `X-Forwarded-For` presence — is cheap and
+      reliable per this probe, not full page rendering) run at ingestion
+      time (`app/api/inbound/route.ts`), a new persisted field, and the two
+      UI call sites updated to read it instead of the static string. Not
+      built here — this is a probe finding, not a fix. **Framed as a build,
+      not a bug fix** — there's no broken derivation to repair, a new one
+      needs to be written from scratch.
+      **Two design rules decided at 2026-07-21 close-out, record before
+      build starts:**
+      **(1) Handle multiple providers' auto-forward markers, not just
+      Gmail's `+caf_=`.** This probe only verified Gmail (the only provider
+      in today's real data) — Outlook/Yahoo/other providers' auto-forward
+      features use different header signatures entirely. The real
+      classifier must not hardcode Gmail's marker as the only auto signal;
+      needs its own small research pass per provider before build, not
+      assumed to generalize from this probe.
+      **(2) Default unknown → manual.** If no provider's auto-forward
+      signature matches (a provider we haven't researched yet, or headers
+      genuinely absent/malformed), classify as manual rather than auto —
+      manual is the safe/conservative default since it excludes the order
+      from forward-date estimation rather than risking a wrong estimate
+      from an unverified auto-forward assumption.
 
 ## 🐛 Bugs
 
