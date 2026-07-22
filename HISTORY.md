@@ -5,6 +5,113 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-21 — AquaTru "Shipped forever": new `displayStatus: "delivered"` rung, built and locally verified — not yet pushed/deployed/owner-verified
+
+Promoted from the Annoying bucket into 🔴 Now same day. The bug: a delivered
+order shows the literal badge "Shipped" indefinitely — `deriveDisplayStatus()`
+(`lib/displayStatus.ts`) had no "delivered" rung at all, so `shipping_confirmation`
+and `delivery` both collapsed to `"shipped"`. Label-honesty/trust bug, not a
+deadline bug — `DaysLeftChip` reads `returnDeadline` directly and was never
+affected.
+
+**Design decisions (given, not re-derived):** `delivered` and the internal
+`status === "returnable"` field are orthogonal — the badge answers "where's my
+package," the deadline chip answers "how long to return." Derived strictly off
+the persisted `Order.deliveredAt` field, never off the triggering email's
+type, so the state is stable across later emails rather than only true in the
+moment a `delivery` email is processed. Ladder placement: just above
+`shipped`, below every return-related rung (`return_requested`/`returned`/
+`refunded`/`kept`), so an order that's both delivered and mid-return shows the
+more-advanced return state.
+
+**Verify gate before building:** grepped every `DISPLAY_STATUS_RANK`
+comparison site (`app/actions.ts`, `app/api/orders/[id]/status/route.ts`,
+`lib/orderActions.ts`, `lib/returnedPageState.ts`, `lib/returnedAction.ts`,
+plus the function itself) — confirmed every one is a threshold comparison
+(`<`/`<=`/`>=`/`>`) against a named key, never a numeric literal or an
+equality/between-range check. Safe to insert a new low rung and renumber
+everything above it.
+
+**Build:** `DISPLAY_STATUS_RANK` gained `delivered: 3` (ordered=1, shipped=2,
+delivered=3, return_requested=4, returned/kept=5, refunded=6).
+`DISPLAY_STATUS_LABELS` gained `"Delivered"`. `deriveDisplayStatus()`'s ladder
+now checks `deliveredAt != null` (after `return_label`, before
+`shipping_confirmation`/`delivery`) — so a return_label always wins over a
+mere delivered signal, matching the ladder placement design. New
+`Date | null` parameter, defaulted to `null` so the two historical backfill
+scripts (`scripts/backfill-display-status.ts`,
+`scripts/backfill-refund-status.ts`) keep compiling unchanged. The one real
+call site, `recomputeDisplayStatus()` (`lib/linkOrder.ts`), now selects and
+passes `Order.deliveredAt`. `prisma/schema.prisma`'s comment updated with the
+new value set and precedence — no migration needed, `displayStatus` is a
+plain `String` column.
+
+**Full displayStatus-value-set consumer audit, prompted by an owner question
+mid-review — not just rank comparisons.** Found one real gap:
+`lib/autoArchive.ts`'s `NON_TERMINAL_STATUSES` was a name-based allowlist
+(`["ordered","shipped","return_requested"]`), not a rank threshold — it would
+have silently exempted every delivered order from the missed-window
+auto-archive sweep. Fixed in the same change: `"delivered"` added, with a
+new dedicated test (`autoArchive.test.ts`) confirming its inclusion. Checked
+and deliberately left unchanged: `lib/reminders.ts`'s `SKIP_DISPLAY_STATUSES`
+and `weekly-digest/route.ts`'s `EXCLUDED_STATUSES` (a delivered order's return
+clock is still ticking — reminders/digest must keep including it);
+`ALLOWED_MANUAL_STATUSES` correctly excludes `delivered` (never a manual
+transition); `DisplayStatusBadge.tsx` needs no change (falls back to the same
+neutral tint as shipped/ordered, label flows through automatically);
+`lib/amazonBundle.ts` already keyed its own delivered/bucket logic off
+`deliveredAt` directly, not `displayStatus`, so it was already correct.
+Confirmed zero hardcoded rank integers anywhere in the codebase (grepped every
+`*Rank`/`*rank` identifier against numeric literals, both directions).
+Confirmed `SKIP_STATUSES` (internal `status`, the constant `63b88e4`'s
+refund_pending fix touched) is a wholly separate constant from
+`SKIP_DISPLAY_STATUSES` — no overlap with this change.
+
+**A real gap in the test suite, caught by an owner question, not by review.**
+The original tests covered "delivered" and "return_requested" signals in
+isolation but not the case that actually exercises the ladder's if/else
+priority: `deliveredAt` set AND a `return_label` email present in the SAME
+derivation call, starting from a rank below both — exactly where an
+evaluation-order bug would hide. Added two tests pinning this directly (from
+`"ordered"` and from `"shipped"`), both confirming `return_label` is checked
+before `deliveredAt`.
+
+**Backfill: real, not hypothetical.** `recomputeDisplayStatus()` only fires on
+new email ingestion, so any order that already had `deliveredAt` set before
+this deploy would stay stuck at its old `displayStatus` indefinitely, not just
+until the next email. Checked production directly: 4 real orders (ACE
+VISALIA RSC, Whole Foods Market, Maisonette, DONNI) had `deliveredAt` set and
+`displayStatus` stuck at `"shipped"`. New `scripts/backfill-delivered-status.ts`
+(dry-run default, `--apply` flag, reuses `recomputeDisplayStatus()` directly)
+— dry run matched expectations exactly, then applied. All 4 now read
+`"delivered"` in production.
+
+**AquaTru itself — the motivating example — does NOT advance, checked
+directly against production, confirmed again at 2026-07-21 close-out.**
+AquaTru's own `deliveredAt` is `null`: neither of its two linked
+`"delivery"`-typed emails has a delivery date captured anywhere — not from AI
+extraction (its own `extractionNotes` state no date is present in the email
+body) and not from the forwarded-header-date fallback parser either
+(`parseForwardedHeaderDate()` returns null on both — no `"Date:"` line in the
+forwarded body; `receivedAt` is the only date on file for either email, and
+it's explicitly the forward/envelope date, not a confirmed delivery date).
+Using it as a `deliveredAt` stand-in would be exactly the fabrication this
+design deliberately avoids. Logged as its own 🟡 Next item
+(`delivery-emails-missing-date`) — a real, project-wide extraction gap (15 of
+33 `delivery` emails project-wide have no captured date), not fixed here.
+**Close-out decoupling question, resolved 2026-07-21:** a version of this
+logic that derives "delivered" from the mere existence of a delivery-typed
+email (regardless of a captured date) was discussed but never built — the
+shipped code stays strict on `deliveredAt != null`. This is why AquaTru will
+still read "Shipped" post-deploy, not a regression or an oversight.
+
+**Verified locally:** `npm run build` clean, 445/445 tests passing (13 new +
+2 more from a later review pass). Not yet pushed, not deployed, not
+owner-verified in production — committed locally only as of 2026-07-21
+close-out.
+
+---
+
 ## 2026-07-17 — M1 fixed and owner-verified live: sign-in email no longer BCCs the admin (`505c7fb`)
 
 Closes `SECURITY_AUDIT.md`'s M1 finding. The sign-in send (`lib/magicLinkRateLimit.ts`,

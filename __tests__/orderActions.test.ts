@@ -24,6 +24,19 @@ describe("getVisibleActions", () => {
     expect(actions.canMarkRefunded).toBe(false);
   });
 
+  // "delivered" (lib/displayStatus.ts) sits between shipped and
+  // return_requested in rank — this proves inserting that new rung didn't
+  // disturb the existing threshold-based gating (canStartReturn/canKeep are
+  // still available, same as shipped/ordered; auto-archive gating in
+  // lib/autoArchive.ts is covered separately in autoArchive.test.ts).
+  it("delivered: same shape as shipped — the new rung doesn't disturb gating", () => {
+    const actions = getVisibleActions({ displayStatus: "delivered", returnDeadline: future }, now);
+    expect(actions.canStartReturn).toBe(true);
+    expect(actions.canMarkReturned).toBe(false);
+    expect(actions.canKeep).toBe(true);
+    expect(actions.canMarkRefunded).toBe(false);
+  });
+
   it("return_requested: can mark returned or still back out and keep it, but not start return again", () => {
     const actions = getVisibleActions({ displayStatus: "return_requested", returnDeadline: future }, now);
     expect(actions).toEqual({

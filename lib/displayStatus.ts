@@ -4,13 +4,19 @@
 // enforce "reachable from ordered/shipped/return_requested, not from
 // returned/refunded" for free, with no bespoke branching in either gate. See
 // BUILD.md's displayStatus section for the full reasoning.
+// "delivered" sits just above "shipped" and below every return-related rung
+// — it's evidence about the package (has it arrived?), not a decision the
+// user has made, so it must never rank at or above return_requested. See
+// deriveDisplayStatus below for how it's derived (off deliveredAt, not off
+// the triggering email's type).
 export const DISPLAY_STATUS_RANK: Record<string, number> = {
   ordered: 1,
   shipped: 2,
-  return_requested: 3,
-  returned: 4,
-  kept: 4,
-  refunded: 5,
+  delivered: 3,
+  return_requested: 4,
+  returned: 5,
+  kept: 5,
+  refunded: 6,
 };
 
 export const ALLOWED_MANUAL_STATUSES = ["return_requested", "returned", "refunded", "kept"] as const;
@@ -19,6 +25,7 @@ export type ManualDisplayStatus = (typeof ALLOWED_MANUAL_STATUSES)[number];
 export const DISPLAY_STATUS_LABELS: Record<string, string> = {
   ordered: "Ordered",
   shipped: "Shipped",
+  delivered: "Delivered",
   return_requested: "Return requested",
   returned: "Returned",
   refunded: "Refunded",
@@ -34,9 +41,17 @@ export const DISPLAY_STATUS_LABELS: Record<string, string> = {
 //   refund (confirmed amount) → "refunded" (money's actually back — see below)
 //   refund (no confirmed amount) → "returned"
 //   return_label  → "return_requested" (retailer issued a label = return initiated)
-//   delivery      → "shipped" (delivery is a strict superset of having shipped)
-//   shipping_confirmation → "shipped"
+//   deliveredAt != null → "delivered" (persisted evidence the package arrived —
+//                  deliberately keyed off the DB field, not the triggering
+//                  email's type, so the state is stable across later emails,
+//                  not just true in the moment a "delivery" email is processed)
+//   delivery / shipping_confirmation (no deliveredAt) → "shipped"
 //   otherwise     → "ordered"
+//
+// "delivered" and "returnable" (the separate internal `status` field) are
+// deliberately orthogonal: this badge answers "where's my package," not "has
+// the user decided anything." An order with no delivery confirmation stays
+// "shipped" — never fabricated as delivered just because it's returnable.
 //
 // hasConfirmedRefundAmount: whether any linked "refund" email states an
 // explicit, confidently-identified refund amount (Email.refundAmount +
@@ -70,6 +85,7 @@ export function deriveDisplayStatus(
   emailTypes: string[],
   currentDisplayStatus: string,
   hasConfirmedRefundAmount: boolean = false,
+  deliveredAt: Date | null = null,
 ): string {
   if (currentDisplayStatus === "kept") return "kept";
 
@@ -87,6 +103,8 @@ export function deriveDisplayStatus(
   let derived: string;
   if (emailTypes.includes("return_label")) {
     derived = "return_requested";
+  } else if (deliveredAt != null) {
+    derived = "delivered";
   } else if (emailTypes.includes("shipping_confirmation") || emailTypes.includes("delivery")) {
     derived = "shipped";
   } else {

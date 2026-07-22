@@ -150,10 +150,78 @@ describe("deriveDisplayStatus — kept guard", () => {
   });
 });
 
+// ── "delivered" rung (AquaTru "Shipped forever" fix) ────────────────────────
+// delivered is derived off the persisted deliveredAt field, never off the
+// triggering email's type, and sits just above shipped but below every
+// return-related rung — an order that's both delivered and mid-return shows
+// the more-advanced return state, not "delivered".
+
+describe("deriveDisplayStatus — delivered rung", () => {
+  it("advances to 'delivered' when deliveredAt is set, even without a 'delivery' email type", () => {
+    // Real shape: recomputeDisplayStatus re-derives from ALL linked emails
+    // every time, so deliveredAt (persisted) is what's checked, not whether
+    // "delivery" happens to be in this particular emailTypes array.
+    expect(deriveDisplayStatus(["shipping_confirmation"], "shipped", false, new Date("2026-07-15T00:00:00Z"))).toBe(
+      "delivered",
+    );
+  });
+
+  it("advances to 'delivered' from 'ordered' when a delivery email sets deliveredAt", () => {
+    expect(deriveDisplayStatus(["delivery"], "ordered", false, new Date("2026-07-15T00:00:00Z"))).toBe("delivered");
+  });
+
+  it("stays 'shipped' when deliveredAt is null, even though the order is internally returnable", () => {
+    // The internal `status` field (separate from displayStatus) can already
+    // be "returnable" here — delivered/returnable are deliberately
+    // orthogonal, and displayStatus must never fabricate "delivered" without
+    // persisted evidence.
+    expect(deriveDisplayStatus(["shipping_confirmation"], "shipped", false, null)).toBe("shipped");
+  });
+
+  it("advances 'delivered' to 'return_requested' when a return_label arrives — the more-advanced state wins", () => {
+    expect(deriveDisplayStatus(["return_label"], "delivered", false, new Date("2026-07-15T00:00:00Z"))).toBe(
+      "return_requested",
+    );
+  });
+
+  it("does not downgrade 'delivered' back to 'shipped' on a re-run with no new signals", () => {
+    expect(deriveDisplayStatus([], "delivered", false, new Date("2026-07-15T00:00:00Z"))).toBe("delivered");
+  });
+
+  it("a confirmed-amount refund still advances an already-delivered order to refunded", () => {
+    expect(deriveDisplayStatus(["refund"], "delivered", true, new Date("2026-07-15T00:00:00Z"))).toBe("refunded");
+  });
+
+  // The evaluation-order case: deliveredAt and return_label present in the
+  // SAME call (real shape — recomputeDisplayStatus passes every linked
+  // email type plus the order's persisted deliveredAt together, every time),
+  // starting from a rank below both, not already at "delivered". This is
+  // exactly where an if/else priority bug would hide — return_label must be
+  // checked before deliveredAt in the ladder, or a returning-but-delivered
+  // order would incorrectly show "Delivered" instead of the return state.
+  it("a delivered order with a return already in progress shows the return state, never 'delivered' — both signals in one call", () => {
+    expect(
+      deriveDisplayStatus(["delivery", "return_label"], "ordered", false, new Date("2026-07-15T00:00:00Z")),
+    ).toBe("return_requested");
+  });
+
+  it("same combined-signal case starting from 'shipped' instead of 'ordered'", () => {
+    expect(
+      deriveDisplayStatus(
+        ["shipping_confirmation", "delivery", "return_label"],
+        "shipped",
+        false,
+        new Date("2026-07-15T00:00:00Z"),
+      ),
+    ).toBe("return_requested");
+  });
+});
+
 describe("DISPLAY_STATUS_RANK", () => {
-  it("has strictly increasing ranks: ordered < shipped < return_requested < returned < refunded", () => {
+  it("has strictly increasing ranks: ordered < shipped < delivered < return_requested < returned < refunded", () => {
     expect(DISPLAY_STATUS_RANK.ordered).toBeLessThan(DISPLAY_STATUS_RANK.shipped);
-    expect(DISPLAY_STATUS_RANK.shipped).toBeLessThan(DISPLAY_STATUS_RANK.return_requested);
+    expect(DISPLAY_STATUS_RANK.shipped).toBeLessThan(DISPLAY_STATUS_RANK.delivered);
+    expect(DISPLAY_STATUS_RANK.delivered).toBeLessThan(DISPLAY_STATUS_RANK.return_requested);
     expect(DISPLAY_STATUS_RANK.return_requested).toBeLessThan(DISPLAY_STATUS_RANK.returned);
     expect(DISPLAY_STATUS_RANK.returned).toBeLessThan(DISPLAY_STATUS_RANK.refunded);
   });

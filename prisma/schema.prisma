@@ -174,13 +174,19 @@ model Order {
   needsReview Boolean @default(false)
 
   // User-facing order status, separate from the internal `status` state machine.
-  // Values: "ordered" | "shipped" | "return_requested" | "returned" | "refunded" | "kept"
-  // "shipped" auto-derives from shipping_confirmation emails; the others are
-  // set via PATCH /api/orders/:id/status or future auto-derivation from email types.
-  // Precedence on recompute: refunded > returned > return_requested > shipped > ordered.
+  // Values: "ordered" | "shipped" | "delivered" | "return_requested" | "returned" | "refunded" | "kept"
+  // "shipped" auto-derives from shipping_confirmation emails; "delivered"
+  // auto-derives from deliveredAt != null (not from the triggering email's
+  // type, so it stays stable across later emails); the rest are set via
+  // PATCH /api/orders/:id/status or auto-derivation from email types.
+  // Precedence on recompute: refunded > returned/kept > return_requested >
+  // delivered > shipped > ordered. "delivered" and internal `status ===
+  // "returnable"` are orthogonal — delivered is evidence the package
+  // arrived, not a user decision, so it never blocks or is blocked by the
+  // return-related rungs above it.
   // "kept" is manual-only, never auto-derived, ranked alongside "returned" (see
-  // lib/displayStatus.ts) — reachable from ordered/shipped/return_requested, not
-  // from returned/refunded.
+  // lib/displayStatus.ts) — reachable from ordered/shipped/delivered/
+  // return_requested, not from returned/refunded.
   // Auto-derivation never downgrades a manually-advanced status.
   displayStatus  String  @default("ordered")
 

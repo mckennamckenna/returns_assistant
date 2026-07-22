@@ -238,7 +238,7 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
 export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
-    select: { displayStatus: true, returnedAt: true, archivedAt: true },
+    select: { displayStatus: true, returnedAt: true, archivedAt: true, deliveredAt: true },
   });
   const emails = await prisma.email.findMany({
     where: { orderId },
@@ -248,7 +248,7 @@ export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   const hasConfirmedRefundAmount = emails.some(
     (e) => e.emailType === "refund" && e.refundAmount != null && e.refundAmountConfidence !== "low",
   );
-  const next = deriveDisplayStatus(emailTypes, order.displayStatus, hasConfirmedRefundAmount);
+  const next = deriveDisplayStatus(emailTypes, order.displayStatus, hasConfirmedRefundAmount, order.deliveredAt);
   if (next !== order.displayStatus) {
     const data = buildStatusTransitionData(next, { returnedAt: order.returnedAt, archivedAt: order.archivedAt });
     await prisma.order.update({ where: { id: orderId }, data });

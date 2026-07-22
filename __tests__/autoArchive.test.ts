@@ -41,11 +41,17 @@ describe("autoArchiveCutoff", () => {
 });
 
 // ── autoArchiveOrderWhere ─────────────────────────────────────────────────────
-// Scoped to ordered/shipped/return_requested only — "returned" is deliberately
-// excluded (the user already acted; tracked separately by refund check-in),
-// and "refunded"/"kept" already auto-archive on their own transitions so
-// they'd never match activeOrderFilter here anyway. returnDeadline: null
-// orders are excluded automatically by the lte filter — no explicit guard.
+// Scoped to ordered/shipped/delivered/return_requested only — "returned" is
+// deliberately excluded (the user already acted; tracked separately by
+// refund check-in), and "refunded"/"kept" already auto-archive on their own
+// transitions so they'd never match activeOrderFilter here anyway.
+// returnDeadline: null orders are excluded automatically by the lte filter —
+// no explicit guard. "delivered" is included deliberately (added alongside
+// the AquaTru "Shipped forever" fix, lib/displayStatus.ts): a
+// delivered-but-unactioned order that misses its window is exactly the
+// silent-miss case this sweep exists to catch — without this, adding
+// "delivered" as a displayStatus value would have silently exempted those
+// orders from ever being swept.
 
 describe("autoArchiveOrderWhere", () => {
   const now = new Date("2026-07-10T12:00:00.000Z");
@@ -56,9 +62,14 @@ describe("autoArchiveOrderWhere", () => {
     expect(where.deletedAt).toBe(activeOrderFilter.deletedAt);
   });
 
-  it("scopes displayStatus to ordered, shipped, and return_requested only", () => {
+  it("scopes displayStatus to ordered, shipped, delivered, and return_requested only", () => {
     const where = autoArchiveOrderWhere(now);
-    expect(where.displayStatus).toEqual({ in: ["ordered", "shipped", "return_requested"] });
+    expect(where.displayStatus).toEqual({ in: ["ordered", "shipped", "delivered", "return_requested"] });
+  });
+
+  it("includes 'delivered' in the scoped statuses — a delivered order past its window must still be swept", () => {
+    const where = autoArchiveOrderWhere(now);
+    expect(where.displayStatus.in).toContain("delivered");
   });
 
   it("does NOT include 'returned' in the scoped statuses", () => {
