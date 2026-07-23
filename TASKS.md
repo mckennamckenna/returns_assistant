@@ -51,22 +51,27 @@
 > all — real data is 13 order-level reasons + 206 email-level (Task 3
 > below). The panel gets rebuilt from that inventory, not patched.
 >
-> **ACTIVE THIS SESSION: Task 2.** Revised order after Task 1, per owner:
-> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see above.
-> 2. **Apply `scripts/backfill-junk-other-emails.ts`.** Re-run the dry run
->    first, report today's eligible count against the 07-22 baseline of
->    168 and STOP if it moved — owner wants the delta before a real apply.
->    State billed call count for both dry run and apply. After go-ahead:
->    apply, report final junked count, and confirm none of the 15 known
->    orphaned-genuine-commerce emails got caught (not optional — junk is
->    rescuable via `rescueEmail()` by id, but there's no rescue UI yet, so
->    owner needs to know immediately if a rescue is needed).
+> **Task 2 is DONE this session (2026-07-23) — see the junk-mechanics item
+> below for full detail.** `scripts/backfill-junk-other-emails.ts` applied:
+> 168 junked, 0 of the 13 known orphaned-genuine-commerce emails touched
+> (verified). Dry-run re-check found no drift from the 07-22 baseline on
+> its own, but the apply's verify gate surfaced two findings, both logged
+> in that item below: a 10-email auto-junk leak (explained — pre-deploy
+> backlog, not a live bug; re-extraction theory tested and refuted) and an
+> unresolved eligible-count reconciliation gap (168 / 178 expected / 170
+> script-header — three numbers, not yet the same measurement). A third
+> finding (`lookupReturnPolicy()` firing on marketing `other`-typed emails)
+> is folded into PHASE 1c below. Zero billed Anthropic API calls for any
+> part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
+>
+> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see ✅ Done.
+> 2. ~~Apply `scripts/backfill-junk-other-emails.ts`~~ — done, see above.
 > 3. **Needs Review four-slot inventory — REPORT ONLY.** Brief to follow
 >    from owner; not started until then.
 > 4. **Connect the email-level "Needs review" badge to the panel.** Must
->    come AFTER Task 2 — un-junked promotional email would flood a surface
->    built for the 15 real orphaned-genuine-commerce emails. Named here for
->    sequencing only; not started today unless owner says so.
+>    come AFTER Task 2 (now satisfied) — un-junked promotional email would
+>    have flooded a surface built for the real orphaned-genuine-commerce
+>    emails. Not started today unless owner says so.
 
 - [ ] **PHASE 0 — cost guardrails. NON-CODE, OWNER ACTION, do before any
       other work. NEW 2026-07-22 (`api-cost-guardrails`).** Two things,
@@ -132,6 +137,12 @@
       that (see the 15-orphaned-purchases item: this is a real, live case,
       not hypothetical). Weigh against `PHASE 1a`'s negative cache, which
       solves the same cost problem without that risk.
+      **Evidence the question is wider than delivery/shipping (2026-07-23,
+      junk-backfill verify gate):** `lookupReturnPolicy()` fired on 4 of 5
+      sampled `other`-typed emails — pure marketing, no order at all
+      (Target ×2, Bloomingdale's ×2). Cost waste on content with zero
+      chance of ever needing a return policy. Fold into this gating
+      decision, not investigated further here.
 
 - [ ] **`returnDeadline < orderDate` sweep — QUICK CHECK RUN 2026-07-23,
       ESCALATED (not a one-off).** One query, as asked: any order where
@@ -254,8 +265,10 @@
       counter — per-user rescue rate computable, not just aggregate), and a
       full email-query consumer audit (2 real consumers updated:
       "Unlinked emails," the weekly coverage-check digest content).
-      `scripts/backfill-junk-other-emails.ts` written and dry-run verified
-      (168 real emails eligible as of 2026-07-22 — **not applied**).
+      `scripts/backfill-junk-other-emails.ts` written 2026-07-22, **APPLIED
+      2026-07-23 — 168 emails junked, verified via before/after count (4
+      pre-existing + 168 = 172 total `junkedAt` NOT NULL rows) and confirmed
+      zero of the 13 known orphaned-genuine-commerce emails were touched.**
       5 new tests, 450/450 passing, `npm run build` clean. **Schema
       migration applied to the database** (additive only — one nullable
       column, one new table, no data written) — separate fact from
@@ -263,6 +276,35 @@
       `HISTORY.md`. The panel UI itself (Order-level `duplicate`/Merge, the
       actual Needs Review panel component) remains unbuilt, still blocked
       on the owner's panel mock — this was the data-layer piece only.
+      **Auto-junk leak, found + explained during the apply's verify gate
+      (2026-07-23):** of 14 orphaned `other`-typed emails received after
+      2026-07-22, only 4 were already junked before the apply; 10 matched
+      `shouldAutoJunk` but were missed by the live auto-junk path. Initially
+      suspected late reclassification via re-extraction — **refuted by the
+      data:** `extractedAt` trails `receivedAt` by seconds-to-minutes on all
+      14, no delayed-reclassification gap anywhere. **Actual explanation,
+      confirmed clean with zero exceptions:** all 10 missed rows have
+      `receivedAt` before `54fe13f`'s commit time (2026-07-23T02:33:42Z,
+      the commit that added the auto-junk path); all 4 already-junked rows
+      have `receivedAt` after it. They simply arrived before the code
+      existed — the junk check runs once, inside `linkEmailToOrder`'s
+      orphan branch, at ingestion time only, so pre-deploy backlog is never
+      retroactively caught. This is exactly what this backfill script exists
+      to clean up, not a distinct live bug in the running path — but it
+      means the backlog is larger/more recent than the 07-22 baseline
+      assumed. Snapshot of the 10 ids + timestamps preserved in gitignored
+      `.scratch/10-leaked-ids.json` before the apply ran. Not investigated
+      further.
+      **Count reconciliation, flagged not resolved (2026-07-23):** the
+      07-22 baseline was 168 eligible; 10 more became eligible since (the
+      leak above) with none removed from the pool by this backfill (it
+      hadn't run yet) — so the eligible count should have read ~178 on
+      2026-07-23, not still 168. Combined with the script's own header
+      comment citing 170 as of the 07-22 diagnostic (a third number), the
+      eligible-count queries run across this feature's lifetime have not
+      been measuring the same population consistently. Re-derive the
+      counting method before trusting any of these numbers in the
+      four-slot inventory (Task 3) — not re-derived here.
 - [ ] **15 orphaned genuine-commerce emails, no fallback matcher —
       real purchases with no deadline tracked, silently. Surfaced
       2026-07-22 during the Needs Review panel verify gate, full per-email
