@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# throwaway verify/diagnostic scripts — never committed, delete after use
+/.scratch/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

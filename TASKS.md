@@ -17,8 +17,13 @@
 > task given in the current session — and in case (b), 🔴 Now must be updated to reflect
 > it BEFORE work starts. Scope expansions mid-session ("while I was in there I also
 > fixed X") must be added to Now or confirmed before proceeding — no silent scope creep.
-> At session close, state explicitly: committed? pushed? deployed? "Tests passed" does
-> not mean deployed. If any of those three didn't happen, say so plainly.
+> At session close, state explicitly: committed? pushed? deployed? — and how
+> many billed Anthropic API calls this session made, from which call sites.
+> "Tests passed" does not mean deployed. "Read-only" means no DB writes; it
+> does NOT mean no API cost. Any script, probe, or verification that will
+> call the model must state its estimated call count BEFORE running.
+> (Amended 2026-07-22 — see Decisions log: "read-only" is a database
+> property, not a cost property.)
 >
 > **No ✅ in Done until the user has hand-verified in production — not just tests passing.**
 > Claude Code reports "awaiting user verification" instead of ✅.
@@ -27,22 +32,192 @@
 
 ## 🔴 Now
 
-> **Start here tomorrow (left 2026-07-21 close-out):** in order —
-> 1. Resolve the decouple question first (owner decision needed: should
->    "delivered" ever derive from a delivery-typed email's existence alone,
->    not just a captured `deliveredAt`? Answers whether AquaTru ever shows
->    "Delivered" without the forward-classifier/link-resolve work landing
->    first). Not built as of close-out — see the delivered-rung item below.
-> 2. Then the three loose ends on the delivered rung, all already
->    tested/confirmed, just listed here as the paste-and-go verification
->    checklist: (a) the delivered-AND-mid-return evaluation-order test, (b)
->    no hardcoded rank integers anywhere, (c) the existing-row backfill on
->    deploy. All three passed as of 2026-07-21 — this is a re-confirm, not
->    new work, unless something changed underneath.
-> 3. Then the Needs Review mobile surface spec pass (`app/ReviewCard.tsx`,
->    mobile-audit finding #5, 🔴 Now below) — already spec-ready, gated only
->    on owner mockups landing. **IN PROGRESS 2026-07-22 — mock landed, see
->    the Needs Review panel item directly below.**
+> **Task 1 is ✅ DONE, owner-verified in production 2026-07-23 — see ✅ Done
+> section.** Fitness Superstore `#48868` manually linked to its two orphaned
+> emails; confirmed no-op on deadline/anchor/status. Three findings spun out
+> of it, all logged below: a 4th `returnDeadline < orderDate`-shaped
+> wrong-year instance, a types-need-re-verification flag on the
+> 15-orphaned-genuine-commerce report, and a live instance of the
+> email-level "needsReview, no resolve path" dead end (both linked emails
+> still carry `Email.needsReview: true`).
+>
+> **STANDING CORRECTION (2026-07-23, on data):** the Needs Review panel's
+> per-flag-type registry (`not_ecommerce` → Delete, `duplicate` → Merge) is
+> SUPERSEDED — flagged in place below and in the Decisions log, not
+> revised. `not_ecommerce` → Delete is rejected outright (15 of 206 orphans
+> are real purchases, `emailType` is recomputed not stable,
+> `prisma.email.delete()` is irreversible — junk-with-rescue replaced it).
+> Neither `duplicate` nor `not_ecommerce` are real stored flag types at
+> all — real data is 13 order-level reasons + 206 email-level (Task 3
+> below). The panel gets rebuilt from that inventory, not patched.
+>
+> **ACTIVE THIS SESSION: Task 2.** Revised order after Task 1, per owner:
+> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see above.
+> 2. **Apply `scripts/backfill-junk-other-emails.ts`.** Re-run the dry run
+>    first, report today's eligible count against the 07-22 baseline of
+>    168 and STOP if it moved — owner wants the delta before a real apply.
+>    State billed call count for both dry run and apply. After go-ahead:
+>    apply, report final junked count, and confirm none of the 15 known
+>    orphaned-genuine-commerce emails got caught (not optional — junk is
+>    rescuable via `rescueEmail()` by id, but there's no rescue UI yet, so
+>    owner needs to know immediately if a rescue is needed).
+> 3. **Needs Review four-slot inventory — REPORT ONLY.** Brief to follow
+>    from owner; not started until then.
+> 4. **Connect the email-level "Needs review" badge to the panel.** Must
+>    come AFTER Task 2 — un-junked promotional email would flood a surface
+>    built for the 15 real orphaned-genuine-commerce emails. Named here for
+>    sequencing only; not started today unless owner says so.
+
+- [ ] **PHASE 0 — cost guardrails. NON-CODE, OWNER ACTION, do before any
+      other work. NEW 2026-07-22 (`api-cost-guardrails`).** Two things,
+      both in the Anthropic Console, neither requiring Claude Code:
+      **(a) Monthly spend cap** — Console → Limits → set a monthly limit.
+      Pick a number that is a real ceiling, not a target: baseline is
+      ~$0.50–$2.50/day, so a $75–100/mo cap leaves headroom for a bad day
+      without letting a runaway loop run for a week. **(b) Usage alert** —
+      Console → Billing, email threshold at roughly 2× a normal day. The
+      2026-07-21 spike ($14.50 vs a $0.50–$2.50 baseline) went unnoticed
+      for a full day; an alert would have surfaced it that afternoon.
+      **Rationale for doing this FIRST:** every item below is a code change
+      that needs a session to land. The cap needs five minutes and bounds
+      the damage from anything not yet diagnosed — including the still-open
+      ACE VISALIA status-path question above.
+- [ ] **PHASE 1a — policy-lookup-negative-cache. The single highest-value
+      fix from the 2026-07-21 cost investigation. NEW 2026-07-22.** Cache
+      failed return-policy lookups, not just successful ones, so a retailer
+      that can't be resolved is not re-attempted per email. Evidence this
+      is the right first move: on 07-21, ACE VISALIA RSC alone produced 14
+      of the day's 33 `lookupReturnPolicy()` calls, with 0 successes —
+      every one guaranteed to fail, every one billing Sonnet plus up to 3
+      web searches. A negative cache turns those 14 into 1. Why this comes
+      BEFORE the positive cache (see `extraction-cost-visibility`, 🟡
+      Next): the positive cache only protects retailers already seen and
+      resolved. The negative cache protects against every future garbage
+      retailer value, including ones not yet in the data. It is the guard;
+      the positive cache is the optimization. Build both, this one first.
+      **Open design decisions to make before building, not during:**
+      (1) TTL — a failure should expire, since a retailer may become
+      resolvable later (new policy page, corrected retailer name). Suggest
+      ~7 days; decide explicitly. (2) Key — retailer name or normalized
+      domain? Must match whatever key the positive cache uses; decide once
+      for both. (3) Failure taxonomy — is "no policy found" cached the same
+      as "web search errored"? A transient network failure should probably
+      not poison the cache for a week. Bucket by reason, mirroring the
+      link-resolve probe's own "failures bucketed by reason, never
+      conflated" discipline (2026-07-21 PROBE).
+      **Verify gate — ALREADY DONE, reported 2026-07-23:** `lookupReturnPolicy()`
+      is called from exactly one site (`lib/extract.ts`'s `extractEmail`),
+      triggered whenever `parsed.returnWindowDays == null && parsed.retailer`
+      — no caller currently treats failure specially; the try/unclear/catch
+      branches all just set `policyLookupWasUnclear`/leave `policySource`
+      null. Nothing further to verify before building.
+- [ ] **PHASE 1c — policy-lookup-gating. NEW 2026-07-22, from the 07-21
+      cost investigation.** Decide whether `lookupReturnPolicy()` should be
+      reachable from `delivery`- or `shipping_confirmation`-typed emails at
+      all, or gated to `order_confirmation` only. Why this is a real
+      question and not just cost hygiene: the 14 ACE calls originated from
+      FedEx delivery-notification emails. A delivery notification is not
+      where a return policy lives, and the retailer is already known from
+      the linked order by that point (when there IS a linked order — see
+      the still-orphaned cases above, where there isn't). If the gate is
+      correct, this removes the class of waste rather than caching around
+      it — cheaper than both caches and it improves data quality too.
+      **Verify gate — ALREADY DONE, reported 2026-07-23:** confirmed
+      `lookupReturnPolicy()`'s trigger condition
+      (`parsed.returnWindowDays == null && parsed.retailer`) has no
+      `emailType` check anywhere — reachable from every email type
+      unconditionally. **Do not assume the answer is "gate it"** — if a
+      shipping email legitimately carries the first mention of a retailer
+      for an order that never sent an `order_confirmation`, gating breaks
+      that (see the 15-orphaned-purchases item: this is a real, live case,
+      not hypothetical). Weigh against `PHASE 1a`'s negative cache, which
+      solves the same cost problem without that risk.
+
+- [ ] **`returnDeadline < orderDate` sweep — QUICK CHECK RUN 2026-07-23,
+      ESCALATED (not a one-off).** One query, as asked: any order where
+      `returnDeadline < orderDate`. Result: **3 hits, not 1** — Good Eggs
+      (`returnDeadline` 2025-07-21 vs `orderDate` 2026-07-14, -358 days),
+      Emme Parsons (2025-08-14 vs 2026-07-22, -343 days), Waitrose
+      (2020-08-21 vs 2026-07-14, **-2153 days**). Good Eggs itself doesn't
+      matter (grocery, no real return window) but the parse that produced
+      it isn't grocery-specific — confirmed by the other two hits being
+      unrelated retailers. Per the original framing: multiple hits means
+      escalate, not close as an oddity.
+      **Root-cause lead, not a full diagnosis — cheap to check, worth
+      recording:** all 3 share the identical shape. `orderDate` is
+      `orderDateEstimated: true` (fallback-derived) but has the *correct*
+      year (2026) in all 3. `estimatedDeliveryDate` has a *wrong* year
+      (2025, 2025, 2020) despite `orderDate` on the same row being right.
+      `returnWindowStartsFrom: "delivery_date"` on all 3, so `returnDeadline`
+      correctly anchors on `estimatedDeliveryDate` — the deadline math
+      (`computeDeadline()`) isn't the bug; the bad input feeding it is.
+      Points at whatever produces `estimatedDeliveryDate` (`routeDeliveryDate`/
+      `resolveEstimatedDeliveryDate`, `lib/extract.ts`) as the place to look
+      first, not date-arithmetic code. Not investigated further than this —
+      no fix, no mechanism confirmed, just a starting point for whoever
+      picks this up.
+      **4th instance surfaced 2026-07-23 (Task 1 verify gate, manual
+      Fitness Superstore link) — retailer not in the original 3:** a
+      Fitness Superstore email already linked to order `#48868`
+      (`cmrdz7rm90007jp04dst5ih4e`) carries `orderDate: 2025-07-09`, wrong
+      year, while the Order's own `orderDate` is the correct 2026-07-09 —
+      same wrong-year-on-a-date-field shape, this time on `orderDate`
+      itself rather than `estimatedDeliveryDate`. Not currently governing
+      the order's deadline (the Order-level value is correct), so no live
+      impact. Not investigated further, per instruction.
+- [ ] **ACE VISALIA RSC — duplicate Email rows CONFIRMED genuine (content
+      check, not timing), status path still unexplained. NEW 2026-07-23.**
+      Content check run, not a timing assumption: within each same-second
+      cluster (6 rows at 2026-07-21T15:59:22, 6 more at 19:11:20), every
+      row shares the *identical* Postmark `MessageID`, identical subject,
+      and identical `htmlBody` hash. That rules out the batch-forward
+      reading (same-second arrival of genuinely distinct emails, plausible
+      given `receivedAt` is the forward date not the send date, and given
+      the probe-confirmed sub-3-minute auto-forward lag) — identical
+      `MessageID` means Postmark delivered the same message 6 times, and
+      each delivery created its own Email row. No ingestion-level dedup
+      exists anywhere in `app/api/inbound/route.ts`. Per the resolution
+      rule this was checked against: identical stays in 🔴 Now, it's a
+      bigger problem than the cost angle alone.
+      **Still no theory on the status path — do not close this as
+      "explained by duplicate rows."** All 6 duplicate emails in each
+      cluster are orphaned (`orderId: null`), yet the one real Order under
+      this retailer name (`#001352978`) already reads `displayStatus:
+      "delivered"` with no return deadline set. Nothing in the duplicate-
+      row finding explains how that order reached "delivered" while none
+      of its own inbound emails are linked to it. Needs tracing, not
+      assumed — a separate question from the duplication itself.
+      **Cost consequence, for completeness — the retailer-misidentification
+      half of this is tracked separately below (`carrier-facility-as-
+      retailer`, 🟡 Next):** each of the 14 orphaned ACE-named emails
+      independently re-ran `lookupReturnPolicy()` (none are
+      `order_confirmation`), accounting for 14 of the 33 policy-lookup
+      calls on 07-21, all 14 failed.
+- [ ] **H&M — do we extract from attachments? CONFIRMED: no, not at all.
+      NEW 2026-07-23.** Checked directly: `app/api/inbound/route.ts`'s
+      `PostmarkInboundPayload` interface doesn't declare an `Attachments`
+      field at all — Postmark's real inbound webhook payload includes
+      attachment content, but this codebase never types it, never reads
+      it, never passes it to extraction. Extraction only ever sees
+      `TextBody`/`HtmlBody`. For the two orphaned H&M emails literally
+      titled "Your receipt is attached," whatever order number lives in the
+      PDF is completely invisible to the system today — `orderNumber: NULL`
+      on both is exactly what you'd expect, not a matcher failure. Per the
+      owner: the two same-day H&M orders are genuinely distinct purchases
+      placed back-to-back, so there IS a correct answer per email — the
+      system just can't see it without reading the attachment. Searched the
+      broader unlinked pile for the same pattern (subject or
+      `extractionNotes` containing "attached"): found only these same 2
+      H&M emails by keyword match — could not independently confirm or
+      rule out the pattern recurring under different wording without a
+      fuzzier search or manual review; flagging that limitation rather than
+      claiming a broader count. Not fixed here — attachment parsing would
+      be new ingestion-pipeline work (decrypt/store/pass attachment content
+      into the extraction prompt or a secondary pass), not a small change.
+      Check this BEFORE designing any H&M tie-breaker for the ambiguous-
+      candidate case (see the 15-orphaned-purchases item) — if attachments
+      become readable, H&M may link itself with no tie-breaker needed at
+      all.
 
 - [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
       STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
@@ -59,6 +234,17 @@
       field/values, duplicate-target existence, explanation-string
       accuracy) required and reported before any code, per this item's own
       build instructions — see session detail in `HISTORY.md` once closed.
+      **SUPERSEDED 2026-07-23, on data — flag, do not build:** this
+      registry's premise is falsified on two counts. (1) `not_ecommerce` →
+      Delete was rejected: `emailType` is recomputed (not stable),
+      `prisma.email.delete()` is irreversible, and 15 of 206 orphans turned
+      out to be real purchases — junk-with-rescue (`Email.junkedAt`,
+      `rescueEmail()`, directly below) replaced hard-delete for this
+      population entirely. (2) There are no stored `duplicate` /
+      `not_ecommerce` flag types at all — the verify gate proved real data
+      is 13 order-level reasons + 206 email-level, not these two. Any panel
+      spec written against this registry does not get revised — it gets
+      rebuilt from the four-slot inventory (Task 3, below) instead.
       **2026-07-22: junk mechanics for the non-commerce orphaned-email
       population (`emailType === "other"`) BUILT this session, backend
       only — no UI.** Soft `Email.junkedAt` flag (migration applied — see
@@ -79,23 +265,50 @@
       on the owner's panel mock — this was the data-layer piece only.
 - [ ] **15 orphaned genuine-commerce emails, no fallback matcher —
       real purchases with no deadline tracked, silently. Surfaced
-      2026-07-22 during the Needs Review panel verify gate.** `orderNumber:
-      NULL` on all 15 (FedEx/UPS/USPS delivery-and-shipping notifications,
-      real order confirmations — ACE VISALIA RSC, H&M, Poshmark, Good Eggs,
-      Fitness Superstore, SilkSilky). `findRefundFallbackOrder` (the only
-      existing no-order-number fallback matcher) is scoped to `refund`-typed
-      emails only — no equivalent exists for `delivery`/
-      `shipping_confirmation`/`order_confirmation`. **12 of these 15 (80%)
-      have exactly one same-user, same-retailer order already sitting in
-      the system, unmatched** — checked directly, not estimated. This is
-      the product's core promise failing silently: a real purchase with a
-      real return window, and the app never surfaces it. Same underlying
-      gap as the already-tracked `6b`/`shopbop-goods-based-matching` 🟡 Next
-      item (item-name/retailer-based fallback matching when no order number
-      is present) — this confirms it's not theoretical, it's live and
-      costing users money today. Not fixed here (junk-mechanics task was
-      backend-only for the non-commerce population, deliberately excluded
-      these 15 from junking — see the junk-mechanics item above).
+      2026-07-22 during the Needs Review panel verify gate, full per-email
+      report run 2026-07-23.** `orderNumber: NULL` on all 15 (FedEx/UPS/USPS
+      delivery-and-shipping notifications, real order confirmations — ACE
+      VISALIA RSC ×6, H&M ×3, Poshmark ×2, Fitness Superstore ×2, Good Eggs
+      ×1, SilkSilky ×1). `findRefundFallbackOrder` (the only existing
+      no-order-number fallback matcher) is scoped to `refund`-typed emails
+      only — no equivalent exists for `delivery`/`shipping_confirmation`/
+      `order_confirmation`. Same underlying gap as the already-tracked
+      `6b`/`shopbop-goods-based-matching` 🟡 Next item — this confirms it's
+      not theoretical, it's live and costing users money today.
+      **Corrected breakdown (2026-07-23 full report — supersedes the
+      earlier "12 of 15" estimate, which was accurate at diagnosis time but
+      has drifted as real inbound traffic continued arriving):** 11 with
+      exactly one same-user same-retailer candidate order, 1 with zero
+      candidates (SilkSilky — first purchase from that retailer, nothing to
+      match), **3 ambiguous — all H&M, three separate same-day H&M orders,
+      no order number on the orphaned emails to disambiguate.**
+      **Design requirement, recorded 2026-07-23: the matcher must
+      auto-link the unambiguous cases and route ambiguous ones to Needs
+      Review — not guess.** H&M is the proof this has to be a hard rule,
+      not a heuristic: two of its three candidate orders were placed the
+      same day (owner-confirmed genuinely distinct purchases, back-to-back)
+      with no order number recoverable from either orphaned email's body —
+      there is a correct answer per email, but no safe *automatic* way to
+      pick it from what the matcher can see today. (Separately: H&M's
+      `orderNumber: NULL` may be an ingestion gap, not a matching gap —
+      see the H&M attachment item, 🔴 Now, before designing any tie-breaker
+      here at all.) A matcher that guesses on ambiguous cases would
+      silently attach an email to the wrong order — worse than staying
+      orphaned. Not fixed here.
+      **Types in this report need re-verification before matcher design
+      (2026-07-23, Task 1 verify gate):** the Fitness Superstore ×2 pair is
+      actually typed `order_confirmation`, not delivery/shipping as this
+      report's breakdown states — a fallback matcher gets scoped by
+      `emailType`, so if the type breakdown is off here, it may be off
+      elsewhere in the 15 too. Not re-verified across the full list now.
+      **Live instance of the email-level badge dead end (2026-07-23):**
+      Fitness Superstore's two emails are now correctly linked (Task 1) but
+      both still carry `Email.needsReview: true`, with no resolve path —
+      the same confirmed dead end as the Trust-breaking bug list entry
+      above, now observed on a real post-fix row instead of just
+      theoretically. The four-slot inventory (Task 3) must answer what
+      fills the resolve-action slot for a flag like this. Not investigated
+      further now.
 - [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
       (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
       go-ahead given, fix deployed. Still needs a code comment explaining
@@ -709,133 +922,6 @@
       kept/refunded order, and (b) the underlying finding #4 label-coherence
       spec pass (already queued) needs to cover this specific sequence, not
       just simultaneous badge/button rendering.
-- [ ] **AquaTru "Shipped forever" — add a real delivered display state
-      (PROMOTED to 🔴 Now 2026-07-21, from Annoying) — DECOUPLED 2026-07-23,
-      AquaTru CONFIRMED FIXED IN PRODUCTION. Shipping today (commit + push +
-      deploy) — awaiting owner hand-verification, not Done until then.**
-      **2026-07-23 decouple, closing the gap the 2026-07-21 close-out
-      flagged as NOT built:** `deriveDisplayStatus` now derives "delivered"
-      from `deliveredAt != null` **OR** a confirmed `delivery`-type email
-      being linked to the order — widened specifically because AquaTru's
-      two `delivery` emails both have `deliveredAt: null` (no extractable
-      date in either body), so the deliveredAt-only version could never
-      have caught this order regardless of backfilling. Verify gate before
-      building confirmed no new plumbing was needed: `emailTypes` (already
-      passed into `deriveDisplayStatus`) is built from every email ever
-      linked to the order, not just the triggering one, so
-      `emailTypes.includes("delivery")` was already exactly the right
-      signal, sitting right there. Full detail in `HISTORY.md`. Absorbs
-      the Annoying-bucket "AquaTru shows Shipped badge forever" pointer and
-      point (4) of the Preorder/unconfirmed-delivery wrong-deadline
-      investigation above — same finding, not tracked separately anymore.
-      `deriveDisplayStatus` (`lib/displayStatus.ts`) has no "delivered" rung:
-      `shipping_confirmation` and `delivery` both collapse to `"shipped"`,
-      so a correctly-typed delivery email with internal `status` correctly
-      derived to `"returnable"` still shows the literal word "Shipped"
-      indefinitely. Countdown (`DaysLeftChip`) is unaffected — reads
-      `returnDeadline` directly, not `displayStatus`. Label-honesty/trust
-      bug, not a deadline bug.
-      **Design decisions made (build to these, not re-decided):** `delivered`
-      and `returnable` are orthogonal (badge answers "where's my package",
-      chip answers "how long to return"); an order with no delivery
-      confirmation correctly stays "Shipped" — never fabricate a delivered
-      state that hasn't been earned. Derive off persisted `deliveredAt !=
-      null`, never off the triggering email's type, so the state is stable
-      across later emails. Ladder placement: just above `shipped`, below all
-      return-related rungs (`return_requested`/`returned`/`refunded`/`kept`)
-      — an order both delivered and mid-return shows the more-advanced
-      state. Verify gate run 2026-07-21 before building: every
-      `DISPLAY_STATUS_RANK` comparison site is a threshold check, none rely
-      on equality/between-range — safe to insert a new low rung.
-      **Full displayStatus-value-set consumer audit (2026-07-21, prompted by
-      owner question), not just rank comparisons:** found one real gap —
-      `lib/autoArchive.ts`'s `NON_TERMINAL_STATUSES` was a name-based
-      allowlist (`["ordered","shipped","return_requested"]`), not a rank
-      threshold, so it would have silently exempted every delivered order
-      from the missed-window auto-archive sweep. Fixed in the same commit:
-      `"delivered"` added. Also checked and deliberately left unchanged:
-      `lib/reminders.ts`'s `SKIP_DISPLAY_STATUSES` and
-      `weekly-digest/route.ts`'s `EXCLUDED_STATUSES` — a delivered order's
-      return clock is still ticking, so reminders/digest inclusion must
-      continue; `ALLOWED_MANUAL_STATUSES` correctly excludes `delivered`
-      (never a manual transition); `DisplayStatusBadge.tsx`'s `STATUS_STYLES`
-      needs no entry (falls back to the same neutral tint as shipped/
-      ordered, label flows through automatically); `lib/amazonBundle.ts`
-      already keyed its own delivered/bucket logic off `deliveredAt`
-      directly, not `displayStatus`, so it was already correct and
-      untouched. Confirmed no hardcoded rank integers exist anywhere in the
-      codebase (grepped every `*Rank`/`*rank` identifier against numeric
-      literals, both directions — zero hits) and confirmed `SKIP_STATUSES`
-      (internal `status`, the constant `63b88e4`'s refund_pending fix
-      touched) is a wholly separate constant from `SKIP_DISPLAY_STATUSES` —
-      no overlap.
-      **Test coverage confirmed complete after a real gap was caught:** the
-      original test suite covered "delivered" and "return_requested"
-      signals in isolation but not the case that actually exercises the
-      ladder's if/else priority — `deliveredAt` set AND a `return_label`
-      email present in the SAME derivation call, starting from a rank below
-      both. Added 2 tests pinning this exactly (from `"ordered"` and from
-      `"shipped"`) — both confirm `return_label` is checked before
-      `deliveredAt`, so a delivered-and-returning order correctly shows the
-      return state, never "Delivered."
-      **Backfill: real, not hypothetical — built and applied.**
-      `recomputeDisplayStatus()` only fires on new email ingestion, so any
-      order that already had `deliveredAt` set but was last recomputed
-      before this deploy would stay stuck at its old `displayStatus`
-      forever, not just until the next email. Checked production directly:
-      4 real orders (ACE VISALIA RSC, Whole Foods Market, Maisonette, DONNI)
-      had `deliveredAt` set and `displayStatus` stuck at `"shipped"`.
-      `scripts/backfill-delivered-status.ts` (dry-run default, `--apply`
-      flag, same pattern as `scripts/backfill-display-status.ts`, reuses
-      `recomputeDisplayStatus()` directly so it can't drift from the real
-      derivation path) — dry run matched expectations exactly (all 4 →
-      `"delivered"`, no unexpected jumps further up the ladder), then
-      applied. All 4 now read `"delivered"` in production.
-      **[2026-07-21 status, superseded below] AquaTru itself will NOT show
-      "Delivered" even after this fix and backfill — checked directly, this
-      is not a stale-row issue.** AquaTru's own `deliveredAt` is `null`:
-      both its linked `"delivery"`-typed emails have no delivery date
-      captured anywhere — not from AI extraction (its own `extractionNotes`
-      state no date is present in the email body) and not from the
-      forwarded-header-date fallback parser either
-      (`parseForwardedHeaderDate()` returns null on both — no `"Date:"`
-      line in the forwarded body). `receivedAt` is the only date on file
-      for either email, and it's explicitly the forward/envelope date, not
-      a confirmed delivery date — using it as a `deliveredAt` stand-in
-      would be exactly the fabrication this fix's design decision
-      prohibits. This is a real, separate, project-wide extraction gap (15
-      of 33 `delivery` emails project-wide have no captured date) — logged
-      as its own item in 🟡 Next (`delivery-emails-missing-date`); reframed
-      2026-07-23 below now that the *badge* is fixed — the remaining gap is
-      extraction quality, not display logic.
-      **Verified locally (2026-07-21 build):** `npm run build` clean,
-      445/445 tests passing.
-
-      **2026-07-23 — decoupled, closing the loose end above.** Three prior
-      loose ends confirmed before building: (1) a delivered-AND-mid-return
-      test already existed (twice) but only for the `deliveredAt` signal —
-      added the equivalent test for the new email-type signal; (2)
-      reconfirmed zero hardcoded rank integers anywhere in the codebase
-      (same grep as 2026-07-21, still clean); (3) confirmed the existing
-      backfill's candidate query (`deliveredAt: { not: null }`) explicitly
-      excluded AquaTru's shape — widened it (`deliveredAt != null OR a
-      linked "delivery" email exists`) and re-ran. Dry run found 8 eligible
-      orders (AquaTru among them, plus Bettervits USA, ACE VISALIA RSC,
-      Tuckernuck, Freda Salvador, Amazon, Old Navy, DONNI — same root
-      shape, different retailers); applied. **Confirmed directly against
-      production, by order id, after applying:** AquaTru now reads
-      `displayStatus: "delivered"`, `deliveredAt` still honestly `null`,
-      internal `status` still `"returnable"` — badge and date field allowed
-      to disagree, by design. 2 new tests (the AquaTru-exact case, and the
-      AquaTru-shaped combined delivered+return-in-progress case), 3
-      existing tests updated (old "delivery implies shipped" assertions —
-      an intentional behavior change, not a regression), 452/452 total
-      passing, `npm run build` clean.
-      **Status: committed, pushed, and deployed today** — the four prior
-      local commits (`8e27855`, `d8e9752`, `7078716`, `54fe13f`) ride along
-      in the same deploy, expected and accepted per this task's own
-      instruction. Awaiting owner hand-verification in production before
-      this moves to Done.
 - [ ] **PROBE (2026-07-21) — carrier-link resolve + forward-classification
       audit. READ-ONLY, IN PROGRESS.** Spawned directly by the AquaTru
       delivery-date gap above: deciding whether to (a) estimate delivery
@@ -1172,10 +1258,13 @@
       token-action paths) so this is answerable directly going forward.
       Matters more with every new user — not urgent today, but the gap
       compounds.
-- [ ] **`extraction-cost-visibility` — cost structure mapped 2026-07-20, real
-      lever identified, not built.** Confirmed 3 call-sites total (see
-      today's Done entry): Haiku commerce-gate on every inbound email,
-      Sonnet `extractEmail` on commerce-classified emails, Sonnet+web_search
+- [ ] **`extraction-cost-visibility` = PHASE 1b — policy-lookup-cache
+      (per-retailer positive cache). Cost structure mapped 2026-07-20, real
+      lever identified, not built. RE-ORDERED 2026-07-22, not renamed —
+      this is the same item as before, now placed relative to 🔴 Now's
+      PHASE 1a and PHASE 1c.** Confirmed 3 call-sites total (see today's
+      Done entry): Haiku commerce-gate on every inbound email, Sonnet
+      `extractEmail` on commerce-classified emails, Sonnet+web_search
       `lookupReturnPolicy` conditionally on those. **The gate-then-extract
       design itself is already efficient — not a fix target.**
       **Real cost lever: `lookupReturnPolicy()` is the priciest call**
@@ -1183,22 +1272,91 @@
       retailer with no in-email return window, even when that retailer's
       policy was already looked up for a different order. Add a
       per-retailer return-policy cache (by retailer name/domain) so a
-      policy is looked up once and reused — biggest single lever available,
-      compounds as user volume grows. Already anticipated in the
+      policy is looked up once and reused — still the biggest compounding
+      lever as user volume grows. Already anticipated in the
       `Cost / token efficiency pass` Someday item below ("Cache return
-      policies by retailer domain") — this promotes that specific piece to
-      Next now that there's a concrete trigger (today's Anthropic billing
-      exhaustion). Entangled with the retailer-policy-database Someday item
-      too — likely one shared cache/schema, not two.
-      **Still worth doing: a dedicated Anthropic API key for this app**
-      (separate from whatever else shares the current one), so the Console's
-      per-key view is pure production cost — makes future cost investigation
-      (like today's) trivial instead of requiring a code-reading session.
+      policies by retailer domain") — this promoted that specific piece to
+      Next on 2026-07-20. Entangled with the retailer-policy-database
+      Someday item too, AND with PHASE 1a's negative cache — **design the
+      schema once, with 1a: three consumers of one table, not three
+      tables.**
+      **Phase order (set 2026-07-22, see PHASE 1a/1c in 🔴 Now for the
+      other two):** 1a (negative cache) comes first — it guards against
+      every future garbage retailer, not just ones already seen, and is
+      the direct fix for the 07-21 spike. This item (1b, positive cache) is
+      the optimization on top, same schema. 1c (gating) is evaluated
+      alongside both, not before either — it might shrink the problem
+      instead of caching around it, but verify-gate findings say don't
+      assume it's safe to just gate it off (a real live case depends on
+      delivery/shipping emails being lookup-eligible).
+      **Dedicated Anthropic API key — still worth doing, priority DROPPED
+      2026-07-22.** With per-call usage logging (`per-call-usage-logging`,
+      🟡 Next) landing, the Console's per-key view stops being the primary
+      cost-attribution instrument — it was the prerequisite-looking fix on
+      07-20, it no longer is.
       **Watch item, not a bug:** manual re-extraction (email detail page
       action) and the `reextract-all-emails.ts` backfill script both re-run
       the full Sonnet path per email — a backfill session can spike Sonnet
       usage independent of real inbound volume. Don't misread a backfill
       spike as organic growth when reviewing the Console later.
+- [ ] **`carrier-facility-as-retailer` — a FedEx shipper facility name is
+      being stored as retailer. NEW 2026-07-22, promoted to its own item
+      2026-07-23 now that the 07-21 cost data shows it isn't cosmetic.**
+      "ACE VISALIA RSC" is not a retailer; it's a facility name extracted
+      from a delivery notification (confirmed via `extractionNotes`:
+      *"identified from the shipper address in the body"*). **Two-surface
+      bug, log it as such:** it inflates the API bill (14 doomed
+      `lookupReturnPolicy()` calls in one day, see PHASE 1a/the ACE VISALIA
+      🔴 Now item) AND it puts a warehouse name in front of users as if it
+      were a store. The cost half is mitigated by PHASE 1a; the dashboard
+      half is not mitigated by anything. **Scope:** (a) where the value
+      enters — `lib/extract.ts`'s generic retailer-extraction instruction
+      ("look for sender names... in the body") has no exclusion for
+      carrier/shipping-facility naming; this is a prompt-rule gap, not a
+      post-extraction normalization gap that's missing a step — there is no
+      post-extraction normalization step at all today. (b) how many
+      existing rows: confirmed 2026-07-23, 15 emails carry `retailer: "ACE
+      VISALIA RSC"` exactly (9 linked into 1 real Order, 6 orphaned); a
+      broader search for other carrier/facility names was inconclusive by
+      keyword search (see the H&M attachment item, 🔴 Now, for the same
+      search-limitation caveat) — needs a real pass, not a guess, before
+      sizing the backfill. (c) fix + backfill if the count is non-trivial —
+      backfill follows the existing pattern (dry-run default, `--apply`
+      flag) and, per the Decisions log, silent correction is the
+      established call for this class of change.
+- [ ] **`per-call-usage-logging` — make cost a measured number, not a
+      reconstructed one. NEW 2026-07-22.** Log the API response's `usage`
+      field per call, tagged by call site (`classify` / `extract` /
+      `policy_lookup`). Why this earns its place: the 07-21 investigation
+      had to reconstruct lookup counts from stored `policySource` outcomes
+      because no call log exists — and that reconstruction was initially
+      wrong (a Prisma NULL-filtering gotcha, caught and corrected
+      mid-analysis). Current best estimate is ~$0.30–0.40 per policy
+      lookup, which is an inference from a daily total, not a measurement.
+      **What it unlocks:** real per-user unit economics. If a policy
+      lookup really is ~$0.35, a user with ten orders from retailers whose
+      emails don't state a window costs several dollars a month in lookups
+      alone. That number decides whether the caches above are sufficient
+      or whether the product needs a different approach entirely — and
+      right now it cannot be answered. **Note:** web searches bill per
+      search, separately from tokens. The Console's "Daily token cost"
+      chart likely does not include them, so token cost understates true
+      spend on any day with lookups. Track search count too.
+- [ ] **`first-order-before-forwarding` — known category, not a bug. NEW
+      2026-07-23.** SilkSilky (the zero-candidate case in the
+      15-orphaned-purchases item, 🔴 Now) has no candidate order because
+      the user began forwarding *after* that purchase — the order
+      confirmation itself was never received, so there's nothing to match
+      against. Expected and unavoidable for manual forwarders, and for
+      anyone who enables auto-forwarding mid-stream (everything before the
+      forwarding rule existed is invisible by construction). Logging this
+      so it isn't re-investigated as a defect the next time a zero-candidate
+      orphan shows up. **Open product question, not decided here:** what
+      should the app do with a delivery/shipping email for an order it
+      never ingested at all — surface it as-is (with whatever the email
+      alone can say), ignore it silently, or offer a manual "create this
+      order" action? No lean recorded; needs an actual decision before any
+      of the three gets built.
 - [ ] **[unconfirmed] Grocery / non-returnable parsed as returnable** — no
       repro in prod, 0 grocery orders exist to test against; needs a real
       test email to settle. Related to Amazon's "what counts as returnable
@@ -1764,6 +1922,32 @@
       becomes noticeable.
 
 ## ✅ Done
+- [x] **Fitness Superstore `#48868` manual link, owner-verified in production
+      2026-07-23.** The order's two orphaned `order_confirmation`-typed
+      emails (no order number on either, so the matcher couldn't self-link
+      them) merged in by hand via `mergeEmailIntoOrder` + `email.update`
+      (`orderId`) + `applyFallbackOrderDate` + `recomputeOrderStatus` +
+      `recomputeDisplayStatus` — the same sequence
+      `scripts/backfill-retailer-prefix-match.ts` established as precedent,
+      with `recomputeDisplayStatus` added since that precedent predates the
+      displayStatus rung. Confirmed no-op via before/after print:
+      `returnDeadline`/anchor/`deadlineIsEstimated`/`status`/`displayStatus`
+      all identical before and after — neither email carried an
+      anchor-relevant field, so this closed the review gap without moving
+      the deadline. Zero billed Anthropic API calls (pure DB/logic path, no
+      re-extraction). Three findings spun out, logged in their respective
+      items: a 4th `returnDeadline < orderDate`-shaped wrong-year instance,
+      a types-need-re-verification flag on the 15-orphaned-genuine-commerce
+      report, and a live instance of the email-level
+      needsReview-with-no-resolve-path dead end (both emails still carry
+      `Email.needsReview: true` post-link).
+- [x] **`displayStatus: "delivered"` rung + AquaTru "Shipped forever" fix,
+      owner-verified in production 2026-07-23.** New rung added 2026-07-21
+      (`8e27855`), decoupled from requiring `deliveredAt` 2026-07-23
+      (`ec1d4aa`) so a confirmed `delivery`-type email is sufficient
+      evidence on its own — AquaTru's own delivery emails state no date,
+      which is exactly why the first version still showed "Shipped." Full
+      build/backfill/verification detail in `HISTORY.md`.
 - [x] **Anthropic API bill Q&A, 2026-07-20 (docs-only, no deploy to verify).**
       Mapped all 3 real call-sites (`lib/extract.ts` ×2 Sonnet,
       `lib/classify.ts` ×1 Haiku) and clarified Claude Code's own operation
@@ -2679,6 +2863,13 @@
   → Review-only, never throws. What's still true from the original decision:
   delete stays behind a confirm; no inline ignore/dismiss in v1. See 🔴 Now
   for the build (mock landed 2026-07-22).
+  **SUPERSEDED AGAIN 2026-07-23, on data, per owner — see 🔴 Now for the
+  full correction.** `not_ecommerce` → Delete is rejected outright (15 of
+  206 orphans are real purchases; junk-with-rescue replaced delete for
+  this population). Separately, `duplicate`/`not_ecommerce` aren't real
+  stored flag types — actual data is 13 order-level reasons + 206
+  email-level. Not revised in place; the panel gets rebuilt from a fresh
+  inventory (Task 3) instead.
 - **Amazon bundle grouping resolved (2026-07-20): strict `isAmazonOrder`
   only** — no Zappos, Whole Foods, or marketplace-adjacent. Card is meant
   to stay out of the way, not be smart about brand-family membership.
@@ -2712,3 +2903,32 @@
   original ship-by estimate and its deadline may drift from the true
   delivery date. Revisit if this recurs across real orders — see 🔴 Now
   for the implementation this decision shaped.
+- **The 2026-07-21 spike was NOT reprocessing of outage-failed emails
+  (2026-07-22).** Recorded so this is not re-investigated. Verified by CC
+  directly against the database, not inferred: the inbound webhook always
+  returns 200 specifically so Postmark won't retry; none of the three cron
+  routes reference `runExtraction`/`extractEmail`/`needsReview`/`emailType`;
+  `extractedAt` vs `receivedAt` deltas across all 376 emails show no bulk
+  reprocessing on any day, and 07-21 shows fewer extractions than new
+  arrivals. Only one pre-outage email was re-extracted afterward — the
+  known Loeffler Randall manual preorder-fix test. **Do not build retry
+  caps, backoff, or queue-flush defenses; there is no automatic retry path
+  to defend against.**
+- **Actual cause: no cache on `lookupReturnPolicy()` colliding with a
+  mis-extracted pseudo-retailer (2026-07-22).** 33 lookups on 07-21
+  (highest in the dataset by a wide margin), 14 of them for ACE VISALIA
+  RSC, all 14 failed. Excluding ACE, the remaining 19 ran 17 success / 2
+  failed — in line with 07-22's 15/2. ACE is the anomaly, not the day.
+  Inbound volume was normal (52 emails, each triggering its Haiku gate).
+- **Stacked-cost charts cannot be read for volume (2026-07-22).** Haiku's
+  orange cap is visible on ~$1 bars and invisible on a $14.50 bar for
+  reasons of geometry alone — the same few cents is a visible fraction of
+  one and not the other. Two separate wrong conclusions were drawn from
+  that chart before the data was queried directly. For volume questions,
+  use request or token counts filtered by model, never the cost view.
+  **Corollary, and the more general lesson: both wrong answers on 07-21/22
+  came from trusting a summarized view instead of the underlying rows.**
+- **"Read-only" is a database property, not a cost property (2026-07-22).**
+  A probe can make zero writes and still make a hundred billed model
+  calls. The board tracked writes and deploy state but had no dimension
+  for spend. See the amended close-out rule in the header.
