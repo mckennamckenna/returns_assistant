@@ -698,6 +698,66 @@ this pass.
   missed-window order is indistinguishable from a manually-archived one (same
   pre-existing gap as manual archive, not something this feature introduces).
 
+### Junk mechanics for non-commerce orphaned emails (`lib/junk.ts`, 2026-07-22, backend only)
+- **Junk is a soft state, `Email.junkedAt`, never a delete.** `prisma.email.delete()`
+  is never involved anywhere in this feature — junked means "filtered out of every
+  view that lists emails," fully recoverable via `rescueEmail()`. Same shape as
+  `Order.archivedAt`, one level down (email, not order).
+- **Invariant: every consumer that lists emails MUST spread `JUNK_FILTER`
+  (`{ junkedAt: null }`, `lib/junk.ts`) into its `where` clause, or a junked email
+  can silently leak back into a human-facing surface.** Full consumer audit run
+  2026-07-22 (same discipline as the displayStatus rung's `autoArchive.ts` gap):
+  every `prisma.email.findMany`/`findFirst`/`count` call site in the codebase was
+  checked. Two real consumers needed it — `app/(app)/page.tsx`'s "Unlinked emails"
+  list, and `app/api/cron/weekly-coverage/route.ts`'s coverage-digest content query
+  (a junked marketing email would otherwise read as "did we catch this?" in a real
+  outbound email — not scoped to `orderId: null`, so it needed checking explicitly).
+  Both updated in the same change. Every other email query is scoped by `orderId`,
+  which a junked email can never carry (junking only ever fires on an orphaned
+  email — see `shouldAutoJunk` below) — those sites are structurally unreachable
+  by a junked row and were deliberately left unchanged. **Any future consumer that
+  lists emails must add this filter explicitly — it is not automatic.**
+- **`shouldAutoJunk(email)` — pure, deliberately narrow: `orderId === null AND
+  emailType === "other"`.** Fires from exactly one call site,
+  `linkEmailToOrder`'s existing orphan branch (`lib/linkOrder.ts`) — the only
+  place an email can end up with `orderId` staying `null`. Two real populations,
+  confirmed via production data before building (2026-07-22 diagnostic), must
+  never auto-junk despite superficially resembling the junk case: (1) commerce-
+  typed but unlinked (`delivery`/`shipping_confirmation`/`order_confirmation`
+  with `orderNumber: null`) — 15 real cases found, 12 of 15 with an obvious
+  same-retailer order already in the system, real purchases that would lose
+  their only visibility if junked (tracked separately, TASKS.md 🔴 Now, the
+  no-fallback-matcher gap); (2) `emailType: null` — the `runExtraction.ts`
+  catch-block failure fingerprint, not a content signal at all. `needsReview`
+  is left untouched by junking either way — junking is a visibility layer on
+  top of the existing orphan/needsReview state, not a replacement for it, so a
+  rescue restores exactly the state the email would have had without ever
+  junking.
+- **`rescueEmail(emailId)` clears the flag and writes an `EmailRescue` row in
+  one transaction** — an event log, not a counter, specifically so a rescue
+  rate is computable later broken out per-user, not just in aggregate, and so
+  what actually got rescued is answerable, not just how many. `EmailRescue.emailId`/
+  `userId` are both nullable with `onDelete: SetNull` (same pattern as
+  `ActionLog.orderId`/`userId`) so the aggregate rate survives the email or
+  user being removed later. No auth/ownership check in `rescueEmail` itself —
+  same convention as `lib/orderReview.ts`'s `approveOrder`/`splitOrder`
+  ("callers are responsible for their own access control"); this feature is
+  backend-only, not wired to any route or UI yet.
+- **Migration applied 2026-07-22** (`prisma/migrations/..._add_junk_flag_and_email_rescue`):
+  additive only — one nullable column, one new table, no data touched, no
+  backfill included. **Existing rows are not retroactively junked** —
+  `shouldAutoJunk` only ever fires from the ingestion path, so the 168
+  pre-existing `emailType === "other"` orphans (count at diagnosis time; a live
+  webhook means this drifts) needed a separate one-time pass:
+  `scripts/backfill-junk-other-emails.ts` (dry-run default, `--apply` flag,
+  reuses `shouldAutoJunk` directly so it can't drift from the live rule) —
+  written, dry-run verified, **not applied** as of this entry; see TASKS.md for
+  current status.
+- **Not built in this change, deliberately:** no UI (no junk view, no admin
+  cross-user view, no rescue button) — all blocked on mocks, spec'd separately.
+  No route wiring for `rescueEmail`. No fix for the 15-orphaned-real-purchases
+  gap (own TASKS.md item) or the no-fallback-matcher gap it stems from.
+
 ### Reminders
 - **Deadline reminders:** `7_day` / `2_day` / `1_day` / `same_day`. Deduped by `@@unique([orderId, reminderType])`. Skipped when internal `status` is `completed`/`expired`/`return_started`, or when user-facing `displayStatus` is `returned`/`refunded`/`kept` (`lib/reminders.ts` `isEligibleForReminder()`) — deliberately NOT skipped on `return_requested`, since the window is still open and the package may not have shipped. Query excludes archived/deleted orders via `reminderOrderWhere()` (`lib/orderFilters.ts`).
 - **Weekly digest:** Sundays 16:00 UTC. Orders due in next 7 days, excludes `returned`/`refunded`/`kept`, excludes `archivedAt`/`deletedAt`. Per-user dedup via lookback query (no `orderId` on this row type).

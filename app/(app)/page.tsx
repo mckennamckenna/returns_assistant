@@ -14,6 +14,7 @@ import { SummaryCard } from "@/app/SummaryCard";
 import { OrderCard } from "@/app/OrderCard";
 import { AmazonBundleCard } from "@/app/AmazonBundleCard";
 import { isAmazonOrder } from "@/lib/amazonBundle";
+import { JUNK_FILTER } from "@/lib/junk";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,7 @@ export default async function Home({
       include: { _count: { select: { emails: true } } },
     }),
     prisma.email.findMany({
-      where: { orderId: null, userId },
+      where: { orderId: null, userId, ...JUNK_FILTER },
       orderBy: { receivedAt: "desc" },
     }),
     prisma.order.findMany({

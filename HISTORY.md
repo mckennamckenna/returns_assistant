@@ -5,6 +5,156 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-22 — Needs Review panel: verify gate + junk mechanics for non-commerce orphaned emails (backend only)
+
+Two pieces this session, both spawned by the same original ask (build the
+dashboard "needs attention" panel): a diagnostic verify gate that found the
+assumed data model didn't exist, and — once that was resolved — the backend
+data layer for one safe slice of it. No UI was built either time; the panel
+component itself stays blocked on the owner's mock.
+
+### Verify gate: the assumed "duplicate"/"not_ecommerce" flag types don't exist as stored data
+
+The original task asked to build a registry keyed on two flag types the
+owner expected to find in the data: `duplicate` and `not_ecommerce`.
+Diagnostic-first, before any code: grepped the entire schema, `lib/orderReview.ts`,
+`app/ReviewCard.tsx`, `lib/classify.ts`, and every admin page for either
+literal identifier, plus the exact copy strings mentioned ("no return
+policy", "not e-commerce") — zero hits anywhere. `Order.needsReview` and
+`Email.needsReview` are both plain booleans; there is no stored "reason
+code" or "flag type" field at all, confirmed via `orderReview.ts`'s own
+comment.
+
+Queried real production data instead of guessing further. Found **two
+completely separate populations**, not one: 13 `Order.needsReview` rows
+(surfaced today via `ReviewCard.tsx`'s "Needs review (N)" panel) and 206
+orphaned `Email.needsReview` rows (`orderId: null` — surfaced today only as
+a badge in "Unlinked emails," with **no resolve action other than a hard
+delete**, confirmed a genuine dead end, logged as its own bug).
+
+For "duplicate": the closest real mechanism (`retailerPrefixMatch`/order-
+number-mismatch in `lib/linkOrder.ts`) already merges the email into the
+target order *before* `needsReview` ever fires — there is no second Order
+row and no queryable target-id field, so a "Merge" action has nothing left
+to combine. Zero of the 13 real Order-level flags hit this code path live
+right now (the closest analog, 3 orders with an `[auto] refund fallback
+match` note, falls through `reviewReasonLabel()`'s priority chain to the
+generic fallback instead — a real, separate, already-tracked gap,
+`reviewreasonlabel-missing-reasons`).
+
+For "not_ecommerce": sampled the 206 orphaned emails directly rather than
+assume. 168 are `emailType: "other"`, confidence low or high, and every
+single sample read was unambiguous marketing/promo copy (e.g. *"promotional
+email from Microdosify... no order, purchase, shipment, or return"*) — a
+real, clean, safe population. But 15 are genuinely commerce-typed
+(`delivery`/`shipping_confirmation`/`order_confirmation`) with `orderNumber:
+null` — real FedEx/UPS/USPS delivery notifications and order confirmations
+(ACE VISALIA RSC, H&M, Poshmark, Good Eggs, Fitness Superstore, SilkSilky).
+Cross-checked each: **12 of 15 have exactly one same-user, same-retailer
+order already in the system, unmatched** — the existing fallback matcher
+(`findRefundFallbackOrder`) only covers `refund`-typed emails, with no
+equivalent for the other three types. Confirmed `deleteEmail`
+(`app/actions.ts`) is a hard, immediate `prisma.email.delete()` with no
+soft-delete or recovery — if `not_ecommerce`/Delete had been keyed on
+anything looser than `emailType === "other"` (e.g. "no order number" or
+"any orphaned email"), it would have offered a one-click irreversible
+delete on 15 real order emails. A third population, 23 emails with
+`emailType: null`, are genuine extraction failures (the `runExtraction.ts`
+catch-block fingerprint) — a distinct case, never "not e-commerce" at all.
+
+Logged the 15-orphaned-real-purchases gap as its own 🔴 Now item (not a
+sub-bullet, per instruction) and the admin `?secret=` query-param auth
+weakness as a 🟡 Next item, both surfaced during this diagnostic.
+Rewrote the stale 2026-07-20 Decisions-log line (flat confirm+fix action
+model) to record the real, current model: per-flag-type registry, `duplicate`
+→ Merge or route-to-detail, `not_ecommerce` → Delete behind confirm,
+unregistered → Review-only, never throws.
+
+Also answered a standing question from the owner: the live "Needs review
+(2)" panel with "Looks correct"/"Split into separate order" buttons
+(`app/ReviewCard.tsx`) is confirmed **pre-existing** — introduced in commit
+`b431fcb`, 2026-06-27, untouched by any commit this session. It has in fact
+drifted from the current spec ("Looks correct" is exactly the inline
+keep-it action the 2026-07-20 decision cut from v1; its layout isn't the
+2×2 grammar) — real, flagged, not fixed here.
+
+### Build: junk mechanics for the confirmed-safe `emailType === "other"` population (backend only, no UI)
+
+Scoped explicitly to backend/data-layer only per the task — no views, no
+panel, no admin cross-user UI, all blocked on mocks.
+
+**Schema (`prisma/schema.prisma`):** `Email.junkedAt DateTime?` — soft
+state, same shape as `Order.archivedAt`, `prisma.email.delete()` never
+involved. New `EmailRescue` model — an **event log, not a counter**,
+deliberately: `emailId`/`userId` both nullable with `onDelete: SetNull`
+(same pattern as `ActionLog`'s `orderId`/`userId`) so a rescue rate stays
+computable, per-user, even after the underlying email or user is later
+removed. Migration `20260723022836_add_junk_flag_and_email_rescue` created
+and **applied to the database** — additive only (one nullable column, one
+new table), no data written, no destructive risk. Distinct fact from the
+commit/push/deploy status below — see close-out.
+
+**`lib/junk.ts`:** `shouldAutoJunk(email)` — pure function, deliberately
+narrow: `orderId === null AND emailType === "other"`. Wired into the one
+call site that can ever produce that state, `linkEmailToOrder`'s existing
+orphan early-return (`lib/linkOrder.ts`) — `needsReview` is left set exactly
+as before either way, so junking is a visibility layer on top of the
+existing orphan state, not a replacement for it (a rescue restores the
+email to exactly the state it would have had without ever junking).
+`JUNK_FILTER` (`{ junkedAt: null }`) — the shared where-clause fragment,
+same convention as `lib/orderFilters.ts`'s `activeOrderFilter`.
+`rescueEmail(emailId)` clears the flag and writes the `EmailRescue` row in
+one `$transaction`, returning the email's `userId` for caller attribution.
+No auth/ownership check inside it — same convention as `orderReview.ts`'s
+`approveOrder`/`splitOrder` ("callers are responsible for their own access
+control"); not wired to any route yet.
+
+**Consumer audit (same discipline as the displayStatus rung's
+`autoArchive.ts` gap):** every `prisma.email.findMany`/`findFirst`/`count`
+call site in the codebase checked. Two real consumers needed `JUNK_FILTER`,
+both updated: `app/(app)/page.tsx`'s "Unlinked emails" list, and
+`app/api/cron/weekly-coverage/route.ts`'s coverage-digest content query —
+the latter is not scoped to `orderId: null` (it queries all of a user's
+recent emails for the weekly "did we catch everything?" email), so it
+needed checking explicitly and was a real, non-obvious find: a junked
+marketing email would otherwise have shown up in a real outbound email as
+an unexplained "did we catch this?" line. Every other email query is scoped
+by `orderId`, which a junked email can never carry — those sites are
+structurally unreachable and were left unchanged (enumerated in full in
+`lib/junk.ts`'s own comment and `BUILD.md`).
+
+**Backfill:** `scripts/backfill-junk-other-emails.ts` (dry-run default,
+`--apply` flag, reuses `shouldAutoJunk` directly so it can't drift from the
+live rule) — written and dry-run verified: **168 real emails eligible** as
+of 2026-07-22 (the earlier verify-gate diagnostic counted 170 minutes
+earlier in the same session; the live inbound webhook means this number
+drifts in real time, not a discrepancy to chase). **Not applied** — dry run
+only, per instruction.
+
+**Verification.** `shouldAutoJunk` and `JUNK_FILTER` covered by 5 new pure-
+function tests (450/450 total passing, `npm run build` clean).
+`rescueEmail` is not pure (DB-touching, same as `approveOrder`/`splitOrder`
+in `orderReview.ts`, which also have no direct unit tests — matches this
+project's established convention). Verified directly instead: created a
+throwaway test user + a synthetic junked email, called `rescueEmail()`,
+confirmed `junkedAt` cleared, `needsReview`/`orderId` unchanged, and a
+correctly-attributed `EmailRescue` row was written — then deleted all three
+test rows. No real data touched.
+
+**Not built, deliberately:** no junk view, no admin cross-user view, no
+rescue UI, no route wiring for `rescueEmail`, no fix for the 15-orphaned-
+real-purchases gap or the no-fallback-matcher gap underneath it (own
+TASKS.md 🔴 Now item), no fix for the admin `?secret=` auth weakness (own
+🟡 Next item).
+
+**Status: committed locally. Not pushed, not deployed** — kept off the
+AquaTru decouple deploy going out separately today, per instruction. Schema
+migration applied to the database (see above) is a separate fact from app
+deploy status — no application code that reads/writes `junkedAt` has
+shipped to production yet.
+
+---
+
 ## 2026-07-21 — Probe: carrier-link resolve + forward-classification audit (read-only, no fix)
 
 Spawned by the AquaTru "Shipped forever" fix (same day, see below): AquaTru's

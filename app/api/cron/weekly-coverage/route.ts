@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { scheduledRunWeekStart } from "@/lib/coverageCheck";
+import { JUNK_FILTER } from "@/lib/junk";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +120,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const recentEmails = await prisma.email.findMany({
-        where: { userId: user.id, receivedAt: { gte: lookbackStart } },
+        where: { userId: user.id, receivedAt: { gte: lookbackStart }, ...JUNK_FILTER },
         include: { order: { select: { retailer: true, orderTotal: true, orderCurrency: true } } },
       });
 

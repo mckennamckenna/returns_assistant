@@ -5,6 +5,7 @@ import { decrypt } from "@/lib/crypto";
 import { resolveBodyText } from "@/lib/emailBodyText";
 import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displayStatus";
 import { parseTracking } from "@/lib/trackingParser";
+import { shouldAutoJunk } from "@/lib/junk";
 
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
@@ -609,7 +610,19 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
   const isOrphanedRefund = email.emailType === "refund" && !!email.retailer && !email.orderNumber;
 
   if (!email.retailer || (!email.orderNumber && !isOrphanedRefund)) {
-    await prisma.email.update({ where: { id: emailId }, data: { needsReview: true } });
+    // This branch is the only place an email can end up orphaned
+    // (orderId stays null) — the only point shouldAutoJunk (lib/junk.ts)
+    // can ever fire from. Confirmed-non-commerce (emailType === "other")
+    // gets auto-filed here, no user action; needsReview stays true
+    // underneath either way, so a rescue (lib/junk.ts's rescueEmail)
+    // restores it to exactly the same "orphaned, needs review" state it
+    // would have had without junking — junkedAt is a visibility layer on
+    // top of that state, not a replacement for it.
+    const junkedAt = shouldAutoJunk({ emailType: email.emailType, orderId: null }) ? new Date() : undefined;
+    await prisma.email.update({
+      where: { id: emailId },
+      data: { needsReview: true, ...(junkedAt ? { junkedAt } : {}) },
+    });
     return;
   }
 

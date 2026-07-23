@@ -41,8 +41,61 @@
 >    new work, unless something changed underneath.
 > 3. Then the Needs Review mobile surface spec pass (`app/ReviewCard.tsx`,
 >    mobile-audit finding #5, 🔴 Now below) — already spec-ready, gated only
->    on owner mockups landing.
+>    on owner mockups landing. **IN PROGRESS 2026-07-22 — mock landed, see
+>    the Needs Review panel item directly below.**
 
+- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
+      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
+      spec has landed.** Panel implementation of the quick-check surface
+      spec (mobile audit finding #5, below) — same underlying data
+      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
+      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
+      Decisions log entry, rewritten same commit) — the action model is now
+      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
+      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
+      unregistered type → Review-only, never throws. Still true and kept
+      from the old decision: delete stays behind a confirm; no inline
+      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
+      field/values, duplicate-target existence, explanation-string
+      accuracy) required and reported before any code, per this item's own
+      build instructions — see session detail in `HISTORY.md` once closed.
+      **2026-07-22: junk mechanics for the non-commerce orphaned-email
+      population (`emailType === "other"`) BUILT this session, backend
+      only — no UI.** Soft `Email.junkedAt` flag (migration applied — see
+      below), auto-file on ingestion (`shouldAutoJunk`, `lib/junk.ts`),
+      `rescueEmail()` (verified against a disposable throwaway test row,
+      not real data, cleaned up after), an `EmailRescue` event log (not a
+      counter — per-user rescue rate computable, not just aggregate), and a
+      full email-query consumer audit (2 real consumers updated:
+      "Unlinked emails," the weekly coverage-check digest content).
+      `scripts/backfill-junk-other-emails.ts` written and dry-run verified
+      (168 real emails eligible as of 2026-07-22 — **not applied**).
+      5 new tests, 450/450 passing, `npm run build` clean. **Schema
+      migration applied to the database** (additive only — one nullable
+      column, one new table, no data written) — separate fact from
+      commit/push/deploy status, see close-out. Full detail in
+      `HISTORY.md`. The panel UI itself (Order-level `duplicate`/Merge, the
+      actual Needs Review panel component) remains unbuilt, still blocked
+      on the owner's panel mock — this was the data-layer piece only.
+- [ ] **15 orphaned genuine-commerce emails, no fallback matcher —
+      real purchases with no deadline tracked, silently. Surfaced
+      2026-07-22 during the Needs Review panel verify gate.** `orderNumber:
+      NULL` on all 15 (FedEx/UPS/USPS delivery-and-shipping notifications,
+      real order confirmations — ACE VISALIA RSC, H&M, Poshmark, Good Eggs,
+      Fitness Superstore, SilkSilky). `findRefundFallbackOrder` (the only
+      existing no-order-number fallback matcher) is scoped to `refund`-typed
+      emails only — no equivalent exists for `delivery`/
+      `shipping_confirmation`/`order_confirmation`. **12 of these 15 (80%)
+      have exactly one same-user, same-retailer order already sitting in
+      the system, unmatched** — checked directly, not estimated. This is
+      the product's core promise failing silently: a real purchase with a
+      real return window, and the app never surfaces it. Same underlying
+      gap as the already-tracked `6b`/`shopbop-goods-based-matching` 🟡 Next
+      item (item-name/retailer-based fallback matching when no order number
+      is present) — this confirms it's not theoretical, it's live and
+      costing users money today. Not fixed here (junk-mechanics task was
+      backend-only for the non-commerce population, deliberately excluded
+      these 15 from junking — see the junk-mechanics item above).
 - [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
       (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
       go-ahead given, fix deployed. Still needs a code comment explaining
@@ -865,6 +918,25 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **Unlinked email "Needs review" badge is a dead end — confirmed
+      2026-07-22 while diagnosing the Needs Review panel build (🔴 Now).**
+      `app/(app)/page.tsx`'s orphaned-email query (`Email.findMany({ where:
+      { orderId: null, userId } })`) is NOT filtered by `needsReview` at
+      all — every unlinked email renders, with a "Needs review" badge shown
+      conditionally per-item. But the ONLY action available on that list is
+      `deleteEmail` (hard, immediate `prisma.email.delete()`, no
+      soft-delete/recovery) — there is no "confirm," "approve," "link to an
+      order," or any action that actually resolves the flag. **Confirmed:
+      two fully separate `needsReview` flags exist** — `Order.needsReview`
+      (surfaced in the "Needs review (N)" panel, `ReviewCard.tsx`) and
+      `Email.needsReview` on orphaned emails (badge-only, in "Unlinked
+      emails," today a genuine dead end). Real counts as of 2026-07-22: 13
+      Order-level, 206 orphaned-email-level. Not fixed here — the Needs
+      Review panel build (🔴 Now) will fold a safe subset of the
+      email-level population in (the confirmed-non-commerce cluster only,
+      via Delete-behind-confirm), but the remaining orphaned-email
+      population still has no resolve path after that ships; flagged for a
+      separate follow-up, not silently left implicit.
 - [ ] **Mobile-audit finding #4, CONFIRMED via 2 mechanisms 2026-07-20: display
       never suppresses countdown/at-risk for Kept (or Refunded) orders.**
       `OrderCard.tsx`'s `atRisk` and `DaysLeftChip` both run on
@@ -1013,6 +1085,17 @@
       inaccurate.)
 
 ## 🟡 Next
+- [ ] **Admin route auth (`?secret=` query param) — needs hardening before
+      the admin view shows other users' email metadata.** Flagged
+      2026-07-22 during the Needs Review panel work. `app/admin/page.tsx`
+      compares `searchParams.secret` against `ADMIN_SECRET` — acceptable
+      today (owner-only, no other users' data exposed there yet), but a
+      URL-embedded secret leaks via browser history, server logs, and
+      referrer headers. Becomes a real problem the moment the admin
+      cross-user junk/rescue view (blocked on mocks, see the junk-mechanics
+      item above) starts showing other users' email content. Not fixed —
+      needs a real auth mechanism (session-based admin flag, or at minimum
+      a header instead of a query param) before that view ships.
 - [ ] **Carrier tracking-number API integration — parked, explicitly NOT
       near-term, from the 2026-07-21 carrier-link-resolve probe (🔴 Now).**
       The probe found plain-fetch link-resolve unviable (0/6, see that
@@ -1128,24 +1211,6 @@
       a reason the UI can actually surface, and today only some do.
       Disclosure-spec fuel: feeds the quick-check surface (mobile audit
       finding #5, 🔴 Now) — cross-reference there before designing.
-- [ ] **Needs Review panel ("Need attention" disclosure surface) — ACTION
-      DECISIONS RESOLVED 2026-07-20, build blocked on mock.** This is the
-      panel implementation of the quick-check surface spec (mobile audit
-      finding #5, 🔴 Now) — same underlying data
-      (`needsReview`/`userNote`/`reviewReasonLabel()`), now with in-panel
-      actions decided: **confirm** and **fix** both resolve the flag
-      in-panel; **delete** routes to the order detail page, behind a
-      confirmation (matches the existing `handleDelete` confirm pattern,
-      not a bespoke one); **ignore is explicitly out of v1**. Panel shows,
-      per order: retailer, order total, and the reason — reason types the
-      system already produces: uncertain/fallback match ("is this an
-      order?"), missing deadline, kept-conflict (#6a's
-      `computeKeptStatusConflict()`), tiered-window (shortest window
-      picked), unverified return-portal link (M2's
-      `classifyReturnPortalTrust()`). Wires to the top-bar "Need attention"
-      count. **Not started — waiting on the owner's mock**, per the
-      original mobile-audit finding #5 framing (spec pass needed before
-      design/code).
 - [ ] **Pharmacy handling — scope decision, disputed diagnosis, needs
       resolution before either "spec" or "bug" framing is final.**
       Surfaced by the missing-Amazon-order investigation (`97bca38`,
@@ -2573,10 +2638,16 @@
   policies, refund emails with no dollar amount, Amazon-hosted return portals,
   anchor mismatches) — spec-first avoids the next patch being the Nth
   ad hoc special-case instead of an instance of a considered design.
-- **Needs Review panel actions resolved (2026-07-20).** Confirm + fix
-  in-panel (both resolve the flag); delete → detail page behind confirm;
-  ignore cut from v1. See Next item for full spec context — build still
-  blocked on the owner's mock.
+- **Needs Review panel actions resolved (2026-07-20), SUPERSEDED
+  2026-07-22.** Original decision was a uniform action set (confirm + fix
+  both resolve the flag in-panel; delete → detail behind confirm; ignore cut
+  from v1) — that flat model is stale, do not build it. **Current model:
+  per-flag-type actions via a registry** (flag type → { issue label, primary
+  action, confirm? }): `duplicate` → Merge (no confirm) + Review;
+  `not_ecommerce` → Delete (behind confirm) + Review; any unregistered type
+  → Review-only, never throws. What's still true from the original decision:
+  delete stays behind a confirm; no inline ignore/dismiss in v1. See 🔴 Now
+  for the build (mock landed 2026-07-22).
 - **Amazon bundle grouping resolved (2026-07-20): strict `isAmazonOrder`
   only** — no Zappos, Whole Foods, or marketplace-adjacent. Card is meant
   to stay out of the way, not be smart about brand-family membership.

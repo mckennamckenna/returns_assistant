@@ -44,12 +44,13 @@ model User {
   inboundWindowStart DateTime?
   inboundWindowCount Int       @default(0)
 
-  accounts   Account[]
-  sessions   Session[]
-  orders     Order[]
-  emails     Email[]
-  reminders  Reminder[]
-  actionLogs ActionLog[]
+  accounts     Account[]
+  sessions     Session[]
+  orders       Order[]
+  emails       Email[]
+  reminders    Reminder[]
+  actionLogs   ActionLog[]
+  emailRescues EmailRescue[]
 }
 
 model Account {
@@ -128,6 +129,17 @@ model Email {
   extractionRaw       Json? // full AI JSON response, for debugging the prompt
   extractedAt         DateTime?
 
+  // Soft state: null = visible in normal views; non-null = filtered out
+  // everywhere an email list is queried (Unlinked emails, Needs Review,
+  // any future consumer — see lib/junk.ts's JUNK_FILTER, the single
+  // exported where-clause fragment every such query must spread). NOT a
+  // delete — prisma.email.delete() is never involved. Auto-set at
+  // ingestion for orphaned, confirmed-non-commerce emails
+  // (emailType === "other" — see shouldAutoJunk in lib/junk.ts). Cleared
+  // by rescueEmail(), which also writes an EmailRescue row so rescues are
+  // auditable per-user over time, not just a count.
+  junkedAt DateTime?
+
   // --- Milestone 3 addition ---
   orderId String?
   order   Order?  @relation(fields: [orderId], references: [id])
@@ -135,6 +147,24 @@ model Email {
   // --- Milestone 8 addition ---
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rescues EmailRescue[]
+}
+
+// Event log (not a counter) for junk-flag rescues — deliberately durable
+// per-event, not aggregate-only, so a rescue RATE can be computed over time
+// AND per-user, and so what actually got rescued is answerable later, not
+// just how many. emailId/userId are both nullable with onDelete: SetNull
+// (same pattern as ActionLog's orderId/userId) so a rescue record survives
+// the email or user being removed later — the aggregate rate stays
+// computable even if the underlying email is gone.
+model EmailRescue {
+  id        String   @id @default(cuid())
+  emailId   String?
+  email     Email?   @relation(fields: [emailId], references: [id], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  rescuedAt DateTime @default(now())
 }
 
 // --- Milestone 3: one Order aggregates many Emails about the same purchase ---
