@@ -5,6 +5,97 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-23 — Decouple the delivered rung from deliveredAt: AquaTru actually fixed this time
+
+The 2026-07-21 delivered rung (`8e27855`) derived `"delivered"` strictly from
+`Order.deliveredAt != null`. AquaTru's two `delivery`-typed emails both have
+`deliveredAt: null` — neither states a date anywhere extractable — so the
+order that motivated the whole rung kept reading "Shipped." Confirmed and
+self-flagged at the time (2026-07-21 close-out), left open pending an
+explicit decision on whether to widen the derivation. This session made
+that call and shipped it.
+
+**Verify gate, before any code.** The question was whether "this order has
+a confirmed delivery email" is cleanly queryable from where
+`deriveDisplayStatus` runs, without plumbing new data through. It already
+is: `recomputeDisplayStatus()` (`lib/linkOrder.ts`) builds `emailTypes` from
+*every* email ever linked to the order (`prisma.email.findMany({ where: {
+orderId } })`), not just the one that triggered the recompute, and that
+array was already the first parameter passed into `deriveDisplayStatus`.
+`emailTypes.includes("delivery")` was already sitting right there, already
+order-level, already stable — no new field, no new query, no new plumbing.
+Reported clean, proceeded to build.
+
+**Build.** `deriveDisplayStatus`'s ladder: `deliveredAt != null` **OR**
+`emailTypes.includes("delivery")` → `"delivered"`. `deliveredAt` stays the
+more precise signal when present (a real confirmed date); the email-type
+check is the fallback that catches AquaTru's shape. The old
+`shipping_confirmation`-or-`delivery` disjunction for the `"shipped"` branch
+collapsed to `shipping_confirmation` alone, since any `delivery` email type
+now always resolves to `"delivered"` first — not a behavior gap, the
+`"shipped"` branch was structurally unreachable by a `delivery` type either
+way once the `"delivered"` check runs first. Rank position, the never-
+downgrade rule, the refund-branch exemption, the `"kept"` guard — none of
+that touched.
+
+**Three loose ends from the original rung build, explicitly closed, not
+re-guessed:**
+1. **Delivered-AND-mid-return test** — already existed, twice, but only
+   exercised the `deliveredAt` signal (`return_label` arriving on an
+   already-`"delivered"` order; the combined-signal case with `deliveredAt`
+   set). Added the equivalent pair for the *new* signal: a `delivery` email
+   plus a `return_label` in the same call, `deliveredAt` null throughout —
+   confirms `return_label` still wins via the widened path too, not just the
+   original one.
+2. **Hardcoded rank integers** — re-ran the same grep as 2026-07-21
+   (every `*Rank`/`*rank` identifier against a numeric literal, both
+   directions, across `app/`, `lib/`, `scripts/`, `__tests__/`). Still zero
+   hits. The renumber's safety assumption still holds.
+3. **Backfill coverage** — checked the existing `scripts/backfill-delivered-status.ts`
+   directly: its candidate query was `displayStatus in (ordered, shipped) AND
+   deliveredAt: { not: null }` — deliveredAt-only, which is exactly why it
+   could never have caught AquaTru on the first run, regardless of when it
+   ran. Widened to `deliveredAt != null OR a linked "delivery"-type email
+   exists` (Prisma `OR` with a nested `emails.some`). Dry run found 8
+   eligible orders (AquaTru, Bettervits USA, ACE VISALIA RSC, Tuckernuck,
+   Freda Salvador, Amazon, Old Navy, DONNI — same root shape across several
+   retailers: a `delivery` email with no extractable date). Applied.
+   **Verified directly against production, by order id, after applying:**
+   AquaTru now reads `displayStatus: "delivered"`, `deliveredAt` still
+   honestly `null`, internal `status` still `"returnable"` — the badge and
+   the date field are allowed to disagree, by design; that was always the
+   point.
+
+**Tests.** 2 new (the AquaTru-exact case: `delivery` email, `deliveredAt`
+null, from `"shipped"` → `"delivered"`; the AquaTru-shaped combined case:
+`delivery` + `return_label` together, `deliveredAt` null throughout →
+`"return_requested"`, not `"delivered"`). 3 existing tests updated — the
+old "delivery implies shipped" assertions now correctly expect
+`"delivered"`, an intentional behavior change flagged as such in the test
+names/comments, not silently patched over. 452/452 total passing, `npm run
+build` clean.
+
+**`delivery-emails-missing-date` (`TASKS.md` 🟡 Next) reframed, not
+closed.** The remaining 15 (of 33 project-wide) `delivery` emails with no
+extractable date no longer produce a wrong *badge* — they now correctly
+show `"Delivered"`. What's left is purely that `deliveredAt` itself stays
+`null` for them, so anything that wants an actual date (not just the fact
+of delivery) still has nothing to show. A real, smaller, differently-shaped
+gap than the one this session closed.
+
+**Status: committed, pushed, and deployed.** Four prior local commits
+(`8e27855` displayStatus rung + autoArchive fix, `d8e9752` carrier-link
+probe, `7078716` forward-classifier logging, `54fe13f` junk mechanics) rode
+along in the same deploy — expected and accepted, per this task's own
+instruction; none of the three prior sessions' work was held back
+artificially waiting for this fix. Junk auto-filing (`54fe13f`) is live as
+of this deploy — the 168 existing non-commerce orphans identified before
+this deploy stay un-junked until `scripts/backfill-junk-other-emails.ts`
+is run separately (deliberately not bundled into this deploy). Awaiting
+owner verification of AquaTru in production — not marked done until then.
+
+---
+
 ## 2026-07-22 — Needs Review panel: verify gate + junk mechanics for non-commerce orphaned emails (backend only)
 
 Two pieces this session, both spawned by the same original ask (build the

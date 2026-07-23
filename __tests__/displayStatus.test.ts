@@ -16,16 +16,22 @@ describe("deriveDisplayStatus", () => {
     expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation"], "ordered")).toBe("shipped");
   });
 
-  it("advances to 'shipped' when only delivery is present (delivery implies shipped)", () => {
-    expect(deriveDisplayStatus(["delivery"], "ordered")).toBe("shipped");
+  // 2026-07-23: a "delivery"-type email is itself confirmed delivery
+  // evidence, independent of whether a date was extractable from it — see
+  // the "delivered rung" describe block below for the full AquaTru case
+  // this widening exists to fix. These three used to assert "shipped"
+  // (delivery-implies-shipped, the pre-fix ladder); now "delivery" advances
+  // straight to "delivered".
+  it("advances to 'delivered' when only delivery is present, even with no deliveredAt", () => {
+    expect(deriveDisplayStatus(["delivery"], "ordered")).toBe("delivered");
   });
 
-  it("advances to 'shipped' when delivery and order_confirmation are present but no shipping_confirmation", () => {
-    expect(deriveDisplayStatus(["order_confirmation", "delivery"], "ordered")).toBe("shipped");
+  it("advances to 'delivered' when delivery and order_confirmation are present but no shipping_confirmation", () => {
+    expect(deriveDisplayStatus(["order_confirmation", "delivery"], "ordered")).toBe("delivered");
   });
 
-  it("advances to 'shipped' when both shipping_confirmation and delivery are present", () => {
-    expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation", "delivery"], "ordered")).toBe("shipped");
+  it("advances to 'delivered' when both shipping_confirmation and delivery are present — delivery wins", () => {
+    expect(deriveDisplayStatus(["order_confirmation", "shipping_confirmation", "delivery"], "ordered")).toBe("delivered");
   });
 
   it("advances to 'return_requested' when return_label is present", () => {
@@ -150,11 +156,19 @@ describe("deriveDisplayStatus — kept guard", () => {
   });
 });
 
-// ── "delivered" rung (AquaTru "Shipped forever" fix) ────────────────────────
-// delivered is derived off the persisted deliveredAt field, never off the
-// triggering email's type, and sits just above shipped but below every
-// return-related rung — an order that's both delivered and mid-return shows
-// the more-advanced return state, not "delivered".
+// ── "delivered" rung (AquaTru "Shipped forever" fix, widened 2026-07-23) ────
+// delivered is derived off deliveredAt != null OR a confirmed "delivery"-type
+// email being linked to the order — either is order-level, stable evidence,
+// not the triggering email's type in the moment. Sits just above shipped but
+// below every return-related rung — an order that's both delivered and
+// mid-return shows the more-advanced return state, not "delivered".
+//
+// Widened 2026-07-23: the original rung (deliveredAt-only) still left
+// AquaTru reading "Shipped" — its two "delivery" emails both have
+// deliveredAt: null (no stated date anywhere extractable in either body).
+// A "delivery"-type email is itself confirmed delivery evidence regardless
+// of whether a date was extractable, so it's now an equal, independent
+// signal alongside deliveredAt, not a prerequisite for it.
 
 describe("deriveDisplayStatus — delivered rung", () => {
   it("advances to 'delivered' when deliveredAt is set, even without a 'delivery' email type", () => {
@@ -168,6 +182,13 @@ describe("deriveDisplayStatus — delivered rung", () => {
 
   it("advances to 'delivered' from 'ordered' when a delivery email sets deliveredAt", () => {
     expect(deriveDisplayStatus(["delivery"], "ordered", false, new Date("2026-07-15T00:00:00Z"))).toBe("delivered");
+  });
+
+  it("the AquaTru case: a 'delivery' email with deliveredAt null still advances to 'delivered'", () => {
+    // Real production shape: two "delivery"-typed emails, deliveredAt null
+    // on both, because neither states a date anywhere extractable — this is
+    // exactly the case the deliveredAt-only rung (8e27855) failed to cover.
+    expect(deriveDisplayStatus(["delivery"], "shipped", false, null)).toBe("delivered");
   });
 
   it("stays 'shipped' when deliveredAt is null, even though the order is internally returnable", () => {
@@ -214,6 +235,15 @@ describe("deriveDisplayStatus — delivered rung", () => {
         new Date("2026-07-15T00:00:00Z"),
       ),
     ).toBe("return_requested");
+  });
+
+  // Same evaluation-order case as above, but via the WIDENED signal only —
+  // deliveredAt null throughout, "delivery" email type is the sole evidence
+  // of delivery. This is the AquaTru-shaped version of the combined case:
+  // confirms return_label still wins even when "delivered" is reached via
+  // the email-type signal rather than a persisted date.
+  it("the AquaTru-shaped combined case: delivery-signal-only (no deliveredAt) plus a return in progress still shows the return state", () => {
+    expect(deriveDisplayStatus(["delivery", "return_label"], "ordered", false, null)).toBe("return_requested");
   });
 });
 

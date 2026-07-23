@@ -710,18 +710,21 @@
       spec pass (already queued) needs to cover this specific sequence, not
       just simultaneous badge/button rendering.
 - [ ] **AquaTru "Shipped forever" — add a real delivered display state
-      (PROMOTED to 🔴 Now 2026-07-21, from Annoying) — BUILT, TESTED,
-      BACKFILLED, COMMITTED LOCALLY 2026-07-21. Not pushed, not deployed, not
-      owner-verified — not Done.** **Decouple question resolved 2026-07-21
-      close-out: NOT built.** `deriveDisplayStatus` strictly requires
-      `deliveredAt != null` — exactly as originally scoped, never changed to
-      derive off "a delivery-typed email exists" regardless of a captured
-      date. This means **AquaTru itself will still read "Shipped," not
-      "Delivered," once this deploys** — consistent with the probe's finding
-      that its `deliveredAt` is null with no recoverable date anywhere.
-      Owner must hand-verify in production before this moves to Done; expect
-      the 4 backfilled orders (ACE VISALIA RSC, Whole Foods Market,
-      Maisonette, DONNI) to show "Delivered," not AquaTru. Absorbs
+      (PROMOTED to 🔴 Now 2026-07-21, from Annoying) — DECOUPLED 2026-07-23,
+      AquaTru CONFIRMED FIXED IN PRODUCTION. Shipping today (commit + push +
+      deploy) — awaiting owner hand-verification, not Done until then.**
+      **2026-07-23 decouple, closing the gap the 2026-07-21 close-out
+      flagged as NOT built:** `deriveDisplayStatus` now derives "delivered"
+      from `deliveredAt != null` **OR** a confirmed `delivery`-type email
+      being linked to the order — widened specifically because AquaTru's
+      two `delivery` emails both have `deliveredAt: null` (no extractable
+      date in either body), so the deliveredAt-only version could never
+      have caught this order regardless of backfilling. Verify gate before
+      building confirmed no new plumbing was needed: `emailTypes` (already
+      passed into `deriveDisplayStatus`) is built from every email ever
+      linked to the order, not just the triggering one, so
+      `emailTypes.includes("delivery")` was already exactly the right
+      signal, sitting right there. Full detail in `HISTORY.md`. Absorbs
       the Annoying-bucket "AquaTru shows Shipped badge forever" pointer and
       point (4) of the Preorder/unconfirmed-delivery wrong-deadline
       investigation above — same finding, not tracked separately anymore.
@@ -788,23 +791,51 @@
       derivation path) — dry run matched expectations exactly (all 4 →
       `"delivered"`, no unexpected jumps further up the ladder), then
       applied. All 4 now read `"delivered"` in production.
-      **AquaTru itself will NOT show "Delivered" even after this fix and
-      backfill — checked directly, this is not a stale-row issue.**
-      AquaTru's own `deliveredAt` is `null`: both its linked `"delivery"`-
-      typed emails have no delivery date captured anywhere — not from AI
-      extraction (its own `extractionNotes` state no date is present in the
-      email body) and not from the forwarded-header-date fallback parser
-      either (`parseForwardedHeaderDate()` returns null on both — no `"Date:"`
-      line in the forwarded body). `receivedAt` is the only date on file for
-      either email, and it's explicitly the forward/envelope date, not a
-      confirmed delivery date — using it as a `deliveredAt` stand-in would
-      be exactly the fabrication this fix's design decision prohibits. This
-      is a real, separate, project-wide extraction gap (15 of 33 `delivery`
-      emails project-wide have no captured date) — logged as its own item
-      in 🟡 Next (`delivery-emails-missing-date`), not fixed here.
-      **Verified locally:** `npm run build` clean, 445/445 tests passing (2
-      more added post-review). **Status (2026-07-21 close-out): committed
-      locally. Pushed? No. Deployed? No.** Awaiting owner go-ahead to push.
+      **[2026-07-21 status, superseded below] AquaTru itself will NOT show
+      "Delivered" even after this fix and backfill — checked directly, this
+      is not a stale-row issue.** AquaTru's own `deliveredAt` is `null`:
+      both its linked `"delivery"`-typed emails have no delivery date
+      captured anywhere — not from AI extraction (its own `extractionNotes`
+      state no date is present in the email body) and not from the
+      forwarded-header-date fallback parser either
+      (`parseForwardedHeaderDate()` returns null on both — no `"Date:"`
+      line in the forwarded body). `receivedAt` is the only date on file
+      for either email, and it's explicitly the forward/envelope date, not
+      a confirmed delivery date — using it as a `deliveredAt` stand-in
+      would be exactly the fabrication this fix's design decision
+      prohibits. This is a real, separate, project-wide extraction gap (15
+      of 33 `delivery` emails project-wide have no captured date) — logged
+      as its own item in 🟡 Next (`delivery-emails-missing-date`); reframed
+      2026-07-23 below now that the *badge* is fixed — the remaining gap is
+      extraction quality, not display logic.
+      **Verified locally (2026-07-21 build):** `npm run build` clean,
+      445/445 tests passing.
+
+      **2026-07-23 — decoupled, closing the loose end above.** Three prior
+      loose ends confirmed before building: (1) a delivered-AND-mid-return
+      test already existed (twice) but only for the `deliveredAt` signal —
+      added the equivalent test for the new email-type signal; (2)
+      reconfirmed zero hardcoded rank integers anywhere in the codebase
+      (same grep as 2026-07-21, still clean); (3) confirmed the existing
+      backfill's candidate query (`deliveredAt: { not: null }`) explicitly
+      excluded AquaTru's shape — widened it (`deliveredAt != null OR a
+      linked "delivery" email exists`) and re-ran. Dry run found 8 eligible
+      orders (AquaTru among them, plus Bettervits USA, ACE VISALIA RSC,
+      Tuckernuck, Freda Salvador, Amazon, Old Navy, DONNI — same root
+      shape, different retailers); applied. **Confirmed directly against
+      production, by order id, after applying:** AquaTru now reads
+      `displayStatus: "delivered"`, `deliveredAt` still honestly `null`,
+      internal `status` still `"returnable"` — badge and date field allowed
+      to disagree, by design. 2 new tests (the AquaTru-exact case, and the
+      AquaTru-shaped combined delivered+return-in-progress case), 3
+      existing tests updated (old "delivery implies shipped" assertions —
+      an intentional behavior change, not a regression), 452/452 total
+      passing, `npm run build` clean.
+      **Status: committed, pushed, and deployed today** — the four prior
+      local commits (`8e27855`, `d8e9752`, `7078716`, `54fe13f`) ride along
+      in the same deploy, expected and accepted per this task's own
+      instruction. Awaiting owner hand-verification in production before
+      this moves to Done.
 - [ ] **PROBE (2026-07-21) — carrier-link resolve + forward-classification
       audit. READ-ONLY, IN PROGRESS.** Spawned directly by the AquaTru
       delivery-date gap above: deciding whether to (a) estimate delivery
@@ -1108,27 +1139,27 @@
       third-party API on their behalf. Do not pick this up opportunistically
       as a quick add-on to another task; it's its own initiative.
 - [ ] **"delivery" emails that confirm delivery but state no date — real,
-      project-wide extraction gap, surfaced 2026-07-21 while verifying the
-      AquaTru "Shipped forever" fix.** Confirmed against real data: 15 of 33
-      `emailType: "delivery"` rows project-wide have `deliveredAt: null` on
-      the Email row itself — the AI's own `extractionNotes` on these
-      say outright no delivery date is stated in the email body.
-      `parseForwardedHeaderDate()`'s fallback (used for `orderDate`,
-      `lib/linkOrder.ts`) doesn't help either: checked directly against
-      AquaTru's two delivery emails, neither has a parseable "Date:" line in
-      the forwarded body — `receivedAt` (the forward/envelope date) is the
-      only date on file for either, and it's explicitly not a confirmed
-      delivery date. **Consequence:** the new `displayStatus: "delivered"`
-      rung (this session, see Done) correctly requires persisted
-      `deliveredAt`, so these 15 orders — AquaTru specifically among them —
-      will keep showing "Shipped" even though the delivery email arrived and
-      was typed correctly. Not a bug in the new rung (it's deliberately
-      honest — never fabricate a delivered state with no evidence); the gap
-      is upstream, in extraction/parsing not capturing a date these emails
-      may genuinely not state in a machine-parseable way. No fix shape
-      proposed yet — needs its own investigation into whether these emails
-      truly never state a date (nothing to extract) or whether it's a
-      prompt/parsing miss.
+      project-wide extraction gap. Surfaced 2026-07-21, REFRAMED 2026-07-23
+      now that the display-logic side is fixed — this is purely an
+      extraction-quality gap now, not a badge/display bug.** Confirmed
+      against real data: 15 of 33 `emailType: "delivery"` rows project-wide
+      have `deliveredAt: null` on the Email row itself — the AI's own
+      `extractionNotes` on these say outright no delivery date is stated in
+      the email body. `parseForwardedHeaderDate()`'s fallback (used for
+      `orderDate`, `lib/linkOrder.ts`) doesn't help either: checked directly
+      against AquaTru's two delivery emails, neither has a parseable "Date:"
+      line in the forwarded body — `receivedAt` (the forward/envelope date)
+      is the only date on file for either, and it's explicitly not a
+      confirmed delivery date. **2026-07-23: `displayStatus` no longer
+      requires a date for these orders** — `deriveDisplayStatus` now treats
+      a confirmed `delivery`-type email as sufficient evidence on its own,
+      so all 15 (AquaTru included) correctly show "Delivered" regardless of
+      whether a date was ever captured. **What's left, still real:**
+      `deliveredAt` itself stays `null` for these — the return-deadline
+      chip and any future "delivered on [date]" surfacing still has nothing
+      to show. No fix shape proposed yet — needs its own investigation into
+      whether these emails truly never state a date (nothing to extract) or
+      whether it's a prompt/parsing miss.
 - [ ] **No audit trail for IN-APP actions — operational gap, high leverage,
       surfaced 2026-07-20.** `ActionLog` only covers token/email-link
       actions (Archive, Mark Returned via signed links) — the in-app

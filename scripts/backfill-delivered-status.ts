@@ -1,16 +1,19 @@
 // One-time backfill for the AquaTru "Shipped forever" fix (lib/displayStatus.ts):
 // recomputeDisplayStatus() only fires on new email ingestion, so any order
-// that already has a persisted deliveredAt but was linked/recomputed before
+// that already qualifies for "delivered" but was linked/recomputed before
 // this deploy stays stuck at its old displayStatus ("ordered" or "shipped")
 // until a future email touches it — this backfill re-derives those existing
 // rows once, immediately.
 //
-// Scoped to displayStatus in (ordered, shipped) AND deliveredAt != null —
-// exactly the set that could have advanced to "delivered" (or further, if a
-// return_label/refund email is also already linked) under the new ladder but
-// hasn't been recomputed since. Orders already at return_requested/returned/
-// refunded/kept are untouched — deriveDisplayStatus's own never-downgrade
-// rule would leave them alone anyway, this scope just skips the no-op query.
+// Scoped to displayStatus in (ordered, shipped) AND (deliveredAt != null OR
+// a linked "delivery"-type email exists) — widened 2026-07-23 alongside the
+// ladder itself (deriveDisplayStatus now treats a "delivery"-type email as
+// confirmed delivery evidence even with no extractable date). The original
+// deliveredAt-only scope is exactly why AquaTru was excluded from the first
+// backfill run — its two "delivery" emails both have deliveredAt: null.
+// Orders already at return_requested/returned/refunded/kept are untouched —
+// deriveDisplayStatus's own never-downgrade rule would leave them alone
+// anyway, this scope just skips the no-op query.
 //
 // Reuses recomputeDisplayStatus() directly for --apply rather than
 // duplicating its logic, so this can't drift from the real derivation path
@@ -33,12 +36,12 @@ async function main() {
   const candidates = await prisma.order.findMany({
     where: {
       displayStatus: { in: ["ordered", "shipped"] },
-      deliveredAt: { not: null },
+      OR: [{ deliveredAt: { not: null } }, { emails: { some: { emailType: "delivery" } } }],
     },
     select: { id: true, retailer: true, orderNumber: true, displayStatus: true, deliveredAt: true },
   });
 
-  console.log(`Found ${candidates.length} order(s) with deliveredAt set but displayStatus stuck below "delivered".\n`);
+  console.log(`Found ${candidates.length} order(s) with delivered evidence (deliveredAt or a "delivery" email) but displayStatus stuck below "delivered".\n`);
 
   let changed = 0;
   let unchanged = 0;

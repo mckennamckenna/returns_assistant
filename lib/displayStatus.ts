@@ -7,8 +7,12 @@
 // "delivered" sits just above "shipped" and below every return-related rung
 // — it's evidence about the package (has it arrived?), not a decision the
 // user has made, so it must never rank at or above return_requested. See
-// deriveDisplayStatus below for how it's derived (off deliveredAt, not off
-// the triggering email's type).
+// deriveDisplayStatus below for how it's derived: deliveredAt != null OR a
+// confirmed "delivery"-type email exists on the order (2026-07-23 —
+// widened from deliveredAt-only, which left AquaTru reading "Shipped"
+// forever since its delivery email states no date at all). Both signals are
+// about the ORDER's accumulated email history, not the single triggering
+// email, so the state still stays stable across later emails.
 export const DISPLAY_STATUS_RANK: Record<string, number> = {
   ordered: 1,
   shipped: 2,
@@ -41,17 +45,28 @@ export const DISPLAY_STATUS_LABELS: Record<string, string> = {
 //   refund (confirmed amount) → "refunded" (money's actually back — see below)
 //   refund (no confirmed amount) → "returned"
 //   return_label  → "return_requested" (retailer issued a label = return initiated)
-//   deliveredAt != null → "delivered" (persisted evidence the package arrived —
-//                  deliberately keyed off the DB field, not the triggering
-//                  email's type, so the state is stable across later emails,
-//                  not just true in the moment a "delivery" email is processed)
-//   delivery / shipping_confirmation (no deliveredAt) → "shipped"
+//   deliveredAt != null OR a "delivery"-type email is linked → "delivered"
+//                  (deliveredAt is the more precise signal when present — a
+//                  real confirmed date — but a "delivery"-type email is
+//                  itself already a confirmed delivery notification even
+//                  when the AI couldn't extract a stated date from the body,
+//                  exactly AquaTru's real shape: two "delivery" emails,
+//                  deliveredAt null on both, because neither states a date
+//                  anywhere extractable. Requiring a date in addition to the
+//                  email type left that order reading "Shipped" forever —
+//                  the bug the rung was built to fix in the first place.
+//                  emailTypes here is built from every email ever linked to
+//                  the order, not just the triggering one, so this is a
+//                  stable, order-level signal, same stability property
+//                  deliveredAt already had.)
+//   delivery / shipping_confirmation (no delivered signal) → "shipped"
 //   otherwise     → "ordered"
 //
 // "delivered" and "returnable" (the separate internal `status` field) are
 // deliberately orthogonal: this badge answers "where's my package," not "has
-// the user decided anything." An order with no delivery confirmation stays
-// "shipped" — never fabricated as delivered just because it's returnable.
+// the user decided anything." An order with no delivery confirmation and no
+// delivery-type email stays "shipped" — never fabricated as delivered just
+// because it's returnable.
 //
 // hasConfirmedRefundAmount: whether any linked "refund" email states an
 // explicit, confidently-identified refund amount (Email.refundAmount +
@@ -103,9 +118,9 @@ export function deriveDisplayStatus(
   let derived: string;
   if (emailTypes.includes("return_label")) {
     derived = "return_requested";
-  } else if (deliveredAt != null) {
+  } else if (deliveredAt != null || emailTypes.includes("delivery")) {
     derived = "delivered";
-  } else if (emailTypes.includes("shipping_confirmation") || emailTypes.includes("delivery")) {
+  } else if (emailTypes.includes("shipping_confirmation")) {
     derived = "shipped";
   } else {
     derived = "ordered";
