@@ -61,6 +61,18 @@ Return Window matters until it has happy users.
   `prisma migrate dev`/`migrate deploy` run locally is a live production
   schema change the moment it applies — there is no dev-only safety net.**
   Treat every migration with that weight before running it, not after.
+  **RULE — non-negotiable: no non-additive migration gets applied without
+  the owner's explicit sign-off on the exact SQL first.** Additive (new
+  nullable column, new table, new index — nothing that can lose data or
+  break an existing read) may proceed once reasoned through and shown
+  after the fact, same as this session's practice. Anything else —
+  dropping/renaming a column or table, changing a column's type, a new
+  `NOT NULL` without a safe default, a constraint that could reject
+  existing rows, anything needing a backfill to be safe — show the
+  generated SQL and wait for an explicit go-ahead before running
+  `prisma migrate dev`/`deploy` or any raw SQL against this database.
+  No exceptions for "it's probably fine" — there's no dev database to
+  have been wrong against instead.
 - **AI extraction:** Anthropic Claude (`ANTHROPIC_API_KEY`) — `lib/extract.ts`
   parses any forwarded email generically (retailer, order number, dates,
   totals, return policy). Not retailer-specific code; the same prompt
