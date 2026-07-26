@@ -328,6 +328,49 @@
       not a bug fix** — there's no broken derivation to repair, a new one
       needs to be written from scratch.
       → see DECISIONS.md 2026-07-21 ("Forward auto/manual classifier: two design rules")
+      → **SUPERSEDED 2026-07-25 by `ANCHOR_DATE_RESOLVER.md`'s Part 2** — that
+      spec closes this item (and folds in the `returnDeadline < orderDate`
+      sweep and the Emme Parsons dateless-invented-year bug) under one build.
+      Not marked Done here; the new item below tracks the actual build. Left
+      in place, not deleted, per this board's own rules.
+- [ ] **Anchor date resolver — PART 2 BUILT 2026-07-26, per
+      `ANCHOR_DATE_RESOLVER.md` (owner-approved spec, Part 4 decisions
+      answered — see DECISIONS.md 2026-07-25).** Migration applied to dev
+      DB (additive only — `Email.forwardType`/`anchorDate`/`anchorSource`,
+      all nullable, no backfill), `lib/forwardResolver.ts` built
+      (`classifyForwardType`, `resolveAnchorDate`, `forwardTypeLabel`),
+      wired into `app/api/inbound/route.ts` at ingestion. Both hardcoded
+      "Forwarded by you" UI call sites now read `forwardType`. Pre-commit
+      read-only query (2026-07-25) found 7 orders currently dateless for
+      unrelated reasons (missing return policy, one `emailType: "other"`
+      gate case) — none from an anchor-resolution problem, so the new
+      needs-review reason has ~0 day-one impact on existing data, confirmed
+      by design (gated on `forwardType === "manual"`, never fires on a
+      pre-migration row where `forwardType` is still null).
+      `resolveFallbackOrderDate` (`lib/linkOrder.ts`) now trusts a
+      resolver-processed row's `anchorDate` as-is (including null —
+      unresolved never falls back to `receivedAt`); a pre-resolver row
+      (`forwardType` null) keeps its original parse-or-`receivedAt`
+      behavior unchanged, so existing orders don't regress. New
+      `reviewReasonLabel()` branch ("We couldn't confirm the date on a
+      forwarded email") keyed off the earliest linked email, same
+      re-derived-not-stored pattern as the M2 reason. 28 new/updated tests,
+      478/478 passing, `npm run build` clean. **Committed locally
+      (`13521ca`) — not yet pushed or deployed.**
+      **Part 3 (the sanity guard, closing the `returnDeadline < orderDate`
+      sweep) deliberately NOT started this pass** — it touches the AI
+      extraction pipeline itself (`lib/extract.ts`'s `computeDeadline`/
+      `routeDeliveryDate`, `lib/runExtraction.ts`), a materially larger and
+      riskier surface than Part 2's ingestion-time-only + fallback-function
+      changes. Recommending it as its own follow-on pass rather than
+      bundling it into this already-large change — owner to confirm.
+      Supersedes the "Forward auto/manual mis-classification" item above
+      (left in place, not deleted) and will close the
+      `returnDeadline < orderDate` sweep item once Part 3 lands. Does not
+      touch `CARD_SPEC.md`/the needs-review bucket UI (still unbuilt,
+      Waiting on Owner) — only sets the existing `Order.needsReview`
+      boolean + a new `reviewReasonLabel()` branch, the same mechanism every
+      other reason already uses.
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's

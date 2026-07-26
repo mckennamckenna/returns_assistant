@@ -7,6 +7,25 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-07-25 — ANCHOR_DATE_RESOLVER.md Part 4: owner answers
+
+1. **Providers:** Gmail only for now. Default everything non-Gmail to
+   manual. Don't block on researching other providers — add them later
+   when a non-Gmail user actually appears.
+2. **Quoted-date parse scope:** Gmail's `Date:` format only at launch.
+   Anything that doesn't parse falls to the low-confidence / unresolved
+   path.
+3. **Unresolved-manual:** yes — route to the needs-review bucket with a
+   plain reason, never silently estimate. Owner wants these surfaced.
+4. **Onboarding push:** out of scope, ignored for this build.
+5. **`anchorSource`:** keep the debug enum long-term.
+
+Build order: Part 2 (the resolver) first, then Part 3 (the sanity guard)
+as a same-session follow-on if clean. See `TASKS.md` 🔴 Now for the build
+item this unblocked.
+
+---
+
 ## 2026-07-23 — STANDING CORRECTION: Needs Review panel registry superseded
 
 **STANDING CORRECTION (2026-07-23, on data):** the Needs Review panel's
