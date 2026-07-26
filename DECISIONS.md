@@ -7,6 +7,36 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-07-26 — Confirmed: one database, not separate dev/prod
+
+`.env`'s `DATABASE_URL` and Vercel Production's are the same Neon
+database (`ep-small-paper-ad44j3vk`), not a dev copy with a separate
+production database behind it. A prior note in `TASKS.md`'s Known Issues
+(2026-07-20) had assumed this ("likely, given this project's established
+pattern") but explicitly flagged itself as unconfirmed — that hedge was
+correct to have at the time and should not have been treated as settled
+fact in this session before re-verifying it directly.
+
+Verified today two ways: (1) two attempts to read Vercel Production's
+`DATABASE_URL` value directly via `vercel env pull` both returned empty
+— consistent with it being a Vercel "Sensitive" env var, unreadable via
+the CLI once set, not proof either way on its own; (2) checked
+production's actual runtime logs instead — real inbound webhook requests
+processed successfully (200, zero error-level logs in the preceding 6
+hours) by the already-deployed code that writes `Email.forwardType`/
+`anchorDate`/`anchorSource`, columns that only exist on the database at
+`.env`'s `DATABASE_URL`. If production ran against a different database
+lacking those columns, every one of those real requests would have
+thrown a Prisma error. None did.
+
+**Practical consequence, going forward:** every `prisma migrate dev` or
+`migrate deploy` run locally is a live production schema change the
+moment it applies. There is no separate dev database absorbing risk —
+treat every migration with that weight before running it. See
+`CLAUDE.md`'s Stack & infra section for the standing note.
+
+---
+
 ## 2026-07-25 — ANCHOR_DATE_RESOLVER.md Part 4: owner answers
 
 1. **Providers:** Gmail only for now. Default everything non-Gmail to

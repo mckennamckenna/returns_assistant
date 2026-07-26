@@ -51,7 +51,16 @@ Return Window matters until it has happy users.
   (forwarded order emails arrive via a Postmark webhook) and outbound
   (magic links, reminders, admin notifications)
 - **Database:** Postgres (Neon) via `DATABASE_URL` — **ORM: Prisma**
-  (`prisma/schema.prisma` is the data model; migrations in `prisma/migrations/`)
+  (`prisma/schema.prisma` is the data model; migrations in `prisma/migrations/`).
+  **One database, not separate dev/prod.** `.env`'s `DATABASE_URL` and
+  Vercel Production's are the same Neon database — confirmed empirically
+  2026-07-26 (production runtime logs showed zero errors processing real
+  inbound traffic against columns only a migration run locally could have
+  added; Vercel's own env var value can't be read back to compare directly,
+  it appears to be a Sensitive var). **Practical consequence: every
+  `prisma migrate dev`/`migrate deploy` run locally is a live production
+  schema change the moment it applies — there is no dev-only safety net.**
+  Treat every migration with that weight before running it, not after.
 - **AI extraction:** Anthropic Claude (`ANTHROPIC_API_KEY`) — `lib/extract.ts`
   parses any forwarded email generically (retailer, order number, dates,
   totals, return policy). Not retailer-specific code; the same prompt
@@ -117,6 +126,9 @@ Return Window matters until it has happy users.
   Vercel deploy all on the same commit? Flag any drift immediately before proceeding.
   (This is how `CLAUDE.md` and `TASKS.md` once sat uncommitted for several sessions,
   and how unpushed commits once lingered without anyone noticing.)
+- **At the end of every working session, report the Anthropic API cost
+  incurred during the session** — billed calls (extraction/Haiku/Sonnet/
+  web-search) and a total or best estimate — without being asked.
 - Before a big or ambiguous change: outline the plan, wait for approval.
 - After finishing: summarize what changed in 2–3 lines and update `TASKS.md`.
 - Flag any new issue you notice into `TASKS.md` under "Known issues" even if

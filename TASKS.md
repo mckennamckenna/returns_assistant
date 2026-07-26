@@ -160,39 +160,14 @@
       rows), not just ACE VISALIA — inflates the orphan count on any
       report that doesn't dedupe by MessageID first. Likely first fix
       tomorrow.**
-      **BUILT 2026-07-26.** Read-only investigation of MessageID
-      persistence, `app/api/inbound/route.ts`'s exact ingestion flow,
-      per-user MessageID uniqueness, and existing event-log patterns —
-      recommendation: skip-and-log via a `DiscardLog`-shaped record, guard
-      scoped to `(userId, messageId)`, checked via `findFirst` before
-      `isCommerceEmail()`. **Verified all 10 real duplicate clusters (449
-      rows) against the full 3-signal criteria (MessageID + subject +
-      htmlBody hash) before building — 100% true redelivery duplicates,
-      zero MessageID-only false matches.** Owner-approved 2026-07-26:
-      `Email.messageId` populated on new inbound rows going forward only —
-      **explicitly NOT backfilled onto existing rows** (enforced by
-      construction: `@@unique([userId, messageId])`, and Postgres never
-      matches NULL to NULL, so all 449 pre-existing rows are invisible to
-      the constraint). Additive migration applied
-      (`20260726042035_add_email_messageid_dedup` — one nullable column,
-      one unique index). New `PostmarkInboundPayload.MessageID` field read
-      directly from the plaintext payload (no decryption needed at
-      ingestion). Dedup check sits before `isCommerceEmail()`, so a
-      redelivery costs nothing beyond one lookup — skips both billed calls
-      (Haiku classification, Sonnet extraction), not just the expensive
-      one. Race backstop: a `P2002` from `email.create()` (two
-      near-simultaneous redeliveries both passing the pre-check) is caught
-      and logged identically, not treated as a real failure. 6 new tests
-      (`__tests__/inboundDedup.test.ts`) plus the existing rate-limit
-      suite reconfirmed unaffected, 484/484 passing, `npm run build`
-      clean. **Not yet committed, pushed, or deployed.** The status-path
-      mystery (order `#001352978` reading "delivered" with no linked
-      emails) remains explicitly OUT of scope — a separate follow-on
-      trace, not investigated or fixed here.
+      **DEDUP GUARD BUILT 2026-07-26 — tracks in ⏳ Verifying below, not
+      here.** The status-path mystery (order `#001352978` reading
+      "delivered" with no linked emails) remains explicitly OUT of scope —
+      a separate follow-on trace, not investigated or fixed here.
       → see 🐛 Bugs (Trust-breaking) 2026-07-26: "Friday weekly
       coverage-check digest badly broken" — defect 2 of that item is this
       same MessageID-redelivery duplication (ACE VISALIA ×6, GLOBAL-E
-      NL B.V ×3, real user-visible impact); this dedup fix addresses that
+      NL B.V ×3, real user-visible impact); the dedup fix addresses that
       defect only, not the digest's other three defects.
 - [ ] **H&M — do we extract from attachments? CONFIRMED: no, not at all.
       NEW 2026-07-23.** Checked directly: `app/api/inbound/route.ts`'s
@@ -372,46 +347,8 @@
       → **SUPERSEDED 2026-07-25 by `ANCHOR_DATE_RESOLVER.md`'s Part 2** — that
       spec closes this item (and folds in the `returnDeadline < orderDate`
       sweep and the Emme Parsons dateless-invented-year bug) under one build.
-      Not marked Done here; the new item below tracks the actual build. Left
+      Not marked Done here; the build now tracks in ⏳ Verifying below. Left
       in place, not deleted, per this board's own rules.
-- [ ] **Anchor date resolver — PART 2 BUILT 2026-07-26, per
-      `ANCHOR_DATE_RESOLVER.md` (owner-approved spec, Part 4 decisions
-      answered — see DECISIONS.md 2026-07-25).** Migration applied to dev
-      DB (additive only — `Email.forwardType`/`anchorDate`/`anchorSource`,
-      all nullable, no backfill), `lib/forwardResolver.ts` built
-      (`classifyForwardType`, `resolveAnchorDate`, `forwardTypeLabel`),
-      wired into `app/api/inbound/route.ts` at ingestion. Both hardcoded
-      "Forwarded by you" UI call sites now read `forwardType`. Pre-commit
-      read-only query (2026-07-25) found 7 orders currently dateless for
-      unrelated reasons (missing return policy, one `emailType: "other"`
-      gate case) — none from an anchor-resolution problem, so the new
-      needs-review reason has ~0 day-one impact on existing data, confirmed
-      by design (gated on `forwardType === "manual"`, never fires on a
-      pre-migration row where `forwardType` is still null).
-      `resolveFallbackOrderDate` (`lib/linkOrder.ts`) now trusts a
-      resolver-processed row's `anchorDate` as-is (including null —
-      unresolved never falls back to `receivedAt`); a pre-resolver row
-      (`forwardType` null) keeps its original parse-or-`receivedAt`
-      behavior unchanged, so existing orders don't regress. New
-      `reviewReasonLabel()` branch ("We couldn't confirm the date on a
-      forwarded email") keyed off the earliest linked email, same
-      re-derived-not-stored pattern as the M2 reason. 28 new/updated tests,
-      478/478 passing, `npm run build` clean. **Committed locally
-      (`13521ca`) — not yet pushed or deployed.**
-      **Part 3 (the sanity guard, closing the `returnDeadline < orderDate`
-      sweep) deliberately NOT started this pass** — it touches the AI
-      extraction pipeline itself (`lib/extract.ts`'s `computeDeadline`/
-      `routeDeliveryDate`, `lib/runExtraction.ts`), a materially larger and
-      riskier surface than Part 2's ingestion-time-only + fallback-function
-      changes. Recommending it as its own follow-on pass rather than
-      bundling it into this already-large change — owner to confirm.
-      Supersedes the "Forward auto/manual mis-classification" item above
-      (left in place, not deleted) and will close the
-      `returnDeadline < orderDate` sweep item once Part 3 lands. Does not
-      touch `CARD_SPEC.md`/the needs-review bucket UI (still unbuilt,
-      Waiting on Owner) — only sets the existing `Order.needsReview`
-      boolean + a new `reviewReasonLabel()` branch, the same mechanism every
-      other reason already uses.
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's
@@ -638,6 +575,86 @@
 >    emails. Not started today unless owner says so.
 
 ## ⏳ Verifying
+
+- **VERIFY BY: owner glance in the app — forward a real email through Gmail auto-forward and manual-forward, confirm the "Forwarded automatically"/"Forwarded by you" label is correct on each, and that a real order's deadline still computes correctly.**
+- [ ] **Anchor date resolver — PART 2 BUILT AND DEPLOYED 2026-07-26, per
+      `ANCHOR_DATE_RESOLVER.md` (owner-approved spec, Part 4 decisions
+      answered — see DECISIONS.md 2026-07-25).** Migration applied
+      (additive only — `Email.forwardType`/`anchorDate`/`anchorSource`,
+      all nullable, no backfill), `lib/forwardResolver.ts` built
+      (`classifyForwardType`, `resolveAnchorDate`, `forwardTypeLabel`),
+      wired into `app/api/inbound/route.ts` at ingestion. Both hardcoded
+      "Forwarded by you" UI call sites now read `forwardType`. Pre-commit
+      read-only query (2026-07-25) found 7 orders currently dateless for
+      unrelated reasons (missing return policy, one `emailType: "other"`
+      gate case) — none from an anchor-resolution problem, so the new
+      needs-review reason has ~0 day-one impact on existing data, confirmed
+      by design (gated on `forwardType === "manual"`, never fires on a
+      pre-migration row where `forwardType` is still null).
+      `resolveFallbackOrderDate` (`lib/linkOrder.ts`) now trusts a
+      resolver-processed row's `anchorDate` as-is (including null —
+      unresolved never falls back to `receivedAt`); a pre-resolver row
+      (`forwardType` null) keeps its original parse-or-`receivedAt`
+      behavior unchanged, so existing orders don't regress. New
+      `reviewReasonLabel()` branch ("We couldn't confirm the date on a
+      forwarded email") keyed off the earliest linked email, same
+      re-derived-not-stored pattern as the M2 reason. 28 new/updated tests,
+      478/478 passing, `npm run build` clean. **Committed (`13521ca`),
+      pushed, and deployed — confirmed via production runtime logs
+      2026-07-26 (real inbound webhook traffic processed successfully,
+      zero error-level logs in the 6 hours since deploy), but NOT
+      hand-verified by the owner in the app. Awaiting owner
+      verification — not Done.**
+      **Part 3 (the sanity guard, closing the `returnDeadline < orderDate`
+      sweep) deliberately NOT started this pass** — it touches the AI
+      extraction pipeline itself (`lib/extract.ts`'s `computeDeadline`/
+      `routeDeliveryDate`, `lib/runExtraction.ts`), a materially larger and
+      riskier surface than Part 2's ingestion-time-only + fallback-function
+      changes. Recommending it as its own follow-on pass rather than
+      bundling it into this already-large change — owner to confirm.
+      Supersedes the "Forward auto/manual mis-classification" item (🔴 Now)
+      (left in place, not deleted) and will close the
+      `returnDeadline < orderDate` sweep item once Part 3 lands. Does not
+      touch `CARD_SPEC.md`/the needs-review bucket UI (still unbuilt,
+      Waiting on Owner) — only sets the existing `Order.needsReview`
+      boolean + a new `reviewReasonLabel()` branch, the same mechanism every
+      other reason already uses.
+
+- **VERIFY BY: owner glance — force a duplicate delivery (or wait for the next real Postmark redelivery) and confirm only one Email row/order exists, no repeated line in the next Friday coverage-check digest.**
+- [ ] **ACE VISALIA RSC / GLOBAL-E NL B.V MessageID dedup guard — BUILT
+      2026-07-26.** Read-only investigation of MessageID persistence,
+      `app/api/inbound/route.ts`'s exact ingestion flow, per-user MessageID
+      uniqueness, and existing event-log patterns — recommendation:
+      skip-and-log via a `DiscardLog`-shaped record, guard scoped to
+      `(userId, messageId)`, checked via `findFirst` before
+      `isCommerceEmail()`. **Verified all 10 real duplicate clusters (449
+      rows) against the full 3-signal criteria (MessageID + subject +
+      htmlBody hash) before building — 100% true redelivery duplicates,
+      zero MessageID-only false matches.** Owner-approved 2026-07-26:
+      `Email.messageId` populated on new inbound rows going forward only —
+      **explicitly NOT backfilled onto existing rows** (enforced by
+      construction: `@@unique([userId, messageId])`, and Postgres never
+      matches NULL to NULL, so all 449 pre-existing rows are invisible to
+      the constraint). Additive migration applied
+      (`20260726042035_add_email_messageid_dedup` — one nullable column,
+      one unique index). New `PostmarkInboundPayload.MessageID` field read
+      directly from the plaintext payload (no decryption needed at
+      ingestion). Dedup check sits before `isCommerceEmail()`, so a
+      redelivery costs nothing beyond one lookup — skips both billed calls
+      (Haiku classification, Sonnet extraction), not just the expensive
+      one. Race backstop: a `P2002` from `email.create()` (two
+      near-simultaneous redeliveries both passing the pre-check) is caught
+      and logged identically, not treated as a real failure. 6 new tests
+      (`__tests__/inboundDedup.test.ts`) plus the existing rate-limit
+      suite reconfirmed unaffected, 484/484 passing, `npm run build`
+      clean. **Committed (`0b055df`) — pushed and deployed status
+      confirmed at session close, see below. Awaiting owner verification —
+      not Done.** Addresses defect 2 only of the "Friday weekly
+      coverage-check digest badly broken" bug (🐛 Bugs, Trust-breaking) —
+      defects 1, 3, and 4 of that bug are untouched. The status-path
+      mystery (order `#001352978` reading "delivered" with no linked
+      emails) remains explicitly OUT of scope — a separate follow-on
+      trace, not investigated or fixed here.
 
 - **VERIFY BY: passive — a future scheduled cron run once a real order ages 14+ days past its returnDeadline (0 orders currently eligible).**
 - [ ] **Auto-archive after missed window — pushed (`a7af7df`), auto-deployed.** Nightly
@@ -2635,6 +2652,11 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
   against production directly (didn't want to spend more of a
   possibly-critical budget testing it) — **owner should check Anthropic
   Console billing immediately**, independent of any other task.
+  → **2026-07-26: the "one shared Neon DB" assumption this entry hedged on
+  is now confirmed, not just likely** — see `CLAUDE.md`'s Stack & infra
+  section and DECISIONS.md 2026-07-26. Historical entry left as-is
+  otherwise; this billing outage itself was resolved weeks ago (credit
+  restored, see 🔴 Now/✅ Done history).
 - **RESOLVED 2026-07-20 (see 🔴 Now):** ~~`app/api/cron/weekly-digest/route.ts`
   has the same force/dedup bug just fixed in `weekly-coverage`~~ — fixed by
   mirroring `9163d0b`. New known issue instead of the old one:
