@@ -88,6 +88,13 @@
       (Target ×2, Bloomingdale's ×2). Cost waste on content with zero
       chance of ever needing a return policy. Fold into this gating
       decision, not investigated further here.
+- [ ] **Dateless-order snapshot 2026-07-25 — 6 of 7 are return-POLICY
+      resolution failures (returnWindowDays == null), not date failures.
+      Clean real-world sample for the policy-lookup work. Orders:
+      Nordstrom #1048279668, VPL Bike #3267, Etsy #4120342614, Anthropic
+      PBC #2532-4693-8394, ACE VISALIA RSC #001352978 (delivered but no
+      policy), Amazon #113-5215249-6165864. Investigation only — confirm
+      these are all policy-lookup misses, not a shared root cause.**
 - [ ] **`returnDeadline < orderDate` sweep — QUICK CHECK RUN 2026-07-23,
       ESCALATED (not a one-off).** One query, as asked: any order where
       `returnDeadline < orderDate`. Result: **3 hits, not 1** — Good Eggs
@@ -807,6 +814,12 @@
       via Delete-behind-confirm), but the remaining orphaned-email
       population still has no resolve path after that ships; flagged for a
       separate follow-up, not silently left implicit.
+- [ ] **Everlane #E10025135 — real order with orderDate == null because its
+      earliest linked email is typed `other`, which the orderDate-fallback
+      gate in applyFallbackOrderDate excludes. Surfaced 2026-07-25.
+      Question to answer: is the emailType === 'other' gate silently
+      eating legitimate order dates? Same gate that skips marketing email.
+      Investigation only, not yet diagnosed.**
 - [ ] **Mobile-audit finding #4, CONFIRMED via 2 mechanisms 2026-07-20: display
       never suppresses countdown/at-risk for Kept (or Refunded) orders.**
       `OrderCard.tsx`'s `atRisk` and `DaysLeftChip` both run on
