@@ -29,6 +29,12 @@ interface PostmarkInboundPayload {
   // previously untyped/unread here. ANCHOR_DATE_RESOLVER.md's forward-type
   // classification (Return-Path/+caf_=, X-Forwarded-For/-To) reads this.
   Headers?: RawHeader[];
+  // Postmark's own identifier for this delivery. Present on every real
+  // payload (confirmed against 449 real rows, 2026-07-26) but previously
+  // untyped/unread — this is the same field the ACE VISALIA/GLOBAL-E
+  // redelivery-duplicate investigation used, decrypted out of rawJson by
+  // hand. Read here directly instead, for the ingestion dedup guard below.
+  MessageID?: string;
 }
 
 // The "+tag" convention (MailboxHash) only exists on the shared
@@ -205,6 +211,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // Ingestion dedup (2026-07-26) — Postmark redelivering the same
+    // message produces one Email row per delivery with no guard today
+    // (ACE VISALIA RSC ×6, GLOBAL-E NL B.V ×3, confirmed genuine
+    // redeliveries via MessageID + subject + htmlBody hash, not distinct
+    // emails). Scoped to (userId, messageId), not global — two different
+    // users forwarding coincidentally identical content should never
+    // collide (verified empirically: 0 cross-user collisions across 449
+    // real rows). Checked here, before the billed classification/
+    // extraction calls below, so a redelivery costs nothing beyond one
+    // cheap lookup. `Email.messageId` is populated on new rows only —
+    // existing rows are `null` and never match here, by design (no
+    // backfill; see TASKS.md). The `@@unique([userId, messageId])`
+    // constraint on Email is the race-safe backstop for two near-
+    // simultaneous redeliveries both reaching this check before either
+    // has written its row — see the create() catch below.
+    if (payload.MessageID) {
+      const existing = await prisma.email.findFirst({
+        where: { userId: user.id, messageId: payload.MessageID },
+        select: { id: true },
+      });
+      if (existing) {
+        console.log("Discarded duplicate inbound delivery (MessageID already processed for this user):", payload.MessageID);
+        await prisma.discardLog.create({ data: { reason: "duplicate_messageid" } });
+        return NextResponse.json({ ok: true });
+      }
+    }
+
     let isCommerce: boolean;
     try {
       isCommerce = await isCommerceEmail(payload.TextBody, payload.HtmlBody);
@@ -246,22 +279,44 @@ export async function POST(request: NextRequest) {
       receivedAt,
     });
 
-    const email = await prisma.email.create({
-      data: {
-        userId: user.id,
-        fromEmail: encrypted.fromEmail,
-        fromName: encrypted.fromName,
-        toHash: inboundToken,
-        subject: payload.Subject,
-        textBody: encrypted.textBody,
-        htmlBody: encrypted.htmlBody,
-        receivedAt,
-        rawJson: encryptRawJson(payload),
-        forwardType,
-        anchorDate,
-        anchorSource,
-      },
-    });
+    let email;
+    try {
+      email = await prisma.email.create({
+        data: {
+          userId: user.id,
+          fromEmail: encrypted.fromEmail,
+          fromName: encrypted.fromName,
+          toHash: inboundToken,
+          subject: payload.Subject,
+          textBody: encrypted.textBody,
+          htmlBody: encrypted.htmlBody,
+          receivedAt,
+          rawJson: encryptRawJson(payload),
+          forwardType,
+          anchorDate,
+          anchorSource,
+          messageId: payload.MessageID ?? null,
+        },
+      });
+    } catch (error) {
+      // Race backstop for the dedup check above: two near-simultaneous
+      // redeliveries can both pass the findFirst check before either has
+      // written its row. The @@unique([userId, messageId]) constraint on
+      // Email turns the loser into a P2002 here instead of a second row —
+      // treat it exactly like the pre-check duplicate path, not a real
+      // failure. Anything else re-throws to the outer catch, unchanged.
+      if (
+        payload.MessageID &&
+        error instanceof Object &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002"
+      ) {
+        console.log("Discarded duplicate inbound delivery (race with a concurrent redelivery):", payload.MessageID);
+        await prisma.discardLog.create({ data: { reason: "duplicate_messageid" } });
+        return NextResponse.json({ ok: true });
+      }
+      throw error;
+    }
 
     // runExtraction catches its own errors and leaves needsReview = true,
     // so it never breaks the 200 response below.

@@ -99,6 +99,21 @@ model Email {
   htmlBody    String?  @db.Text // encrypted at rest
   receivedAt  DateTime @default(now())
   rawJson     String   @db.Text // encrypted at rest — whole Postmark payload, JSON-stringified then encrypted
+  // Postmark's own MessageID for this inbound delivery — the same
+  // identifier used to confirm the ACE VISALIA/GLOBAL-E redelivery
+  // duplicates (2026-07-23 investigation, reconfirmed against the full
+  // 3-signal criteria 2026-07-26: MessageID + subject + htmlBody hash,
+  // 10/10 real clusters were true duplicates). Populated on new inbound
+  // rows only, starting 2026-07-26 — deliberately NOT backfilled onto
+  // existing rows, so null here means "arrived before this field
+  // existed," not "no MessageID available" (every row's rawJson already
+  // carries one). Scoped per-user via the composite unique constraint
+  // below, not globally — verified empirically (2026-07-26) that 0 of 10
+  // real duplicate clusters, across 449 rows, ever crossed a userId
+  // boundary, but scoping removes the theoretical cross-user risk
+  // (auto-forward relays can preserve an original Message-ID) at zero
+  // cost either way.
+  messageId   String?
 
   // --- Milestone 2 additions ---
   retailer            String?
@@ -166,6 +181,12 @@ model Email {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   rescues EmailRescue[]
+
+  // NULL messageId never collides with itself (Postgres treats NULL as
+  // distinct from every other NULL) — this is what makes "not backfilled"
+  // safe by construction: every pre-2026-07-26 row (messageId: null)
+  // is invisible to this constraint, no migration-time enforcement needed.
+  @@unique([userId, messageId])
 }
 
 // Event log (not a counter) for junk-flag rescues — deliberately durable
@@ -346,7 +367,7 @@ model ActionLog {
 // is never stored; this exists purely to count how often it happens).
 model DiscardLog {
   id         String   @id @default(cuid())
-  reason     String // "non_commerce" for now; room to add more reasons later
+  reason     String // "non_commerce" | "duplicate_messageid" (2026-07-26, ingestion dedup) — room to add more reasons later
   occurredAt DateTime @default(now())
 }
 

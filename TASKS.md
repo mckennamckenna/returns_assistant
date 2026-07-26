@@ -160,6 +160,40 @@
       rows), not just ACE VISALIA — inflates the orphan count on any
       report that doesn't dedupe by MessageID first. Likely first fix
       tomorrow.**
+      **BUILT 2026-07-26.** Read-only investigation of MessageID
+      persistence, `app/api/inbound/route.ts`'s exact ingestion flow,
+      per-user MessageID uniqueness, and existing event-log patterns —
+      recommendation: skip-and-log via a `DiscardLog`-shaped record, guard
+      scoped to `(userId, messageId)`, checked via `findFirst` before
+      `isCommerceEmail()`. **Verified all 10 real duplicate clusters (449
+      rows) against the full 3-signal criteria (MessageID + subject +
+      htmlBody hash) before building — 100% true redelivery duplicates,
+      zero MessageID-only false matches.** Owner-approved 2026-07-26:
+      `Email.messageId` populated on new inbound rows going forward only —
+      **explicitly NOT backfilled onto existing rows** (enforced by
+      construction: `@@unique([userId, messageId])`, and Postgres never
+      matches NULL to NULL, so all 449 pre-existing rows are invisible to
+      the constraint). Additive migration applied
+      (`20260726042035_add_email_messageid_dedup` — one nullable column,
+      one unique index). New `PostmarkInboundPayload.MessageID` field read
+      directly from the plaintext payload (no decryption needed at
+      ingestion). Dedup check sits before `isCommerceEmail()`, so a
+      redelivery costs nothing beyond one lookup — skips both billed calls
+      (Haiku classification, Sonnet extraction), not just the expensive
+      one. Race backstop: a `P2002` from `email.create()` (two
+      near-simultaneous redeliveries both passing the pre-check) is caught
+      and logged identically, not treated as a real failure. 6 new tests
+      (`__tests__/inboundDedup.test.ts`) plus the existing rate-limit
+      suite reconfirmed unaffected, 484/484 passing, `npm run build`
+      clean. **Not yet committed, pushed, or deployed.** The status-path
+      mystery (order `#001352978` reading "delivered" with no linked
+      emails) remains explicitly OUT of scope — a separate follow-on
+      trace, not investigated or fixed here.
+      → see 🐛 Bugs (Trust-breaking) 2026-07-26: "Friday weekly
+      coverage-check digest badly broken" — defect 2 of that item is this
+      same MessageID-redelivery duplication (ACE VISALIA ×6, GLOBAL-E
+      NL B.V ×3, real user-visible impact); this dedup fix addresses that
+      defect only, not the digest's other three defects.
 - [ ] **H&M — do we extract from attachments? CONFIRMED: no, not at all.
       NEW 2026-07-23.** Checked directly: `app/api/inbound/route.ts`'s
       `PostmarkInboundPayload` interface doesn't declare an `Attachments`
@@ -795,6 +829,33 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **Friday weekly coverage-check digest badly broken — REGRESSION,
+      user-facing, multiple alpha users, weekly all-users email. HIGH
+      SEVERITY. Confirmed 2026-07-25 on 2+ alpha users via real received
+      digests (screenshots).** Clean as of last Friday's run and is junk
+      now — something in the last ~week changed what it surfaces. Four
+      distinct defects, capture only, not investigated:
+      **1. PRIMARY — "unknown retailer" flood.** The majority of lines read
+      "1 order from an unknown retailer" — orders with no resolved
+      retailer (orphaned / extraction-failed / emailType:other /
+      null-retailer rows) are flooding the digest. This is the dominant
+      problem; even with dedup fixed, the digest is still junk because of
+      these. These are UNRESOLVED orders, a different population from the
+      duplicates below.
+      **2. Duplicate lines.** ACE VISALIA RSC (×6) and GLOBAL-E NL B.V
+      (×3) repeat — the MessageID-redelivery dupes tracked separately (see
+      the ACE VISALIA item above). The ingestion dedup fix will reduce but
+      not eliminate the digest junk (only defect 2, not 1/3).
+      **3. Stale orders / wrong window.** AquaTru appears but is not from
+      this week. Date-window problem — either the coverage window query,
+      or orders carrying unreliable dates (possible overlap with the
+      anchor-date / Part 3 wrong-date work).
+      **4. LIKELY ROOT of the regression:** the route already has a
+      `JUNK_FILTER` (`app/api/cron/weekly-coverage/route.ts`) that was
+      working Friday. Prime hypothesis: a change this week (junk-backfill /
+      anchor-date resolver / orphan-dedup work) altered a field
+      `JUNK_FILTER` keys on, so rows it used to exclude — **owner's report
+      cuts off here, not completed; capture verbatim, not extrapolated.**
 - [ ] **Unlinked email "Needs review" badge is a dead end — confirmed
       2026-07-22 while diagnosing the Needs Review panel build (🔴 Now).**
       `app/(app)/page.tsx`'s orphaned-email query (`Email.findMany({ where:
