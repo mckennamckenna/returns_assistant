@@ -76,7 +76,20 @@ export function parseForwardedHeaderDate(bodyText: string | null): Date | null {
 }
 
 // Finds the earliest email linked to this order and derives an orderDate
-// proxy from it, in two tiers:
+// proxy from it.
+//
+// Since ANCHOR_DATE_RESOLVER.md (2026-07-25): if that email was processed
+// by the anchor resolver at ingestion (forwardType is non-null), its
+// precomputed anchorDate is the single source of truth — including null,
+// which means the resolver genuinely could not confirm a date on a manual
+// forward and deliberately did not invent one. Falling back to receivedAt
+// in that case would silently reintroduce exactly the invented-date
+// problem the resolver exists to close, so this function must NOT do that
+// for a resolver-processed row.
+//
+// For a row that predates the resolver (forwardType is null — never
+// classified, not the same as "manual"), keep the original two-tier
+// behavior unchanged, so existing orders don't regress the day this ships:
 //   1. Parse a forwarded-header "Date:" line out of its body, when present
 //      (most precise — that's the retailer's actual send time, not when the
 //      customer got around to forwarding it, which could be weeks later).
@@ -87,6 +100,9 @@ export function parseForwardedHeaderDate(bodyText: string | null): Date | null {
 //      Bug 8). Weaker for a genuinely manually-forwarded email with no
 //      parseable Date line, since receivedAt is then just "whenever the
 //      customer forwarded it" — but better than no orderDate at all.
+// This pre-resolver path is expected to fade out naturally as old rows
+// stop being anyone's earliest-linked email; no backfill is planned.
+//
 // Not scoped to order_confirmation internally — this function resolves the
 // best available date from whatever the earliest linked email turns out to
 // be. Amazon's transactional mail never produces an order_confirmation
@@ -105,6 +121,10 @@ async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
     orderBy: { receivedAt: "asc" },
   });
   if (!earliestEmail) return null;
+
+  if (earliestEmail.forwardType != null) {
+    return earliestEmail.anchorDate;
+  }
 
   const textBody = earliestEmail.textBody ? decrypt(earliestEmail.textBody) : null;
   const htmlBody = earliestEmail.htmlBody ? decrypt(earliestEmail.htmlBody) : null;

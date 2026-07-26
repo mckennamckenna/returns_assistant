@@ -140,6 +140,23 @@ model Email {
   // auditable per-user over time, not just a count.
   junkedAt DateTime?
 
+  // --- Anchor date resolver (ANCHOR_DATE_RESOLVER.md, 2026-07-25) ---
+  // Computed once at ingestion (app/api/inbound/route.ts), never
+  // recomputed later. forwardType: "auto" | "manual" | null (null = row
+  // predates this feature, never classified — NOT the same as "manual";
+  // callers must check for null explicitly before trusting anchorDate, see
+  // lib/linkOrder.ts's resolveFallbackOrderDate). anchorDate is the
+  // trustworthy reference deadline math should anchor on instead of
+  // reaching for receivedAt directly — null on a "manual" row means the
+  // resolver genuinely could not confirm a date (a manual forward with no
+  // parseable quoted Date: line), not that it was never checked; the
+  // resolver never invents a date to fill this in. anchorSource is a debug
+  // enum, not consumed by any decision logic: "original_header" |
+  // "received_at" | "quoted_body" | "unresolved".
+  forwardType  String?
+  anchorDate   DateTime?
+  anchorSource String?
+
   // --- Milestone 3 addition ---
   orderId String?
   order   Order?  @relation(fields: [orderId], references: [id])

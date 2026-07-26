@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { reExtract } from "./actions";
 import { ReExtractButton } from "./ReExtractButton";
 import { decryptEmailContent } from "@/lib/emailEncryption";
+import { forwardTypeLabel } from "@/lib/forwardResolver";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +74,7 @@ export default async function EmailDetail({
 
       <h1 className="text-2xl font-semibold mt-4">{email.subject || "(no subject)"}</h1>
       <div className="flex justify-between items-baseline gap-4 mt-1 text-sm text-secondary">
-        <span className="truncate">Forwarded by you</span>
+        <span className="truncate">{forwardTypeLabel(email.forwardType)}</span>
         <span className="whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
       </div>
 

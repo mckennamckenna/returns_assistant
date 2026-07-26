@@ -213,4 +213,62 @@ describe("applyFallbackOrderDate", () => {
     expect(mockPrisma.email.findFirst).not.toHaveBeenCalled();
     expect(mockPrisma.order.update).not.toHaveBeenCalled();
   });
+
+  // ── ANCHOR_DATE_RESOLVER.md (2026-07-25): forwardType-stamp transition ──
+  describe("anchor resolver integration", () => {
+    const anchorDate = new Date("2026-06-02T10:00:00.000Z");
+
+    it("trusts a resolver-processed manual row's anchorDate directly, without re-parsing the body", async () => {
+      mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+      mockPrisma.email.findFirst
+        .mockResolvedValueOnce({ emailType: "order_confirmation" })
+        .mockResolvedValueOnce({
+          receivedAt,
+          textBody: "irrelevant — should not be read",
+          htmlBody: null,
+          forwardType: "manual",
+          anchorDate,
+        });
+
+      await applyFallbackOrderDate("order1");
+
+      expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.order.update.mock.calls[0][0].data.orderDate).toEqual(anchorDate);
+    });
+
+    it("trusts a resolver-processed auto row's anchorDate directly too", async () => {
+      mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+      mockPrisma.email.findFirst
+        .mockResolvedValueOnce({ emailType: "shipping_confirmation" })
+        .mockResolvedValueOnce({ receivedAt, textBody: null, htmlBody: null, forwardType: "auto", anchorDate });
+
+      await applyFallbackOrderDate("order1");
+
+      expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.order.update.mock.calls[0][0].data.orderDate).toEqual(anchorDate);
+    });
+
+    it("does NOT fire — and never falls back to receivedAt — when a resolver-processed manual row's anchorDate is null (genuinely unresolved)", async () => {
+      mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+      mockPrisma.email.findFirst
+        .mockResolvedValueOnce({ emailType: "order_confirmation" })
+        .mockResolvedValueOnce({ receivedAt, textBody: null, htmlBody: null, forwardType: "manual", anchorDate: null });
+
+      await applyFallbackOrderDate("order1");
+
+      expect(mockPrisma.order.update).not.toHaveBeenCalled();
+    });
+
+    it("keeps the original parse-or-receivedAt behavior for a pre-resolver row (forwardType null — never classified)", async () => {
+      mockPrisma.order.findUnique.mockResolvedValueOnce(baseOrder);
+      mockPrisma.email.findFirst
+        .mockResolvedValueOnce({ emailType: "order_confirmation" })
+        .mockResolvedValueOnce({ receivedAt, textBody: null, htmlBody: null, forwardType: null, anchorDate: null });
+
+      await applyFallbackOrderDate("order1");
+
+      expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.order.update.mock.calls[0][0].data.orderDate).toEqual(receivedAt);
+    });
+  });
 });

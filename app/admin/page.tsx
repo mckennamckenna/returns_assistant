@@ -36,7 +36,10 @@ export default async function AdminPage({
       where: { needsReview: true },
       include: {
         user: { select: { email: true } },
-        emails: { select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true }, orderBy: { receivedAt: "desc" } },
+        emails: {
+          select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true, receivedAt: true, forwardType: true, anchorDate: true },
+          orderBy: { receivedAt: "desc" },
+        },
       },
       orderBy: { updatedAt: "desc" },
     }),

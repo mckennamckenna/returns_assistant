@@ -8,6 +8,7 @@ import { ReviewCard } from "@/app/ReviewCard";
 import { SearchFilterBar } from "@/app/SearchFilterBar";
 import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
 import { decryptEmailContent } from "@/lib/emailEncryption";
+import { forwardTypeLabel } from "@/lib/forwardResolver";
 import { daysUntil } from "@/lib/reminders";
 import { OPEN_STATUSES, isClosingSoon } from "@/lib/alerts";
 import { SummaryCard } from "@/app/SummaryCard";
@@ -91,7 +92,10 @@ export default async function Home({
     prisma.order.findMany({
       where: { userId, needsReview: true, archivedAt: null, deletedAt: null },
       include: {
-        emails: { select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true }, orderBy: { receivedAt: "desc" } },
+        emails: {
+          select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true, receivedAt: true, forwardType: true, anchorDate: true },
+          orderBy: { receivedAt: "desc" },
+        },
       },
       orderBy: { updatedAt: "desc" },
     }),
@@ -228,7 +232,7 @@ export default async function Home({
               <li key={email.id} className="bg-card border border-border rounded-xl flex items-stretch">
                 <Link href={`/emails/${email.id}`} className="flex-1 block p-4 hover:bg-page min-w-0">
                   <div className="flex justify-between items-baseline gap-4">
-                    <span className="font-medium text-ink truncate">Forwarded by you</span>
+                    <span className="font-medium text-ink truncate">{forwardTypeLabel(email.forwardType)}</span>
                     <span className="text-sm text-muted whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
                   </div>
                   <p className="font-semibold text-ink mt-1">{email.subject || "(no subject)"}</p>

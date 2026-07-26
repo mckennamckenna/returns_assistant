@@ -9,7 +9,15 @@ const base = {
   retailer: "Nordstrom",
   returnPortalUrl: "https://www.nordstrom.com/returns",
   policySource: "stated_in_email" as string | null,
-  emails: [{ orderNumber: "ABC123", confidence: "high" }],
+  emails: [
+    {
+      orderNumber: "ABC123",
+      confidence: "high",
+      receivedAt: new Date("2026-07-01"),
+      forwardType: null as string | null,
+      anchorDate: null as Date | null,
+    },
+  ],
 };
 
 describe("reviewReasonLabel", () => {
@@ -56,6 +64,79 @@ describe("reviewReasonLabel", () => {
       emails: [{ orderNumber: "DIFFERENT", confidence: "high" }],
     };
     expect(reviewReasonLabel(order)).toBe("We matched this return email to an existing order — please confirm it's correct");
+  });
+
+  it("reports the unresolved-forward reason when the earliest email is a manual forward the resolver couldn't confirm a date on — ANCHOR_DATE_RESOLVER.md, 2026-07-25", () => {
+    const order = {
+      ...base,
+      orderDate: null,
+      emails: [
+        { orderNumber: "ABC123", confidence: "high", receivedAt: new Date("2026-07-01"), forwardType: "manual", anchorDate: null },
+      ],
+    };
+    expect(reviewReasonLabel(order)).toBe("We couldn't confirm the date on a forwarded email");
+  });
+
+  it("prefers the unresolved-forward reason over the generic missing-orderDate reason", () => {
+    const order = {
+      ...base,
+      orderDate: null,
+      emails: [
+        { orderNumber: "ABC123", confidence: "high", receivedAt: new Date("2026-07-01"), forwardType: "manual", anchorDate: null },
+      ],
+    };
+    expect(reviewReasonLabel(order)).not.toBe("We couldn't find a purchase date — the return deadline may be estimated");
+  });
+
+  it("does NOT fire the unresolved-forward reason for a resolved manual forward (anchorDate present)", () => {
+    const order = {
+      ...base,
+      emails: [
+        {
+          orderNumber: "ABC123",
+          confidence: "high",
+          receivedAt: new Date("2026-07-01"),
+          forwardType: "manual",
+          anchorDate: new Date("2026-07-01"),
+        },
+      ],
+    };
+    expect(reviewReasonLabel(order)).toBe("This order needs a quick check");
+  });
+
+  it("does NOT fire the unresolved-forward reason for an auto forward, even with anchorDate null", () => {
+    const order = {
+      ...base,
+      orderDate: null,
+      emails: [
+        { orderNumber: "ABC123", confidence: "high", receivedAt: new Date("2026-07-01"), forwardType: "auto", anchorDate: null },
+      ],
+    };
+    expect(reviewReasonLabel(order)).toBe("We couldn't find a purchase date — the return deadline may be estimated");
+  });
+
+  it("does NOT fire the unresolved-forward reason for a pre-resolver row (forwardType null — never classified, not the same as manual)", () => {
+    const order = {
+      ...base,
+      orderDate: null,
+      emails: [
+        { orderNumber: "ABC123", confidence: "high", receivedAt: new Date("2026-07-01"), forwardType: null, anchorDate: null },
+      ],
+    };
+    expect(reviewReasonLabel(order)).toBe("We couldn't find a purchase date — the return deadline may be estimated");
+  });
+
+  it("keys the unresolved-forward reason off the EARLIEST linked email, not the array order (emails arrive most-recent-first from callers)", () => {
+    const order = {
+      ...base,
+      orderDate: null,
+      emails: [
+        // most-recent-first, matching the real query order (receivedAt desc)
+        { orderNumber: "ABC123", confidence: "high", receivedAt: new Date("2026-07-05"), forwardType: "manual", anchorDate: new Date("2026-07-05") },
+        { orderNumber: "ABC123", confidence: "high", receivedAt: new Date("2026-07-01"), forwardType: "manual", anchorDate: null },
+      ],
+    };
+    expect(reviewReasonLabel(order)).toBe("We couldn't confirm the date on a forwarded email");
   });
 
   it("reports a missing purchase date", () => {

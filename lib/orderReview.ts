@@ -84,7 +84,13 @@ type ReviewOrderForLabel = {
   retailer: string | null;
   returnPortalUrl: string | null;
   policySource: string | null;
-  emails: { orderNumber: string | null; confidence: string | null }[];
+  emails: {
+    orderNumber: string | null;
+    confidence: string | null;
+    receivedAt: Date;
+    forwardType: string | null;
+    anchorDate: Date | null;
+  }[];
 };
 
 // [auto]-prefixed userNote entries are the merge logic's own audit trail
@@ -123,6 +129,21 @@ export function reviewReasonLabel(order: ReviewOrderForLabel): string {
   // gap, not fixed here.
   if (classifyReturnPortalTrust(order.returnPortalUrl, order.retailer, order.policySource) === "unknown-unverified") {
     return "The return link on this order could not be verified against the retailer's domain";
+  }
+  // ANCHOR_DATE_RESOLVER.md (2026-07-25), Part 4 decision 3: when the
+  // order's earliest-linked email is a manual forward whose date the
+  // resolver genuinely couldn't confirm, say so specifically rather than
+  // falling through to the generic missing-orderDate reason below. Gated
+  // on forwardType === "manual" (an actual resolver verdict), not just
+  // anchorDate == null — a pre-resolver row has forwardType null and must
+  // fall through unchanged, since null there means "never classified," not
+  // "resolver ran and couldn't confirm a date."
+  const earliestEmail =
+    order.emails.length > 0
+      ? [...order.emails].sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())[0]
+      : null;
+  if (earliestEmail?.forwardType === "manual" && earliestEmail.anchorDate == null) {
+    return "We couldn't confirm the date on a forwarded email";
   }
   if (!order.orderDate) {
     return "We couldn't find a purchase date — the return deadline may be estimated";

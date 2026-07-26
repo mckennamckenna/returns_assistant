@@ -9,6 +9,8 @@ import { notifyAdmin, hasRecentNotification, recordDedupedNotification } from "@
 import { getInboundAddress } from "@/lib/inboundAddress";
 import { recordInboundArrival, INBOUND_FLOOD_THRESHOLD } from "@/lib/inboundVolume";
 import { rateLimit } from "@/lib/rateLimit";
+import { classifyForwardType, resolveAnchorDate, type RawHeader } from "@/lib/forwardResolver";
+import { resolveBodyText } from "@/lib/emailBodyText";
 
 const INBOUND_RATE_LIMIT = 30;
 const INBOUND_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
@@ -23,6 +25,10 @@ interface PostmarkInboundPayload {
   OriginalRecipient?: string;
   To?: string;
   Date?: string;
+  // Raw MIME headers — present on every real Postmark inbound payload but
+  // previously untyped/unread here. ANCHOR_DATE_RESOLVER.md's forward-type
+  // classification (Return-Path/+caf_=, X-Forwarded-For/-To) reads this.
+  Headers?: RawHeader[];
 }
 
 // The "+tag" convention (MailboxHash) only exists on the shared
@@ -227,6 +233,19 @@ export async function POST(request: NextRequest) {
       htmlBody: payload.HtmlBody ?? null,
     });
 
+    // ANCHOR_DATE_RESOLVER.md Part 2 — computed once here, at ingestion,
+    // from the plaintext payload (before encryption) and the raw headers.
+    // Pure/deterministic, no AI call, never fails the request: a resolver
+    // bug should not be able to drop an inbound email.
+    const receivedAt = payload.Date ? new Date(payload.Date) : new Date();
+    const forwardType = classifyForwardType(payload.Headers);
+    const { anchorDate, anchorSource } = resolveAnchorDate({
+      forwardType,
+      headers: payload.Headers,
+      bodyText: resolveBodyText(payload.TextBody ?? null, payload.HtmlBody ?? null),
+      receivedAt,
+    });
+
     const email = await prisma.email.create({
       data: {
         userId: user.id,
@@ -236,8 +255,11 @@ export async function POST(request: NextRequest) {
         subject: payload.Subject,
         textBody: encrypted.textBody,
         htmlBody: encrypted.htmlBody,
-        receivedAt: payload.Date ? new Date(payload.Date) : new Date(),
+        receivedAt,
         rawJson: encryptRawJson(payload),
+        forwardType,
+        anchorDate,
+        anchorSource,
       },
     });
 
