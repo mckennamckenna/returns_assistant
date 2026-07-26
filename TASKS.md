@@ -32,61 +32,6 @@
 
 ## 🔴 Now
 
-> **Task 1 is ✅ DONE, owner-verified in production 2026-07-23 — see ✅ Done
-> section.** Fitness Superstore `#48868` manually linked to its two orphaned
-> emails; confirmed no-op on deadline/anchor/status. Three findings spun out
-> of it, all logged below: a 4th `returnDeadline < orderDate`-shaped
-> wrong-year instance, a types-need-re-verification flag on the
-> 15-orphaned-genuine-commerce report, and a live instance of the
-> email-level "needsReview, no resolve path" dead end (both linked emails
-> still carry `Email.needsReview: true`).
->
-> **STANDING CORRECTION (2026-07-23, on data):** the Needs Review panel's
-> per-flag-type registry (`not_ecommerce` → Delete, `duplicate` → Merge) is
-> SUPERSEDED — flagged in place below and in the Decisions log, not
-> revised. `not_ecommerce` → Delete is rejected outright (15 of 206 orphans
-> are real purchases, `emailType` is recomputed not stable,
-> `prisma.email.delete()` is irreversible — junk-with-rescue replaced it).
-> Neither `duplicate` nor `not_ecommerce` are real stored flag types at
-> all — real data is 13 order-level reasons + 206 email-level (Task 3
-> below). The panel gets rebuilt from that inventory, not patched.
->
-> **Task 2 is DONE this session (2026-07-23) — see the junk-mechanics item
-> below for full detail.** `scripts/backfill-junk-other-emails.ts` applied:
-> 168 junked, 0 of the 13 known orphaned-genuine-commerce emails touched
-> (verified). Dry-run re-check found no drift from the 07-22 baseline on
-> its own, but the apply's verify gate surfaced two findings, both logged
-> in that item below: a 10-email auto-junk leak (explained — pre-deploy
-> backlog, not a live bug; re-extraction theory tested and refuted) and an
-> unresolved eligible-count reconciliation gap (168 / 178 expected / 170
-> script-header — three numbers, not yet the same measurement). A third
-> finding (`lookupReturnPolicy()` firing on marketing `other`-typed emails)
-> is folded into PHASE 1c below. Zero billed Anthropic API calls for any
-> part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
->
-> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see ✅ Done.
-> 2. ~~Apply `scripts/backfill-junk-other-emails.ts`~~ — done, see above.
-> 3. **Needs Review four-slot inventory — REPORT ONLY.** Brief to follow
->    from owner; not started until then.
-> 4. **Connect the email-level "Needs review" badge to the panel.** Must
->    come AFTER Task 2 (now satisfied) — un-junked promotional email would
->    have flooded a surface built for the real orphaned-genuine-commerce
->    emails. Not started today unless owner says so.
-
-- [ ] **PHASE 0 — cost guardrails. NON-CODE, OWNER ACTION, do before any
-      other work. NEW 2026-07-22 (`api-cost-guardrails`).** Two things,
-      both in the Anthropic Console, neither requiring Claude Code:
-      **(a) Monthly spend cap** — Console → Limits → set a monthly limit.
-      Pick a number that is a real ceiling, not a target: baseline is
-      ~$0.50–$2.50/day, so a $75–100/mo cap leaves headroom for a bad day
-      without letting a runaway loop run for a week. **(b) Usage alert** —
-      Console → Billing, email threshold at roughly 2× a normal day. The
-      2026-07-21 spike ($14.50 vs a $0.50–$2.50 baseline) went unnoticed
-      for a full day; an alert would have surfaced it that afternoon.
-      **Rationale for doing this FIRST:** every item below is a code change
-      that needs a session to land. The cap needs five minutes and bounds
-      the damage from anything not yet diagnosed — including the still-open
-      ACE VISALIA status-path question above.
 - [ ] **PHASE 1a — policy-lookup-negative-cache. The single highest-value
       fix from the 2026-07-21 cost investigation. NEW 2026-07-22.** Cache
       failed return-policy lookups, not just successful ones, so a retailer
@@ -143,7 +88,6 @@
       (Target ×2, Bloomingdale's ×2). Cost waste on content with zero
       chance of ever needing a return policy. Fold into this gating
       decision, not investigated further here.
-
 - [ ] **`returnDeadline < orderDate` sweep — QUICK CHECK RUN 2026-07-23,
       ESCALATED (not a one-off).** One query, as asked: any order where
       `returnDeadline < orderDate`. Result: **3 hits, not 1** — Good Eggs
@@ -204,6 +148,11 @@
       independently re-ran `lookupReturnPolicy()` (none are
       `order_confirmation`), accounting for 14 of the 33 policy-lookup
       calls on 07-21, all 14 failed.
+      **Confirmed at scale, 2026-07-23 orphan-candidate report: the same
+      duplicate-MessageID pattern also hit GLOBAL-E NL B.V (~4-6 identical
+      rows), not just ACE VISALIA — inflates the orphan count on any
+      report that doesn't dedupe by MessageID first. Likely first fix
+      tomorrow.**
 - [ ] **H&M — do we extract from attachments? CONFIRMED: no, not at all.
       NEW 2026-07-23.** Checked directly: `app/api/inbound/route.ts`'s
       `PostmarkInboundPayload` interface doesn't declare an `Attachments`
@@ -229,82 +178,6 @@
       candidate case (see the 15-orphaned-purchases item) — if attachments
       become readable, H&M may link itself with no tie-breaker needed at
       all.
-
-- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
-      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
-      spec has landed.** Panel implementation of the quick-check surface
-      spec (mobile audit finding #5, below) — same underlying data
-      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
-      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
-      Decisions log entry, rewritten same commit) — the action model is now
-      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
-      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
-      unregistered type → Review-only, never throws. Still true and kept
-      from the old decision: delete stays behind a confirm; no inline
-      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
-      field/values, duplicate-target existence, explanation-string
-      accuracy) required and reported before any code, per this item's own
-      build instructions — see session detail in `HISTORY.md` once closed.
-      **SUPERSEDED 2026-07-23, on data — flag, do not build:** this
-      registry's premise is falsified on two counts. (1) `not_ecommerce` →
-      Delete was rejected: `emailType` is recomputed (not stable),
-      `prisma.email.delete()` is irreversible, and 15 of 206 orphans turned
-      out to be real purchases — junk-with-rescue (`Email.junkedAt`,
-      `rescueEmail()`, directly below) replaced hard-delete for this
-      population entirely. (2) There are no stored `duplicate` /
-      `not_ecommerce` flag types at all — the verify gate proved real data
-      is 13 order-level reasons + 206 email-level, not these two. Any panel
-      spec written against this registry does not get revised — it gets
-      rebuilt from the four-slot inventory (Task 3, below) instead.
-      **2026-07-22: junk mechanics for the non-commerce orphaned-email
-      population (`emailType === "other"`) BUILT this session, backend
-      only — no UI.** Soft `Email.junkedAt` flag (migration applied — see
-      below), auto-file on ingestion (`shouldAutoJunk`, `lib/junk.ts`),
-      `rescueEmail()` (verified against a disposable throwaway test row,
-      not real data, cleaned up after), an `EmailRescue` event log (not a
-      counter — per-user rescue rate computable, not just aggregate), and a
-      full email-query consumer audit (2 real consumers updated:
-      "Unlinked emails," the weekly coverage-check digest content).
-      `scripts/backfill-junk-other-emails.ts` written 2026-07-22, **APPLIED
-      2026-07-23 — 168 emails junked, verified via before/after count (4
-      pre-existing + 168 = 172 total `junkedAt` NOT NULL rows) and confirmed
-      zero of the 13 known orphaned-genuine-commerce emails were touched.**
-      5 new tests, 450/450 passing, `npm run build` clean. **Schema
-      migration applied to the database** (additive only — one nullable
-      column, one new table, no data written) — separate fact from
-      commit/push/deploy status, see close-out. Full detail in
-      `HISTORY.md`. The panel UI itself (Order-level `duplicate`/Merge, the
-      actual Needs Review panel component) remains unbuilt, still blocked
-      on the owner's panel mock — this was the data-layer piece only.
-      **Auto-junk leak, found + explained during the apply's verify gate
-      (2026-07-23):** of 14 orphaned `other`-typed emails received after
-      2026-07-22, only 4 were already junked before the apply; 10 matched
-      `shouldAutoJunk` but were missed by the live auto-junk path. Initially
-      suspected late reclassification via re-extraction — **refuted by the
-      data:** `extractedAt` trails `receivedAt` by seconds-to-minutes on all
-      14, no delayed-reclassification gap anywhere. **Actual explanation,
-      confirmed clean with zero exceptions:** all 10 missed rows have
-      `receivedAt` before `54fe13f`'s commit time (2026-07-23T02:33:42Z,
-      the commit that added the auto-junk path); all 4 already-junked rows
-      have `receivedAt` after it. They simply arrived before the code
-      existed — the junk check runs once, inside `linkEmailToOrder`'s
-      orphan branch, at ingestion time only, so pre-deploy backlog is never
-      retroactively caught. This is exactly what this backfill script exists
-      to clean up, not a distinct live bug in the running path — but it
-      means the backlog is larger/more recent than the 07-22 baseline
-      assumed. Snapshot of the 10 ids + timestamps preserved in gitignored
-      `.scratch/10-leaked-ids.json` before the apply ran. Not investigated
-      further.
-      **Count reconciliation, flagged not resolved (2026-07-23):** the
-      07-22 baseline was 168 eligible; 10 more became eligible since (the
-      leak above) with none removed from the pool by this backfill (it
-      hadn't run yet) — so the eligible count should have read ~178 on
-      2026-07-23, not still 168. Combined with the script's own header
-      comment citing 170 as of the 07-22 diagnostic (a third number), the
-      eligible-count queries run across this feature's lifetime have not
-      been measuring the same population consistently. Re-derive the
-      counting method before trusting any of these numbers in the
-      four-slot inventory (Task 3) — not re-derived here.
 - [ ] **15 orphaned genuine-commerce emails, no fallback matcher —
       real purchases with no deadline tracked, silently. Surfaced
       2026-07-22 during the Needs Review panel verify gate, full per-email
@@ -348,9 +221,19 @@
       both still carry `Email.needsReview: true`, with no resolve path —
       the same confirmed dead end as the Trust-breaking bug list entry
       above, now observed on a real post-fix row instead of just
-      theoretically. The four-slot inventory (Task 3) must answer what
+      theoretically. The four-slot panel build must answer what
       fills the resolve-action slot for a flag like this. Not investigated
       further now.
+      **Folded in 2026-07-25 (mobile audit finding #6b, no longer a
+      standalone item):** refund/return emails with no order number can't
+      be linked at all today. Proposal: match on item name/description when
+      order number is absent — the same underlying gap as the existing
+      `shopbop-goods-based-matching` 🟡 Next item
+      (`findRefundFallbackOrder()` in `lib/linkOrder.ts`, currently retailer
+      + amount + recency only). The confidence-threshold decision is shared
+      with this item, not spec'd separately. Per the design requirement
+      already recorded above: ambiguous cases route to Needs Review, never
+      guessed.
 - [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
       (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
       go-ahead given, fix deployed. Still needs a code comment explaining
@@ -358,6 +241,93 @@
       `status` recomputes only on new-email-link, never on a schedule — so
       this needs 14+ days in `return_started` plus a later, unrelated
       email to actually fire; 0 orders currently affected.
+- [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
+      pass, prep for a more public-facing alpha: env vars, auth, API
+      routes, input validation, rate limiting, data exposure. Not started
+      tonight. The inbound webhook auth rollout (completed `d5772a8`,
+      2026-07-15) is directly relevant context to start from — its
+      findings inform this cleanse, not blocking work.
+- [ ] **Amazon extraction broken — order-email template change. NEW
+      2026-07-25, owner-reported.** Amazon has changed its order-email
+      template; extraction is failing on the new-format emails.
+      **SYMPTOM: TBD by owner** — not yet specified whether this presents
+      as missing orders, wrong status, or unparsed order numbers. See also
+      `AMAZON_HANDLING.md` Part 3 (✅ Done, parser limitations logged
+      2026-07-20) — this is a new, higher-severity entry in the same
+      parser-limitations family, not a duplicate of the three already
+      logged there (category-count item data, relative delivery dates,
+      multi-shipment order numbers). Not diagnosed or fixed here.
+- [ ] **Preorder ship-date handling — IMPLEMENTED 2026-07-20, pushed — live
+      re-extraction test BLOCKED, not Done.** Step 1 (read-only) confirmed
+      clean: `computeDeadline()`'s `estimatedDeliveryDate` case (case 3)
+      already runs before the `orderDate+5` fallback (case 4); a later
+      shipping-confirmation's own restated estimate already overwrites it
+      via `mergeEmailIntoOrder`'s existing `??` merge. No changes needed to
+      either function.
+      **Implemented (`lib/extract.ts`):** new `RawExtraction.shipByDate`
+      field + a new "PREORDER SHIP DATE" prompt section (only fires on
+      explicit preorder/backorder language with a stated future date, null
+      otherwise — no behavior change for normal orders). New exported
+      `resolveEstimatedDeliveryDate(routedEstimate, shipByDate)` composes it
+      with the existing `routeDeliveryDate` output — a real routed estimate
+      always wins; `shipByDate` is a pure fallback. No schema change, no
+      persisted field — reuses `estimatedDeliveryDate` exactly as scoped.
+      13 new unit tests (`__tests__/computeDeadline.test.ts`), including a
+      direct reproduction of LR's real numbers: confirms the old code
+      produces the actual wrong Jul 25 deadline, and that supplying the
+      8/19 ship date via this new path produces Sep 9 instead (sane,
+      correctly marked `deadlineIsEstimated: true`). 435/435 tests passing,
+      `npm run build` clean.
+      → see DECISIONS.md 2026-07-21 ("Preorder ship-date handling: accepted assumption")
+      **Could not complete the live re-extraction test.** Attempted against
+      the real email (`runExtraction` on LR's actual `order_confirmation`)
+      — the Anthropic API call failed: *"Your credit balance is too low to
+      access the Anthropic API."* Not a code issue — confirmed the Order
+      row was completely untouched by the failed attempt (before/after
+      identical). One real side effect from the attempt itself: it flipped
+      the linked `Email.needsReview` to `true` (this project's
+      `runExtraction` catch-block behavior on any extraction failure) —
+      reverted back to `false` immediately, since it reflected my test
+      hitting a billing wall, not a genuine data-quality signal.
+      **⚠️ URGENT, separate from this task:** this account-level billing
+      failure likely affects **production**, not just this local test —
+      `ANTHROPIC_API_KEY` is confirmed set in Vercel Production (`vercel env
+      ls`), and "credit balance too low" is an Anthropic-account-level
+      error, not specific to one key. **If production shares this same
+      Anthropic account, every real inbound email extraction is currently
+      failing silently** (same catch-block behavior: `needsReview: true`,
+      no real data extracted) — this would mean the core product function
+      is down right now. Owner should check Anthropic Console billing
+      immediately, independent of whether this preorder fix ever gets its
+      live test. Not verified further here (didn't want to spend more of a
+      possibly-already-critical budget testing this).
+      **CONFIRMED 2026-07-20 — this was real, credit has since been
+      restored by owner.** See the outage-scope item directly below.
+- [ ] **Forward auto/manual mis-classification — deadline gate depends on
+      this. NEW 2026-07-21, from the probe above — NOT a "classifier picked
+      wrong" bug, more severe: no classifier exists at all.** `app/(app)/page.tsx:230`
+      and `app/(app)/emails/[id]/page.tsx:76` both render the literal
+      hardcoded string `"Forwarded by you"` — not a lookup, not conditional
+      on any stored field, no such field exists on `Email` at all. Every
+      email shows this same label regardless of how it actually arrived.
+      Confirmed via raw Postmark headers (rawJson, decrypted) that this is
+      wrong for the majority case: 24 of 34 delivery-typed emails carry
+      unambiguous Gmail auto-forward evidence (`Return-Path` with the
+      `+caf_=` Content-Auto-Forward marker, `X-Forwarded-For`/
+      `X-Forwarded-To` headers, original sender's DKIM still validating) —
+      AquaTru among them. The UI has been telling the owner every
+      auto-forwarded order was manually forwarded. Both planned features
+      ((a) forward-date deadline estimation, (b) carrier-link resolve
+      gating) depend on this signal being real and stored, not just
+      inferred ad hoc per investigation. Needs: a real classifier (the
+      header signal — `+caf_=` / `X-Forwarded-For` presence — is cheap and
+      reliable per this probe, not full page rendering) run at ingestion
+      time (`app/api/inbound/route.ts`), a new persisted field, and the two
+      UI call sites updated to read it instead of the static string. Not
+      built here — this is a probe finding, not a fix. **Framed as a build,
+      not a bug fix** — there's no broken derivation to repair, a new one
+      needs to be written from scratch.
+      → see DECISIONS.md 2026-07-21 ("Forward auto/manual classifier: two design rules")
 - [ ] **Mobile UX audit pass — catalog complete 2026-07-17, promoted from
       🟡 Next (`mobile-ux-audit-pass`). Docs-only entry; nothing fixed yet.**
       Real-device pass, real orders, catalog-before-fixing per this item's
@@ -366,6 +336,337 @@
       states what it is, severity, code location (where known), and whether
       the next step is a fix, a spec pass, or an investigation.
 
+      → **1. Bell icon alignment** moved to ❄️ Deferred 2026-07-25
+      (0-for-4 remote-fix attempts; stop remote-reasoning fixes; revisit
+      only with an on-device Safari Web Inspector session, or absorbed into
+      the card-geometry rebuild).
+
+      **2. "This will stop all reminders" caption scoping — ✅ semantic fix
+      DONE, owner-verified 2026-07-17; visual follow-up split out as
+      finding #1b (🟡 Next).** Full detail moved to the Done section.
+
+      → **3. "..." overflow menu replacement** decided 2026-07-25 and
+      folded into the "Unified card geometry + order state machine"
+      🙋 Waiting on Owner item below — see DECISIONS.md 2026-07-25.
+
+      → **4. State-label contradictions + button hierarchy** folded into
+      the "Unified card geometry + order state machine" 🙋 Waiting on
+      Owner item below, 2026-07-25.
+
+      → **5. Quick-check (needs-review) surface** folded into the
+      "Unified card geometry + order state machine" 🙋 Waiting on Owner
+      item below, 2026-07-25.
+
+      **6. Order-linking:**
+      - **6a. SHIPPED (`3f5677f`) — moved to Done.** Turned out not to be an
+        exact-match bug at all (the exact-match query was always correct);
+        see Done section for the actual root cause and `BUILD.md`'s
+        Order-linking notes for the fix.
+      - → **6b. No order number present** folded 2026-07-25 into the
+        "15 orphaned genuine-commerce emails" 🔴 Now item above.
+
+      **7. Full-width "Mark as refunded" button on Returned cards — design
+      judgment, not a bug.** `app/MarkRefundedButton.tsx`, styled full-width
+      via `app/OrderCard.tsx`'s `flex-1` wrapper when it's the sole action on
+      a Returned card. It's a status update the user is confirming, not a
+      decision they're weighing, so primary-CTA visual weight overstates it.
+      Options for a future design pass: shrink it to secondary-button
+      weight, or move it into `OrderActionsMenu`. **Explicitly out of
+      scope, per owner:** auto-detecting the refund from a follow-up email
+      instead of a manual button.
+
+      **8. Truncation, reconfirmed at real-device scale — not new, do not
+      re-log.** Order-number and item-name overflow reconfirmed live on
+      Shopbop, Loeffler Randall, On, and every Amazon card. These are the
+      same findings already tracked as `TRUST_AUDIT.md` rows 7 (order-number
+      + item-summary overflow), 8 (sidebar email truncation — desktop
+      analog), and 14 (order-detail long-order-number wrap). This audit adds
+      real-device confirmation, not new scope.
+
+      **Cross-reference, not a fix here:** image 7 of this audit shows three
+      Amazon cards in sequence with similar visual weight and truncated order
+      numbers — this is the live, concrete case the existing
+      `amazon-dashboard-folder-view` Next item was proposing to solve. This
+      mobile pass confirms that item's premise; it does not attempt Amazon
+      clustering itself.
+
+      **Testing-artifact note, flagged not prioritized:** some observed
+      contradictory states — specifically "Kept" cards also showing "at
+      risk" + a return-by date — were produced by the owner manually moving
+      test orders in and out of Kept during this audit, not a natural user
+      path. Real (finding 4 above is still valid beyond this instance), but
+      this specific combination shouldn't be treated as a live bug to chase.
+
+      **Not in scope, flagged for separate handling:** Mango and Gap Inc.
+      "Returned" cards showing "Return by —" and prompting the user to
+      forward original order confirmations. Owner flagged these as edge
+      cases to handle separately, not part of this workstream.
+
+## 🙋 Waiting on Owner
+
+- **NEEDS: owner sign-off on the card spec (in progress) before build.**
+- [ ] **Unified card geometry + order state machine (2x2 four-slot) —
+      CONSOLIDATED 2026-07-25 from five previously-separate items (Needs
+      Review panel UI, mobile audit findings #3/#4/#5, and M2's UI half).
+      Each original item's full text is preserved verbatim as its own
+      sub-entry below — nothing dropped, only regrouped.**
+      **Framing note (owner-confirmed 2026-07-25):** there is ONE four-slot
+      skeleton — (1) identity, (2) context, (3) state, (4) action — used at
+      two levels. A single order card is one 2x2. The needs-review bucket is
+      a CONTAINER (same pattern as the Amazon bundle card): its header is a
+      2x2 describing the group, and it holds N flagged orders, each rendered
+      as its own 2x2 row. Collapsed = compact stack (identity + why, no
+      action buttons); expanded = each row reveals its slot-4 action. Slots
+      3 and 4 on an order are driven by a single order state machine
+      (Awaiting delivery → Keep→archive; Returnable → Start return →
+      Awaiting drop-off → Awaiting refund → Complete→archive). Slot 4 is a
+      closed action set; an unregistered reason degrades to "view detail,"
+      never throws. The bucket needs an inline-row overflow limit before
+      "View all N →" opens a full page — reuse the Amazon bundle's
+      threshold, don't invent a second one.
+
+      ---
+      **Sub-entry 1 of 6 — Needs Review panel UI (original item; the
+      junk-mechanics backend piece that used to be embedded in this same
+      item was split out to ✅ Done 2026-07-25 since it already shipped —
+      the rest below is unbuilt UI, preserved verbatim):**
+- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
+      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
+      spec has landed.** Panel implementation of the quick-check surface
+      spec (mobile audit finding #5, below) — same underlying data
+      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
+      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
+      Decisions log entry, rewritten same commit) — the action model is now
+      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
+      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
+      unregistered type → Review-only, never throws. Still true and kept
+      from the old decision: delete stays behind a confirm; no inline
+      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
+      field/values, duplicate-target existence, explanation-string
+      accuracy) required and reported before any code, per this item's own
+      build instructions — see session detail in `HISTORY.md` once closed.
+      → see DECISIONS.md 2026-07-23 ("Needs Review panel registry rejected — not_ecommerce/duplicate aren't real flag types")
+
+      ---
+      **Sub-entry 2 of 6 — Mobile audit finding #3 ("..." overflow menu
+      replacement), original text below. DECIDED 2026-07-25 — see
+      DECISIONS.md 2026-07-25: replace ⋯ with a visible trash-can icon
+      (own confirm step) + always-visible Archive. No longer a standalone
+      open question; folded in here as resolved groundwork for the build.**
+      **3. "..." overflow menu replacement — spec, propose don't decide.**
+      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
+      tracking links when present) behind a "⋯" button. Two
+      always-available items don't justify a menu, and hiding
+      destructive-only actions (Delete) behind an ambiguous affordance is the
+      wrong pattern — a user has no visual cue that anything destructive
+      lives there. Proposed replacement, for owner decision, not decided
+      here: an explicit icon affordance (e.g. a trash-can icon with its own
+      confirm step, matching `handleDelete`'s existing
+      `window.confirm`) rather than a generic overflow glyph, with Archive
+      surfaced as its own always-visible action rather than tucked away
+      alongside a destructive one.
+
+      ---
+      **Sub-entry 3 of 6 — Mobile audit finding #4 (state-label
+      contradictions + button hierarchy), original text below:**
+      **4. State-label contradictions + button hierarchy — one workstream,
+      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
+      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
+      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
+      render independently of each other), and primary-CTA visual weight
+      shifts unpredictably between cards (two side-by-side buttons, two
+      buttons with different primary treatment, one full-width button, or
+      none, depending on `getVisibleActions()`'s combination for that order).
+      Underlying issue: the app has no consistent notion of "the user already
+      made a decision about this order" that other UI elements can defer to
+      — each label/badge/button is computed independently. Needs a spec pass
+      (what should suppress what, once a decision is made) before any design
+      or code change. The specific "Kept + at risk" combination observed
+      during this audit was a testing artifact (see note below), but the
+      broader label-fighting pattern is real independent of that instance.
+
+      ---
+      **Sub-entry 4 of 6 — Mobile audit finding #5 (quick-check /
+      review-disclosure surface), original text below:**
+      **5. Quick-check (needs-review) surface doesn't explain itself — spec
+      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
+      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
+      and "split into separate order" with no visible evidence supporting
+      either option and no explanation of why the system isn't confident in
+      the first place. Same root concern as the existing Next item about
+      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
+      it's not just a missing explanation string, it's that the whole
+      surface asks for a judgment call without giving the information
+      needed to make one. Needs a spec pass, not a copy tweak. **This is now
+      the hub for three distinct `needsReview` reasons that all need this
+      same disclosure surface to actually explain themselves:** #6a's
+      kept-status-conflict (`computeKeptStatusConflict()`), M2's
+      return-portal trust tier (`classifyReturnPortalTrust()`), and the
+      original missing-deadline case. Two more gaps in this space are
+      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
+      `reviewreasonlabel-missing-reasons`). Every session that adds a new
+      review-flagging mechanism makes this spec pass more overdue, not less
+      — it's gated on owner mockups, but it's the current highest-leverage
+      piece of unblocked work once those land.
+
+      ---
+      **Sub-entry 5 of 6 — M2 return-portal UI half (original item,
+      moved here in full from ⏳ Verifying 2026-07-25 — the shipped
+      review-signal half described within this same text is already live
+      and deployed; only the UI half is the reason this item is now
+      owner-blocked rather than passively verifying):**
+- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
+      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
+      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
+      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
+      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
+      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
+      `retailer-own-domain` — exact registrable-domain match only, never a
+      substring/contains check; `web-lookup-sourced` — measurement-only, not a
+      security boundary; `unknown-unverified`) and forces `Order.needsReview`
+      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
+      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
+      renders/opens exactly as before. Reason is re-derived live in
+      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
+      (it's a pure function of data already on the row). Tier distribution
+      logged count-only (no URL/retailer/order id). **What's still open:** no
+      domain display, no auto-open gating, no visible "unverified" mark — the
+      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
+      deferred to the pending review-disclosure spec (handles all
+      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
+      detail in `BUILD.md`'s Order-linking section + Decisions log.
+
+      ---
+      **Sub-entry 6 of 6 — four-slot panel build
+      (original text below, from the Task 1-4 tracker):**
+      **Needs Review four-slot inventory — REPORT ONLY.** Brief to follow
+         from owner; not started until then.
+
+- **NEEDS: owner brief for the four-slot panel build before it (and Task 4) can start. NOTE: this list's own four-slot panel build entry says "not started until [owner brief]" — flagged as contradicting the four-slot-inventory blockquote above (→ Done), which states that same inventory is COMPLETE.**
+- → see DECISIONS.md 2026-07-23 ("STANDING CORRECTION: Needs Review panel registry superseded") — originally a standalone note here in 🔴 Now.
+> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see ✅ Done.
+> 2. ~~Apply `scripts/backfill-junk-other-emails.ts`~~ — done, see above.
+> 3. → folded into the "Unified card geometry + order state machine"
+>    item below, 2026-07-25.
+> 4. **Connect the email-level "Needs review" badge to the panel.** Must
+>    come AFTER Task 2 (now satisfied) — un-junked promotional email would
+>    have flooded a surface built for the real orphaned-genuine-commerce
+>    emails. Not started today unless owner says so.
+
+## ⏳ Verifying
+
+- **VERIFY BY: passive — a future scheduled cron run once a real order ages 14+ days past its returnDeadline (0 orders currently eligible).**
+- [ ] **Auto-archive after missed window — pushed (`a7af7df`), auto-deployed.** Nightly
+      cron sweep, silent (no email/Reminder/ActionLog row), 14+ days past
+      `returnDeadline`, scoped to `ordered`/`shipped`/`return_requested` (deliberately
+      excludes `returned` — already user-acted, tracked separately by refund
+      check-in; `refunded`/`kept` never candidates since both already auto-archive on
+      their own manual transitions). `returnDeadline: null` excluded automatically by
+      Prisma's `lte` filter, no explicit guard. New `lib/autoArchive.ts`
+      (`AUTO_ARCHIVE_GRACE_DAYS`, `autoArchiveCutoff()`, `autoArchiveOrderWhere()`,
+      pure/unit-tested) + one new step in `app/api/cron/route.ts` right after the
+      existing hard-delete sweep, `autoArchived` count added to the route's JSON
+      summary, no new `vercel.json` cron entry. 9 new tests
+      (`__tests__/autoArchive.test.ts`, mirrors `archiveDelete.test.ts`'s pattern),
+      221 total passing; `npm run build` clean. Separate commit from "Mark kept" —
+      can't be hand-verified until real orders miss their windows in production, so
+      no reason to bundle it into an earlier deploy. Deployed but still can't be
+      browser-verified — a pre-push read-only query found 0 currently-eligible
+      orders; verification here means watching a future scheduled cron run's
+      `autoArchived` count once a real order ages past the grace period.
+
+- **VERIFY BY: next Friday 16:00 UTC scheduled cron run.**
+- [ ] **Coverage-check dedup bug — FIXED 2026-07-20, pushed, not deployed
+      /verified yet.** Step 1 (read-only) confirmed both suspected
+      mechanisms exactly: dedup was a rolling 7-day lookback from the exact
+      invocation instant, and `?force=true` wrote a Reminder row identically
+      to a scheduled run (only skipped the pre-check, not the write).
+      Confirmed against real dates: Jun 27, 2026 was a **Saturday**
+      (off-schedule force/test — the cron only runs **Fridays**,
+      `0 16 * * 5` per `vercel.json`), Jul 3 was the real scheduled Friday
+      run, 6 days later — inside the old 7-day trailing window computed
+      from Jul 3. **Correction to this item's own framing:** the original
+      ask said verification "waits for a real Sunday," but this route's
+      schedule is Friday, not Sunday (that's `weekly-digest`, a separate
+      route) — flagging since the fix's real-world verification should
+      watch the next Friday, not Sunday.
+      Fix: new `lib/coverageCheck.ts` (`scheduledRunWeekStart()`, pure,
+      10 unit tests including a direct reproduction of the Jun 27/Jul 3
+      incident using the real dates) — dedup now keys off the most recent
+      scheduled Friday-16:00-UTC instant, not a rolling window. Separately,
+      `prisma.reminder.create(...)` in the route is now skipped entirely
+      when `force === true` (the load-bearing fix — this is what actually
+      stops a force send suppressing a same-week real run; the week-keying
+      is defense-in-depth on top). The content window (what emails a real
+      run's summary includes) is untouched — only the dedup boundary
+      changed. Also found, out of scope, flagged only:
+      **`app/api/cron/weekly-digest/route.ts` has the identical bug pattern**
+      (same rolling lookback, same unconditional `reminder.create` under
+      force) — the Sunday digest is equally exposed; not fixed here.
+      Verified locally: `npm run build` clean, 421/421 tests passing (10
+      new). **Real-world verification still needs a real Friday run** — not
+      Done until confirmed live. Out of scope, untouched: cron alerting,
+
+- **VERIFY BY: next Sunday 16:00 UTC scheduled cron run.**
+- [ ] **weekly-digest dedup bug (Sunday "your returns this week") — FIXED
+      2026-07-20, pushed, not deployed/verified yet — the real product
+      email, all users, higher stakes than the Friday coverage-check.**
+      Sanity-check confirmed the two routes **duplicate** the dedup logic
+      (no shared module) — mirrored the fix rather than unifying at the
+      source, duplication flagged as tech debt below. New
+      `lib/weeklyDigestDedup.ts` (deliberately a near-duplicate of
+      `lib/coverageCheck.ts`, Sunday/16:00 UTC instead of Friday/16:00 UTC)
+      — dedup now keys off the most recent scheduled Sunday-16:00-UTC
+      instant instead of a rolling 7-day lookback. `prisma.reminder.create(...)`
+      in `weekly-digest/route.ts` now skipped entirely when `force === true`
+      (the load-bearing fix, same as `9163d0b`). The "due this week" content
+      window (`sevenDaysOut`, a forward-looking query — different shape than
+      coverage-check's backward-looking content window, unrelated to dedup)
+      is untouched. 9 new tests in `__tests__/weeklyDigestDedup.test.ts`,
+      including a constructed same-week test-send-vs-real-run scenario
+      (Jun 29 Monday off-schedule send vs. Jul 5 Sunday real run, 6 days
+      apart, mirroring the real weekly-coverage incident's shape since there
+      was no real reported incident date for this route specifically) —
+      proves the old boundary would have dropped the user and the new one
+      doesn't. Verified locally: `npm run build` clean, 430/430 tests
+      passing (9 new). **Real-world verification still needs a real Sunday
+      run** — not Done until confirmed live.
+
+- **VERIFY BY: owner glance at production — browser-verifiable immediately, no cron wait needed.**
+- [ ] **Sidebar account-email truncation (cosmetic) — FIXED 2026-07-20,
+      pushed, awaiting owner verification in production — not Done.**
+      `app/Sidebar.tsx` — added a `title={accountLabel}` attribute to the
+      existing `truncate` span, same pattern already used for order-number
+      display elsewhere in the app. **Diagnostic note:** `Sidebar` is
+      `hidden md:flex` — desktop-only, no mobile equivalent exists (checked
+      `BottomNav.tsx`, confirmed no account-email display there at all). Its
+      column is a fixed `w-60` (240px) regardless of overall viewport width
+      once ≥768px, so "narrow width" for this specific element means the
+      sidebar's own fixed column, not the page's overall width — verified at
+      both 768px (the `md` breakpoint boundary, the narrowest real case)
+      and 1440px with a synthetic long email created solely for this check
+      (`mckenna.sweazey+truncationtest@metaxmoda-extremely-long-example-domain.com`,
+      a throwaway test user + session, deleted immediately after — not a
+      real account). Confirmed at both widths: `scrollWidth > clientWidth`
+      (ellipsis actually engaging, not just visually plausible) and the
+      `title` attribute holds the exact full address. `npm run build` clean,
+      430/430 tests passing (no test coverage added — CSS/layout, no jsdom
+      per this project's component-testing philosophy). Browser-verifiable
+      on deploy — owner should confirm on production, no cron wait needed.
+
+## ❄️ Deferred
+
+- [ ] **Mobile audit finding #1 — Bell icon alignment on bottom nav.
+      DEFERRED 2026-07-25 (owner instruction) — moved out of active
+      🔴 Now/🙋 Waiting on Owner. STOP attempting further
+      remote-reasoning fixes: this is 0-for-4 (leading-none;
+      considered-and-rejected wrapper removal; min-h-dvh + vh fallback;
+      the 2026-07-17 checkpoint that confirmed it still isn't fixed).
+      Revisit only with an on-device Safari Web Inspector session
+      (remote-debug a real iPhone from a Mac), OR absorb into the
+      card-geometry rebuild (🙋 Waiting on Owner) if the bottom-nav
+      badge pattern gets touched incidentally by that work. Full
+      diagnostic history below, preserved verbatim, not re-summarized.**
       **1. Bell icon alignment on bottom nav — FIXED 2026-07-17, awaiting
       owner verification on a real device.** Root cause: the badge
       (`app/BottomNav.tsx`) was correctly `position: absolute`, not a
@@ -440,639 +741,6 @@
       Mac) session to actually observe the computed box/line-height values
       during the toolbar animation before another fix attempt — owner needs
       a Mac + iPhone cable for this, not more diagnosis-by-code-reading.
-
-      **2. "This will stop all reminders" caption scoping — ✅ semantic fix
-      DONE, owner-verified 2026-07-17; visual follow-up split out as
-      finding #1b (🟡 Next).** Full detail moved to the Done section.
-
-      **3. "..." overflow menu replacement — spec, propose don't decide.**
-      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
-      tracking links when present) behind a "⋯" button. Two
-      always-available items don't justify a menu, and hiding
-      destructive-only actions (Delete) behind an ambiguous affordance is the
-      wrong pattern — a user has no visual cue that anything destructive
-      lives there. Proposed replacement, for owner decision, not decided
-      here: an explicit icon affordance (e.g. a trash-can icon with its own
-      confirm step, matching `handleDelete`'s existing
-      `window.confirm`) rather than a generic overflow glyph, with Archive
-      surfaced as its own always-visible action rather than tucked away
-      alongside a destructive one.
-
-      **4. State-label contradictions + button hierarchy — one workstream,
-      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
-      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
-      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
-      render independently of each other), and primary-CTA visual weight
-      shifts unpredictably between cards (two side-by-side buttons, two
-      buttons with different primary treatment, one full-width button, or
-      none, depending on `getVisibleActions()`'s combination for that order).
-      Underlying issue: the app has no consistent notion of "the user already
-      made a decision about this order" that other UI elements can defer to
-      — each label/badge/button is computed independently. Needs a spec pass
-      (what should suppress what, once a decision is made) before any design
-      or code change. The specific "Kept + at risk" combination observed
-      during this audit was a testing artifact (see note below), but the
-      broader label-fighting pattern is real independent of that instance.
-
-      **5. Quick-check (needs-review) surface doesn't explain itself — spec
-      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
-      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
-      and "split into separate order" with no visible evidence supporting
-      either option and no explanation of why the system isn't confident in
-      the first place. Same root concern as the existing Next item about
-      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
-      it's not just a missing explanation string, it's that the whole
-      surface asks for a judgment call without giving the information
-      needed to make one. Needs a spec pass, not a copy tweak. **This is now
-      the hub for three distinct `needsReview` reasons that all need this
-      same disclosure surface to actually explain themselves:** #6a's
-      kept-status-conflict (`computeKeptStatusConflict()`), M2's
-      return-portal trust tier (`classifyReturnPortalTrust()`), and the
-      original missing-deadline case. Two more gaps in this space are
-      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
-      `reviewreasonlabel-missing-reasons`). Every session that adds a new
-      review-flagging mechanism makes this spec pass more overdue, not less
-      — it's gated on owner mockups, but it's the current highest-leverage
-      piece of unblocked work once those land.
-
-      **6. Order-linking:**
-      - **6a. SHIPPED (`3f5677f`) — moved to Done.** Turned out not to be an
-        exact-match bug at all (the exact-match query was always correct);
-        see Done section for the actual root cause and `BUILD.md`'s
-        Order-linking notes for the fix.
-      - **6b. No order number present — design decision needed, connects to
-        an existing Next item.** Refund/return emails without an order
-        number can't be linked at all today. Proposal: match on item
-        name/description when order number is absent. This is the same
-        underlying gap as the existing `shopbop-goods-based-matching` Next
-        item (`findRefundFallbackOrder()` in `lib/linkOrder.ts`, currently
-        retailer + amount + recency only) — don't spec these separately;
-        the confidence-threshold decision is shared.
-
-      **7. Full-width "Mark as refunded" button on Returned cards — design
-      judgment, not a bug.** `app/MarkRefundedButton.tsx`, styled full-width
-      via `app/OrderCard.tsx`'s `flex-1` wrapper when it's the sole action on
-      a Returned card. It's a status update the user is confirming, not a
-      decision they're weighing, so primary-CTA visual weight overstates it.
-      Options for a future design pass: shrink it to secondary-button
-      weight, or move it into `OrderActionsMenu`. **Explicitly out of
-      scope, per owner:** auto-detecting the refund from a follow-up email
-      instead of a manual button.
-
-      **8. Truncation, reconfirmed at real-device scale — not new, do not
-      re-log.** Order-number and item-name overflow reconfirmed live on
-      Shopbop, Loeffler Randall, On, and every Amazon card. These are the
-      same findings already tracked as `TRUST_AUDIT.md` rows 7 (order-number
-      + item-summary overflow), 8 (sidebar email truncation — desktop
-      analog), and 14 (order-detail long-order-number wrap). This audit adds
-      real-device confirmation, not new scope.
-
-      **Cross-reference, not a fix here:** image 7 of this audit shows three
-      Amazon cards in sequence with similar visual weight and truncated order
-      numbers — this is the live, concrete case the existing
-      `amazon-dashboard-folder-view` Next item was proposing to solve. This
-      mobile pass confirms that item's premise; it does not attempt Amazon
-      clustering itself.
-
-      **Testing-artifact note, flagged not prioritized:** some observed
-      contradictory states — specifically "Kept" cards also showing "at
-      risk" + a return-by date — were produced by the owner manually moving
-      test orders in and out of Kept during this audit, not a natural user
-      path. Real (finding 4 above is still valid beyond this instance), but
-      this specific combination shouldn't be treated as a live bug to chase.
-
-      **Not in scope, flagged for separate handling:** Mango and Gap Inc.
-      "Returned" cards showing "Return by —" and prompting the user to
-      forward original order confirmations. Owner flagged these as edge
-      cases to handle separately, not part of this workstream.
-- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
-      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
-      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
-      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
-      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
-      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
-      `retailer-own-domain` — exact registrable-domain match only, never a
-      substring/contains check; `web-lookup-sourced` — measurement-only, not a
-      security boundary; `unknown-unverified`) and forces `Order.needsReview`
-      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
-      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
-      renders/opens exactly as before. Reason is re-derived live in
-      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
-      (it's a pure function of data already on the row). Tier distribution
-      logged count-only (no URL/retailer/order id). **What's still open:** no
-      domain display, no auto-open gating, no visible "unverified" mark — the
-      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
-      deferred to the pending review-disclosure spec (handles all
-      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
-      detail in `BUILD.md`'s Order-linking section + Decisions log.
-- [ ] **Security cleanse (queued 2026-07-14, tomorrow's priority)** — full
-      pass, prep for a more public-facing alpha: env vars, auth, API
-      routes, input validation, rate limiting, data exposure. Not started
-      tonight. The inbound webhook auth rollout (completed `d5772a8`,
-      2026-07-15) is directly relevant context to start from — its
-      findings inform this cleanse, not blocking work.
-- [ ] **Retailer logo coverage test — investigation only, both passes now run
-      live against Logo.dev.** Domain pass (real observed sender domains):
-      15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
-      Name pass (retailers with no domain): 20/22 hit, 2 confirmed wrong
-      (NET-A-PORTER, Sidekick), 4 unverified generic marks. Quality-adjusted:
-      78.3% of order volume gets a confidently-correct logo, not the 93.5%
-      raw hit rate. See `LOGO_COVERAGE.md` for full breakdown + recommendation
-      (2026-07-13). `LOGO_DEV_PUBLISHABLE_KEY` added to gitignored `.env.local`
-      only — not committed, not in Vercel. No code/schema/UI changes, no
-      commits.
-- [ ] **Auto-archive after missed window — pushed (`a7af7df`), auto-deployed.** Nightly
-      cron sweep, silent (no email/Reminder/ActionLog row), 14+ days past
-      `returnDeadline`, scoped to `ordered`/`shipped`/`return_requested` (deliberately
-      excludes `returned` — already user-acted, tracked separately by refund
-      check-in; `refunded`/`kept` never candidates since both already auto-archive on
-      their own manual transitions). `returnDeadline: null` excluded automatically by
-      Prisma's `lte` filter, no explicit guard. New `lib/autoArchive.ts`
-      (`AUTO_ARCHIVE_GRACE_DAYS`, `autoArchiveCutoff()`, `autoArchiveOrderWhere()`,
-      pure/unit-tested) + one new step in `app/api/cron/route.ts` right after the
-      existing hard-delete sweep, `autoArchived` count added to the route's JSON
-      summary, no new `vercel.json` cron entry. 9 new tests
-      (`__tests__/autoArchive.test.ts`, mirrors `archiveDelete.test.ts`'s pattern),
-      221 total passing; `npm run build` clean. Separate commit from "Mark kept" —
-      can't be hand-verified until real orders miss their windows in production, so
-      no reason to bundle it into an earlier deploy. Deployed but still can't be
-      browser-verified — a pre-push read-only query found 0 currently-eligible
-      orders; verification here means watching a future scheduled cron run's
-      `autoArchived` count once a real order ages past the grace period.
-- [ ] **Verify brother's Gmail forwarding filter is actually built and forwarding** —
-      as of session close he had verified his Return Window forwarding address
-      with Google, but not confirmed to have (a) opened the deep link successfully,
-      (b) built the Gmail filter using the preloaded commerce query, or (c) had
-      any commerce email actually forward through. Poll him tomorrow; if he
-      responds, log verbatim what he did. Step 5 UX is still unverified for
-      any non-owner user.
-- [ ] **Docs: create `## 🐛 Bugs` section in TASKS.md** — capture-only.
-      Relocate existing trust-breaking/annoying/cosmetic bug items out of
-      🟡 Next into a dedicated section right after 🔴 Now, preserving each
-      item's text verbatim. No fixes this session.
-- [ ] **`AMAZON_HANDLING.md` — rewritten to v1 (awareness-only), 2026-07-20 —
-      awaiting owner approval, not Done.** Owner resolved the strategic
-      caveat toward **v1 = awareness-only**: Amazon card lists orders
-      read-only, no in-app keep/return. The full action model (Keep/Return
-      buttons, return state machine, refund-dispute branch, per-email
-      cadence) is preserved in the doc's "Deferred to a possible v2" section,
-      not deleted. O1–O3 resolved (Amazon-only scope, implied-state badge,
-      grocery/health blocked upstream); O4/O5 deferred with v2. Two
-      build-time opens remain, both flagged inline in the doc:
-      **O6** (card layout — doc now correctly says build from the mock, not
-      `return-window-design-tokens.md`, whose §2 is Type scale and §6 a
-      single-column layout, not a 2×2 grid — this was already caught last
-      pass). **O7** (which field drives each row's status label) — the v1
-      draft assumed `displayStatus` alone would suffice; **checked against
-      `lib/displayStatus.ts` and it doesn't** — `DISPLAY_STATUS_LABELS` only
-      covers 6 values and both "in transit" and "delivered, decision
-      pending" collapse to the same `"shipped"` value under
-      `deriveDisplayStatus()`'s ladder, so `displayStatus` can't distinguish
-      1.2's `arrives 7/29` row from its `12 days` row. "Returnable" doesn't
-      exist as a `displayStatus` value at all — it's a separate internal
-      `status` enum value (`lib/linkOrder.ts`). O7 is flagged as **not yet
-      actually resolved** — needs `deliveredAt`/`estimatedDeliveryDate`
-      and/or internal `status` in the mix, a real decision still owed before
-      Part 1.2 is coded.
-- [ ] **Amazon dashboard folder card (v1, awareness-only) — BUILT
-      2026-07-20, pushed, awaiting owner verification in production —
-      NOT Done.** Per `AMAZON_HANDLING.md`, refined by owner build
-      instructions this session. New: `lib/amazonBundle.ts` (`isAmazonOrder`,
-      `isDeliveredDecisionPending`, `amazonRowLabel`, `amazonComposition`,
-      `earliestAmazonDeadline`, `compareNullableDate` — all pure, 25 unit
-      tests in `__tests__/amazonBundle.test.ts`), `app/AmazonBundleCard.tsx`
-      (collapsed/expanded folder card), `app/(app)/amazon/page.tsx` (the
-      "View all" read-only full list). `app/(app)/page.tsx` now excludes
-      active Amazon orders from the regular per-order list and renders the
-      bundle card once instead (archived Amazon orders are unaffected — still
-      render individually on the Archived tab, since the bundle only covers
-      active orders).
-      **O7 resolved in code, matching this session's earlier verification:**
-      "delivered" is `deliveredAt !== null` (not `displayStatus`), with
-      `return_requested`/`returned` always taking priority over a stale
-      delivered/countdown reading. Confirmed against real data:
-      `retailer` is a clean, consistent `"Amazon"` string in production (no
-      sub-brand variants yet), so the `isAmazonOrder` substring match is
-      solid for now.
-      **Known simplifications, not silently made — flagging here:**
-      (1) The doc's 2.1 says the bundle "sorts among other retailer cards ...
-      like any other card"; built instead as its own always-visible section
-      (same pattern as the existing Needs-review block), not interleaved
-      into the sorted per-order list — cross-type sort interleaving across
-      all 6 sort fields wasn't specified and isn't built. (2) The bundle
-      ignores the search box entirely (same as Needs-review). (3)
-      `earliestAmazonDeadline` and the "5 delivered" row filter both exclude
-      `return_requested` orders — the doc's drop-off/label-expiry deadline
-      isn't tracked as a distinct field in the schema, so v1 doesn't attempt
-      it. (4) The bundle's `DaysLeftChip` badge always passes
-      `isEstimated={false}` — bundle-level deadline-estimation-aggregation
-      isn't attempted.
-      **Verified locally before push:** `npm run build` clean, all 411 tests
-      passing (386 pre-existing + 25 new). Browser-checked against a live
-      dev server pointed at production data, authenticated as the owner's
-      own account via a temporary Auth.js session row (created, verified,
-      then deleted immediately after — no lasting change): dashboard loads
-      with no console errors, the bundle card renders with real data ("2
-      orders · $75.41 · 1 in transit · 1 ordered", dash badge since neither
-      is delivered yet), expand/collapse works, `/amazon` renders both real
-      orders with working Archive links, and clicking through to
-      `/orders/[id]` works. **Not yet checked live in production** (only
-      locally against a dev server) — owner should verify on
-      app.myreturnwindow.com once deployed.
-- [ ] **`AMAZON_HANDLING.md` Part 3 — three new parser limitations logged
-      2026-07-20, from real order emails.** Docs-only. (1) Item data is
-      category counts, not product names/photos — row copy needs to stop
-      implying a product name. (2) Delivery dates are relative ("Arriving
-      tomorrow") and need resolving against the email's `receivedAt`. (3)
-      One order number can span multiple shipments in a single email
-      (`111-7078168-2781034` seen as both "Arriving Wednesday" and "Arriving
-      tomorrow") — split-shipment dedup risk, must not render as two orders.
-- [ ] **Coverage-check dedup bug — FIXED 2026-07-20, pushed, not deployed
-      /verified yet.** Step 1 (read-only) confirmed both suspected
-      mechanisms exactly: dedup was a rolling 7-day lookback from the exact
-      invocation instant, and `?force=true` wrote a Reminder row identically
-      to a scheduled run (only skipped the pre-check, not the write).
-      Confirmed against real dates: Jun 27, 2026 was a **Saturday**
-      (off-schedule force/test — the cron only runs **Fridays**,
-      `0 16 * * 5` per `vercel.json`), Jul 3 was the real scheduled Friday
-      run, 6 days later — inside the old 7-day trailing window computed
-      from Jul 3. **Correction to this item's own framing:** the original
-      ask said verification "waits for a real Sunday," but this route's
-      schedule is Friday, not Sunday (that's `weekly-digest`, a separate
-      route) — flagging since the fix's real-world verification should
-      watch the next Friday, not Sunday.
-      Fix: new `lib/coverageCheck.ts` (`scheduledRunWeekStart()`, pure,
-      10 unit tests including a direct reproduction of the Jun 27/Jul 3
-      incident using the real dates) — dedup now keys off the most recent
-      scheduled Friday-16:00-UTC instant, not a rolling window. Separately,
-      `prisma.reminder.create(...)` in the route is now skipped entirely
-      when `force === true` (the load-bearing fix — this is what actually
-      stops a force send suppressing a same-week real run; the week-keying
-      is defense-in-depth on top). The content window (what emails a real
-      run's summary includes) is untouched — only the dedup boundary
-      changed. Also found, out of scope, flagged only:
-      **`app/api/cron/weekly-digest/route.ts` has the identical bug pattern**
-      (same rolling lookback, same unconditional `reminder.create` under
-      force) — the Sunday digest is equally exposed; not fixed here.
-      Verified locally: `npm run build` clean, 421/421 tests passing (10
-      new). **Real-world verification still needs a real Friday run** — not
-      Done until confirmed live. Out of scope, untouched: cron alerting,
-      subject/tone, zero-returns fallback.
-- [ ] **weekly-digest dedup bug (Sunday "your returns this week") — FIXED
-      2026-07-20, pushed, not deployed/verified yet — the real product
-      email, all users, higher stakes than the Friday coverage-check.**
-      Sanity-check confirmed the two routes **duplicate** the dedup logic
-      (no shared module) — mirrored the fix rather than unifying at the
-      source, duplication flagged as tech debt below. New
-      `lib/weeklyDigestDedup.ts` (deliberately a near-duplicate of
-      `lib/coverageCheck.ts`, Sunday/16:00 UTC instead of Friday/16:00 UTC)
-      — dedup now keys off the most recent scheduled Sunday-16:00-UTC
-      instant instead of a rolling 7-day lookback. `prisma.reminder.create(...)`
-      in `weekly-digest/route.ts` now skipped entirely when `force === true`
-      (the load-bearing fix, same as `9163d0b`). The "due this week" content
-      window (`sevenDaysOut`, a forward-looking query — different shape than
-      coverage-check's backward-looking content window, unrelated to dedup)
-      is untouched. 9 new tests in `__tests__/weeklyDigestDedup.test.ts`,
-      including a constructed same-week test-send-vs-real-run scenario
-      (Jun 29 Monday off-schedule send vs. Jul 5 Sunday real run, 6 days
-      apart, mirroring the real weekly-coverage incident's shape since there
-      was no real reported incident date for this route specifically) —
-      proves the old boundary would have dropped the user and the new one
-      doesn't. Verified locally: `npm run build` clean, 430/430 tests
-      passing (9 new). **Real-world verification still needs a real Sunday
-      run** — not Done until confirmed live.
-- [ ] **Sidebar account-email truncation (cosmetic) — FIXED 2026-07-20,
-      pushed, awaiting owner verification in production — not Done.**
-      `app/Sidebar.tsx` — added a `title={accountLabel}` attribute to the
-      existing `truncate` span, same pattern already used for order-number
-      display elsewhere in the app. **Diagnostic note:** `Sidebar` is
-      `hidden md:flex` — desktop-only, no mobile equivalent exists (checked
-      `BottomNav.tsx`, confirmed no account-email display there at all). Its
-      column is a fixed `w-60` (240px) regardless of overall viewport width
-      once ≥768px, so "narrow width" for this specific element means the
-      sidebar's own fixed column, not the page's overall width — verified at
-      both 768px (the `md` breakpoint boundary, the narrowest real case)
-      and 1440px with a synthetic long email created solely for this check
-      (`mckenna.sweazey+truncationtest@metaxmoda-extremely-long-example-domain.com`,
-      a throwaway test user + session, deleted immediately after — not a
-      real account). Confirmed at both widths: `scrollWidth > clientWidth`
-      (ellipsis actually engaging, not just visually plausible) and the
-      `title` attribute holds the exact full address. `npm run build` clean,
-      430/430 tests passing (no test coverage added — CSS/layout, no jsdom
-      per this project's component-testing philosophy). Browser-verifiable
-      on deploy — owner should confirm on production, no cron wait needed.
-- [ ] **Preorder / unconfirmed-delivery wrong-deadline — INVESTIGATION
-      COMPLETE 2026-07-20, no code changed.** Confirmed against real data
-      (LR #512867: `orderDate` 6/29, no delivery fields at all,
-      `returnWindowStartsFrom: "delivery_date"` stated in-email,
-      `returnDeadline` 7/25 = 6/29 + 5-day fallback + 21-day window, exactly
-      reproducing the bug; AquaTru: `status: "returnable"` but
-      `displayStatus: "shipped"` after a real `delivery` email).
-      **(1) Ship/preorder date: not captured anywhere.** `lib/extract.ts`'s
-      `RawExtraction`/prompt (`buildPrompt`) has no ship-date/preorder field
-      or instruction at all — dropped entirely, not mis-mapped into
-      `deliveryDate`.
-      **(2) Confirmed vs. estimated: a real, deliberate 3-way split exists**
-      — `routeDeliveryDate()` (`lib/extract.ts:235`) routes the AI's one
-      `deliveryDate` field to `deliveredAt` (confirmed, only when
-      `emailType === "delivery"`) or `estimatedDeliveryDate` (a carrier ETA,
-      every other type); `deadlineIsEstimated` is set per-case in
-      `computeDeadline()` (`lib/extract.ts:287`).
-      **(3) 5-day fallback confirmed firing exactly as suspected.**
-      `STANDARD_SHIPPING_DAYS = 5` (`lib/extract.ts:13`), case 4 of
-      `computeDeadline()` (lines 327-333): fires when `orderDate` is known
-      but neither `deliveredAt` nor `estimatedDeliveryDate` exist —
-      unconditional, no ship-date awareness (none could exist, per (1)).
-      **(4) AquaTru: state-transition miss, not classification miss.** The
-      `delivery` email WAS correctly typed (confirmed in `extractionNotes`)
-      and internal `status` correctly derived to `"returnable"`
-      (`computeOrderStatus`, `lib/linkOrder.ts:204`). But `displayStatus`'s
-      ladder (`deriveDisplayStatus`, `lib/displayStatus.ts:87-94`) has **no
-      "delivered" rung at all** — `shipping_confirmation` and `delivery`
-      both derive to the same `"shipped"` value, and `DISPLAY_STATUS_LABELS`
-      (same file) has no `"delivered"` entry — so `DisplayStatusBadge.tsx`
-      renders the literal word "Shipped" on a package delivered days ago.
-      The countdown itself isn't affected (`DaysLeftChip` reads
-      `returnDeadline` directly, not `displayStatus`) — this is a
-      user-facing label gap, not a deadline-computation bug.
-      **→ Promoted to its own 🔴 Now item 2026-07-21 ("AquaTru 'Shipped
-      forever' — add a real delivered display state") — being built there,
-      not tracked as a loose end of this investigation anymore.**
-      **(5) No existing "user-set, don't overwrite" pattern for date
-      fields.** `mergeEmailIntoOrder` (`lib/linkOrder.ts:475`) merges every
-      delivery/date field via `email.X ?? existing.X` — a new email's
-      non-null value always wins, with zero concept of "already
-      user-corrected, don't touch." The closest existing precedent is
-      `displayStatus`'s rank-based downgrade guard
-      (`DISPLAY_STATUS_RANK`/`deriveDisplayStatus`, `lib/displayStatus.ts`)
-      and `orderDateEstimated`'s provenance flag — neither actually protects
-      a value from being *replaced* by a different non-null value, only
-      from being erased by a null or downgraded in rank. A new boolean
-      flag per protected field (shape TBD) would be net-new, not a reuse.
-      **Recommended fix shapes (not implemented, for owner decision):**
-      **(A)** add a captured ship/preorder-date field (new prompt
-      instruction + schema column, e.g. `shipByDate`) and make
-      `computeDeadline()`'s case 4 preorder-aware: never estimate a delivery
-      date earlier than a known ship date, and treat a stated future
-      ship-by date as its own backstop regardless of anchor.
-      **(B) two independent options, not mutually exclusive:** add a
-      "delivered" rung to `displayStatus` (schema comment + `DISPLAY_STATUS_RANK`
-      + `DISPLAY_STATUS_LABELS` + `deriveDisplayStatus`'s ladder), OR leave
-      `displayStatus` as steps-toward-a-decision and have the UI read
-      `status === "returnable"` for the label instead — smaller blast radius
-      since `displayStatus`'s rank system is load-bearing elsewhere (kept/
-      refunded auto-archive gating).
-      **(C)** a new boolean per overridable field (e.g. `deliveryDateUserSet`),
-      checked in `mergeEmailIntoOrder`'s merge (skip the `??` overwrite when
-      set) — set only via a new manual-entry endpoint, and only when the
-      value came from a real `deliveredAt` (confirmed carrier email, never
-      user-editable) is it "locked"; an `estimatedDeliveryDate`/fallback
-      value stays user-overridable until a confirmed one arrives.
-      Not spec'd further — owner to decide direction before any build.
-- [ ] **Preorder ship-date handling — IMPLEMENTED 2026-07-20, pushed — live
-      re-extraction test BLOCKED, not Done.** Step 1 (read-only) confirmed
-      clean: `computeDeadline()`'s `estimatedDeliveryDate` case (case 3)
-      already runs before the `orderDate+5` fallback (case 4); a later
-      shipping-confirmation's own restated estimate already overwrites it
-      via `mergeEmailIntoOrder`'s existing `??` merge. No changes needed to
-      either function.
-      **Implemented (`lib/extract.ts`):** new `RawExtraction.shipByDate`
-      field + a new "PREORDER SHIP DATE" prompt section (only fires on
-      explicit preorder/backorder language with a stated future date, null
-      otherwise — no behavior change for normal orders). New exported
-      `resolveEstimatedDeliveryDate(routedEstimate, shipByDate)` composes it
-      with the existing `routeDeliveryDate` output — a real routed estimate
-      always wins; `shipByDate` is a pure fallback. No schema change, no
-      persisted field — reuses `estimatedDeliveryDate` exactly as scoped.
-      13 new unit tests (`__tests__/computeDeadline.test.ts`), including a
-      direct reproduction of LR's real numbers: confirms the old code
-      produces the actual wrong Jul 25 deadline, and that supplying the
-      8/19 ship date via this new path produces Sep 9 instead (sane,
-      correctly marked `deadlineIsEstimated: true`). 435/435 tests passing,
-      `npm run build` clean.
-      **ACCEPTED ASSUMPTION (per owner, log this — see Decisions log too):**
-      a preorder is handled as a known-later estimate, not a new concept —
-      relies on the retailer eventually sending a shipping-confirmation
-      email that moves the anchor to reality. **Watch-item:** if a retailer
-      never sends one (or sends one that doesn't restate its own delivery
-      estimate), that order's deadline keeps the original ship-by estimate
-      and may drift from the true delivery date. Not a bug — an accepted,
-      logged trade-off.
-      **Could not complete the live re-extraction test.** Attempted against
-      the real email (`runExtraction` on LR's actual `order_confirmation`)
-      — the Anthropic API call failed: *"Your credit balance is too low to
-      access the Anthropic API."* Not a code issue — confirmed the Order
-      row was completely untouched by the failed attempt (before/after
-      identical). One real side effect from the attempt itself: it flipped
-      the linked `Email.needsReview` to `true` (this project's
-      `runExtraction` catch-block behavior on any extraction failure) —
-      reverted back to `false` immediately, since it reflected my test
-      hitting a billing wall, not a genuine data-quality signal.
-      **⚠️ URGENT, separate from this task:** this account-level billing
-      failure likely affects **production**, not just this local test —
-      `ANTHROPIC_API_KEY` is confirmed set in Vercel Production (`vercel env
-      ls`), and "credit balance too low" is an Anthropic-account-level
-      error, not specific to one key. **If production shares this same
-      Anthropic account, every real inbound email extraction is currently
-      failing silently** (same catch-block behavior: `needsReview: true`,
-      no real data extracted) — this would mean the core product function
-      is down right now. Owner should check Anthropic Console billing
-      immediately, independent of whether this preorder fix ever gets its
-      live test. Not verified further here (didn't want to spend more of a
-      possibly-already-critical budget testing this).
-      **CONFIRMED 2026-07-20 — this was real, credit has since been
-      restored by owner.** See the outage-scope item directly below.
-- [ ] **Scope Anthropic billing-outage extraction failures — INVESTIGATION
-      ONLY, 2026-07-20, no re-extraction yet (owner instruction).** Window:
-      ~4pm–9pm PDT (`2026-07-20T23:00:00Z` to now). Signal used:
-      `needsReview: true` AND `emailType: null` (the precise fingerprint of
-      `runExtraction`'s catch-block failure path — a genuinely-successful
-      extraction always sets `emailType` to something, even `"other"`).
-      **Found: 8 emails across 4 real users**, all orphaned (`orderId:
-      null`, so each already shows in that user's "Unlinked emails"
-      section with a "Needs review" badge — not fully silent, but not
-      labeled as an outage either). For comparison: 23 similar
-      failed-extraction emails exist from *before* this window —
-      pre-existing, unrelated, not part of this count.
-      **Re-extraction complete 2026-07-20 — clean, no real extraction bug
-      found.** All 8 re-ran successfully (no errors), scoped to exactly
-      those 8 IDs, no broader backfill.
-      **6 of 8 linked to a real order** (2 Amazon, 1 H&M, 1 Anthropic PBC
-      billing receipt, 2 ACE Visalia RSC/FedEx shipping emails that
-      correctly merged into ONE order, not two) — all now cleared from
-      their user's "Unlinked emails" list.
-      **2 of 8 extracted cleanly but correctly did NOT link** — both are
-      genuine marketing/promotional emails (a Target promo, a Bloomingdale's
-      promo) that the Haiku commerce-gate let through at inbound time but
-      Sonnet's more careful extraction pass correctly identified as
-      non-commerce on re-extraction. Working as designed, not a bug — they
-      remain in "Unlinked emails" because they aren't orders, not because
-      extraction failed. One minor inconsistency worth a future glance: the
-      Target email got `emailType: "other"` (correct) but `retailer:
-      "Target"` (the prompt's own rule says retailer should be null when
-      emailType is `"other"` — the Bloomingdale's one followed that rule
-      correctly, this one didn't). Cosmetic/low-priority, not investigated
-      further.
-      **`needsReview` is still `true` on all 8** — this is expected, not a
-      residual failure: each has its own genuine, unrelated reason (missing
-      return deadline, an ambiguous dual-order-number Amazon email, an
-      obscure B2B-style retailer name) that a human should actually confirm,
-      same as any other real order.
-- [ ] **Investigation only, 2026-07-20 — why does LR #512867 show "Kept" +
-      an active countdown/"at risk"? No fix.** Real root cause found, not
-      guessed:
-      **(1) No dedicated audit trail exists for in-app status actions.**
-      `ActionLog` only covers the token-based email-link actions (Archive,
-      Mark Returned via signed links) — confirmed via every `actionLog.create`
-      call site. The in-app "Keeping it" button and the `PATCH
-      /api/orders/:id/status` route write no log at all; the only evidence
-      is `keptAt` (`2026-07-18T21:23:31.647Z`) and the row's own `updatedAt`.
-      **(2) Exactly two code paths can ever set `displayStatus: "kept"`** —
-      `markKeptAction` (`app/actions.ts:94`, the UI button) and `PATCH
-      /api/orders/:id/status` (`app/api/orders/[id]/status/route.ts`) — both
-      route through the same shared, rank-gated `buildStatusTransitionData`
-      (`lib/displayStatus.ts:126`). Confirmed exhaustively (grepped every
-      `displayStatus: "kept"` write in the codebase): no automated/derived
-      path exists — `deriveDisplayStatus`'s auto-derivation ladder never
-      produces `"kept"`, only preserves it if already set. Manual-only, as
-      documented.
-      **The real finding: both paths correctly auto-archive in the SAME
-      atomic write** (`buildStatusTransitionData` sets `archivedAt` whenever
-      `nextStatus === "kept"` and none exists yet) — so the code is not
-      buggy at the moment Kept is set. The only way to reach "kept +
-      `archivedAt: null`" afterward is a **separate, later Unarchive action**
-      (`PATCH /api/orders/:id/archive`) — which only ever touches
-      `archivedAt` and has zero awareness of `displayStatus`/`keptAt`. No
-      logged proof of this specific event exists (per finding 1), but it's
-      the only sequence consistent with the code — `buildStatusTransitionData`
-      cannot itself produce this state.
-      **(3) Confirmed: display logic does NOT suppress the countdown when
-      Kept, anywhere.** `OrderCard.tsx`'s `atRisk = isClosingSoon(order, now)`
-      and `<DaysLeftChip returnDeadline={order.returnDeadline} .../>` both
-      run unconditionally — no `displayStatus` check in either. `isClosingSoon`
-      itself (`lib/alerts.ts:12`) takes only `returnDeadline`, nothing else.
-      Under normal conditions this combination is invisible on the main
-      dashboard simply because a kept order is *also* archived (filtered out
-      entirely) — the contradiction only surfaces once an order is kept
-      **and then separately unarchived**, exactly what appears to have
-      happened here. This is mobile-audit finding #4, confirmed live on a
-      real production order, not just the previously-logged testing
-      artifact (owner manually toggling test orders) — a second, distinct,
-      real path to the same symptom.
-      **Not fixed.** Two real gaps to weigh together, not separately: (a)
-      Unarchive should probably reconcile/warn when unarchiving a
-      kept/refunded order, and (b) the underlying finding #4 label-coherence
-      spec pass (already queued) needs to cover this specific sequence, not
-      just simultaneous badge/button rendering.
-- [ ] **PROBE (2026-07-21) — carrier-link resolve + forward-classification
-      audit. READ-ONLY, IN PROGRESS.** Spawned directly by the AquaTru
-      delivery-date gap above: deciding whether to (a) estimate delivery
-      deadlines from the forward date on auto-forwarded emails, and (b)
-      resolve the carrier tracking link for an authoritative delivery date
-      when not reliably dated. Both hinge on auto-vs-manual forward
-      detection being correct — live reason to doubt it: AquaTru's UI shows
-      "Forwarded by you" (manual), owner believes it was actually
-      auto-forwarded. No writes this pass — no `displayStatus`, no
-      deadline, no schema change. Explicitly does not touch the
-      delivered-rung/decouple work shipping separately in this same
-      session (`lib/displayStatus.ts`, `lib/linkOrder.ts`,
-      `lib/autoArchive.ts`, `prisma/schema.prisma` — all still uncommitted
-      from that item above). Scope: (1) forward-classification audit across
-      all delivery-typed emails, raw headers → derived verdict → stored
-      value → UI render, AquaTru first, any mismatch becomes its own 🔴 Now
-      item; (2) send-vs-forward date delta distribution where both are
-      parseable; (3) link-resolve probe on the gated subset only
-      (delivery-typed AND not-reliably-dated), rate-limited, failures
-      bucketed by reason (never conflated with "no delivery"). Output is
-      findings + a recommendation, not a fix. Full detail to HISTORY.md on
-      close, one line here, item stays open pending owner read.
-      **COMPLETE 2026-07-21 — findings in, no fix built.** AquaTru confirmed
-      auto-forwarded via raw headers (Gmail's own `+caf_=` Content-Auto-Forward
-      Return-Path marker + `X-Forwarded-For`/`X-Forwarded-To`, original DKIM
-      still validating). Split across all 34 delivery-typed emails: 24
-      header-verdict auto, 10 manual — UI mismatch on all 24 (see the new bug
-      item below). Gated subset (needs link-resolve): 16 by a literal
-      OR-reading of the given definition, 9 under a stricter reading that
-      only counts emails neither auto-forwarded nor already body-dated —
-      flagged as a real ambiguity in the task's own definition, not resolved
-      here. Link-resolve probe on 6 representative targets: 0/6 resolved via
-      plain fetch (1 render-required/confirmed real — H&M's page ships raw
-      unrendered template placeholders; 1 rate-limited but its redirect
-      chain *did* reach a real tracking URL before the 429; 4 parse-failed
-      for three different underlying reasons — single-use/expired
-      click-tracker token, login wall, and a redirect to google.com that
-      looks like bot-detection). Send-vs-forward delta: manual bucket
-      (using the quoted original Date line in the forwarded body) ranged
-      ~1–165 hours — genuinely variable, confirms manual forwarding delay is
-      real and unpredictable; auto bucket (using the earliest independent
-      `Received:` hop, not the same field as `receivedAt` — an earlier
-      version of this check was circular and got corrected mid-investigation)
-      was consistently under 3 minutes across all 24. Recommendation:
-      auto-forward classification (the raw header signal) is trustworthy
-      enough to gate on; link-resolve via plain fetch is not viable as
-      built/tested — would need real headless-browser rendering plus
-      session handling, and at least one target (Shopbop) may not be
-      resolvable at all without the user's own login. Full detail in
-      `HISTORY.md`, 2026-07-21 entry. Item stays open pending owner read.
-      **Close-out decisions, 2026-07-21:**
-      **Carrier-link resolve: RULED OUT for now**, not just "not viable
-      today" — reason preserved so it isn't re-litigated from scratch later:
-      0/6 resolved via plain fetch, for three structurally different
-      reasons (single-use/expired click-tracker tokens on two targets,
-      confirmed genuine JS-render-required on one, an auth/login wall on
-      one that a headless browser wouldn't even fix). The raw-tracking-
-      -number-in-body alternative (mentioned in the original ask, e.g.
-      AquaTru's own USPS number) is **parked in 🟡 Next as a later
-      initiative, explicitly not near-term** — it would mean a real paid
-      multi-carrier tracking API integration plus a privacy decision
-      (sending a user's raw tracking number to a third-party API), both
-      outside this probe's scope and not something to back into via a
-      quick follow-up.
-      **Auto-forward dating: GREENLIT, pending the classifier build below.**
-      24/34 header-verdict auto with under-3-minute forward lag — safe to
-      treat forward date ≈ send date once the classifier is real and
-      stored, not just inferred per-investigation. The 10-email manual
-      bucket (1–165 hour delta) stays explicitly excluded from any
-      forward-date estimation — too unpredictable to trust.
-- [ ] **Forward auto/manual mis-classification — deadline gate depends on
-      this. NEW 2026-07-21, from the probe above — NOT a "classifier picked
-      wrong" bug, more severe: no classifier exists at all.** `app/(app)/page.tsx:230`
-      and `app/(app)/emails/[id]/page.tsx:76` both render the literal
-      hardcoded string `"Forwarded by you"` — not a lookup, not conditional
-      on any stored field, no such field exists on `Email` at all. Every
-      email shows this same label regardless of how it actually arrived.
-      Confirmed via raw Postmark headers (rawJson, decrypted) that this is
-      wrong for the majority case: 24 of 34 delivery-typed emails carry
-      unambiguous Gmail auto-forward evidence (`Return-Path` with the
-      `+caf_=` Content-Auto-Forward marker, `X-Forwarded-For`/
-      `X-Forwarded-To` headers, original sender's DKIM still validating) —
-      AquaTru among them. The UI has been telling the owner every
-      auto-forwarded order was manually forwarded. Both planned features
-      ((a) forward-date deadline estimation, (b) carrier-link resolve
-      gating) depend on this signal being real and stored, not just
-      inferred ad hoc per investigation. Needs: a real classifier (the
-      header signal — `+caf_=` / `X-Forwarded-For` presence — is cheap and
-      reliable per this probe, not full page rendering) run at ingestion
-      time (`app/api/inbound/route.ts`), a new persisted field, and the two
-      UI call sites updated to read it instead of the static string. Not
-      built here — this is a probe finding, not a fix. **Framed as a build,
-      not a bug fix** — there's no broken derivation to repair, a new one
-      needs to be written from scratch.
-      **Two design rules decided at 2026-07-21 close-out, record before
-      build starts:**
-      **(1) Handle multiple providers' auto-forward markers, not just
-      Gmail's `+caf_=`.** This probe only verified Gmail (the only provider
-      in today's real data) — Outlook/Yahoo/other providers' auto-forward
-      features use different header signatures entirely. The real
-      classifier must not hardcode Gmail's marker as the only auto signal;
-      needs its own small research pass per provider before build, not
-      assumed to generalize from this probe.
-      **(2) Default unknown → manual.** If no provider's auto-forward
-      signature matches (a provider we haven't researched yet, or headers
-      genuinely absent/malformed), classify as manual rather than auto —
-      manual is the safe/conservative default since it excludes the order
-      from forward-date estimation rather than risking a wrong estimate
-      from an unverified auto-forward assumption.
 
 ## 🐛 Bugs
 
@@ -1341,6 +1009,22 @@
       the full Sonnet path per email — a backfill session can spike Sonnet
       usage independent of real inbound volume. Don't misread a backfill
       spike as organic growth when reviewing the Console later.
+      **New dominant-cost finding, 2026-07-23 (junk-backfill + ingestion-path
+      investigation):** all 174 junked emails cost a Haiku call each —
+      `isCommerceEmail()` passed every one of them (that's structurally the
+      only way they became Email rows at all) — plus a full Sonnet
+      `extractEmail()` pass on top. The Haiku gate's false-positive rate on
+      marketing email is the dominant API spend here, not policy lookups —
+      worth weighing against PHASE 1b/1c above, not investigated further.
+- [ ] **`header-based-junk-drop` — design idea, NOT built, NEW 2026-07-23.**
+      List-Unsubscribe present on 20/20 sampled junk emails, 0/20 known-good
+      commerce (control-group verified). Proposal: on header match, skip
+      BOTH the Haiku gate and Sonnet extraction entirely and create the
+      Email row with `junkedAt` pre-set — never discard pre-row, so there's
+      still a recovery path via `rescueEmail()` (unlike the current
+      non-commerce discard, which never creates a row at all). Biggest
+      identified cost fix available, zero model calls to implement or run.
+      Not spec'd further, not built.
 - [ ] **`carrier-facility-as-retailer` — a FedEx shipper facility name is
       being stored as retailer. NEW 2026-07-22, promoted to its own item
       2026-07-23 now that the 07-21 cost data shows it isn't cosmetic.**
@@ -1366,6 +1050,12 @@
       backfill follows the existing pattern (dry-run default, `--apply`
       flag) and, per the Decisions log, silent correction is the
       established call for this class of change.
+      **Second instance found, 2026-07-23 orphan-candidate report:
+      "GLOBAL-E NL B.V" (a cross-border checkout/logistics processor) is
+      the same shape as ACE VISALIA — a processor/carrier name stored as
+      retailer, causing false NO-CANDIDATE orphans since the real merchant
+      name was never captured. Not a one-off; the underlying prompt gap
+      generalizes beyond FedEx facilities. Not investigated further.**
 - [ ] **`per-call-usage-logging` — make cost a measured number, not a
       reconstructed one. NEW 2026-07-22.** Log the API response's `usage`
       field per call, tagged by call site (`classify` / `extract` /
@@ -1399,6 +1089,12 @@
       alone can say), ignore it silently, or offer a manual "create this
       order" action? No lean recorded; needs an actual decision before any
       of the three gets built.
+      **Re-confirmed 2026-07-23 (NO CANDIDATE bucket, orphan-candidate
+      report):** SilkSilky is one instance of a category that will recur
+      for every new user — cold-start orphans are expected, not a bug, and
+      per the panel-design conclusion below should probably never reach a
+      review surface at all rather than route through the same flow as a
+      genuine matching failure.
 - [ ] **[unconfirmed] Grocery / non-returnable parsed as returnable** — no
       repro in prod, 0 grocery orders exist to test against; needs a real
       test email to settle. Related to Amazon's "what counts as returnable
@@ -1964,6 +1660,302 @@
       becomes noticeable.
 
 ## ✅ Done
+
+- [x] **PHASE 0 — cost guardrails, CONFIRMED DONE 2026-07-25 (owner
+      action, non-code).** Owner set an Anthropic Console monthly spend
+      cap and a billing usage alert, confirmed. Original item text
+      preserved below.
+- [ ] **PHASE 0 — cost guardrails. NON-CODE, OWNER ACTION, do before any
+      other work. NEW 2026-07-22 (`api-cost-guardrails`).** Two things,
+      both in the Anthropic Console, neither requiring Claude Code:
+      **(a) Monthly spend cap** — Console → Limits → set a monthly limit.
+      Pick a number that is a real ceiling, not a target: baseline is
+      ~$0.50–$2.50/day, so a $75–100/mo cap leaves headroom for a bad day
+      without letting a runaway loop run for a week. **(b) Usage alert** —
+      Console → Billing, email threshold at roughly 2× a normal day. The
+      2026-07-21 spike ($14.50 vs a $0.50–$2.50 baseline) went unnoticed
+      for a full day; an alert would have surfaced it that afternoon.
+      **Rationale for doing this FIRST:** every item below is a code change
+      that needs a session to land. The cap needs five minutes and bounds
+      the damage from anything not yet diagnosed — including the still-open
+      ACE VISALIA status-path question above.
+
+- [x] **Amazon dashboard folder card (v1, awareness-only) —
+      OWNER-VERIFIED IN PRODUCTION 2026-07-25, via screenshots.**
+      Original item text preserved below.
+- [ ] **Amazon dashboard folder card (v1, awareness-only) — BUILT
+      2026-07-20, pushed, awaiting owner verification in production —
+      NOT Done.** Per `AMAZON_HANDLING.md`, refined by owner build
+      instructions this session. New: `lib/amazonBundle.ts` (`isAmazonOrder`,
+      `isDeliveredDecisionPending`, `amazonRowLabel`, `amazonComposition`,
+      `earliestAmazonDeadline`, `compareNullableDate` — all pure, 25 unit
+      tests in `__tests__/amazonBundle.test.ts`), `app/AmazonBundleCard.tsx`
+      (collapsed/expanded folder card), `app/(app)/amazon/page.tsx` (the
+      "View all" read-only full list). `app/(app)/page.tsx` now excludes
+      active Amazon orders from the regular per-order list and renders the
+      bundle card once instead (archived Amazon orders are unaffected — still
+      render individually on the Archived tab, since the bundle only covers
+      active orders).
+      **O7 resolved in code, matching this session's earlier verification:**
+      "delivered" is `deliveredAt !== null` (not `displayStatus`), with
+      `return_requested`/`returned` always taking priority over a stale
+      delivered/countdown reading. Confirmed against real data:
+      `retailer` is a clean, consistent `"Amazon"` string in production (no
+      sub-brand variants yet), so the `isAmazonOrder` substring match is
+      solid for now.
+      **Known simplifications, not silently made — flagging here:**
+      (1) The doc's 2.1 says the bundle "sorts among other retailer cards ...
+      like any other card"; built instead as its own always-visible section
+      (same pattern as the existing Needs-review block), not interleaved
+      into the sorted per-order list — cross-type sort interleaving across
+      all 6 sort fields wasn't specified and isn't built. (2) The bundle
+      ignores the search box entirely (same as Needs-review). (3)
+      `earliestAmazonDeadline` and the "5 delivered" row filter both exclude
+      `return_requested` orders — the doc's drop-off/label-expiry deadline
+      isn't tracked as a distinct field in the schema, so v1 doesn't attempt
+      it. (4) The bundle's `DaysLeftChip` badge always passes
+      `isEstimated={false}` — bundle-level deadline-estimation-aggregation
+      isn't attempted.
+      **Verified locally before push:** `npm run build` clean, all 411 tests
+      passing (386 pre-existing + 25 new). Browser-checked against a live
+      dev server pointed at production data, authenticated as the owner's
+      own account via a temporary Auth.js session row (created, verified,
+      then deleted immediately after — no lasting change): dashboard loads
+      with no console errors, the bundle card renders with real data ("2
+      orders · $75.41 · 1 in transit · 1 ordered", dash badge since neither
+      is delivered yet), expand/collapse works, `/amazon` renders both real
+      orders with working Archive links, and clicking through to
+      `/orders/[id]` works. **Not yet checked live in production** (only
+      locally against a dev server) — owner should verify on
+      app.myreturnwindow.com once deployed.
+
+- [x] **Needs Review panel — junk-mechanics backend piece, split out
+      2026-07-25 from the larger (still-unbuilt) panel-UI item, which
+      has been consolidated into "Unified card geometry + order state
+      machine" (🙋 Waiting on Owner). This backend piece itself
+      already shipped — preserved verbatim below.**
+      **2026-07-22: junk mechanics for the non-commerce orphaned-email
+      population (`emailType === "other"`) BUILT this session, backend
+      only — no UI.** Soft `Email.junkedAt` flag (migration applied — see
+      below), auto-file on ingestion (`shouldAutoJunk`, `lib/junk.ts`),
+      `rescueEmail()` (verified against a disposable throwaway test row,
+      not real data, cleaned up after), an `EmailRescue` event log (not a
+      counter — per-user rescue rate computable, not just aggregate), and a
+      full email-query consumer audit (2 real consumers updated:
+      "Unlinked emails," the weekly coverage-check digest content).
+      `scripts/backfill-junk-other-emails.ts` written 2026-07-22, **APPLIED
+      2026-07-23 — 168 emails junked, verified via before/after count (4
+      pre-existing + 168 = 172 total `junkedAt` NOT NULL rows) and confirmed
+      zero of the 13 known orphaned-genuine-commerce emails were touched.**
+      5 new tests, 450/450 passing, `npm run build` clean. **Schema
+      migration applied to the database** (additive only — one nullable
+      column, one new table, no data written) — separate fact from
+      commit/push/deploy status, see close-out. Full detail in
+      `HISTORY.md`. The panel UI itself (Order-level `duplicate`/Merge, the
+      actual Needs Review panel component) remains unbuilt, still blocked
+      on the owner's panel mock — this was the data-layer piece only.
+      **Auto-junk leak, found + explained during the apply's verify gate
+      (2026-07-23):** of 14 orphaned `other`-typed emails received after
+      2026-07-22, only 4 were already junked before the apply; 10 matched
+      `shouldAutoJunk` but were missed by the live auto-junk path. Initially
+      suspected late reclassification via re-extraction — **refuted by the
+      data:** `extractedAt` trails `receivedAt` by seconds-to-minutes on all
+      14, no delayed-reclassification gap anywhere. **Actual explanation,
+      confirmed clean with zero exceptions:** all 10 missed rows have
+      `receivedAt` before `54fe13f`'s commit time (2026-07-23T02:33:42Z,
+      the commit that added the auto-junk path); all 4 already-junked rows
+      have `receivedAt` after it. They simply arrived before the code
+      existed — the junk check runs once, inside `linkEmailToOrder`'s
+      orphan branch, at ingestion time only, so pre-deploy backlog is never
+      retroactively caught. This is exactly what this backfill script exists
+      to clean up, not a distinct live bug in the running path — but it
+      means the backlog is larger/more recent than the 07-22 baseline
+      assumed. Snapshot of the 10 ids + timestamps preserved in gitignored
+      `.scratch/10-leaked-ids.json` before the apply ran. Not investigated
+      further.
+      **Count reconciliation, flagged not resolved (2026-07-23):** the
+      07-22 baseline was 168 eligible; 10 more became eligible since (the
+      leak above) with none removed from the pool by this backfill (it
+      hadn't run yet) — so the eligible count should have read ~178 on
+      2026-07-23, not still 168. Combined with the script's own header
+      comment citing 170 as of the 07-22 diagnostic (a third number), the
+      eligible-count queries run across this feature's lifetime have not
+      been measuring the same population consistently. Re-derive the
+      counting method before trusting any of these numbers in the
+      four-slot panel build — not re-derived here.
+
+- [x] **`AMAZON_HANDLING.md` v1 (awareness-only) — APPROVED 2026-07-25.
+      O7 resolved in code** (delivered = `deliveredAt !== null`, per the
+      built Amazon dashboard folder card) **— see DECISIONS.md
+      2026-07-25.** Original item text preserved below.
+- [ ] **`AMAZON_HANDLING.md` — rewritten to v1 (awareness-only), 2026-07-20 —
+      awaiting owner approval, not Done.** Owner resolved the strategic
+      caveat toward **v1 = awareness-only**: Amazon card lists orders
+      read-only, no in-app keep/return. The full action model (Keep/Return
+      buttons, return state machine, refund-dispute branch, per-email
+      cadence) is preserved in the doc's "Deferred to a possible v2" section,
+      not deleted. O1–O3 resolved (Amazon-only scope, implied-state badge,
+      grocery/health blocked upstream); O4/O5 deferred with v2. Two
+      build-time opens remain, both flagged inline in the doc:
+      **O6** (card layout — doc now correctly says build from the mock, not
+      `return-window-design-tokens.md`, whose §2 is Type scale and §6 a
+      single-column layout, not a 2×2 grid — this was already caught last
+      pass). **O7** (which field drives each row's status label) — the v1
+      draft assumed `displayStatus` alone would suffice; **checked against
+      `lib/displayStatus.ts` and it doesn't** — `DISPLAY_STATUS_LABELS` only
+      covers 6 values and both "in transit" and "delivered, decision
+      pending" collapse to the same `"shipped"` value under
+      `deriveDisplayStatus()`'s ladder, so `displayStatus` can't distinguish
+      1.2's `arrives 7/29` row from its `12 days` row. "Returnable" doesn't
+      exist as a `displayStatus` value at all — it's a separate internal
+      `status` enum value (`lib/linkOrder.ts`). O7 is flagged as **not yet
+      actually resolved** — needs `deliveredAt`/`estimatedDeliveryDate`
+      and/or internal `status` in the mix, a real decision still owed before
+      Part 1.2 is coded.
+
+
+- [x] **Needs Review four-slot inventory — REPORT ONLY, COMPLETE 2026-07-23, no code changes.** Order-level flags: 14 not 13 (7 archived-while-flagged, invisible); orphaned genuine-commerce: 20; extraction failures: 35 (23 attempted-and-failed, 12 never ran); junked: 174 (stable); 108 linked emails carry `Email.needsReview: true` with no resolve path. Panel-design conclusion: enumerate actions, not reasons, for the rebuild. Full report → HISTORY.md 2026-07-23.
+- [x] **Weekly coverage-check digest — read-only investigation, COMPLETE 2026-07-23, no code changes.** Recipients: all users unconditionally, no filter (dedup is per-user-per-week, not a recipient filter). Auto-junk has no user scoping. No surface anywhere shows/recovers a junked email except backend-only `rescueEmail(emailId)`, zero call sites. Full report → HISTORY.md 2026-07-23.
+- [x] **Task 1 is ✅ DONE, owner-verified in production 2026-07-23 — see ✅ Done
+section.** Fitness Superstore `#48868` manually linked to its two orphaned
+emails; confirmed no-op on deadline/anchor/status. Three findings spun out
+of it, all logged below: a 4th `returnDeadline < orderDate`-shaped
+wrong-year instance, a types-need-re-verification flag on the
+15-orphaned-genuine-commerce report, and a live instance of the
+email-level "needsReview, no resolve path" dead end (both linked emails
+still carry `Email.needsReview: true`).
+
+- [x] **Task 2 is DONE this session (2026-07-23) — see the junk-mechanics item
+below for full detail.** `scripts/backfill-junk-other-emails.ts` applied:
+168 junked, 0 of the 13 known orphaned-genuine-commerce emails touched
+(verified). Dry-run re-check found no drift from the 07-22 baseline on
+its own, but the apply's verify gate surfaced two findings, both logged
+in that item below: a 10-email auto-junk leak (explained — pre-deploy
+backlog, not a live bug; re-extraction theory tested and refuted) and an
+unresolved eligible-count reconciliation gap (168 / 178 expected / 170
+script-header — three numbers, not yet the same measurement). A third
+finding (`lookupReturnPolicy()` firing on marketing `other`-typed emails)
+is folded into PHASE 1c below. Zero billed Anthropic API calls for any
+part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
+
+- [x] **Retailer logo coverage test — investigation only, both passes now run
+      live against Logo.dev.** Domain pass (real observed sender domains):
+      15/15 hit, but 1 (Gap Inc. → optiturn.com) confirmed wrong-company logo.
+      Name pass (retailers with no domain): 20/22 hit, 2 confirmed wrong
+      (NET-A-PORTER, Sidekick), 4 unverified generic marks. Quality-adjusted:
+      78.3% of order volume gets a confidently-correct logo, not the 93.5%
+      raw hit rate. See `LOGO_COVERAGE.md` for full breakdown + recommendation
+      (2026-07-13). `LOGO_DEV_PUBLISHABLE_KEY` added to gitignored `.env.local`
+      only — not committed, not in Vercel. No code/schema/UI changes, no
+      commits.
+
+- [x] **Docs: create `## 🐛 Bugs` section in TASKS.md — CONFIRMED DONE
+      2026-07-25 (stale item, zero risk).** The section already exists (see
+      🐛 Bugs below), fully populated with Trust-breaking/Annoying/Cosmetic
+      subsections — the "capture-only... no fixes this session" framing
+      below was stale, not an open task. Original item text preserved
+      below.
+      **Docs: create `## 🐛 Bugs` section in TASKS.md** — capture-only.
+      Relocate existing trust-breaking/annoying/cosmetic bug items out of
+      🟡 Next into a dedicated section right after 🔴 Now, preserving each
+      item's text verbatim. No fixes this session.
+
+- [x] **`AMAZON_HANDLING.md` Part 3 — three new parser limitations logged
+      2026-07-20, from real order emails.** Docs-only. (1) Item data is
+      category counts, not product names/photos — row copy needs to stop
+      implying a product name. (2) Delivery dates are relative ("Arriving
+      tomorrow") and need resolving against the email's `receivedAt`. (3)
+      One order number can span multiple shipments in a single email
+      (`111-7078168-2781034` seen as both "Arriving Wednesday" and "Arriving
+      tomorrow") — split-shipment dedup risk, must not render as two orders.
+
+- [x] **Preorder / unconfirmed-delivery wrong-deadline — INVESTIGATION COMPLETE 2026-07-20, no code changed.** Root-caused: no ship-date capture in extraction, no "user-set, don't overwrite" pattern for date fields, and a `displayStatus` gap (AquaTru — since fixed separately, see the delivered-rung entries above). Three fix shapes proposed for owner decision; (B) shipped separately. Full detail → HISTORY.md 2026-07-20.
+- [x] **Scope Anthropic billing-outage extraction failures — INVESTIGATION
+      ONLY, 2026-07-20, no re-extraction yet (owner instruction).** Window:
+      ~4pm–9pm PDT (`2026-07-20T23:00:00Z` to now). Signal used:
+      `needsReview: true` AND `emailType: null` (the precise fingerprint of
+      `runExtraction`'s catch-block failure path — a genuinely-successful
+      extraction always sets `emailType` to something, even `"other"`).
+      **Found: 8 emails across 4 real users**, all orphaned (`orderId:
+      null`, so each already shows in that user's "Unlinked emails"
+      section with a "Needs review" badge — not fully silent, but not
+      labeled as an outage either). For comparison: 23 similar
+      failed-extraction emails exist from *before* this window —
+      pre-existing, unrelated, not part of this count.
+      **Re-extraction complete 2026-07-20 — clean, no real extraction bug
+      found.** All 8 re-ran successfully (no errors), scoped to exactly
+      those 8 IDs, no broader backfill.
+      **6 of 8 linked to a real order** (2 Amazon, 1 H&M, 1 Anthropic PBC
+      billing receipt, 2 ACE Visalia RSC/FedEx shipping emails that
+      correctly merged into ONE order, not two) — all now cleared from
+      their user's "Unlinked emails" list.
+      **2 of 8 extracted cleanly but correctly did NOT link** — both are
+      genuine marketing/promotional emails (a Target promo, a Bloomingdale's
+      promo) that the Haiku commerce-gate let through at inbound time but
+      Sonnet's more careful extraction pass correctly identified as
+      non-commerce on re-extraction. Working as designed, not a bug — they
+      remain in "Unlinked emails" because they aren't orders, not because
+      extraction failed. One minor inconsistency worth a future glance: the
+      Target email got `emailType: "other"` (correct) but `retailer:
+      "Target"` (the prompt's own rule says retailer should be null when
+      emailType is `"other"` — the Bloomingdale's one followed that rule
+      correctly, this one didn't). Cosmetic/low-priority, not investigated
+      further.
+      **`needsReview` is still `true` on all 8** — this is expected, not a
+      residual failure: each has its own genuine, unrelated reason (missing
+      return deadline, an ambiguous dual-order-number Amazon email, an
+      obscure B2B-style retailer name) that a human should actually confirm,
+      same as any other real order.
+
+- [x] **Investigation only, 2026-07-20 — why does LR #512867 show "Kept" +
+      an active countdown/"at risk"? No fix.** Real root cause found, not
+      guessed:
+      **(1) No dedicated audit trail exists for in-app status actions.**
+      `ActionLog` only covers the token-based email-link actions (Archive,
+      Mark Returned via signed links) — confirmed via every `actionLog.create`
+      call site. The in-app "Keeping it" button and the `PATCH
+      /api/orders/:id/status` route write no log at all; the only evidence
+      is `keptAt` (`2026-07-18T21:23:31.647Z`) and the row's own `updatedAt`.
+      **(2) Exactly two code paths can ever set `displayStatus: "kept"`** —
+      `markKeptAction` (`app/actions.ts:94`, the UI button) and `PATCH
+      /api/orders/:id/status` (`app/api/orders/[id]/status/route.ts`) — both
+      route through the same shared, rank-gated `buildStatusTransitionData`
+      (`lib/displayStatus.ts:126`). Confirmed exhaustively (grepped every
+      `displayStatus: "kept"` write in the codebase): no automated/derived
+      path exists — `deriveDisplayStatus`'s auto-derivation ladder never
+      produces `"kept"`, only preserves it if already set. Manual-only, as
+      documented.
+      **The real finding: both paths correctly auto-archive in the SAME
+      atomic write** (`buildStatusTransitionData` sets `archivedAt` whenever
+      `nextStatus === "kept"` and none exists yet) — so the code is not
+      buggy at the moment Kept is set. The only way to reach "kept +
+      `archivedAt: null`" afterward is a **separate, later Unarchive action**
+      (`PATCH /api/orders/:id/archive`) — which only ever touches
+      `archivedAt` and has zero awareness of `displayStatus`/`keptAt`. No
+      logged proof of this specific event exists (per finding 1), but it's
+      the only sequence consistent with the code — `buildStatusTransitionData`
+      cannot itself produce this state.
+      **(3) Confirmed: display logic does NOT suppress the countdown when
+      Kept, anywhere.** `OrderCard.tsx`'s `atRisk = isClosingSoon(order, now)`
+      and `<DaysLeftChip returnDeadline={order.returnDeadline} .../>` both
+      run unconditionally — no `displayStatus` check in either. `isClosingSoon`
+      itself (`lib/alerts.ts:12`) takes only `returnDeadline`, nothing else.
+      Under normal conditions this combination is invisible on the main
+      dashboard simply because a kept order is *also* archived (filtered out
+      entirely) — the contradiction only surfaces once an order is kept
+      **and then separately unarchived**, exactly what appears to have
+      happened here. This is mobile-audit finding #4, confirmed live on a
+      real production order, not just the previously-logged testing
+      artifact (owner manually toggling test orders) — a second, distinct,
+      real path to the same symptom.
+      **Not fixed.** Two real gaps to weigh together, not separately: (a)
+      Unarchive should probably reconcile/warn when unarchiving a
+      kept/refunded order, and (b) the underlying finding #4 label-coherence
+      spec pass (already queued) needs to cover this specific sequence, not
+      just simultaneous badge/button rendering.
+
+- [x] **PROBE — carrier-link resolve + forward-classification audit, COMPLETE 2026-07-21, read-only, no writes.** AquaTru confirmed auto-forwarded via raw headers (Gmail `+caf_=` marker); 24/34 delivery-typed emails auto-forwarded under 3 minutes lag. Carrier-link resolve via plain fetch found not viable (0/6, three distinct failure reasons). Close-out decisions → DECISIONS.md 2026-07-21. Full findings → HISTORY.md 2026-07-21.
+
 - [x] **Fitness Superstore `#48868` manual link, owner-verified in production
       2026-07-23.** The order's two orphaned `order_confirmation`-typed
       emails (no order number on either, so the matcher couldn't self-link
@@ -2499,6 +2491,10 @@
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **13 real users, not 10 as previously assumed (2026-07-23, ingestion-path
+  investigation).** All 13 have a non-null `inboundToken`, but that's a
+  schema default set at row creation for every user — presence is not
+  evidence of active forwarding. Don't infer active-user counts from it.
 - **Standing practice, adopted 2026-07-20: test/verification scripts must
   default to a NON-PROD Anthropic key.** Surfaced when the preorder
   ship-date fix's live verification used `--env-file=.env` and billed the
@@ -2911,7 +2907,7 @@
   this population). Separately, `duplicate`/`not_ecommerce` aren't real
   stored flag types — actual data is 13 order-level reasons + 206
   email-level. Not revised in place; the panel gets rebuilt from a fresh
-  inventory (Task 3) instead.
+  inventory (the four-slot panel build) instead.
 - **Amazon bundle grouping resolved (2026-07-20): strict `isAmazonOrder`
   only** — no Zappos, Whole Foods, or marketplace-adjacent. Card is meant
   to stay out of the way, not be smart about brand-family membership.

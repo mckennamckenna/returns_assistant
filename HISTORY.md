@@ -5,6 +5,196 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-23 — Needs Review four-slot inventory (REPORT ONLY, no code changes)
+
+**Needs Review four-slot inventory — COMPLETE 2026-07-23, REPORT ONLY, no
+code changes.** All counts derived fresh from the database; several
+board counts confirmed stale (Order-level flags: **14, not 13** — 7
+visible, 7 archived-while-flagged and invisible to any surface;
+orphaned genuine-commerce: **20, not 15/13**; extraction failures
+(`emailType: null`): **35**, split into 23 attempted-and-failed vs. **12
+that never ran at all** (`extractedAt: null` — same rows as the
+already-tracked ACE VISALIA duplicate cluster, plus 2 new subjects,
+fully silent — no badge, no flag); junked: **174**, stable).
+**New-scale finding: 108 linked emails carry `Email.needsReview: true`
+with no resolve path** (not just the 2 Fitness Superstore rows
+demonstrated earlier — that was a sample, 108 is the real population).
+Ran the live `reviewReasonLabel()` function against all 14 Order-level
+rows directly: only 4 of its 7 branches currently fire in real data;
+3 rows are secretly refund-fallback-matches hidden inside the generic
+"quick check" fallback (no dedicated label, same gap shape as the
+already-tracked kept-status-conflict case, which has 0 live rows right
+now but the code gap is real). **No note and no choices exist at all**
+for any of: orphaned genuine-commerce (20), either extraction-failure
+sub-population (35), junked (174), or linked-but-flagged (108) — 337
+emails/orders combined with zero resolve action. `rescueEmail()`
+reconfirmed zero call sites anywhere. The current live panel
+(`ReviewCard.tsx`) does not implement the four-slot geometry at all —
+no separate slug, no amount/date in identity, just a headline sentence
++ retailer/order# line + two generic buttons. Full report given
+in-session, not duplicated here.
+**Panel design conclusion, 2026-07-23 (session close):** enumerate
+ACTIONS, not reasons, for the rebuild. Reasons are open-ended (3 of 7
+`reviewReasonLabel` branches unused, 3 rows unlabeled inside the generic
+fallback, cold-start found only in this session's conversation, not the
+code) — actions are a closed, small set: link to order / not a purchase
+/ view detail / nothing. An unregistered reason degrades to view-detail,
+never throws.
+
+---
+
+## 2026-07-23 — Weekly coverage-check digest (read-only investigation, no code changes)
+
+**Weekly coverage-check digest — read-only investigation, COMPLETE
+2026-07-23, no code changes.** Lives at
+`app/api/cron/weekly-coverage/route.ts`, Fridays 16:00 UTC
+(`vercel.json`). Recipients: **all users unconditionally**
+(`prisma.user.findMany()`, no where clause) — dedup is per-user-per-week
+via a `Reminder` lookup, not a recipient filter. Content: plain-text,
+7-day rolling window, one line per distinct order/email, correctly
+excludes junked emails via `JUNK_FILTER` (one of only 2 real consumers
+codebase-wide, confirmed via full call-site grep). Auto-junk
+(`shouldAutoJunk`, `lib/linkOrder.ts:621`) has **no user scoping at
+all** — same rule fires identically for every user. **No surface
+anywhere — user-facing or admin — shows or recovers a junked email
+except `rescueEmail(emailId)` by id, confirmed with zero call sites in
+any route/script/test; it's backend-only, invoked manually if ever
+needed.** No admin equivalent of the "Unlinked emails" list exists.
+Full report given in-session, not duplicated here.
+
+---
+
+## 2026-07-21 — PROBE: carrier-link resolve + forward-classification audit (read-only, no writes)
+
+- [ ] **PROBE (2026-07-21) — carrier-link resolve + forward-classification
+      audit. READ-ONLY, IN PROGRESS.** Spawned directly by the AquaTru
+      delivery-date gap above: deciding whether to (a) estimate delivery
+      deadlines from the forward date on auto-forwarded emails, and (b)
+      resolve the carrier tracking link for an authoritative delivery date
+      when not reliably dated. Both hinge on auto-vs-manual forward
+      detection being correct — live reason to doubt it: AquaTru's UI shows
+      "Forwarded by you" (manual), owner believes it was actually
+      auto-forwarded. No writes this pass — no `displayStatus`, no
+      deadline, no schema change. Explicitly does not touch the
+      delivered-rung/decouple work shipping separately in this same
+      session (`lib/displayStatus.ts`, `lib/linkOrder.ts`,
+      `lib/autoArchive.ts`, `prisma/schema.prisma` — all still uncommitted
+      from that item above). Scope: (1) forward-classification audit across
+      all delivery-typed emails, raw headers → derived verdict → stored
+      value → UI render, AquaTru first, any mismatch becomes its own 🔴 Now
+      item; (2) send-vs-forward date delta distribution where both are
+      parseable; (3) link-resolve probe on the gated subset only
+      (delivery-typed AND not-reliably-dated), rate-limited, failures
+      bucketed by reason (never conflated with "no delivery"). Output is
+      findings + a recommendation, not a fix. Full detail to HISTORY.md on
+      close, one line here, item stays open pending owner read.
+      **COMPLETE 2026-07-21 — findings in, no fix built.** AquaTru confirmed
+      auto-forwarded via raw headers (Gmail's own `+caf_=` Content-Auto-Forward
+      Return-Path marker + `X-Forwarded-For`/`X-Forwarded-To`, original DKIM
+      still validating). Split across all 34 delivery-typed emails: 24
+      header-verdict auto, 10 manual — UI mismatch on all 24 (see the new bug
+      item below). Gated subset (needs link-resolve): 16 by a literal
+      OR-reading of the given definition, 9 under a stricter reading that
+      only counts emails neither auto-forwarded nor already body-dated —
+      flagged as a real ambiguity in the task's own definition, not resolved
+      here. Link-resolve probe on 6 representative targets: 0/6 resolved via
+      plain fetch (1 render-required/confirmed real — H&M's page ships raw
+      unrendered template placeholders; 1 rate-limited but its redirect
+      chain *did* reach a real tracking URL before the 429; 4 parse-failed
+      for three different underlying reasons — single-use/expired
+      click-tracker token, login wall, and a redirect to google.com that
+      looks like bot-detection). Send-vs-forward delta: manual bucket
+      (using the quoted original Date line in the forwarded body) ranged
+      ~1–165 hours — genuinely variable, confirms manual forwarding delay is
+      real and unpredictable; auto bucket (using the earliest independent
+      `Received:` hop, not the same field as `receivedAt` — an earlier
+      version of this check was circular and got corrected mid-investigation)
+      was consistently under 3 minutes across all 24. Recommendation:
+      auto-forward classification (the raw header signal) is trustworthy
+      enough to gate on; link-resolve via plain fetch is not viable as
+      built/tested — would need real headless-browser rendering plus
+      session handling, and at least one target (Shopbop) may not be
+      resolvable at all without the user's own login. Full detail in
+      `HISTORY.md`, 2026-07-21 entry. Item stays open pending owner read.
+
+*(Close-out decisions from this probe are in `DECISIONS.md`, 2026-07-21.)*
+
+---
+
+## 2026-07-20 — Preorder / unconfirmed-delivery wrong-deadline (INVESTIGATION COMPLETE, no code changed)
+
+- [ ] **Preorder / unconfirmed-delivery wrong-deadline — INVESTIGATION
+      COMPLETE 2026-07-20, no code changed.** Confirmed against real data
+      (LR #512867: `orderDate` 6/29, no delivery fields at all,
+      `returnWindowStartsFrom: "delivery_date"` stated in-email,
+      `returnDeadline` 7/25 = 6/29 + 5-day fallback + 21-day window, exactly
+      reproducing the bug; AquaTru: `status: "returnable"` but
+      `displayStatus: "shipped"` after a real `delivery` email).
+      **(1) Ship/preorder date: not captured anywhere.** `lib/extract.ts`'s
+      `RawExtraction`/prompt (`buildPrompt`) has no ship-date/preorder field
+      or instruction at all — dropped entirely, not mis-mapped into
+      `deliveryDate`.
+      **(2) Confirmed vs. estimated: a real, deliberate 3-way split exists**
+      — `routeDeliveryDate()` (`lib/extract.ts:235`) routes the AI's one
+      `deliveryDate` field to `deliveredAt` (confirmed, only when
+      `emailType === "delivery"`) or `estimatedDeliveryDate` (a carrier ETA,
+      every other type); `deadlineIsEstimated` is set per-case in
+      `computeDeadline()` (`lib/extract.ts:287`).
+      **(3) 5-day fallback confirmed firing exactly as suspected.**
+      `STANDARD_SHIPPING_DAYS = 5` (`lib/extract.ts:13`), case 4 of
+      `computeDeadline()` (lines 327-333): fires when `orderDate` is known
+      but neither `deliveredAt` nor `estimatedDeliveryDate` exist —
+      unconditional, no ship-date awareness (none could exist, per (1)).
+      **(4) AquaTru: state-transition miss, not classification miss.** The
+      `delivery` email WAS correctly typed (confirmed in `extractionNotes`)
+      and internal `status` correctly derived to `"returnable"`
+      (`computeOrderStatus`, `lib/linkOrder.ts:204`). But `displayStatus`'s
+      ladder (`deriveDisplayStatus`, `lib/displayStatus.ts:87-94`) has **no
+      "delivered" rung at all** — `shipping_confirmation` and `delivery`
+      both derive to the same `"shipped"` value, and `DISPLAY_STATUS_LABELS`
+      (same file) has no `"delivered"` entry — so `DisplayStatusBadge.tsx`
+      renders the literal word "Shipped" on a package delivered days ago.
+      The countdown itself isn't affected (`DaysLeftChip` reads
+      `returnDeadline` directly, not `displayStatus`) — this is a
+      user-facing label gap, not a deadline-computation bug.
+      **→ Promoted to its own 🔴 Now item 2026-07-21 ("AquaTru 'Shipped
+      forever' — add a real delivered display state") — being built there,
+      not tracked as a loose end of this investigation anymore.**
+      **(5) No existing "user-set, don't overwrite" pattern for date
+      fields.** `mergeEmailIntoOrder` (`lib/linkOrder.ts:475`) merges every
+      delivery/date field via `email.X ?? existing.X` — a new email's
+      non-null value always wins, with zero concept of "already
+      user-corrected, don't touch." The closest existing precedent is
+      `displayStatus`'s rank-based downgrade guard
+      (`DISPLAY_STATUS_RANK`/`deriveDisplayStatus`, `lib/displayStatus.ts`)
+      and `orderDateEstimated`'s provenance flag — neither actually protects
+      a value from being *replaced* by a different non-null value, only
+      from being erased by a null or downgraded in rank. A new boolean
+      flag per protected field (shape TBD) would be net-new, not a reuse.
+      **Recommended fix shapes (not implemented, for owner decision):**
+      **(A)** add a captured ship/preorder-date field (new prompt
+      instruction + schema column, e.g. `shipByDate`) and make
+      `computeDeadline()`'s case 4 preorder-aware: never estimate a delivery
+      date earlier than a known ship date, and treat a stated future
+      ship-by date as its own backstop regardless of anchor.
+      **(B) two independent options, not mutually exclusive:** add a
+      "delivered" rung to `displayStatus` (schema comment + `DISPLAY_STATUS_RANK`
+      + `DISPLAY_STATUS_LABELS` + `deriveDisplayStatus`'s ladder), OR leave
+      `displayStatus` as steps-toward-a-decision and have the UI read
+      `status === "returnable"` for the label instead — smaller blast radius
+      since `displayStatus`'s rank system is load-bearing elsewhere (kept/
+      refunded auto-archive gating).
+      **(C)** a new boolean per overridable field (e.g. `deliveryDateUserSet`),
+      checked in `mergeEmailIntoOrder`'s merge (skip the `??` overwrite when
+      set) — set only via a new manual-entry endpoint, and only when the
+      value came from a real `deliveredAt` (confirmed carrier email, never
+      user-editable) is it "locked"; an `estimatedDeliveryDate`/fallback
+      value stays user-overridable until a confirmed one arrives.
+      Not spec'd further — owner to decide direction before any build.
+
+---
+
+
 ## 2026-07-23 — Decouple the delivered rung from deliveredAt: AquaTru actually fixed this time
 
 The 2026-07-21 delivered rung (`8e27855`) derived `"delivered"` strictly from
