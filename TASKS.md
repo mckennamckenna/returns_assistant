@@ -32,6 +32,51 @@
 
 ## 🔴 Now
 
+- [x] **Re-extract the 23 core-block emailType:null rows — DATA REPAIR,
+      RUN 2026-07-26, owner-confirmed, WROTE to prod.** Follow-on to the
+      digest diagnostic below: the 07-19T23:55:37Z→07-20T22:52:46Z outage
+      window produced 23 contiguous extraction failures on otherwise-good
+      emails (confirmed distinct from the 12 ragged-tail
+      redelivery-duplicate rows, which were excluded — those route to the
+      content-key dedupe cleanup, not here). **Result: 23/23 repaired,
+      0 still null — no genuinely-unreadable residue population exists.**
+      15/23 resolved to real commerce data (retailer + orderNumber +
+      linked order — 9 Amazon, plus Amazon Fresh, Honest History, Five
+      Marys Ranch, Gundry MD, Etsy, DONNI). 8/23 resolved decisively to
+      `emailType: "other"` with no order data — confirmed genuine
+      non-commerce content on a healthy read (eBay message-thread
+      notifications ×2, Bloomingdale's/RugsUSA marketing, and one
+      Target promo that names the retailer but carries no order) via
+      `shouldAutoJunk`'s existing orphan path, not extraction failures.
+      Zero rows failed to extract cleanly. **This directly answers the
+      digest-design question the owner was waiting on: there is no
+      "genuinely unreadable" bucket from this outage to design around —
+      every row was either real data or confirmed junk.**
+      **Cost — MATERIALLY MORE than the ~23 estimate, flagged per
+      instruction:** 39 total billed Anthropic calls (23 `extractEmail` +
+      16 `lookupReturnPolicy`, 14 success / 2 unclear / 0 error) — 70%
+      over the declared estimate, because 16 of 23 rows resolved a
+      retailer with no `returnWindowDays`, triggering Phase 1a/1c's known
+      extra-cost path (Sonnet + up to 3 web searches each). Consistent
+      with — not new evidence against — the Phase 1a negative-cache case
+      already queued in this section. Script: `scripts/reextract-
+      outage-core-block.ts` (uncommitted, not run again — targets the
+      fixed 23-id list, would no-op safely via its own pre-check if rerun
+      since none are `emailType: null` anymore). Did NOT touch digest
+      logic or make any exclude/design change — that
+      decision is the owner's, gated on this repaired/residue split.
+- [ ] **Friday weekly coverage-check digest badly broken — DIAGNOSTIC PASS,
+      2026-07-26, promoted from 🐛 Bugs (Trust-breaking) per session brief
+      (customer-facing email quality is today's priority). Read-only only —
+      no fixes this pass.** Scope: defect 1 (unknown-retailer flood,
+      dominant) and defect 3 (stale/wrong-window) only; defect 2
+      (duplicate lines) already has a forward-only fix (`0b055df`, ⏳
+      Verifying) and is explicitly not being re-solved here. Bisecting
+      `JUNK_FILTER` against this week's commits (`0b055df`, `13521ca`, the
+      junk-backfill) per the board's own prime hypothesis — confirm or
+      kill before touching any code. See full findings once this pass
+      closes (below in 🐛 Bugs, updated in place) — not duplicating the
+      write-up here.
 - [ ] **PHASE 1a — policy-lookup-negative-cache. The single highest-value
       fix from the 2026-07-21 cost investigation. NEW 2026-07-22.** Cache
       failed return-policy lookups, not just successful ones, so a retailer
@@ -61,6 +106,15 @@
       — no caller currently treats failure specially; the try/unclear/catch
       branches all just set `policyLookupWasUnclear`/leave `policySource`
       null. Nothing further to verify before building.
+      **EVIDENCE 2026-07-26:** the 23-row repair batch billed 39 calls not
+      23 — 16 hit `lookupReturnPolicy`, and 14 SUCCEEDED (9 of the 23 were
+      Amazon). This is the POSITIVE-cache pattern (repeat retailers
+      re-looked-up every order), NOT the negative-cache failure pattern
+      the sequencing above is built on. Do not ship the negative cache
+      alone and call cost handled — the dominant waste in real traffic
+      looks like redundant *successful* lookups on repeat retailers.
+      Confirm ordering against the cost-anatomy token pass before
+      building either.
 - [ ] **PHASE 1c — policy-lookup-gating. NEW 2026-07-22, from the 07-21
       cost investigation.** Decide whether `lookupReturnPolicy()` should be
       reachable from `delivery`- or `shipping_confirmation`-typed emails at
@@ -867,12 +921,103 @@
       this week. Date-window problem — either the coverage window query,
       or orders carrying unreliable dates (possible overlap with the
       anchor-date / Part 3 wrong-date work).
-      **4. LIKELY ROOT of the regression:** the route already has a
-      `JUNK_FILTER` (`app/api/cron/weekly-coverage/route.ts`) that was
-      working Friday. Prime hypothesis: a change this week (junk-backfill /
-      anchor-date resolver / orphan-dedup work) altered a field
-      `JUNK_FILTER` keys on, so rows it used to exclude — **owner's report
-      cuts off here, not completed; capture verbatim, not extrapolated.**
+      **4. Prime hypothesis (JUNK_FILTER field regression) — DIAGNOSED
+      2026-07-26, REFUTED.** Read-only pass, zero model calls (confirmed
+      the route imports nothing but `prisma`/`postmark`/`adminNotify`/
+      `coverageCheck`/`junk` — no extraction/Anthropic call site on this
+      path). `JUNK_FILTER` is `{ junkedAt: null }` — its only ever job,
+      since it was introduced in the *same* commit as `Email.junkedAt`
+      itself (`54fe13f`, 2026-07-22). Diffing that commit shows the query
+      had **no filter at all** before it — so there is no prior working
+      exclusion that a later commit could have broken; `0b055df` and
+      `13521ca` don't touch `JUNK_FILTER`, `shouldAutoJunk`, or
+      `linkEmailToOrder`'s orphan branch at all (confirmed by inspection).
+      **Also a hard timing kill:** the real broken send was the scheduled
+      run at 2026-07-24T16:26:56Z (confirmed via actual `Reminder` rows,
+      `reminderType: "weekly_coverage_check"`) — `0b055df` and `13521ca`
+      were committed 2026-07-25 evening Pacific (≈2026-07-26T02:39Z /
+      T05:28Z), **after** the run they were suspected of breaking. Neither
+      commit can be the cause. The junk-backfill (applied 2026-07-23, 168
+      rows) predates the broken run but only ever targeted
+      `emailType === "other"` orphans — confirmed 0 drift, not a suspect
+      either.
+      **Actual root cause, confirmed by data:** the flood is
+      `emailType === null` orphans — the `runExtraction.ts` catch-block
+      failure fingerprint, which `shouldAutoJunk`/`JUNK_FILTER` are
+      *deliberately* designed to never hide (per `lib/junk.ts`'s own
+      comment: "must stay visible... for a human or a re-extraction to
+      resolve"). Nothing regressed here — this population was always
+      excluded from junking, by design. What changed is volume: **35 such
+      orphans were created in a tight 3-day burst — 2 on 07-19, 21 on
+      07-20, 12 on 07-21, zero since** — landing squarely inside the
+      07-24 run's rolling 7-day content window (07-17→07-24). The 07-20
+      spike lines up exactly with the already-logged Anthropic
+      credit-balance outage that day (see the Preorder ship-date item,
+      🔴 Now: "confirmed real, credit has since been restored"). The
+      07-17 run's own window (07-10→07-17) has **zero** such orphans —
+      fully explaining "clean last Friday, junk this Friday" without any
+      code change at all. Live replay of the exact query right now: 90
+      real digest lines across 13 users, 36 (40%) read "unknown
+      retailer," 35 of those 36 are this same `emailType: null` population
+      (1 is an unrelated genuinely-unlinked `shipping_confirmation`).
+      **Recommended fix scope (not built, awaiting go-ahead):** this is an
+      ingestion/extraction-failure-debris problem, not a junk-mechanics or
+      digest-query bug — options are (a) give the digest its own
+      exclusion for `emailType: null` orphans (accepts hiding a real
+      failure signal from this one outbound email, doesn't touch the
+      Needs Review dead-end), or (b) narrow the digest's content window
+      logic so a failed-extraction row that's already `needsReview: true`
+      with no resolution path doesn't get a second life as digest spam.
+      Needs an owner call on which, not a diagnosis.
+      **Defect 3 (stale window) — diagnosed, different mechanism than
+      expected, not a date-corruption bug.** AquaTru specifically is not
+      even in the *current* rolling window (all 5 linked emails predate
+      2026-07-19T23:02Z), but it was correctly inside the 07-24 run's
+      window (07-17→07-24) via a 07-18 delivery email — the order itself
+      dates to 07-12 `orderDate`. Nothing wrong with the dates on this
+      order (`orderDate`/`returnDeadline` both sane) or with
+      `computeDeadline`/the anchor-date resolver. The real issue: "this
+      week" is a rolling 7-day window keyed on the *email's* `receivedAt`,
+      not the *order's* age — a 12-day-old order with a late-arriving
+      delivery notification legitimately re-enters the window and reads
+      as stale to the user even though the code is doing exactly what it
+      was built to do. Design question for the content window, not a bug
+      in the anchor-date/Part-3 sense — explicitly does **not** need to
+      bounce to Part 3.
+      **Read-time MessageID dedupe question (asked, not built) — ANSWER:
+      YES, needed.** Live replay of the current window shows the exact
+      07-21 ACE VISALIA RSC cluster (6 rows, all `orderId: null`, all
+      `receivedAt` 2026-07-21T19:11:20Z) and the 07-23 GLOBAL-E NL B.V.
+      cluster (6 rows, all `orderId: null`, two same-timestamp sub-groups)
+      *currently* rendering as 6 + 6 = 12 separate real digest lines — the
+      per-order dedup in the route only collapses lines when `orderId` is
+      set, so orphaned redelivery dupes never dedupe today. `0b055df`
+      stops *new* duplicate rows but these 12 predate it (`messageId:
+      null` on all of them — the field wasn't populated on any row before
+      the guard shipped), so it doesn't help retroactively. A fix would
+      need a content-based key (subject + htmlBody hash + same-second
+      cluster — the same 3-signal method already used to confirm these
+      clusters), not a `messageId` key, since `messageId` is null on
+      every affected row. Not built — this stays scoped to defect 2's
+      existing forward-only fix per the session brief; noted here only to
+      answer the yes/no question asked.
+      **Not investigated this pass:** whether/how to resolve the
+      `emailType: null` orphan population itself (re-extraction retry,
+      etc.) — out of scope, this pass only traced why it floods the
+      digest.
+      **UPDATE 2026-07-26 (evening): Core-block flood REPAIRED.** Cause
+      confirmed = the 07-19→07-20 API outage (~23h, measured via bookend
+      query), NOT a `JUNK_FILTER` regression — both accused commits
+      post-date the broken run. Re-extracted the 23 outage rows on
+      healthy credits: 15 real commerce (auto-linked), 8 confirmed junk
+      (correctly auto-junked), 0 unreadable. => the "exclude vs. surface
+      unreadable orphans" design question is **CLOSED AS MOOT** for this
+      population — there is no residue to design around. Remaining
+      digest work is ONLY the 12 duplicate-race tail rows (07-21
+      same-second redelivery clusters), which need the content-key
+      dedupe (`messageId` is null on them). **Defects 1+3 = outage scar,
+      repaired. Defect 2 = the 12 rows, queued. Defect 4 (`JUNK_FILTER`)
+      = refuted, not a cause.**
 - [ ] **Unlinked email "Needs review" badge is a dead end — confirmed
       2026-07-22 while diagnosing the Needs Review panel build (🔴 Now).**
       `app/(app)/page.tsx`'s orphaned-email query (`Email.findMany({ where:
@@ -1150,6 +1295,15 @@
       `extractEmail()` pass on top. The Haiku gate's false-positive rate on
       marketing email is the dominant API spend here, not policy lookups —
       worth weighing against PHASE 1b/1c above, not investigated further.
+      **EVIDENCE 2026-07-26:** the 23-row repair batch billed 39 calls not
+      23 — 16 hit `lookupReturnPolicy`, and 14 SUCCEEDED (9 of the 23 were
+      Amazon). This is the POSITIVE-cache pattern (repeat retailers
+      re-looked-up every order), NOT the negative-cache failure pattern
+      PHASE 1a's sequencing is built on. Do not ship the negative cache
+      alone and call cost handled — the dominant waste in real traffic
+      looks like redundant *successful* lookups on repeat retailers.
+      Confirm ordering against the cost-anatomy token pass before
+      building either.
 - [ ] **`header-based-junk-drop` — design idea, NOT built, NEW 2026-07-23.**
       List-Unsubscribe present on 20/20 sampled junk emails, 0/20 known-good
       commerce (control-group verified). Proposal: on header match, skip
