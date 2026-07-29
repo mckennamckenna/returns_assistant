@@ -33,25 +33,43 @@
 ## 🔴 Now
 
 - [ ] **P0 / CRITICAL — cross-user data exposure (Wayfair + On). DIAGNOSED
-  2026-07-28, owner-reported. READ-ONLY, 0 model calls used — NOT YET FIXED,
-  waiting on owner remediation decision.** Both original hypotheses KILLED:
-  H1 (inbound-attribution fallback bug) — `extractInboundToken()` has no
+  2026-07-28, MECHANISM TRACED TO THE BYTE 2026-07-28 (follow-on pass).
+  READ-ONLY, 0 model calls used — NOT YET FIXED, waiting on owner
+  remediation decision.** Both original hypotheses KILLED: H1
+  (inbound-attribution fallback bug) — `extractInboundToken()` has no
   default/fallback, unresolved tokens are discarded, never misattributed.
   H2 (`lib/linkOrder.ts` cross-user matching) — every match path is
   `userId`-scoped, confirmed by reading each query; not the mechanism.
-  **Real cause (H3, new finding):** two humans (the owner + a family
-  alpha-tester, "Alexandra") each mis-forwarded their own genuine order
-  email to the *other's* forwarding address by mistake — not a code
-  defect. Two separate `Order` rows always existed (never one row shared
-  across dashboards). Blast radius measured directly: 2 hits across all
-  503 `Email` rows, both already known, isolated to this one user pair.
-  Overturns C2's blanket "no cross-user data leak" summary line (narrowly
-  — C2's own forged-sender scenario didn't happen here; this is a new,
-  undocumented gap: zero verification that forwarded content belongs to
-  the account it's filed under). Full findings: `HISTORY.md` 2026-07-28.
-  **Remediation not built — owner decision needed on direction** (e.g.
-  recipient-name/address mismatch flag, or surfacing sender address in
-  the UI for `needsReview` orders).
+  **Real cause: TWO DISTINCT mechanisms, not one shared "mis-forward"
+  (corrects the prior pass's unproven H3 guess):**
+  (1) **Wayfair** — Alexandra never touched Return Window. She manually
+  forwarded her genuine Wayfair order to the owner's **personal** Gmail
+  (an ordinary personal email, nothing app-related); his own Gmail→Return
+  Window auto-forward rule (confirmed via the `+caf_=` Return-Path/
+  `X-Forwarded-To` headers — Gmail's own relay signature, not a human
+  typing anything) is scoped too broadly and swept it up, same failure
+  shape already tracked for the mom/brother test users' filters matching
+  their whole inbox. (2) **On** — a genuine manual mis-send: the owner
+  directly forwarded his own order to Alexandra's real, distinct Postmark
+  address (confirmed `+caf_=`-free, direct `Return-Path`) — token
+  resolution behaved correctly; he had her real address on hand (likely
+  from setting up her forwarding as her onboarder, or admin visibility),
+  and mis-selected it. Both leaks arrived on each account's own *correct*
+  address (never a shared/ambiguous one) — kills any weak-discriminator or
+  fallback-resolution theory outright. Two separate `Order` rows always
+  existed (never one row shared across dashboards). Blast radius measured
+  directly: 2 hits across all 503 `Email` rows, both already known,
+  isolated to this one user pair. Overturns C2's blanket "no cross-user
+  data leak" summary line (narrowly — C2's own forged-sender scenario
+  didn't happen here; this is a new, undocumented gap: zero verification
+  that forwarded content belongs to the account it's filed under). Full
+  findings + Postmark cross-check packet: `HISTORY.md` 2026-07-28
+  (follow-on entry). **Remediation not built — owner decision needed on
+  direction, informed by these being two different root causes** (e.g. a
+  tighter/scoped Gmail auto-forward rule on the owner's own account for
+  the Wayfair-class mechanism; a recipient-name/address mismatch flag or
+  visible sender-address disclosure in `needsReview` orders for the
+  On-class mechanism).
 - [x] **Re-extract the 23 core-block emailType:null rows — DATA REPAIR,
       RUN 2026-07-26, owner-confirmed, WROTE to prod.** Follow-on to the
       digest diagnostic below: the 07-19T23:55:37Z→07-20T22:52:46Z outage

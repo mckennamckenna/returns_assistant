@@ -5,6 +5,99 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-28 (follow-on) — Cross-user leak mechanism traced to the byte: TWO DISTINCT causes, not one shared "mis-forward"
+
+**Continuation of the entry directly below — corrects it, doesn't replace it.** The
+prior pass's H3 ("two users each mis-forwarded their own order to the other's
+forwarding address") was an unproven residual guess after H1/H2 were killed. Traced
+both leaked rows to the raw Postmark payload + full MIME headers (read-only, 0 model
+calls) and that guess was **wrong for one of the two incidents**. There are two
+different mechanisms, not one:
+
+**Wayfair `2826387930` (Alexandra's order → owner's dashboard) — NOT a mis-typed
+Return Window address. Alexandra never touched Return Window at all.** The quoted
+original email is genuine (Wayfair → `alexandra.moser@gmail.com`). Alexandra then
+manually forwarded it — addressed, correctly, to the owner's **personal** Gmail
+(`mckenna.sweazey@gmail.com`), nothing to do with the app. The `Return-Path` on the
+message Postmark actually received is
+`mckenna.sweazey+caf_=cmqtng57q0001w9y3sm6r8kog=mail.myreturnwindow.com@gmail.com` —
+Gmail's own auto-forwarding envelope syntax (`+caf_=`), corroborated by
+`X-Forwarded-To`/`X-Forwarded-For` headers both pointing at the owner's real
+`mail.myreturnwindow.com` address, while the visible `To:` header still reads his
+personal Gmail. This is Gmail's native mail-forwarding *feature* relaying the message,
+not a human typing anything. **Mechanism: the owner's own Gmail→Return-Window
+auto-forward rule is scoped broadly enough to catch personal correspondence sitting in
+his inbox, not just genuine order mail** — the same failure shape already tracked in
+`TASKS.md` for the mom/brother test users ("filters matched their entire inbox"), now
+confirmed on the owner's own account too. Extraction is retailer-content-blind by
+design, so it processed Alexandra's order data exactly as if it were his own the
+moment the relay delivered it. `Email.forwardType: "auto"` on this row (the
+resolver's own classification) is independent corroboration.
+
+**On `101130827062601745` (owner's order → Alexandra's dashboard) — a genuine
+mis-addressed manual send, matching the brief's H3a.** No `+caf_=` marker, no
+`X-Forwarded-*` headers — `Return-Path: <mckenna.sweazey@gmail.com>` plain, meaning
+the owner directly composed/sent this "Fwd:" himself. The quoted original is genuine
+(On → his own `mckenna.sweazey@gmail.com`). He forwarded it, but the `To:` he used —
+both Postmark's `OriginalRecipient` and the visible header — is Alexandra's own real,
+distinct Postmark address:
+`8677edfe3c4e6fbc6b7642b2229ede53+cmqvuw5810001l204sp9epdmm@inbound.postmarkapp.com`.
+That is not a guessable or shared string — it exactly matches her `User.inboundToken`.
+Per H3a's own framing, token resolution behaved correctly; the real question is how he
+had her address on hand. As the account owner, he has legitimate admin visibility into
+every user's `inboundToken` (`lib/inboundAddress.ts` is shared by the settings page and
+admin views) and most likely set up her forwarding for her as the family member who
+onboarded her — a plausible source for the address landing in his own sent-history/
+autocomplete, then getting selected by mistake in place of his own.
+
+**Step 3 discriminator, stated plainly: the two leaks did NOT arrive on the same
+intake address.** Each arrived at the *correct, real, distinct* address for the
+account it landed under — Wayfair at the owner's own `mail.myreturnwindow.com`
+address, On at Alexandra's own `inbound.postmarkapp.com` address. Confirms both H3b
+(weak/shared discriminator) and H3c (a non-token resolution path firing) are **KILLED**
+by direct evidence on both rows — `extractInboundToken()` matched each message to its
+addressee's real, correct, distinct token every time; there is no ambiguity or
+fallback anywhere in this trace. H3d ("shared forwarding setup between the two
+accounts") doesn't hold as a single unifying cause either — the two incidents are
+mechanically unrelated (an inbox-side auto-forward rule vs. a manual compose-and-send
+error) that happen to involve the same two people, not one shared rule or setup
+producing both.
+
+**Verdict on "wrong address typed — to which address":** only true for one of the two
+incidents (On), and even then, "typed" undersells it — the address was a real secret
+he had legitimate access to, not guessed. The Wayfair incident involved no address
+being typed into anything Return Window–related at all.
+
+**Postmark cross-check packet, both rows** (UTC, for the owner to verify independently
+in Postmark's Inbound activity stream):
+
+| field | Wayfair leak | On leak |
+|---|---|---|
+| `receivedAt` (UTC) | 2026-07-28T03:06:21Z | 2026-06-27T22:10:00Z |
+| Postmark `MessageID` | `fa5e9653-ccad-4f4f-877e-6738f363d809` | `a7bf935e-24f0-404f-a3b4-2c3fd96e7f03` |
+| RFC `Message-ID` header | `<CALk-_sJ1NV8eqdorEwgGFFjMB9ccn60JVZOiX8AePMsaqb6HSA@mail.gmail.com>` | `<CAKLuACxsiGkyzdyZ-6mWABcHwismukNwGdyb=pNDx3gp9YOP8A@mail.gmail.com>` |
+| Intake address delivered to (`OriginalRecipient`) | `cmqtng57q0001w9y3sm6r8kog@mail.myreturnwindow.com` (owner's real address) | `8677edfe3c4e6fbc6b7642b2229ede53+cmqvuw5810001l204sp9epdmm@inbound.postmarkapp.com` (Alexandra's real address) |
+| Visible `To:` header | `"Mckenna Sweazey" <mckenna.sweazey@gmail.com>` (his personal Gmail — differs from delivery address, the auto-forward signature) | same as `OriginalRecipient` (direct send, no relay) |
+| Original `From` (retailer) | `Wayfair <account-updates@wayfair.com>` | `no-reply@on-running.com` |
+| Quoted original `To` (real recipient) | `Alexandra Moser <alexandra.moser@gmail.com>` | `mckenna.sweazey@gmail.com` |
+| Subject | "Fwd: Order received! Does everything look right?" | "Fwd: Your On digital receipt" |
+| Resolved account | `mckenna.sweazey@gmail.com` (`cmqtng57q0000w9y3bzaeax0n`) | `alexandra.moser@gmail.com` (`cmqvuw5810000l204tjaldnfx`) |
+
+**Board reconciliation (Step 0 of this follow-on):** the follow-on brief's premise —
+that `TASKS.md` was missing the P0 🔴 Now entry and the On-item pointer — was checked
+and found **inaccurate**. `git show --stat 121dbbd` confirms that commit touched
+`TASKS.md` (55 insertions/8 deletions) in addition to `HISTORY.md`, both entries are
+present in the current file exactly as committed, and `git log origin/main..main` is
+empty (already pushed). No board writes were needed for Step 0; this correction pass
+only updates the mechanism description below, in `TASKS.md`'s 🔴 Now entry, and in
+this file.
+
+**Not done (parked per brief):** `SECURITY_AUDIT.md` not edited — the correct wording
+depends on the owner's read of this mechanism, not just the fact of exposure. The two
+mis-filed Order/Email rows were not moved, merged, or deleted. No guard or fix built.
+
+---
+
 ## 2026-07-28 — Cross-user data exposure (Wayfair + On): diagnosed, both H1 and H2 KILLED — real root cause is a third, previously-untracked mechanism
 
 **READ-ONLY DIAGNOSTIC, 0 billed Anthropic calls (pure Prisma reads + static code inspection).** Owner-reported: a Wayfair order belonging to another real user ("Alexandra," a household/family alpha tester) rendered on the owner's own dashboard, and separately his own On order rendered on hers. Both hypotheses from the brief were checked against data and code, and both were killed — the actual mechanism is neither.
