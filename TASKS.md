@@ -32,6 +32,26 @@
 
 ## 🔴 Now
 
+- [ ] **P0 / CRITICAL — cross-user data exposure (Wayfair + On). DIAGNOSED
+  2026-07-28, owner-reported. READ-ONLY, 0 model calls used — NOT YET FIXED,
+  waiting on owner remediation decision.** Both original hypotheses KILLED:
+  H1 (inbound-attribution fallback bug) — `extractInboundToken()` has no
+  default/fallback, unresolved tokens are discarded, never misattributed.
+  H2 (`lib/linkOrder.ts` cross-user matching) — every match path is
+  `userId`-scoped, confirmed by reading each query; not the mechanism.
+  **Real cause (H3, new finding):** two humans (the owner + a family
+  alpha-tester, "Alexandra") each mis-forwarded their own genuine order
+  email to the *other's* forwarding address by mistake — not a code
+  defect. Two separate `Order` rows always existed (never one row shared
+  across dashboards). Blast radius measured directly: 2 hits across all
+  503 `Email` rows, both already known, isolated to this one user pair.
+  Overturns C2's blanket "no cross-user data leak" summary line (narrowly
+  — C2's own forged-sender scenario didn't happen here; this is a new,
+  undocumented gap: zero verification that forwarded content belongs to
+  the account it's filed under). Full findings: `HISTORY.md` 2026-07-28.
+  **Remediation not built — owner decision needed on direction** (e.g.
+  recipient-name/address mismatch flag, or surfacing sender address in
+  the UI for `needsReview` orders).
 - [x] **Re-extract the 23 core-block emailType:null rows — DATA REPAIR,
       RUN 2026-07-26, owner-confirmed, WROTE to prod.** Follow-on to the
       digest diagnostic below: the 07-19T23:55:37Z→07-20T22:52:46Z outage
@@ -1108,11 +1128,17 @@
       implementation via `git show 3658947^:app/\(app\)/settings/page.tsx`).
       Real evidence supporting OAuth prioritization as the eventual real fix.
       Slug: `gmail-deeplink-cross-account-parsing`.
-- [ ] **Investigate duplicate Order rows for On order 101130827062601745**
-      [needs repro] — two
-      separate Order records with the same `orderNumber`, found while diagnosing the
-      returnPortalUrl scheme bug (`lib/linkOrder.ts` matching). LinkOrder merge bug, or
-      intentional? Cheap check, not urgent.
+- [ ] **Investigate duplicate Order rows for On order 101130827062601745 —
+      EXPLAINED 2026-07-28, not a LinkOrder merge bug.** Confirmed as part
+      of the 🔴 Now P0 cross-user-leak diagnosis: the two rows are the
+      owner's own On receipt, envelope-sent by him to both his own and a
+      family alpha-tester's forwarding address ~90 seconds apart — each
+      correctly `userId`-scoped, never one row shared. `lib/linkOrder.ts`
+      is not implicated. Remaining open question (owner's call, not a bug
+      fix): whether/how to surface or dedupe this class of accidental
+      cross-account duplicate in the UI. Full detail: `HISTORY.md`
+      2026-07-28.
+      → see 🔴 Now: P0 cross-user leak (2026-07-28)
 - **RESOLVED 2026-07-20 (`9163d0b`, see 🔴 Now):** ~~Coverage-check dedup
   should key off scheduled-run-week, not rolling 7-day lookback~~ [email
   delivery] — fixed: `lib/coverageCheck.ts`'s `scheduledRunWeekStart`, dedup
@@ -1578,9 +1604,6 @@
       spec either.**
 - [ ] **PROMOTED to 🔴 Now 2026-07-17 — see Now section.** Slug:
       `mobile-ux-audit-pass`.
-- [ ] **Retailer logos** — `RetailerAvatar` currently shows initials only
-      (deliberately, per Commit 2: "logo integration is a separate future
-      task"). Needs a logo source/lookup strategy — not spec'd yet.
 - [ ] **orderDate-fallback Phase 3** — verify UI behavior with a null-orderDate
       order (5-min eyeball, likely no code needed per Phase 1's finding that
       null orderDate already renders as "—" correctly). Phase 4 backfill is
@@ -1882,6 +1905,22 @@
       If the pattern recurs, build fuzzy suffix-strip matching in `lib/linkOrder.ts`.
 
 ## ⚪ Someday
+- [ ] **Retailer logos — MOVED here 2026-07-26 (was 🟡 Next), per the
+      2026-07-13 investigation (`LOGO_COVERAGE.md`, untracked — not yet
+      committed).** `RetailerAvatar` currently shows initials only
+      (deliberately, per Commit 2: "logo integration is a separate future
+      task"). The investigation found Logo.dev covers almost every retailer
+      (93.5% raw hit rate) but only **78.3% of order-weighted volume is a
+      confidently-correct logo** — 6.5% is a confidently WRONG company's
+      logo (Gap Inc.'s real sender domain is a third-party returns vendor,
+      `optiturn.com`, not Gap's own site) and another 8.7% is an
+      unverified generic mark. This isn't a lookup-and-ship feature: it
+      needs a manual review pass and a returns-vendor domain exclusion
+      list (Optiturn, Narvar, Happy Returns, Loop, AfterShip) before any
+      of it is trustworthy, plus a source-domain decision (no plaintext
+      sender-domain column exists today — `Email.fromEmail` is encrypted
+      at rest, no call sites decrypt it currently). Deprioritized
+      accordingly — not a small "add a logo" task.
 - [ ] **Extraction: infer `orderTotal` from `refundAmount` + line items** — when
       the AI has high-confidence line item prices and a refund amount but not an
       original order total, it currently leaves `orderTotal: null`. Prompt-quality
