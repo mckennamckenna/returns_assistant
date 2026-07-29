@@ -1197,6 +1197,18 @@
 - [ ] **[blocked: on-device] Bell-icon nav misalignment** — pointer only;
       full diagnostic history stays in the mobile-ux-audit finding #1 item
       (🔴 Now). That item is not moved or edited.
+- [ ] **[Low] Same email extracted twice yields different order totals. NEW
+      2026-07-28.** Zappos order `113-0629169-3085025`: the auto-forwarded
+      delivery email read `$46.76` (Shipment Total = subtotal `$42.75` +
+      tax `$4.01`, correct); a manually re-forwarded copy of the same email
+      read `$42.75` (line-item sum, tax dropped), and the merged Order kept
+      the lower value. Surfaced while testing dedup via re-forward. Not
+      customer-impacting on its own, but flags two real gaps: (1)
+      `orderTotal` derivation is inconsistent between an explicit "Shipment
+      Total" path and a summed-from-line-items path, and (2) the merge rule
+      picked the less-complete value over the more-complete one. Investigation
+      only — confirm which merge rule in `lib/linkOrder.ts`/`lib/extract.ts`
+      chose `$42.75` over `$46.76` before any change.
 
 ### Cosmetic
 - **RESOLVED 2026-07-20 (see 🔴 Now):** ~~Sidebar account email truncates
