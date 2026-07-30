@@ -5,6 +5,53 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-07-29 — End-of-session bookkeeping pass; card-geometry Part 5 sign-off verified (after an initial false negative)
+
+**Docs-only close-out, 0 billed API calls.** Requested as a routine board-reconciliation
+pass (log Part 5 sign-off, reconcile the cross-user leak follow-ups, deprioritize the
+Amazon template item, confirm the tax-mismatch bug and the two Verifying items).
+
+**Card-geometry build ("Unified card geometry + order state machine") — now genuinely
+unblocked, but not taken on faith.** The close-out brief asserted Part 5's 9 open
+questions were answered, citing `CARD_SPEC_Part5_signoff.md` and
+`CC_BUILD_PROMPT_card_geometry.md`. First check, before writing anything: neither file
+existed anywhere in the repo (`ls *.md`, `find . -iname "*card_spec*"`,
+`find . -iname "*build_prompt*"` — only `CARD_SPEC.md` itself), and `CARD_SPEC.md`'s own
+Part 5 section showed all 9 `→ ANSWER:` lines empty. Flagged as a discrepancy rather
+than assumed, per the standing "repo wins over the brief" rule — did not write the
+sign-off into `DECISIONS.md` or mark the build unblocked on that first pass. Both files
+then appeared partway through this same session (timestamps ~20:43, most likely the
+owner completing them in a separate window while this pass was already running) —
+re-checked, read in full, and their content matches the brief's description (bucket
+name "Needs review," the Q7 no-glyph/no-swipe/labeled-text-controls resolution, Q8
+auto-archive + single-step unarchive with the terminal-chip carry-in, Q9 as a v1 open
+registry). Verified against the actual files before recording the sign-off in
+`DECISIONS.md` 2026-07-29 and marking the `TASKS.md` item unblocked. Net: the discrepancy
+was real at the time it was flagged, not a false alarm — it resolved itself mid-session,
+and was re-verified rather than assumed either way.
+
+**Cross-user leak (Wayfair + On) — 2026-07-28 conclusion confirmed still standing,**
+two follow-ups made explicit in `TASKS.md`: (1) `SECURITY_AUDIT.md`'s C2 summary line
+still needs correcting (not done — owner's call on wording), cross-referenced to the
+existing `gmail-deeplink-cross-account-parsing` bug rather than treated as a new
+finding — though that item's own claim that the owner's forward URL "works correctly"
+is now in tension with the Wayfair leak being direct evidence his own filter is also
+over-broad; flagged, not resolved. (2) The two mis-filed `Order` rows are still live in
+the wrong accounts, unchanged — a scoped DB write awaiting explicit owner go-ahead, not
+attempted here.
+
+**Amazon extraction-broken item moved 🔴 Now → 🟡 Next**, owner's deprioritization
+decision, with the 2026-07-28 data point recorded: current Amazon orders extract fine
+per owner's own dashboard-screenshot check, so the reported template break is either
+narrow or not yet live in real traffic — symptom still unspecified.
+
+**Already-satisfied on inspection, no new write needed:** the Zappos tax-mismatch bug
+(`113-0629169-3085025`) was already logged 2026-07-28 under 🐛 Bugs → Annoying. The two
+⏳ Verifying items (anchor-date `forwardType` label, MessageID dedup guard) already
+correctly read "awaiting owner verification — not Done" — left as-is.
+
+---
+
 ## 2026-07-28 (follow-on) — Cross-user leak mechanism traced to the byte: TWO DISTINCT causes, not one shared "mis-forward"
 
 **Continuation of the entry directly below — corrects it, doesn't replace it.** The

@@ -70,6 +70,27 @@
   the Wayfair-class mechanism; a recipient-name/address mismatch flag or
   visible sender-address disclosure in `needsReview` orders for the
   On-class mechanism).
+  **Cross-link, Wayfair-class mechanism (2026-07-29):** same failure shape
+  as `gmail-deeplink-cross-account-parsing` (below, "Diagnose Gmail
+  deep-link URL construction bug") — both are an over-broad forward
+  filter catching non-commerce mail. **Not confirmed as the same root
+  cause, flagging the tension rather than asserting it:** that item's own
+  evidence states the owner's URL is "byte-identical to... which works
+  correctly," i.e. it was believed his own filter setup was fine and only
+  non-owner test accounts (mom, brother) were affected. The Wayfair leak
+  is direct evidence his own forward rule is *also* too broad. Either his
+  setup changed since that finding, or "works correctly" needs
+  re-examination — worth resolving before treating one fix as covering
+  both, not assumed here.
+  **Two still-open follow-ups, not done this pass:**
+  1. `SECURITY_AUDIT.md` C2's summary line ("no cross-user data leak")
+     needs correcting — real exposure occurred, but via filter scope, not
+     forgery. Cross-reference the Gmail-filter item above rather than
+     minting a new finding. Not edited yet — owner's call on exact wording.
+  2. The two mis-filed rows (Wayfair Order under the owner, On Order under
+     Alexandra) are still live in their wrong accounts — a scoped DB write,
+     not attempted, awaiting explicit owner go-ahead per the non-additive/
+     data-correcting write rule.
 - [x] **Re-extract the 23 core-block emailType:null rows — DATA REPAIR,
       RUN 2026-07-26, owner-confirmed, WROTE to prod.** Follow-on to the
       digest diagnostic below: the 07-19T23:55:37Z→07-20T22:52:46Z outage
@@ -355,16 +376,6 @@
       tonight. The inbound webhook auth rollout (completed `d5772a8`,
       2026-07-15) is directly relevant context to start from — its
       findings inform this cleanse, not blocking work.
-- [ ] **Amazon extraction broken — order-email template change. NEW
-      2026-07-25, owner-reported.** Amazon has changed its order-email
-      template; extraction is failing on the new-format emails.
-      **SYMPTOM: TBD by owner** — not yet specified whether this presents
-      as missing orders, wrong status, or unparsed order numbers. See also
-      `AMAZON_HANDLING.md` Part 3 (✅ Done, parser limitations logged
-      2026-07-20) — this is a new, higher-severity entry in the same
-      parser-limitations family, not a duplicate of the three already
-      logged there (category-count item data, relative delivery dates,
-      multi-shipment order numbers). Not diagnosed or fixed here.
 - [ ] **Preorder ship-date handling — IMPLEMENTED 2026-07-20, pushed — live
       re-extraction test BLOCKED, not Done.** Step 1 (read-only) confirmed
       clean: `computeDeadline()`'s `estimatedDeliveryDate` case (case 3)
@@ -517,7 +528,20 @@
 
 ## 🙋 Waiting on Owner
 
-- **NEEDS: owner sign-off on the card spec (in progress) before build.**
+- **RESOLVED 2026-07-29 — Part 5 signed off, build UNBLOCKED.** All 9
+  open questions answered by the owner — `CARD_SPEC_Part5_signoff.md`
+  (the 9 decisions, wins over `CARD_SPEC.md`'s own still-blank inline
+  Part 5 text where they differ) + `CC_BUILD_PROMPT_card_geometry.md`
+  (the build brief for Claude Code). Full decision list: `DECISIONS.md`
+  2026-07-29. **Verification note:** an initial check earlier in this
+  same close-out found neither file present and flagged it as a
+  discrepancy rather than assumed signed-off; both appeared minutes later
+  (owner completing them in parallel) and were re-verified against their
+  actual content before this was marked resolved.
+  **Carry-ins for the build, don't reintroduce these:** rename the
+  summary-stat pill from "Need attention" to "Needs review" (one name,
+  all surfaces); reconcile slot-4's approved `Keep` copy against the
+  detail page's existing `Keeping it` (same action, two surfaces today).
 - [ ] **Unified card geometry + order state machine (2x2 four-slot) —
       CONSOLIDATED 2026-07-25 from five previously-separate items (Needs
       Review panel UI, mobile audit findings #3/#4/#5, and M2's UI half).
@@ -1247,6 +1271,21 @@
       inaccurate.)
 
 ## 🟡 Next
+- [ ] **Amazon extraction broken — order-email template change. NEW
+      2026-07-25, owner-reported. DEPRIORITIZED 2026-07-29, owner
+      decision — moved from 🔴 Now, stays open.** Amazon has changed its
+      order-email template; extraction is failing on the new-format
+      emails. **SYMPTOM: still TBD by owner** — not yet specified whether
+      this presents as missing orders, wrong status, or unparsed order
+      numbers. **2026-07-28 data point:** current Amazon orders extract
+      fine, per owner verification via dashboard screenshots — the break
+      is either narrow (a specific sub-format) or not yet actually hitting
+      real traffic, not a blanket failure. See also `AMAZON_HANDLING.md`
+      Part 3 (✅ Done, parser limitations logged 2026-07-20) — this is a
+      new, higher-severity entry in the same parser-limitations family,
+      not a duplicate of the three already logged there (category-count
+      item data, relative delivery dates, multi-shipment order numbers).
+      Not diagnosed or fixed here.
 - [ ] **Admin route auth (`?secret=` query param) — needs hardening before
       the admin view shows other users' email metadata.** Flagged
       2026-07-22 during the Needs Review panel work. `app/admin/page.tsx`

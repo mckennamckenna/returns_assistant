@@ -7,6 +7,46 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-07-29 — CARD_SPEC Part 5 signed off; card-geometry build unblocked
+
+All 9 open decisions in `CARD_SPEC.md` Part 5 answered by the owner, recorded in
+`CARD_SPEC_Part5_signoff.md` (that file wins over `CARD_SPEC.md`'s own inline draft
+text where they differ — its blanks were intentionally left unfilled in favor of the
+separate sign-off doc). Build brief for Claude Code: `CC_BUILD_PROMPT_card_geometry.md`.
+
+The 9, condensed (full reasoning in the sign-off doc):
+1. Bucket name → **"Needs review"** everywhere, including the summary-stat pill
+   (currently "Need attention" in the mockup — carry-in fix).
+2. Overflow threshold → reuse the Amazon bundle's inline limit; read the literal from
+   `lib/amazonBundle.ts`, don't re-decide it.
+3. Keep is available pre-delivery ("Awaiting delivery" state), archives immediately.
+4. Slot-4 action copy approved as written (`Keep` / `Start Return` / `Dropped it off?` /
+   `Refund received?`) — carry-in: reconcile vs. the detail page's `Keeping it`.
+5. Slot-3 chip copy approved as written.
+6. "View detail" = expand in place first (progressive disclosure), not a page nav.
+7. Overflow menu (mobile #3) → no `⋯`, no glyph, no swipe/gesture on the collapsed row;
+   `Archive`/`Delete` become labeled text controls inside the expanded state (own
+   confirm on Delete, junk-with-rescue, never hard delete).
+8. Kept/Complete auto-archive immediately, no warning; unarchive is also single-step,
+   no warning — valid only because slots 3-4 are a pure function of order state, so an
+   unarchived Kept/Refunded order must render its terminal chip, never a recomputed
+   countdown (this is the already-logged "unarchive re-surfaces a countdown" bug; the
+   build must include a regression test for it).
+9. Needs-review action set (Link to order / Not a purchase / View detail / Nothing) is
+   a **v1 open registry**, not closed — room to add actions later; unknown reason
+   degrades to View detail, never throws.
+
+**Verification note, for the record:** at the start of this same close-out session, an
+initial check found neither `CARD_SPEC_Part5_signoff.md` nor
+`CC_BUILD_PROMPT_card_geometry.md` present in the repo, and `CARD_SPEC.md`'s own Part 5
+blanks unfilled — flagged as a discrepancy rather than assumed. Both files appeared
+(file timestamps ~20:43, mid-session) shortly after, most likely the owner completing
+them in another window while this session was already in progress. Re-checked and
+verified against their actual content before writing this entry — not taken on faith
+from either the earlier-absent state or the later brief.
+
+---
+
 ## 2026-07-26 — Confirmed: one database, not separate dev/prod
 
 `.env`'s `DATABASE_URL` and Vercel Production's are the same Neon
