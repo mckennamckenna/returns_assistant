@@ -32,6 +32,50 @@
 
 ## 🔴 Now
 
+- [ ] **Orphan census refresh — NEW 2026-08-04, READ-ONLY, 0 billed
+      Anthropic calls, 0 writes.** Systematic re-count of the four
+      no-resolve-path populations first sized 2026-07-23 (orphaned
+      genuine-commerce 20, extraction failures 35 [23 ran-and-failed + 12
+      never-ran], linked-but-flagged 108, junked 174 — ~337 total,
+      `rescueEmail()` still zero call sites), against current data
+      post-Aug-outage. Also: categorize the orphaned genuine-commerce
+      bucket by linking-failure mode (no `orderNumber` / `orderNumber`
+      present but no matching order / candidate order exists but no
+      fallback matcher fired) to size and scope the no-fallback-matcher
+      gap (`findRefundFallbackOrder` only covers `refund`-typed emails,
+      diagnosed 2026-07-22) as design input for a real fix. Plus a
+      cross-user security cross-check on orphans/dupes (per-row
+      `userId` match against candidate order's `userId`), specifically
+      resolving the Alex Moser Jul 31 Wayfair pair (linking gap vs. a
+      new instance of the cross-user exposure class already tracked
+      above). Scripts import only `@prisma/client`, never
+      `runExtraction`/`extractEmail`. Report only, no fixes.
+- [ ] **Re-extract the Aug 1–4 credit-outage orphans — NEW 2026-08-04,
+      PHASE A DONE (owner approved the stated 104 at the
+      2026-08-01T12:08:00Z bound, 2026-08-04), PHASE B (actual
+      re-extraction, billed + writes) IN PROGRESS.** Phase A also
+      surfaced an 18-row pre-bound failure cluster
+      (2026-07-31T18:01:30Z–2026-08-01T04:56:06Z) suggesting the true
+      outage start may be ~18h earlier than the owner-stated bound —
+      **deliberately excluded from this Phase B run** per the owner's
+      explicit "stated 104" approval; flagged as a still-open follow-up,
+      not folded in silently. Also excluded, separately: 12 known
+      2026-07-21 rows (ACE VISALIA RSC/GLOBAL-E dedup-cluster dates,
+      already tracked) and 1 isolated 2026-07-28T17:46:26 row. Same
+      operation as the
+      2026-07-26 23-row repair, new window: outage `2026-08-01T12:08:00Z`
+      (13:08 BST) → restored ~Aug 4 09:00 UTC (clean extraction confirmed
+      21:46 BST Aug 4). Target = emails in that window still in the
+      extraction-failure state (`emailType: null`), plus any received-but-
+      never-run population, both distinct from emails that extracted fine
+      in the same window (those are skipped, not re-paid-for). Two-phase,
+      hard stop: Phase A is zero billed calls/zero writes, reported for
+      explicit owner approval before Phase B (the actual writing
+      re-extraction) runs. This is also the first real production dataset
+      for the `anthropic_usage` cost-visibility logging shipped
+      2026-08-04, and the first real `policy_lookup` log line — closes the
+      still-open `webSearchRequests > 0` eyeball check from that pass, for
+      free, once Phase B runs.
 - [ ] **Anthropic cost-visibility pass — IMPLEMENTED 2026-08-04, tests +
       build clean, NOT YET committed/pushed/deployed, awaiting owner
       review.** Session-brief scope: per-call `anthropic_usage` JSON
@@ -189,6 +233,15 @@
       looks like redundant *successful* lookups on repeat retailers.
       Confirm ordering against the cost-anatomy token pass before
       building either.
+      **NEW GATE, 2026-08-04 (board hygiene pass) — do not spec before
+      this lands:** both this cache (negative) and `extraction-cost-
+      visibility`/PHASE 1b (positive) are gated on reading a few days of
+      the now-live `anthropic_usage` per-call logging first (shipped
+      2026-08-04, see 🔴 Now) — that data sizes the cache, measures the
+      real repeat-retailer hit rate, and settles the shared cache-key
+      question (retailer name vs. normalized domain, open question (2)
+      above) with real numbers instead of a guess. Target: read ~Friday's
+      accumulated data before spec'ing either cache.
 - [ ] **PHASE 1c — policy-lookup-gating. NEW 2026-07-22, from the 07-21
       cost investigation.** Decide whether `lookupReturnPolicy()` should be
       reachable from `delivery`- or `shipping_confirmation`-typed emails at
@@ -378,6 +431,38 @@
       with this item, not spec'd separately. Per the design requirement
       already recorded above: ambiguous cases route to Needs Review, never
       guessed.
+      **Confirmed still live and grown, 2026-08-04 (board hygiene pass +
+      fresh evidence from a real digest).** Orphaned genuine-commerce is
+      now 30-32 rows (drifting live), not 15/20. Fresh census bucket-3
+      (candidate order exists, matcher didn't fire): **17 rows** — ACE
+      VISALIA RSC ×6, H&M ×5, Poshmark ×2, NET-A-PORTER ×2, Good Eggs,
+      Honest History. **The H&M same-day-ambiguous case is still live
+      right now** (same user, two H&M orders placed the same day,
+      2026-07-21 03:02 and 14:55) — direct reconfirmation of the design
+      requirement above; do not build a "closest date wins" matcher, it
+      would pick wrong here. **User-facing evidence, real digest:**
+      Alexandra's own Friday coverage-check showed two Wayfair lines —
+      one linked (with price) and one orphaned ("1 order from Wayfair,"
+      no price) — this is the customer-facing symptom of this exact bug,
+      not a new one. **Caveat, honestly flagged rather than asserted as
+      fact:** the specific orphaned Wayfair row from that digest could
+      not be pinned down against the live DB at time of this note — no
+      currently-orphaned email in her account resolves to retailer
+      "Wayfair" (nor was a live "SCRIBE"/"Monos" orphan found, the other
+      examples mentioned alongside it). Best candidate by shape: a
+      2026-07-31T18:31:05Z delivery-notification row still sitting at
+      `emailType: null` (extraction never ran/succeeded) — that's the
+      **known pre-bound extraction-failure cluster** (see the Aug 1-4
+      credit-outage item, 🔴 Now), a different failure mode than this
+      item's no-fallback-matcher gap, not confirmed as Wayfair without
+      running extraction. Do not treat the Wayfair specifics as verified
+      until that row resolves (or a fresh digest names it again). **A
+      separate, unrelated duplicate exists on a different account for the
+      same Wayfair order-number** (two fully-linked Order rows, two
+      different userIds) — per owner instruction 2026-08-04, this is a
+      known accident on the *other* account and is explicitly OUT of
+      scope here; it does not reopen or extend the 2026-07-28 P0
+      cross-user item (unchanged, not touched by this pass).
 - [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
       (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
       go-ahead given, fix deployed. Still needs a code comment explaining
@@ -1208,6 +1293,24 @@
   entirely when `force === true`. Same class of bug also found and fixed in
   `weekly-digest/route.ts` this session (Sunday digest, higher stakes) —
   see 🔴 Now.
+- [ ] **Amazon deadline reminders firing — NOT STARTED, NEW 2026-08-04
+      (board hygiene pass).** `7_day`/`2_day` reminders sent to Amazon
+      orders on the Jul 31 run, against the `AMAZON_HANDLING.md` v1
+      awareness-only decision (Amazon card is read-only/awareness-only —
+      see ✅ Done, "`AMAZON_HANDLING.md` v1 (awareness-only) — APPROVED
+      2026-07-25"). **Correction to this item's own
+      first draft:** initially logged as "being fixed by an
+      Amazon-reminder-suppression pass, run 2026-08-04" — checked before
+      filing and that claim doesn't hold up against this repo: no
+      Amazon-specific logic in `lib/reminders.ts` (`isAmazonOrder` is
+      defined in `lib/amazonBundle.ts` but has no call site there), no
+      commit touching that file today, no HISTORY.md entry for August.
+      Filed as genuinely open, not in-progress. Related but distinct:
+      `amazon-per-email-reminder-cadence` (🟡 Next) is about adding MORE
+      per-email Amazon touchpoints; this bug is about the existing
+      deadline-threshold schedule firing where the awareness-only decision
+      says it shouldn't. Owner to confirm where (or whether) a suppression
+      fix actually landed before this is picked up.
 
 ### Annoying
 - [ ] **[PROMOTED to 🔴 Now 2026-07-21] AquaTru "Shipped" badge forever** —
@@ -1388,6 +1491,10 @@
       instead of caching around it, but verify-gate findings say don't
       assume it's safe to just gate it off (a real live case depends on
       delivery/shipping emails being lookup-eligible).
+      **NEW GATE, 2026-08-04 (board hygiene pass) — see PHASE 1a in 🔴 Now
+      for the full note:** this cache is also gated on reading a few days
+      of the now-live `anthropic_usage` logging before spec — same gate,
+      not restated twice.
       **Dedicated Anthropic API key — still worth doing, priority DROPPED
       2026-07-22.** With per-call usage logging (`per-call-usage-logging`,
       🟡 Next) landing, the Console's per-key view stops being the primary
@@ -1414,6 +1521,15 @@
       looks like redundant *successful* lookups on repeat retailers.
       Confirm ordering against the cost-anatomy token pass before
       building either.
+- [ ] **Live spend ceiling / alert — NEW 2026-08-04 (board hygiene pass).**
+      A daily call-count or $ threshold that alerts BEFORE the Anthropic
+      billing cap (the cliff) is hit — the thing that would have caught
+      both the 07-19→07-20 and 08-01→08-04 credit-balance outages
+      proactively instead of via after-the-fact investigation. Small.
+      Distinct from PHASE 1a/1b/1c and `anthropic_usage` logging above —
+      those cut spend; this one watches spend and fires before the wall,
+      the only piece the board currently lacks (everything else here is
+      retrospective cost analysis). Slug: `spend-ceiling-alert`.
 - [ ] **`header-based-junk-drop` — design idea, NOT built, NEW 2026-07-23.**
       List-Unsubscribe present on 20/20 sampled junk emails, 0/20 known-good
       commerce (control-group verified). Proposal: on header match, skip
@@ -1686,6 +1802,21 @@
       **Committed work, gated on `amazon-first-class-case` landing first
       (2026-07-19 decision) — not "someday," but not started ahead of that
       spec either.**
+- [ ] **Amazon digest grouping — NEW 2026-08-04 (board hygiene pass).**
+      Collapse Amazon to a single "Amazon — N orders this week" line
+      instead of N thin lines, in BOTH the Sunday digest
+      (`weekly-digest/route.ts`) and the Friday coverage-check
+      (`weekly-coverage/route.ts`). **Distinct surface from
+      `amazon-dashboard-folder-view` directly above** — that item is the
+      in-app dashboard card, this is the two plain-text outbound emails;
+      same underlying Amazon-fan-out problem, different code paths, not a
+      duplicate. Blocked on a pinned decision: what counts as "one order"
+      (distinct `orderNumber`? include unlinked orphans? count delivery
+      re-entries as separate lines?). **Note the count semantics differ
+      per digest** — Sunday is due-by-deadline content, the coverage-check
+      is arrived-this-week content — so one shared grouping helper may
+      still need two different counting rules underneath it. Slug:
+      `amazon-digest-grouping`.
 - [ ] **PROMOTED to 🔴 Now 2026-07-17 — see Now section.** Slug:
       `mobile-ux-audit-pass`.
 - [ ] **orderDate-fallback Phase 3** — verify UI behavior with a null-orderDate
@@ -3386,3 +3517,15 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
   A probe can make zero writes and still make a hundred billed model
   calls. The board tracked writes and deploy state but had no dimension
   for spend. See the amended close-out rule in the header.
+- **Kill switch — REJECTED by design (2026-08-04).** A switch that stops
+  return-window lookups turns off the product's core function to save
+  money. Cost is cut by removing *redundant* lookups (the `other` gate,
+  the retailer-policy cache — see PHASE 1a/1b, 🔴 Now / 🟡 Next), never
+  by denying a real order its window. If an emergency lever is ever
+  wanted, the honest form is "queue lookups, retry when credits
+  recover" — defer the work, not the answer. Do not reintroduce.
+- **The coverage-check's single job (2026-08-04).** "Here's everything we
+  caught from you this week — reply if we missed something." It is an
+  alpha QA net. It is NOT "what's coming up" (that's the Sunday digest)
+  and NOT "what's genuinely new to the user." Recorded so a future
+  session doesn't re-add a second purpose to `weekly-coverage/route.ts`.
