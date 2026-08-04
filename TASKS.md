@@ -32,6 +32,21 @@
 
 ## 🔴 Now
 
+- [ ] **Anthropic cost-visibility pass — IMPLEMENTED 2026-08-04, tests +
+      build clean, NOT YET committed/pushed/deployed, awaiting owner
+      review.** Session-brief scope: per-call `anthropic_usage` JSON
+      logging on all 3 call sites (`lib/classify.ts`, `lib/extract.ts` ×2)
+      via new `lib/anthropicUsage.ts`, plus the `PHASE 1c`-adjacent
+      "never research `other` emails" gate in `extractEmail()`
+      (`lib/extract.ts`) — narrowly scoped to `emailType === "other"` only,
+      not the broader delivery/shipping gating question still open below.
+      Zero billed Anthropic calls this pass (all tests mock the SDK); zero
+      DB reads/writes. Does NOT include: the negative/positive policy
+      cache (`PHASE 1a`), the rest of `PHASE 1c` (delivery/shipping
+      gating), or email-body truncation — see the session's full report.
+      **Process note:** this entry itself was added after work started, not
+      before, per this file's own "before starting work" rule — flagging
+      the miss rather than silently correcting it.
 - [ ] **P0 / CRITICAL — cross-user data exposure (Wayfair + On). DIAGNOSED
   2026-07-28, MECHANISM TRACED TO THE BYTE 2026-07-28 (follow-on pass).
   READ-ONLY, 0 model calls used — NOT YET FIXED, waiting on owner

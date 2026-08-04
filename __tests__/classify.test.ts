@@ -27,7 +27,19 @@ const HM_HTML_BODY =
   "Your refund of $29.99 will be processed within 5 business days.</div></body></html>";
 
 function makeResponse(word: string) {
-  return { content: [{ type: "text", text: word }] };
+  return {
+    content: [{ type: "text", text: word }],
+    usage: {
+      input_tokens: 42,
+      output_tokens: 3,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+      output_tokens_details: null,
+      service_tier: "standard",
+      inference_geo: null,
+    },
+  };
 }
 
 beforeEach(() => {
@@ -65,28 +77,36 @@ describe("isCommerceEmail", () => {
     expect(mockCreate).toHaveBeenCalledOnce();
   });
 
-  it("logs no email content on the COMMERCE path", async () => {
+  it("logs a usage event with no email content on the COMMERCE path", async () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     mockCreate.mockResolvedValueOnce(makeResponse("COMMERCE"));
     await isCommerceEmail(undefined, HM_HTML_BODY);
 
-    expect(consoleSpy).not.toHaveBeenCalled();
+    // One usage-visibility log line, and only counts/IDs in it — never the
+    // resolved body text (the H&M commerce-signal sentence) it was called on.
+    expect(consoleSpy).toHaveBeenCalledOnce();
+    const event = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+    expect(event).toMatchObject({ event: "anthropic_usage", callSite: "commerce_classifier" });
+    expect(consoleSpy.mock.calls[0][0] as string).not.toContain("H&M");
     expect(errorSpy).not.toHaveBeenCalled();
 
     consoleSpy.mockRestore();
     errorSpy.mockRestore();
   });
 
-  it("logs no email content on the NOT_COMMERCE path", async () => {
+  it("logs a usage event with no email content on the NOT_COMMERCE path", async () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     mockCreate.mockResolvedValueOnce(makeResponse("NOT_COMMERCE"));
     await isCommerceEmail("Hotel booking confirmation #98765.", undefined);
 
-    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledOnce();
+    const event = JSON.parse(consoleSpy.mock.calls[0][0] as string);
+    expect(event).toMatchObject({ event: "anthropic_usage", callSite: "commerce_classifier" });
+    expect(consoleSpy.mock.calls[0][0] as string).not.toContain("98765");
     expect(errorSpy).not.toHaveBeenCalled();
 
     consoleSpy.mockRestore();

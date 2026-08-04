@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import { logAnthropicUsage } from "./anthropicUsage";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -268,12 +269,20 @@ export function resolveEstimatedDeliveryDate(
   return routedEstimate ?? shipByDate ?? null;
 }
 
-async function lookupReturnPolicy(retailer: string): Promise<PolicyLookupResult> {
+async function lookupReturnPolicy(retailer: string, emailId?: string | null): Promise<PolicyLookupResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 1024,
     tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
     messages: [{ role: "user", content: buildPolicyLookupPrompt(retailer) } as MessageParam],
+  });
+
+  logAnthropicUsage({
+    callSite: "policy_lookup",
+    model: MODEL,
+    usage: message.usage,
+    retailer,
+    emailId,
   });
 
   const text = lastTextBlock(message.content as { type: string; text?: string }[]);
@@ -556,13 +565,25 @@ export function computeNeedsReview(params: {
   );
 }
 
-export async function extractEmail(textBody: string, subject: string | null): Promise<ExtractionResult> {
+export async function extractEmail(
+  textBody: string,
+  subject: string | null,
+  emailId?: string | null,
+): Promise<ExtractionResult> {
   const message = await anthropic.messages.create({
     model: MODEL,
     // Orders with many line items can produce long responses — 1024 was
     // truncating mid-JSON for orders with a dozen+ items.
     max_tokens: 4096,
     messages: [{ role: "user", content: buildPrompt(subject ?? "(no subject)", textBody) }],
+  });
+
+  logAnthropicUsage({
+    callSite: "email_extraction",
+    model: MODEL,
+    usage: message.usage,
+    bodyCharacterCount: textBody.length,
+    emailId,
   });
 
   const text = lastTextBlock(message.content as { type: string; text?: string }[]);
@@ -574,11 +595,17 @@ export async function extractEmail(textBody: string, subject: string | null): Pr
   const returnPortalUrlFromEmail: string | null = parsed.returnPortalUrlFromEmail ?? null;
   let returnPortalUrlFromLookup: string | null = null;
 
+  // Never research "other"-typed emails, even if extraction happened to
+  // return a retailer name — pure marketing/unrelated content has zero
+  // chance of ever needing a return policy (see TASKS.md, PHASE 1c
+  // evidence: 4 of 5 sampled "other"-typed emails triggered this lookup for
+  // no reason). Deliberately narrow: this is the only new gate condition —
+  // delivery/shipping_confirmation stay eligible.
   if (parsed.returnWindowDays != null) {
     policySource = "email";
-  } else if (parsed.retailer) {
+  } else if (parsed.retailer && parsed.emailType !== "other") {
     try {
-      const lookup = await lookupReturnPolicy(parsed.retailer);
+      const lookup = await lookupReturnPolicy(parsed.retailer, emailId);
       returnPortalUrlFromLookup = lookup.returnPortalUrl;
 
       if (lookup.returnWindowDays != null && lookup.confidence !== "low") {

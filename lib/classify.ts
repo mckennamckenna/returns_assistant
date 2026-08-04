@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { resolveBodyText } from "./emailBodyText";
+import { logAnthropicUsage } from "./anthropicUsage";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -39,6 +40,13 @@ export async function isCommerceEmail(textBody: string | undefined, htmlBody: st
     model: MODEL,
     max_tokens: 8,
     messages: [{ role: "user", content: buildPrompt(text) }],
+  });
+
+  logAnthropicUsage({
+    callSite: "commerce_classifier",
+    model: MODEL,
+    usage: message.usage,
+    bodyCharacterCount: resolved?.length ?? 0,
   });
 
   const block = message.content[0];

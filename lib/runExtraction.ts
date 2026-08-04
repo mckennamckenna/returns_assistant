@@ -17,7 +17,7 @@ export async function runExtraction(emailId: string): Promise<void> {
       throw new Error("no textBody or htmlBody to extract from");
     }
 
-    const result = await extractEmail(body, email.subject ?? null);
+    const result = await extractEmail(body, email.subject ?? null, emailId);
 
     await prisma.email.update({
       where: { id: emailId },
