@@ -1449,6 +1449,22 @@
       writes it — always `"returnable"` instead. Harmless, just
       inaccurate.)
 
+### Infra / reliability
+- [ ] **`lookupReturnPolicy` needs a bounded timeout — latent bug, NEW
+      2026-08-05, from the Aug-4 backfill.** During that backfill, the
+      lookup for retailer "Suzie Kondi" hung near the Anthropic SDK's
+      default timeout — long enough for Neon to auto-suspend and wedge the
+      process's other DB connections, taking the whole run down twice,
+      billing 2 wasted extraction calls, and leaving one row unrepaired
+      (`cmsdunton0001gt04vm8msv9m` — see the 🔴 Now Aug-outage backfill
+      entry for the full trace). With no per-call timeout on the lookup,
+      any slow/hanging web-search call can stall the whole pipeline, not
+      just a backfill script — the same call site fires from live inbound
+      traffic (`extractEmail()`). **Fix:** a bounded timeout on
+      `lookupReturnPolicy` (`lib/extract.ts`) that fails the row to
+      `needsReview` instead of hanging. Real production code change — its
+      own small pass, not built here. Slug: `lookup-return-policy-timeout`.
+
 ## 🟡 Next
 - [ ] **Amazon extraction broken — order-email template change. NEW
       2026-07-25, owner-reported. DEPRIORITIZED 2026-07-29, owner
@@ -1556,6 +1572,26 @@
       for the full note:** this cache is also gated on reading a few days
       of the now-live `anthropic_usage` logging before spec — same gate,
       not restated twice.
+      **Cost findings that reframe this item, 2026-08-05 (from the Aug-4
+      backfill's real production usage data) — verify against a full
+      Friday's worth of logs, do NOT act on this alone:** actual
+      `lookupReturnPolicy` trigger rate across the 103 re-extracted rows
+      was **~26%** (27/103), well under the 70% precedent this cache's
+      sizing has assumed — because **95 of 133 emails in that window were
+      `emailType: "other"` (marketing)**, which never reach the lookup at
+      all. That means the surprise cost driver in this batch may be
+      **Sonnet `extractEmail()` running on a flood of marketing mail**,
+      not lookup repetition — a *different* fix than this cache (e.g. a
+      cheaper pre-filter before extraction; see `header-based-junk-drop`
+      below, which is aimed at exactly this). Separately, worth folding
+      into this cache's own design once it's built: every one of the 27
+      real lookups logged `webSearchRequests: 3` — the max allowed, every
+      time, with input up to ~32k tokens — so each lookup is expensive
+      *and* never resolves early; open question for that design pass is
+      whether to cap searches below 3. **Net: still worth building, but
+      confirm from a full Friday's logs whether the dominant cost is
+      marketing-on-extraction vs. lookup repetition vs. per-lookup expense
+      before speccing — the fix differs for each.**
       **Dedicated Anthropic API key — still worth doing, priority DROPPED
       2026-07-22.** With per-call usage logging (`per-call-usage-logging`,
       🟡 Next) landing, the Console's per-key view stops being the primary
