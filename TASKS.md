@@ -90,19 +90,40 @@
       new instance of the cross-user exposure class already tracked
       above). Scripts import only `@prisma/client`, never
       `runExtraction`/`extractEmail`. Report only, no fixes.
-- [ ] **Re-extract the Aug 1–4 credit-outage orphans — NEW 2026-08-04,
-      PHASE A DONE (owner approved the stated 104 at the
-      2026-08-01T12:08:00Z bound, 2026-08-04), PHASE B (actual
-      re-extraction, billed + writes) IN PROGRESS.** Phase A also
-      surfaced an 18-row pre-bound failure cluster
-      (2026-07-31T18:01:30Z–2026-08-01T04:56:06Z) suggesting the true
-      outage start may be ~18h earlier than the owner-stated bound —
-      **deliberately excluded from this Phase B run** per the owner's
-      explicit "stated 104" approval; flagged as a still-open follow-up,
-      not folded in silently. Also excluded, separately: 12 known
-      2026-07-21 rows (ACE VISALIA RSC/GLOBAL-E dedup-cluster dates,
-      already tracked) and 1 isolated 2026-07-28T17:46:26 row. Same
-      operation as the
+- [ ] **Re-extract the Aug 1–4 credit-outage orphans — PHASE B DONE
+      2026-08-05, 103/104 repaired, 1 residual flagged, awaiting owner
+      review (not hand-verified in production).** Ran in 4 passes (one
+      initial + three resumes) after two distinct infra interruptions —
+      see `HISTORY.md`/session detail for the full trace: a Neon
+      connection drop crashed the first pass at row 87/104 cleanly (no
+      corruption, idempotent resume worked as designed); a second issue
+      was traced to one specific row (`cmsdunton...`, retailer "Suzie
+      Kondi") whose `lookupReturnPolicy` call hangs near the Anthropic
+      SDK's default timeout, long enough for Neon to auto-suspend and
+      wedge the rest of that run's DB connections — isolated and skipped
+      rather than retried blindly a third time. **103 rows repaired, 32
+      newly linked to an order.** Actual cost came in under the Phase A
+      estimate: 132 billed calls (105 extraction + 27 lookup) vs. the
+      ~176 estimated — the real lookup-trigger rate (~26%) was well below
+      the 70% precedent used for the estimate. Confirms `webSearchRequests`
+      logging is correct in production: all 27 real `policy_lookup` calls
+      logged `webSearchRequests: 3` (the max), closing that open
+      verification item from the cost-visibility pass.
+      **Still open, not resolved this pass:**
+      1. **`cmsdunton0001gt04vm8msv9m`** ("Suzie Kondi") — still
+         `emailType: null`. A bounded per-call timeout on
+         `lookupReturnPolicy` (`lib/extract.ts`) would fix this properly,
+         but that's a production code change needing sign-off, not
+         something to slip into a backfill script — flagged, not built.
+      2. The 18-row pre-bound failure cluster
+         (2026-07-31T18:01:30Z–2026-08-01T04:56:06Z) surfaced in Phase A,
+         suggesting the true outage start may be ~18h earlier than the
+         owner-stated bound — **deliberately excluded from this Phase B
+         run** per the owner's explicit "stated 104" approval, not folded
+         in silently. Also excluded, separately: 12 known 2026-07-21 rows
+         (ACE VISALIA RSC/GLOBAL-E dedup-cluster dates, already tracked)
+         and 1 isolated 2026-07-28T17:46:26 row.
+      Same operation as the
       2026-07-26 23-row repair, new window: outage `2026-08-01T12:08:00Z`
       (13:08 BST) → restored ~Aug 4 09:00 UTC (clean extraction confirmed
       21:46 BST Aug 4). Target = emails in that window still in the
