@@ -293,13 +293,14 @@
       closes (below in 🐛 Bugs, updated in place) — not duplicating the
       write-up here.
 - [ ] **Coverage-check "this week" fix — defect 3 (stale/wrong-window),
-      IMPLEMENTED 2026-08-05, tests + build clean, COMMITTED (`2ef71e5`),
-      PUSHED, DEPLOYED (confirmed `app.myreturnwindow.com` alias on the new
-      commit, 2026-08-05) — owner checking live behavior on the next
-      Friday run, not yet Done. Process note: this entry itself was added
-      after code was already touched, not before — flagging the miss
-      per this file's own convention rather than silently correcting
-      it.** Direct follow-on to the diagnostic pass above: a linked
+      IMPLEMENTED 2026-08-05, tests + build clean, COMMITTED (`2ef71e5`,
+      `20477e7`), PUSHED, DEPLOYED (confirmed `app.myreturnwindow.com`
+      alias on commit `20477e7`, 2026-08-05) — AWAITING OWNER
+      VERIFICATION on the next scheduled Friday run (2026-08-07), not yet
+      Done. Process note: this entry itself was added after code was
+      already touched, not before — flagging the miss per this file's own
+      convention rather than silently correcting it.** Direct follow-on
+      to the diagnostic pass above: a linked
       order whose delivery/shipping email merely arrived this week was
       being shown as if newly purchased, even when the order itself was
       placed weeks earlier (real example: Alex's Jul 31 digest showing
