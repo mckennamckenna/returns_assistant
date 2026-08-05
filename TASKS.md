@@ -32,6 +32,46 @@
 
 ## 🔴 Now
 
+- [ ] **Suppress Amazon deadline reminders — IMPLEMENTED 2026-08-04, tests +
+      build clean, NOT YET committed/pushed/deployed, awaiting owner
+      review.** Confirmed owner decision: Amazon orders must not get the
+      standalone 7/2/1/same-day deadline reminders — visibility comes from
+      the Sunday digest / Friday coverage-check only, applying
+      `AMAZON_HANDLING.md`'s awareness-only principle to reminders (a
+      deadline nag is an action prompt, which v1 doesn't do). Net-new
+      enforcement, not a repaired guard — `lib/reminders.ts` had zero
+      Amazon references before this. **Diagnostic-first catch: the
+      session brief's file path (`app/api/cron/reminders/route.ts`)
+      doesn't exist — the real cron lives at `app/api/cron/route.ts`**
+      (confirmed by directory listing before editing anything); implemented
+      against the real file. **Option A (cron-loop skip), not Option B
+      (pure-function rule)** — one line, `if (isAmazonOrder(order.retailer))
+      continue;`, added at the top of the order loop before `reminderType`
+      is computed, covering both the normal and `?force=true` paths since
+      both flow through the same loop. Reuses `isAmazonOrder` from
+      `lib/amazonBundle.ts` unchanged. **Import-cycle check, as flagged in
+      the brief:** `amazonBundle.ts` imports `daysUntil` FROM
+      `reminders.ts`; importing `isAmazonOrder` INTO `route.ts` (not into
+      `reminders.ts`) avoids the cycle entirely — confirmed via grep (
+      neither `reminders.ts` nor `amazonBundle.ts` imports from
+      `route.ts`) and a clean `npm run build`. **Tests:** new
+      `__tests__/cronAmazonSkip.test.ts`, 6 cases (Amazon order skipped /
+      still skipped under `?force=true` / non-Amazon order unaffected /
+      existing estimated-deadline suppression unchanged / case-insensitive
+      match / mixed batch skips only the Amazon row) — full-route mock
+      pattern matching `__tests__/inboundDedup.test.ts`'s convention, not
+      cron.test.ts's pure-function-only pattern, since the skip lives
+      inline in the route. 504/504 full suite passing, `npm run build`
+      clean. **Open question, not decided here (per brief's explicit
+      scope):** whether the same carve-out should apply to
+      `runRefundCheckinReminders()` (`lib/refundCheckin.ts`) — a different
+      reminder type, not touched this pass, plausibly the same
+      awareness-only logic but a separate owner decision. **Also flagged:**
+      `amazon-per-email-reminder-cadence` (🟡 Next, MORE per-email Amazon
+      reminders) is the opposite direction from this fix (fewer/none) —
+      needs owner reconciliation, not resolved here. **Zero billed
+      Anthropic calls — pure logic change, tests mock the DB, no live or
+      forced send run.**
 - [ ] **Orphan census refresh — NEW 2026-08-04, READ-ONLY, 0 billed
       Anthropic calls, 0 writes.** Systematic re-count of the four
       no-resolve-path populations first sized 2026-07-23 (orphaned
@@ -1293,24 +1333,24 @@
   entirely when `force === true`. Same class of bug also found and fixed in
   `weekly-digest/route.ts` this session (Sunday digest, higher stakes) —
   see 🔴 Now.
-- [ ] **Amazon deadline reminders firing — NOT STARTED, NEW 2026-08-04
-      (board hygiene pass).** `7_day`/`2_day` reminders sent to Amazon
-      orders on the Jul 31 run, against the `AMAZON_HANDLING.md` v1
-      awareness-only decision (Amazon card is read-only/awareness-only —
-      see ✅ Done, "`AMAZON_HANDLING.md` v1 (awareness-only) — APPROVED
-      2026-07-25"). **Correction to this item's own
-      first draft:** initially logged as "being fixed by an
-      Amazon-reminder-suppression pass, run 2026-08-04" — checked before
-      filing and that claim doesn't hold up against this repo: no
-      Amazon-specific logic in `lib/reminders.ts` (`isAmazonOrder` is
-      defined in `lib/amazonBundle.ts` but has no call site there), no
-      commit touching that file today, no HISTORY.md entry for August.
-      Filed as genuinely open, not in-progress. Related but distinct:
+- [x] **[PROMOTED to 🔴 Now 2026-08-04] Amazon deadline reminders firing** —
+      pointer only, not edited further. Was filed here as NOT STARTED
+      (correcting an earlier false "already fixed" claim, see history
+      below); picked up same day, implemented, tested, build clean. Full
+      detail, implementation notes, and the open refund-checkin question
+      now live in the 🔴 Now item "Suppress Amazon deadline reminders."
+      Original diagnosis preserved: `7_day`/`2_day` reminders sent to
+      Amazon orders on the Jul 31 run, against the `AMAZON_HANDLING.md` v1
+      awareness-only decision (see ✅ Done, "`AMAZON_HANDLING.md` v1
+      (awareness-only) — APPROVED 2026-07-25"). **Correction this item's
+      own first draft made:** initially logged as "being fixed by an
+      Amazon-reminder-suppression pass, run 2026-08-04" — that claim
+      didn't hold up against the repo at filing time (no Amazon logic in
+      `lib/reminders.ts`, no commit, no HISTORY entry) and was corrected
+      to NOT STARTED before this promotion. Related but distinct:
       `amazon-per-email-reminder-cadence` (🟡 Next) is about adding MORE
-      per-email Amazon touchpoints; this bug is about the existing
-      deadline-threshold schedule firing where the awareness-only decision
-      says it shouldn't. Owner to confirm where (or whether) a suppression
-      fix actually landed before this is picked up.
+      per-email Amazon touchpoints, the opposite direction — flagged for
+      owner reconciliation in the 🔴 Now item, not resolved here.
 
 ### Annoying
 - [ ] **[PROMOTED to 🔴 Now 2026-07-21] AquaTru "Shipped" badge forever** —

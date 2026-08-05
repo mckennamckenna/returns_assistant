@@ -16,6 +16,7 @@ import { buildActionLink } from "@/lib/actionLinks";
 import { autoArchiveOrderWhere } from "@/lib/autoArchive";
 import { rateLimitSweepWhere } from "@/lib/rateLimit";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
+import { isAmazonOrder } from "@/lib/amazonBundle";
 
 export const dynamic = "force-dynamic";
 
@@ -207,6 +208,13 @@ export async function GET(request: NextRequest) {
   }[] = [];
 
   for (const order of orders) {
+    // AMAZON_HANDLING.md's awareness-only principle applies to reminders too:
+    // a deadline nag is an action prompt, which Amazon v1 doesn't do. Amazon
+    // orders get visibility from the Sunday digest / Friday coverage-check
+    // only — no standalone reminder email, on either the normal path or the
+    // ?force=true test path (both flow through this same loop).
+    if (isAmazonOrder(order.retailer)) continue;
+
     const asReminderOrder: OrderForReminder = {
       returnDeadline: order.returnDeadline,
       status: order.status,
