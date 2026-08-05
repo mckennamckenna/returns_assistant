@@ -33,8 +33,10 @@
 ## 🔴 Now
 
 - [ ] **Suppress Amazon deadline reminders — IMPLEMENTED 2026-08-04, tests +
-      build clean, NOT YET committed/pushed/deployed, awaiting owner
-      review.** Confirmed owner decision: Amazon orders must not get the
+      build clean, COMMITTED (`90dccd0`), PUSHED, DEPLOYED (confirmed live
+      on `app.myreturnwindow.com` as of this session's close-out,
+      2026-08-05) — awaiting owner hand-verification in production, not
+      yet Done.** Confirmed owner decision: Amazon orders must not get the
       standalone 7/2/1/same-day deadline reminders — visibility comes from
       the Sunday digest / Friday coverage-check only, applying
       `AMAZON_HANDLING.md`'s awareness-only principle to reminders (a
@@ -138,8 +140,9 @@
       still-open `webSearchRequests > 0` eyeball check from that pass, for
       free, once Phase B runs.
 - [ ] **Anthropic cost-visibility pass — IMPLEMENTED 2026-08-04, tests +
-      build clean, NOT YET committed/pushed/deployed, awaiting owner
-      review.** Session-brief scope: per-call `anthropic_usage` JSON
+      build clean, COMMITTED (`ae9e685`), PUSHED, DEPLOYED (confirmed live
+      on `app.myreturnwindow.com` 2026-08-04) — awaiting owner
+      hand-verification in production, not yet Done.** Session-brief scope: per-call `anthropic_usage` JSON
       logging on all 3 call sites (`lib/classify.ts`, `lib/extract.ts` ×2)
       via new `lib/anthropicUsage.ts`, plus the `PHASE 1c`-adjacent
       "never research `other` emails" gate in `extractEmail()`
