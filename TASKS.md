@@ -293,7 +293,10 @@
       closes (below in 🐛 Bugs, updated in place) — not duplicating the
       write-up here.
 - [ ] **Coverage-check "this week" fix — defect 3 (stale/wrong-window),
-      IN PROGRESS 2026-08-05. Process note: this entry itself was added
+      IMPLEMENTED 2026-08-05, tests + build clean, COMMITTED (`2ef71e5`),
+      PUSHED, DEPLOYED (confirmed `app.myreturnwindow.com` alias on the new
+      commit, 2026-08-05) — owner checking live behavior on the next
+      Friday run, not yet Done. Process note: this entry itself was added
       after code was already touched, not before — flagging the miss
       per this file's own convention rather than silently correcting
       it.** Direct follow-on to the diagnostic pass above: a linked
