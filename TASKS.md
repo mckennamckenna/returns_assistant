@@ -32,6 +32,39 @@
 
 ## 🔴 Now
 
+- [ ] **Historical `emailType` census (cost-priority input) — DONE
+      2026-08-05, READ-ONLY, confirmed zero billed Anthropic calls, zero
+      writes.** Follow-on to the Aug-4 backfill's small-sample finding
+      (95/133 outage-window emails were `emailType: "other"`). Confirmed
+      at full scale, 743 total emails: **`other` is 373 rows — 50.2% of
+      all emails, 51.1% of all billed extractions (730 processed;
+      excludes 13 rows where extraction was never even attempted).** Over
+      half of every Sonnet extraction call ever billed was spent on mail
+      that turned out to be marketing. **98.1% of those `other` rows
+      (366/373) are already junked** — confirms the earlier 2026-07-23
+      finding at 2x the prior scale: the app already catches this
+      content, just strictly *after* paying full Sonnet-extraction cost
+      for it, not before. Only 7 `other` rows are still live/unjunked.
+      **Gating, static-read confirmed:** the Haiku commerce-classifier
+      (`isCommerceEmail()`, `lib/classify.ts`) is the ONLY gate, and it
+      runs *before* the `Email` row is even created
+      (`app/api/inbound/route.ts`) — a non-commerce verdict there means
+      no row and no extraction cost at all. Once a row passes that gate
+      and is created, `runExtraction()` calls `extractEmail()`
+      **unconditionally** — no secondary check, no confidence threshold,
+      nothing between Haiku's verdict and the paid Sonnet call. Full
+      `emailType` distribution: `other` 373 (50.2%), `shipping_confirmation`
+      129 (17.4%), `order_confirmation` 105 (14.1%), `delivery` 64 (8.6%),
+      `null`/never-resolved 32 (4.3%), `return_label` 28 (3.8%), `refund`
+      12 (1.6%). **Reframes the cost-priority question, not decided
+      here:** since virtually every `other` row already gets caught (just
+      late), the Haiku gate's own false-positive rate — roughly a coin
+      flip, letting ~half of what becomes `other` through as COMMERCE —
+      is the actual lever, not the retailer-policy cache (which only
+      protects the ~49% that isn't marketing). A pre-extraction filter or
+      a stricter/second-pass classifier check would be a different, and
+      on these numbers likely bigger, win than PHASE 1a/1b — owner
+      decision, not built here.
 - [ ] **Suppress Amazon deadline reminders — IMPLEMENTED 2026-08-04, tests +
       build clean, COMMITTED (`90dccd0`), PUSHED, DEPLOYED (confirmed live
       on `app.myreturnwindow.com` as of this session's close-out,
@@ -259,6 +292,36 @@
       kill before touching any code. See full findings once this pass
       closes (below in 🐛 Bugs, updated in place) — not duplicating the
       write-up here.
+- [ ] **Coverage-check "this week" fix — defect 3 (stale/wrong-window),
+      IN PROGRESS 2026-08-05. Process note: this entry itself was added
+      after code was already touched, not before — flagging the miss
+      per this file's own convention rather than silently correcting
+      it.** Direct follow-on to the diagnostic pass above: a linked
+      order whose delivery/shipping email merely arrived this week was
+      being shown as if newly purchased, even when the order itself was
+      placed weeks earlier (real example: Alex's Jul 31 digest showing
+      Emme Parsons/Mejuri "delivery" lines for old orders).
+      `app/api/cron/weekly-coverage/route.ts`'s linked-email branch now
+      filters on the order's own `orderDate` (placedDate) against the
+      rolling 7-day content window, not the triggering email's
+      `receivedAt` — unlinked emails are unchanged, still keyed on
+      `receivedAt` since they're the missing-order signal this email
+      exists to surface. `placedDate` reuses `Order.orderDate` as-is
+      (already the right "when placed" signal end-to-end via
+      `applyFallbackOrderDate`/`resolveFallbackOrderDate` in
+      `lib/linkOrder.ts` — derived from the EARLIEST linked email, never
+      a later delivery email, and only when that earliest email's type
+      is `order_confirmation`/`shipping_confirmation`/`delivery`). Null
+      policy: a null `orderDate` (fallback couldn't resolve one) defaults
+      to inclusion rather than silent exclusion — dropping it could hide
+      a real this-week purchase; only excluded on positive evidence
+      (`orderDate` before the window start). Dedup window
+      (`scheduledRunWeekStart`) and the force-path's "never write a
+      Reminder row" rule are untouched. **Amazon caveat, not fixed this
+      pass:** Amazon orders' `orderDate` often falls back to `receivedAt`
+      (no `order_confirmation` emailType), so this date-filter is close
+      to a no-op for Amazon specifically — Amazon has its own coverage-
+      grouping fix queued separately, see report.
 - [ ] **PHASE 1a — policy-lookup-negative-cache. The single highest-value
       fix from the 2026-07-21 cost investigation. NEW 2026-07-22.** Cache
       failed return-policy lookups, not just successful ones, so a retailer

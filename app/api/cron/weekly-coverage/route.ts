@@ -121,19 +121,33 @@ export async function GET(request: NextRequest) {
     try {
       const recentEmails = await prisma.email.findMany({
         where: { userId: user.id, receivedAt: { gte: lookbackStart }, ...JUNK_FILTER },
-        include: { order: { select: { retailer: true, orderTotal: true, orderCurrency: true } } },
+        include: { order: { select: { retailer: true, orderTotal: true, orderCurrency: true, orderDate: true } } },
       });
 
       // Dedupe by order — several emails (confirmation, shipping,
       // delivery) about the same order this week should produce one
       // line, not one per email. Unlinked emails fall back to the
       // email's own retailer field, one line each.
+      //
+      // Linked emails are additionally filtered on the ORDER's own
+      // placedDate (Order.orderDate), not the triggering email's
+      // receivedAt — otherwise an order placed weeks ago whose delivery
+      // email merely arrived this week reads as a new purchase. orderDate
+      // already resolves the right "placed" signal end-to-end
+      // (applyFallbackOrderDate, lib/linkOrder.ts): it's derived from the
+      // EARLIEST linked email, never a later one like a delivery notice,
+      // and only from an allowed emailType. Only exclude on positive
+      // evidence the order predates this week's window — a null
+      // placedDate (fallback couldn't resolve one) defaults to inclusion
+      // rather than silently hiding a real this-week purchase.
       const seenOrderIds = new Set<string>();
       const items: CoverageItem[] = [];
       for (const email of recentEmails) {
         if (email.orderId) {
           if (seenOrderIds.has(email.orderId)) continue;
           seenOrderIds.add(email.orderId);
+          const placedDate = email.order?.orderDate ?? null;
+          if (placedDate !== null && placedDate < lookbackStart) continue;
           items.push({
             retailer: email.order?.retailer ?? null,
             orderTotal: email.order?.orderTotal ?? null,
