@@ -188,65 +188,6 @@
       **Process note:** this entry itself was added after work started, not
       before, per this file's own "before starting work" rule — flagging
       the miss rather than silently correcting it.
-- [ ] **P0 / CRITICAL — cross-user data exposure (Wayfair + On). DIAGNOSED
-  2026-07-28, MECHANISM TRACED TO THE BYTE 2026-07-28 (follow-on pass).
-  READ-ONLY, 0 model calls used — NOT YET FIXED, waiting on owner
-  remediation decision.** Both original hypotheses KILLED: H1
-  (inbound-attribution fallback bug) — `extractInboundToken()` has no
-  default/fallback, unresolved tokens are discarded, never misattributed.
-  H2 (`lib/linkOrder.ts` cross-user matching) — every match path is
-  `userId`-scoped, confirmed by reading each query; not the mechanism.
-  **Real cause: TWO DISTINCT mechanisms, not one shared "mis-forward"
-  (corrects the prior pass's unproven H3 guess):**
-  (1) **Wayfair** — Alexandra never touched Return Window. She manually
-  forwarded her genuine Wayfair order to the owner's **personal** Gmail
-  (an ordinary personal email, nothing app-related); his own Gmail→Return
-  Window auto-forward rule (confirmed via the `+caf_=` Return-Path/
-  `X-Forwarded-To` headers — Gmail's own relay signature, not a human
-  typing anything) is scoped too broadly and swept it up, same failure
-  shape already tracked for the mom/brother test users' filters matching
-  their whole inbox. (2) **On** — a genuine manual mis-send: the owner
-  directly forwarded his own order to Alexandra's real, distinct Postmark
-  address (confirmed `+caf_=`-free, direct `Return-Path`) — token
-  resolution behaved correctly; he had her real address on hand (likely
-  from setting up her forwarding as her onboarder, or admin visibility),
-  and mis-selected it. Both leaks arrived on each account's own *correct*
-  address (never a shared/ambiguous one) — kills any weak-discriminator or
-  fallback-resolution theory outright. Two separate `Order` rows always
-  existed (never one row shared across dashboards). Blast radius measured
-  directly: 2 hits across all 503 `Email` rows, both already known,
-  isolated to this one user pair. Overturns C2's blanket "no cross-user
-  data leak" summary line (narrowly — C2's own forged-sender scenario
-  didn't happen here; this is a new, undocumented gap: zero verification
-  that forwarded content belongs to the account it's filed under). Full
-  findings + Postmark cross-check packet: `HISTORY.md` 2026-07-28
-  (follow-on entry). **Remediation not built — owner decision needed on
-  direction, informed by these being two different root causes** (e.g. a
-  tighter/scoped Gmail auto-forward rule on the owner's own account for
-  the Wayfair-class mechanism; a recipient-name/address mismatch flag or
-  visible sender-address disclosure in `needsReview` orders for the
-  On-class mechanism).
-  **Cross-link, Wayfair-class mechanism (2026-07-29):** same failure shape
-  as `gmail-deeplink-cross-account-parsing` (below, "Diagnose Gmail
-  deep-link URL construction bug") — both are an over-broad forward
-  filter catching non-commerce mail. **Not confirmed as the same root
-  cause, flagging the tension rather than asserting it:** that item's own
-  evidence states the owner's URL is "byte-identical to... which works
-  correctly," i.e. it was believed his own filter setup was fine and only
-  non-owner test accounts (mom, brother) were affected. The Wayfair leak
-  is direct evidence his own forward rule is *also* too broad. Either his
-  setup changed since that finding, or "works correctly" needs
-  re-examination — worth resolving before treating one fix as covering
-  both, not assumed here.
-  **Two still-open follow-ups, not done this pass:**
-  1. `SECURITY_AUDIT.md` C2's summary line ("no cross-user data leak")
-     needs correcting — real exposure occurred, but via filter scope, not
-     forgery. Cross-reference the Gmail-filter item above rather than
-     minting a new finding. Not edited yet — owner's call on exact wording.
-  2. The two mis-filed rows (Wayfair Order under the owner, On Order under
-     Alexandra) are still live in their wrong accounts — a scoped DB write,
-     not attempted, awaiting explicit owner go-ahead per the non-additive/
-     data-correcting write rule.
 - [x] **Re-extract the 23 core-block emailType:null rows — DATA REPAIR,
       RUN 2026-07-26, owner-confirmed, WROTE to prod.** Follow-on to the
       digest diagnostic below: the 07-19T23:55:37Z→07-20T22:52:46Z outage
@@ -2274,6 +2215,34 @@
       menus) only. No filter dropdowns, no cross-bucket counts, no nudges toward active
       orders. Archive is a quiet room, not another dashboard.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **P0 cross-user data exposure (Wayfair + On) — MOVED here 2026-08-06
+      from 🔴 Now, owner decision: not a systemic bug, don't build a fix
+      now.** Diagnosed 2026-07-28 (mechanism traced to the byte, full
+      detail in `HISTORY.md` 2026-07-28 follow-on entry): two distinct,
+      unrelated causes, not one shared "mis-forward." (1) **Wayfair** —
+      the owner's own Gmail→Return Window auto-forward rule too broadly
+      swept up a personal email Alexandra had sent to his personal Gmail.
+      Owner's call, 2026-08-06: this is forwarding-shape, not repeatable
+      under normal circumstances — watch, don't fix preemptively. (2)
+      **On** — a genuine manual mis-send (owner picked the wrong real
+      address by hand). Owner's call, 2026-08-06: this instance is very
+      old and may simply have been an address-entry mistake, not a
+      systemic gap — watch, don't fix preemptively. Blast radius stays
+      as measured: 2 hits across 503 `Email` rows, isolated to this one
+      user pair, both already known. **Revisit trigger: if either shape
+      recurs with a different user pair**, escalate back to 🔴 Now —
+      recurrence would prove it's systemic, not a one-off.
+      **Two follow-ups from the original diagnosis:**
+      1. `SECURITY_AUDIT.md` C2's summary line ("no cross-user data leak")
+         is still technically inaccurate — real exposure did occur, via
+         filter/address-entry scope, not forgery. Wording fix only, no
+         code. Not done — `[needs clarification]` whether owner still
+         wants this independent of the parking decision below.
+      2. The two mis-filed rows (Wayfair Order still live under the
+         owner's account, On Order still live under Alexandra's) —
+         **owner decision 2026-08-06: ignore for now**, same parking as
+         the mechanism above. Not a scheduled fix; revisit only if the
+         broader item gets escalated back to 🔴 Now.
 - [ ] **Post-beta: delivery-only orders (no `shipping_confirmation`)** — during alpha,
       4 orders (H&M, Freda Salvador, Tuckernuck, Shopbop) had only a delivery email,
       no shipping confirmation. Root cause: users forwarding manually and not forwarding
