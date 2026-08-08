@@ -1322,26 +1322,6 @@
       display bug**, split out from the design question in
       `delivery-date-first-class-surface` (🟡 Next). Cross-ref that item;
       that item itself is not moved or edited.
-- [ ] **Diagnose Gmail deep-link URL construction bug** [latent: button
-      removed as stopgap] — 2/2 non-owner
-      test users (mom, then brother) whose filters matched their entire
-      inbox instead of the intended commerce search, forwarding personal
-      email into Return Window's extraction pipeline. Byte-identical URL to
-      the owner's own (which works correctly) — not a "user followed
-      instructions wrong" case. Deep debugging is high-cost without ability
-      to instrument the browser. Root cause suspected: search query not
-      carrying through the URL to Gmail. **2026-07-13: the button itself
-      removed from Settings** (see Known Issues) as an immediate stopgap —
-      this item is now purely about the underlying fix. When fixed and
-      verified against a third non-owner account (using the
-      filter-matches-everything monitoring alert — being built in a
-      separate session, per owner — as the verification signal: no alert
-      firing = fix confirmed), re-introduce the button + explanatory copy at
-      `settings/page.tsx` (previously at lines 22-24 and 45-56 pre-removal —
-      reference commit `3658947` — the removal commit — to see the original
-      implementation via `git show 3658947^:app/\(app\)/settings/page.tsx`).
-      Real evidence supporting OAuth prioritization as the eventual real fix.
-      Slug: `gmail-deeplink-cross-account-parsing`.
 - [ ] **Investigate duplicate Order rows for On order 101130827062601745 —
       EXPLAINED 2026-07-28, not a LinkOrder merge bug.** Confirmed as part
       of the 🔴 Now P0 cross-user-leak diagnosis: the two rows are the
@@ -3233,16 +3213,16 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
   sweep). `app/(app)/page.tsx` (dashboard query) and `lib/autoArchive.ts`
   are the likely files. Backlog — not in scope for tonight's closeout.
 - **Gmail deep-link filter setup button removed from Settings as of
-  2026-07-13, pending URL construction fix.** `app/(app)/settings/page.tsx` —
+  2026-07-13 — permanent, not pending a fix.** `app/(app)/settings/page.tsx` —
   2/2 non-owner test users (mom, brother) ended up with a filter matching
-  their entire inbox instead of the intended commerce search. Non-owner
-  users must now set up the Gmail filter manually with no in-app guidance
-  (no replacement copy was added — deliberate, see 🟡 Next). Impact:
+  their entire inbox instead of the intended commerce search. **Owner
+  decision 2026-08-06: the underlying bug (`gmail-deeplink-cross-account-parsing`)
+  is killed as too unstable, not being fixed — see `DECISIONS.md`
+  2026-08-06.** Non-owner users must set up the Gmail filter manually with
+  no in-app guidance (no replacement copy was added — deliberate). Impact:
   onboarding friction for non-technical users; watch for setup-completion
-  drop-off. A separate monitoring alert for "filter matched everything" is
-  being built in a separate session (per owner) — not this one, don't
-  duplicate. Re-introduce the button once `gmail-deeplink-cross-account-parsing`
-  (🟡 Next) is fixed and verified.
+  drop-off. Do not re-introduce the button on this mechanism — OAuth is the
+  suspected real fix path, a separate initiative, not a revival of this one.
 - **`Order.retailer` has a casing duplicate: "Mango" and "MANGO" exist as two
   separate retailer strings** (1 order each) — same normalization problem
   `CLAUDE.md` already documents for order-number suffixes, just on the

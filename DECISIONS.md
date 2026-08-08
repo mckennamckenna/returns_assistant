@@ -209,3 +209,26 @@ always-visible action rather than tucked behind the same ambiguous glyph.
 Decided rather than left as an open proposal, per owner 2026-07-25. Folded
 into the "Unified card geometry + order state machine" build item as resolved
 groundwork, not tracked as a separate open question.
+
+---
+
+## 2026-08-06 — Gmail deep-link URL construction bug: killed, too unstable
+
+Owner decision: not being fixed. Removed from `TASKS.md`'s Bugs board
+(`gmail-deeplink-cross-account-parsing`); the Settings button it would have
+gated stays removed permanently, not pending a fix.
+
+Context preserved: 2/2 non-owner test users (mom, then brother) who set up
+the Gmail filter via the deep-link ended up with a filter matching their
+entire inbox instead of the intended commerce search, feeding their personal
+email into Return Window's extraction pipeline. The URL was byte-identical to
+the owner's own working one, so this wasn't a "user followed instructions
+wrong" case, and debugging it required instrumenting a real browser session
+that was never available — high cost, no further diagnostic path without it.
+Same over-broad-filter mechanism as the Wayfair leg of the 2026-07-28
+cross-user exposure finding (see `HISTORY.md` 2026-07-28), parked separately
+in `TASKS.md`'s Watching section the same day as this decision.
+
+OAuth remains the suspected real fix, per the 2026-07-21 carrier-link-resolve
+probe close-out — tracked as its own future initiative, not a revival of this
+mechanism.
