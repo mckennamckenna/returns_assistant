@@ -319,8 +319,11 @@ export async function POST(request: NextRequest) {
     }
 
     // runExtraction catches its own errors and leaves needsReview = true,
-    // so it never breaks the 200 response below.
-    await runExtraction(email.id);
+    // so it never breaks the 200 response below. Passed as the object, not
+    // email.id -- we already hold the freshly-created row, so this skips
+    // the internal re-fetch entirely (TASKS.md 2026-08-08, the
+    // runExtraction.ts:8 findUnique-gap fix).
+    await runExtraction(email);
   } catch (error) {
     // Always return 200 below so Postmark doesn't retry — log instead.
     console.error("Failed to process inbound email:", error);
