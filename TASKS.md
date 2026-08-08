@@ -1192,6 +1192,26 @@
       digests (screenshots).** Clean as of last Friday's run and is junk
       now — something in the last ~week changed what it surfaces. Four
       distinct defects, capture only, not investigated:
+      **▶ CURRENT STATE (as of 2026-07-26 eve) — READ THIS FIRST, detail
+      below is the historical diagnosis:** Defects 1 + 3 (the "unknown
+      retailer" flood + stale-window) were an OUTAGE SCAR, not a code
+      regression — repaired by re-extracting the 23 outage rows on healthy
+      credits (15 real / 8 junked / 0 unreadable). The "exclude vs. surface
+      unreadable orphans" design question is CLOSED AS MOOT — no residue to
+      design around. Defect 4 (JUNK_FILTER) = REFUTED, both accused commits
+      post-date the broken run. **ONLY REMAINING WORK — defect 2:** the 12
+      pre-guard duplicate-race rows (07-21 ACE VISALIA RSC ×6 + 07-23
+      GLOBAL-E NL B.V. ×6, all orderId:null, all messageId:null) still render
+      as 12 separate digest lines because the route's per-order dedup only
+      collapses when orderId is set. Fix needs a CONTENT-based key (subject +
+      htmlBody hash + same-second cluster — the 3-signal method already used
+      to confirm these clusters), NOT a messageId key (null on all 12), and
+      NOT the forward-only ingestion guard 0b055df (these predate it). Scope
+      is exactly these historical rows; nothing else on this entry is open.
+      **Root-cause note:** the flood volume was emailType:null orphans from
+      the 07-19→07-21 API-outage burst — the same runExtraction findUnique-gap
+      failure class fixed 2026-08-08 (ee72159). Source inflow now reduced;
+      this entry is the historical-row cleanup tail of that same story.
       **1. PRIMARY — "unknown retailer" flood.** The majority of lines read
       "1 order from an unknown retailer" — orders with no resolved
       retailer (orphaned / extraction-failed / emailType:other /
