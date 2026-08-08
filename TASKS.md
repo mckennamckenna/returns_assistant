@@ -422,6 +422,58 @@
       same MessageID-redelivery duplication (ACE VISALIA ×6, GLOBAL-E
       NL B.V ×3, real user-visible impact); the dedup fix addresses that
       defect only, not the digest's other three defects.
+      **RESOLUTION 2026-08-08 — mechanism resolved-forward, "ACE VISALIA"
+      retired as a label, residue re-filed under existing slugs, not
+      re-opened here.**
+      **Mechanism RESOLVED-FORWARD:** the messageId dedup guard (shipped
+      2026-07-26, `0b055df`) stops new duplicate-orphan rows going
+      forward — confirmed in code at `app/api/inbound/route.ts:229-239`
+      (the `findFirst`-then-discard check) plus the
+      `@@unique([userId, messageId])` constraint
+      (`prisma/schema.prisma:189`) as the race backstop. Confirmed
+      forward-only, not a backfill: migration
+      `20260726042035_add_email_messageid_dedup` is purely additive
+      (`ADD COLUMN` + `CREATE UNIQUE INDEX`, no data `UPDATE`), and no
+      script anywhere in the repo ever writes `messageId` onto a
+      pre-existing row — verified by direct code read, not memory,
+      2026-08-08.
+      **Residual, re-filed not re-opened — two related but distinct
+      pre-guard populations from the same 2026-07-21 incident, not the
+      same rows, not conflated:** (1) this item's own originally-tracked
+      rows — ACE VISALIA RSC (14 orphaned, extracted, retailer-named) and
+      GLOBAL-E NL B.V (~4-6 identical rows) — both `messageId: null`
+      (pre-dates the guard). (2) A separate set surfaced by the
+      2026-08-08 extraction-gap census (see ✅ Done, `runExtraction.ts:8`
+      findUnique-gap fix): 11 rows sharing the exact same 07-21
+      same-second timestamps but never extracted at all
+      (`extractedAt: null`, FedEx "out for delivery"/"delivered" and
+      Amazon/Whole Foods "picked up" senders) — same redelivery-storm
+      incident, different rows, also `messageId: null`. Both populations
+      are historical, un-swept data, not an open dedup bug — the guard
+      would have caught either shape had it existed at ingestion time.
+      Both point at the existing "Orphan census refresh" 🔴 Now item's
+      cleanup scope; they clear when that backfills/matches, not before.
+      **"ACE VISALIA RSC" was a mis-extracted pseudo-retailer EXAMPLE, not
+      its own bug.** It stays only as the illustrative case in `PHASE
+      1a`'s evidence (14 failed `lookupReturnPolicy` calls) and `PHASE
+      1c`'s gating rationale (delivery emails shouldn't reach
+      `lookupReturnPolicy` at all). Both keep their own identity
+      (`PHASE 1a — policy-lookup-negative-cache`, `PHASE 1c —
+      policy-lookup-gating`); neither needs the ACE name to stand on its
+      own.
+      **PHASE 1a confirmed status, 2026-08-08: still OPEN, not built.**
+      Verified by direct read, not inferred: `lookupReturnPolicy()`
+      (`lib/extract.ts:272-289`) has no cache logic of any kind, and its
+      one call site (`lib/extract.ts:608`) calls the Anthropic API
+      unconditionally whenever the gate passes — no pre-check against any
+      prior failure or success. The one genuinely-live fix this incident
+      spawned has not shipped; recorded here on its own so it isn't
+      buried under the retired name.
+      **Net: no item on this board carries "ACE VISALIA" as its identity
+      after this entry.** The status-path mystery flagged above (order
+      `#001352978` reading "delivered" with no linked emails) remains
+      unresolved and out of scope for this edit — not touched, not
+      implied fixed.
 - [ ] **H&M — do we extract from attachments? CONFIRMED: no, not at all.
       NEW 2026-07-23.** Checked directly: `app/api/inbound/route.ts`'s
       `PostmarkInboundPayload` interface doesn't declare an `Attachments`
