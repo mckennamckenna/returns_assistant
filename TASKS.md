@@ -1298,14 +1298,8 @@
       Proposed direction, not built: Unarchive should reconcile
       (downgrade/clear the decided status) or at minimum warn before
       un-hiding a kept/refunded order.
-- [ ] **Amazon order-confirmation emails extract to ALL BLANK** (email type,
-      retailer, order #, total empty) → stuck in Needs Review → order never
-      reaches the dashboard. [needs repro] User forwards an Amazon order,
-      nothing shows = silent failure. Likely the known "no
-      `order_confirmation` email type" gap (Part 3 / Bug 8), but **VERIFY
-      scope with a fresh non-Amazon forward** — if non-Amazon also blanks,
-      it's a P0 regression, not contained. Even for confirmations, should
-      still capture retailer / order # / total.
+- [ ] **MOVED TO ✅ Done 2026-08-08 (fix deployed and verified) — pointer
+      only, original text preserved there, not edited in place.**
 - [ ] **"Unlinked emails" section shows a raw tracking-style URL in the body
       preview** — e.g. `click.mkt.isdnn.com/...` visible in a forwarded
       promotional email's preview text, reads as spam/phishing leaking into
@@ -2318,6 +2312,158 @@
       becomes noticeable.
 
 ## ✅ Done
+
+- [x] **`runExtraction.ts:8` findUnique-gap fix — DEPLOYED & VERIFIED
+      2026-08-08 — object-passing fix for the inbound route (id-based
+      callers now catch the re-fetch failure too). Tests + build clean
+      (516/516, `npm run build` clean), COMMITTED (`ee72159`), PUSHED (on
+      `origin/main`), DEPLOYED (production alias confirmed via `vercel
+      inspect`), VERIFIED in production via a real Shopbop forward — order
+      136486078 extracted and linked clean. ✅**
+      Originally filed as "Amazon order-confirmation emails extract to ALL
+      BLANK," reframed and root-caused down to a structural,
+      retailer-agnostic extraction-trigger gap (see full trace below);
+      direction (a) from that trace's candidate fix list is the one built —
+      the inbound route now passes the already-loaded row object instead of
+      an id, skipping the internal re-fetch entirely for that path, and the
+      re-fetch for remaining id-based callers now lives inside
+      `runExtraction`'s own try/catch so a failure there gets stamped
+      instead of leaving the row silently `extractedAt: null`. Test detail:
+      `__tests__/runExtraction.test.ts`, 5 cases including a direct repro of
+      the original bug (re-fetch throws → still stamped, never
+      silent-null). Original investigation text preserved below, not
+      edited in place.
+- [ ] **Amazon order-confirmation emails extract to ALL BLANK — REPRO
+      ATTEMPTED 2026-08-06, READ-ONLY, 0 billed Anthropic calls, 0 writes.
+      Does NOT reproduce as a template-change extraction failure; reframed,
+      not confirmed as originally filed.** Census script
+      (`scripts/census-amazon-blank-extraction.ts`, uncommitted) scanned all
+      752 Email rows, found 115 Amazon-sender (subject/from contains
+      "amazon", decrypted in JS — `fromEmail`/`fromName` are encrypted at
+      rest), 15 blank-shaped matches. **No genuine order_confirmation ever
+      extracted to blank.** Direct counter-evidence: the most recent
+      `order_confirmation` in the data (`cmsfxldvf...`, "Ordered: 1 Pet
+      item," 2026-08-05) extracted cleanly — retailer, orderNumber,
+      orderTotal all populated, order created and linked. The 15 blank
+      matches break down as:
+      (1) **1 row, real gap but not this bug:** today's own
+      `auto-confirm@amazon.com` order_confirmation (`cmsgsp9s...`, "Ordered:
+      2 Hair Care and Device Accessories items," 2026-08-06T00:46Z) has
+      `extractedAt: null` — extraction never ran at all, not "ran and came
+      back blank." No user-visible impact this time: the same order's
+      `shipping_confirmation` (`cmshfakxe...`, received 11h later) did
+      extract and created/linked the Order — but the order_confirmation
+      email itself sits stuck forever with no resolve path (same dead-end
+      class as the "Unlinked email Needs review badge" bug above). Worth
+      its own ingestion-reliability look, separately from this item.
+      (2) **4 rows, already-known population, not new:** `return@amazon.com`
+      "Advance refund issued" emails, `extractedAt` set but `emailType`
+      came back null (real extraction failure, not "never ran"). All 4
+      timestamps fall inside the already-documented pre-outage-bound
+      cluster (2026-07-31T18:01:30Z–2026-08-01T04:56:06Z, see the Aug 1-4
+      credit-outage item, 🔴 Now) — one match (`cms9wfain...`) lands at
+      exactly that cluster's stated end bound. Not a fresh finding.
+      (3) **3 rows, never-ran, a new instance of an already-known pattern:**
+      `order-update@amazon.com` "Your Whole Foods Market order has been
+      picked up" — identical subject, identical `receivedAt`
+      (2026-07-21T17:36:09Z), 3 separate Email rows, none ever extracted.
+      Same redelivery-duplicate shape already tracked for ACE VISALIA
+      RSC/GLOBAL-E (🔴 Now dedup item), just not previously seen on an
+      Amazon-sender row.
+      (4) **7 rows, working as designed, not bugs:** 2 self-generated
+      `reminders@myreturnwindow.com` emails and 1 Amazon review-solicitation
+      and 4 `deals@em.savings.com` marketing emails — all correctly
+      classified `emailType: "other"` and auto-junked, with sound
+      `extractionNotes` reasoning in each case.
+      **Net: the originally-feared "extraction returns blank on current
+      Amazon template" scenario is not what's in the data — no evidence to
+      escalate to non-Amazon/P0.** What's real and still open: (1) the
+      never-ran / stuck-forever population (rows 1 and 3 above, 4 total)
+      needs its own look at why extraction didn't trigger, and (2) the 4
+      refund-email rows are already covered by the existing outage-cluster
+      item, not a separate fix. Not fixed here — diagnostic only, per
+      instruction.
+      **UPDATE 2026-08-08 — root cause traced, scope corrected, supersedes
+      the "4 total" framing above. READ-ONLY, 0 billed Anthropic calls, 0
+      writes.** The "row 1 and 3, 4 total" split above conflated two
+      mechanically distinct populations; reconciled with a clean,
+      retailer-agnostic query (`scripts/census-never-extracted.ts`,
+      uncommitted) across all 752 Email rows, not just Amazon-sender ones.
+      **This item is not Amazon-specific — retitle the underlying issue
+      mentally as an extraction-trigger gap, Amazon is just where it was
+      first noticed.** Does not restate the Amazon refund-cluster/outage
+      detail in bucket (2) above or the Suzie Kondi `lookupReturnPolicy`
+      timeout row — that's a different mechanism entirely (a hung web
+      lookup mid-extraction, not this gap; confirmed Suzie Kondi is not
+      among the rows below) and both stay tracked where they already are
+      (Aug 1-4 outage item, 🔴 Now; `lookup-return-policy-timeout`, Infra).
+      Also not restated here: the "Region 109" duplicate-forward pair —
+      unrelated to this mechanism, tracked under the new coverage-check
+      digest entry above.
+      **Corrected count:** exactly 14 `extractedAt: null` rows exist
+      database-wide. They split into 11 "masked" rows (a content-duplicate
+      sibling elsewhere succeeded, so no user-visible symptom) and 3 "live"
+      rows (no sibling, genuinely stuck) — 2 Mejuri, 1 Amazon. The 2/3
+      non-Amazon split is the scope proof: this is structural, not an
+      Amazon footnote.
+      **Root cause, traced in `lib/runExtraction.ts` and
+      `app/api/inbound/route.ts`:** `runExtraction()`'s catch block (lines
+      51-57) stamps `needsReview: true, extractedAt: new Date()` on *any*
+      extraction failure — so a thrown error during extraction is always
+      visible in the data, never silent. The one gap: `runExtraction`'s
+      first line, `const email = await prisma.email.findUnique(...)`
+      (line 8), sits **outside** that try/catch (which only starts at line
+      11). If that lookup fails — most plausibly a DB/connection hiccup in
+      the narrow window right after the row's own `create()` succeeded,
+      same infra-fragility class as the already-documented Neon
+      auto-suspend issues elsewhere on this board — nothing gets written at
+      all, leaving the row indistinguishable from "never called." This is
+      the *only* place in the code capable of producing `extractedAt: null`
+      with `needsReview: false` on an existing row.
+      **Exhaustively confirmed retailer- and script-agnostic:** full-tree
+      grep of `app/`, `lib/`, `scripts/` for `.email.create` found exactly
+      one call site — `app/api/inbound/route.ts:284`. Checked all 5
+      backfill/reextract scripts individually (also grepped for raw
+      `executeRaw`/`queryRaw`/`INSERT INTO`, zero hits): every one only
+      `findMany`/`findFirst`s existing rows and calls `runExtraction()` on
+      them — none create rows. **Every Email row in the database, without
+      exception, originates from the inbound webhook, and the same single
+      mechanism above is the only possible source of all 14 null rows** —
+      not two populations with different causes, one mechanism that fired
+      14 times.
+      **Load-burst theory ruled out, not confirmed:** Email has no
+      `createdAt` column, so real creation time was reconstructed by
+      decoding each row's cuid-embedded timestamp (validated against the 3
+      live rows' `receivedAt`-to-decode gap, a consistent ~7-9s, the
+      expected shape). The 6-row duplicate cluster sharing one identical
+      `receivedAt` actually has decoded creation times spread ~2.5 hours
+      apart — real, staggered, independent arrivals, not one simultaneous
+      flood pressuring a shared resource window. The gap fires
+      per-request, independently, not from correlated load.
+      **No automatic retry exists:** grepped `app/api/cron/route.ts` for
+      any reference to `extractedAt`/`runExtraction`/`extractEmail` — zero
+      matches. A manual per-email "Re-extract" action exists
+      (`app/(app)/emails/[id]/actions.ts`, always-rendered button on the
+      email detail page) but nothing surfaces these rows to a human:
+      `needsReview` stays `false` (only the catch path sets it, and these
+      rows never reach the catch) and `orderId` is `null`, so they sit
+      silently in "Unlinked emails" with no distinguishing flag.
+      **Not fixed here — diagnosis only.** Threading, not a new bug: the 3
+      live rows belong in the existing "Orphan census refresh" 🔴 Now
+      item's already-tracked `emailType: null` never-ran sub-bucket (that
+      script already separates ran-and-failed from never-ran by this exact
+      `extractedAt` field) — this update supplies the mechanism that bucket
+      was missing. The 11 masked rows are additional instances of the
+      already-tracked ACE VISALIA RSC/GLOBAL-E redelivery-duplicate item,
+      same signature (`messageId: null`, pre-dates the 2026-07-26 dedup
+      guard), different senders (FedEx, Amazon/Whole Foods). Candidate fix
+      directions, not built, need an owner call: (a) move the line-8
+      `findUnique` inside `runExtraction`'s own try/catch so a failure
+      there still stamps `extractedAt`+`needsReview`, closing the
+      ambiguous-state gap for future rows; (b) a scheduled sweep that
+      retries or at least surfaces `extractedAt: null` rows past some age
+      threshold, since no automatic retry exists today. **Direction (a) is
+      the one built — see the ✅ Done pointer entry directly above.**
 
 - [x] **PHASE 0 — cost guardrails, CONFIRMED DONE 2026-07-25 (owner
       action, non-code).** Owner set an Anthropic Console monthly spend
