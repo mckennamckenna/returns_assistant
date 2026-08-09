@@ -7,6 +7,53 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-09 — WATCH-ITEM: Amazon-default deadlines anchor on order-date, deliberately early
+
+Not a bug — a recorded trade-off, noted for future reference, no action taken.
+
+The `amazon_default` path (`lib/extract.ts`, see 2026-08-08 below) never sets
+`returnWindowStartsFrom`, so every windowless Amazon order it touches lands in
+`computeDeadline()`'s branch 2 (`orderDate + returnWindowDays`, `deadlineIsEstimated:
+true`) rather than the delivery-anchored branches — confirmed by walking the function's
+actual branch order and verified against the one backfilled row (`cms0p1qi0...`: orderDate
+2026-07-25 → deadline 2026-08-24, exactly orderDate + 30, `deliveredAt`/
+`estimatedDeliveryDate` both null throughout). The `STANDARD_SHIPPING_DAYS` 5-day buffer
+(branch 5) is never reached by this path.
+
+Consequence: Amazon return-window reminders computed this way will tend to land a few
+days earlier than the true delivery-anchored deadline would produce, since order-date
+always precedes delivery-date. Accepted as-is because it's conservative in the safe
+direction (an early reminder, never a missed one) — the same reasoning already governing
+`computeDeadline()`'s 2026-07-15 case-1b decision. If this ever needs tightening, the fix
+lever is routing `amazon_default` through a delivery estimate (e.g. carrier ETA or
+`deliveredAt`) instead of order-date — not attempted here.
+
+---
+
+## 2026-08-08 — Amazon return-window default: 30 days, marketplace sellers included
+
+Owner decision: any `isAmazonOrder()` match with no stated return window defaults to
+`returnWindowDays: 30` and skips `lookupReturnPolicy()` entirely (branch:
+`amazon-return-window-default`, not yet merged). Scope is every `isAmazonOrder()` match,
+**including third-party marketplace sellers fulfilled through Amazon** — their return
+policy can differ from Amazon's own 30-day standard, but that imprecision is an accepted
+v1 simplification, not scoped out. Revisit if/when an "asterisk" pass on per-seller policy
+accuracy happens; not tracked as an open bug until then.
+
+Step 0 census (this task) found the volume justifying this: 94 of 99 Amazon-retailer
+emails ever received (95%) already carry `policySource: "web_lookup"`, i.e. already
+triggered a billed Sonnet+web-search call historically that deterministically resolves to
+~30 days. Guard confirmed necessary: of the 4 Amazon orders flagged `needsReview: true`,
+only 1 has a genuinely missing window — the other 3 already have `returnWindowDays: 30`
+via `web_lookup` and are flagged for an unrelated tier/category-confidence reason, left
+untouched by this rule.
+
+Grocery (Whole Foods / Amazon Fresh) is explicitly **not** part of this decision — it
+keys off retailer name rather than `isAmazonOrder()` and is its own separate, not-yet-
+started task (see `TASKS.md` 🔴 Now).
+
+---
+
 ## 2026-07-29 — CARD_SPEC Part 5 signed off; card-geometry build unblocked
 
 All 9 open decisions in `CARD_SPEC.md` Part 5 answered by the owner, recorded in

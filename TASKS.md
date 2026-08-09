@@ -32,6 +32,55 @@
 
 ## 🔴 Now
 
+- [ ] **Amazon return-window default (30 days), forward short-circuit —
+      Step 1 BUILT on branch `amazon-return-window-default` 2026-08-09,
+      not pushed, not merged. Step 2 backfill dry-run produced, WAITING ON
+      OWNER before any write. 0 billed Anthropic calls, 0 writes so far.
+      Owner decisions locked 2026-08-08. Grocery decoupled — separate task
+      below.** **Headline: 94 of 99 Amazon-retailer emails ever received
+      (95%) already carry `policySource: "web_lookup"`** — i.e. already
+      triggered a billed Sonnet+web-search call historically that
+      deterministically resolves to ~30 days; that's the volume this rule
+      stops paying for going forward. (Order-level proxy 51/52 — the
+      cited prior snapshot of 83 is a units difference, not investigated
+      further, per owner.) **Step 1:** `lib/extract.ts` — before
+      `lookupReturnPolicy()` fires, `isAmazonOrder(retailer) &&
+      emailType !== "other"` with no stated window now sets
+      `returnWindowDays: 30`, `policySource: "amazon_default"` (new
+      `PolicySource` variant), and the lookup call is skipped entirely,
+      not just overwritten after. New value threaded through
+      `mapPolicySource()` (`lib/linkOrder.ts`) and the order/email detail
+      page display ternaries; schema comments updated (no migration — both
+      fields are untyped `String?`). Guard preserved: orders with a
+      resolved window for any other reason never reach the new branch, so
+      the 3 flagged-for-tier-confidence rows are untouched by construction.
+      `npx tsc --noEmit` clean on all touched files (10 pre-existing
+      unrelated test-file errors confirmed via `git stash`, same before and
+      after). **Step 2 APPLIED 2026-08-09, owner-approved.** 1 row
+      (`cms0p1qi00005l204zy6iq57m`, Amazon, order `113-5215249-6165864`):
+      `returnWindowDays` null→30, `policySource` null→`amazon_default`,
+      `returnDeadline` null→2026-08-24 (`deadlineIsEstimated: true`,
+      anchored on `orderDate` since no `returnWindowStartsFrom` was ever
+      stated), `needsReview` true→false via the existing
+      `recomputeOrderStatus()` (byproduct, not hand-set) — `status` also
+      advanced to `returnable`. Verified after: total `needsReview: true`
+      orders (all retailers) 22→21, exactly the expected delta; all 3 guard
+      rows re-checked unchanged (`returnWindowDays: 30`, `policySource:
+      web_lookup`, `needsReview: true` — untouched); 0 non-Amazon rows
+      touched. **Not pushed, not merged** — branch
+      `amazon-return-window-default`, commit `fa28b1b`, awaiting owner
+      merge decision. Marketplace-seller simplification logged in
+      `DECISIONS.md` 2026-08-08.
+- [ ] **Amazon grocery exclusion (Whole Foods / Amazon Fresh) — decoupled
+      2026-08-09 from the task above.** Prior Step 0 run found grocery
+      keys off retailer name, not `isAmazonOrder()` (Whole Foods:
+      `retailer: "Whole Foods Market"`, fails `isAmazonOrder()` by
+      design; Amazon Fresh: `retailer: "Amazon Fresh"`, passes
+      `isAmazonOrder()` but is already `needsReview: false` while
+      carrying a live wrong 15-day deadline, 2026-08-04, already past —
+      so it sits outside any "flagged population" backfill scope too).
+      Not started — needs its own scoping pass on a population defined by
+      retailer name, not the flagged-Amazon population.
 - [ ] **Historical `emailType` census (cost-priority input) — DONE
       2026-08-05, READ-ONLY, confirmed zero billed Anthropic calls, zero
       writes.** Follow-on to the Aug-4 backfill's small-sample finding
@@ -1186,6 +1235,65 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **Weekly coverage-check digest junk RECURRED on the 2026-08-07 run —
+      NEW FINDING 2026-08-08, READ-ONLY diagnosis (scripts/pm-repro-coverage-
+      digest-mckenna*.ts, uncommitted), 0 billed Anthropic calls, 0 writes.
+      Different root cause than the 07-25 incident below — NOT a repeat of
+      that regression, NOT fixed by the 08-05 placedDate commit (`2ef71e5`),
+      because that fix only touches the LINKED-order branch and this is
+      entirely the unlinked-email branch, which the 08-05 commit explicitly
+      left unchanged.** Reported by the owner from a real received digest:
+      11 "1 order from an unknown retailer" lines + 1 "1 order from Chan
+      Luu" line the owner did not order. Reproduced exactly (11 + 1, row for
+      row) by replaying the route's real query against the actual send
+      window, pinned via the real `Reminder.sentAt` for
+      `weekly_coverage_check`: **2026-07-31T16:03:38Z → 2026-08-07T16:03:38Z**
+      (rolling 7 days from the exact cron-run instant, keyed on
+      `Email.receivedAt` — not a calendar week, not aligned to "since last
+      Friday" if the schedule ever drifts).
+      **Two distinct causes, both in `app/api/cron/weekly-coverage/route.ts`:**
+      **1. The 11 "unknown retailer" lines are all real emails, not a query
+      bug.** Every one is either an unlinked email with no retailer
+      (`orderId: null`, e.g. bare USPS tracking emails) or an
+      `emailType: null` extraction-failure row — 4 of the 11 are the
+      already-documented Amazon "Advance refund issued" cluster from the
+      Jul 31–Aug 1 Anthropic credit outage (see the Aug 1-4 credit-outage
+      item, this file), 1 is the already-flagged residual `lookupReturnPolicy`
+      timeout row ("Suzie Kondi Return", `cmsdunton...`, still open per the
+      Aug 1-4 backfill item), 2 are duplicate "Re: Region 109 Order
+      Confirmation" forwards, 1 is a marketing newsletter ("Green Shoots at
+      Gucci and Dior...") that slipped the Haiku commerce gate. **By design**
+      (`lib/junk.ts`'s `shouldAutoJunk`), `emailType: null` rows are never
+      auto-junked — deliberately, so a human can still resolve a genuine
+      extraction failure — but the coverage-check query (`JUNK_FILTER` only,
+      no `emailType` filter at all) doesn't distinguish "extraction failed,
+      needs a human" from "here's an order," so every one renders identically
+      to a real purchase line. **2. The Chan Luu line is a genuine order-
+      linking gap, not junk.** The owner's original Chan Luu order (linked,
+      placed 2026-07-19, already refunded as of 2026-08-03 — confirmed via
+      its own "Refund notification" email, same window) is fine. But a
+      SEPARATE email — "Fwd: Your Chan Luu return is approved (HRYTSJRJ)",
+      matching the Happy Returns return label the owner has (order 20473581,
+      express code HRYTSJRJ, "Ramona Poplin Pant Caviar", return started
+      2026-07-25) — got linked to a brand-new orphan Order
+      (`cmsf9771o000fw9xbdateg6nu`) instead of being matched back to the
+      existing Chan Luu order. That orphan Order has no resolved
+      `orderDate`. The 08-05 fix's null-policy ("an indeterminate orderDate
+      defaults to inclusion, not exclusion, so a real this-week purchase
+      isn't silently hidden") is doing exactly what it was built to do here
+      — it's just applying that policy to an orphaned return-tracking Order,
+      not a real new purchase, which is what makes it render as "1 order
+      from Chan Luu" as if freshly bought. **Not fixed here — diagnosis
+      only, per this file's own convention.** Candidate fix directions, not
+      built, need an owner call: (a) give the coverage-check its own
+      `emailType` allowlist (e.g. only `order_confirmation` counts as "you
+      bought this," `return_label`/`refund`/pure `delivery` either get
+      dropped or get different copy) — likely fixes both the 11-line flood
+      and the Chan Luu phantom in one change; (b) separately, find why the
+      Chan Luu return-approval email didn't match its existing order — same
+      class of gap as the already-tracked "no-fallback-matcher" orphan
+      items elsewhere in this file, worth checking whether it's the same
+      root cause or a new one.
 - [ ] **Friday weekly coverage-check digest badly broken — REGRESSION,
       user-facing, multiple alpha users, weekly all-users email. HIGH
       SEVERITY. Confirmed 2026-07-25 on 2+ alpha users via real received

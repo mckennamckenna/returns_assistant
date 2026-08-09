@@ -114,7 +114,15 @@ export default async function EmailDetail({
             />
             <Field
               label="Policy source"
-              value={email.policySource === "web_lookup" ? "Web lookup" : email.policySource === "email" ? "Email" : "—"}
+              value={
+                email.policySource === "web_lookup"
+                  ? "Web lookup"
+                  : email.policySource === "email"
+                    ? "Email"
+                    : email.policySource === "amazon_default"
+                      ? "Amazon default"
+                      : "—"
+              }
             />
             <Field label="Order total" value={formatCurrency(email.orderTotal, email.orderCurrency)} />
           </dl>

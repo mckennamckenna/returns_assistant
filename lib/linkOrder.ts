@@ -47,6 +47,7 @@ type OrderStatus =
 function mapPolicySource(source: string | null): string | null {
   if (source === "email") return "stated_in_email";
   if (source === "web_lookup") return "web_lookup";
+  if (source === "amazon_default") return "amazon_default";
   return null;
 }
 

@@ -131,7 +131,7 @@ model Email {
   returnWindowStartsFrom String? // "order_date" | "delivery_date" | null — what the window counts from
   returnDeadline      DateTime? // computed — see deadline logic in BUILD.md
   deadlineIsEstimated Boolean   @default(false) // true when delivery date was assumed, not confirmed
-  policySource        String? // "email" (stated in the email) | "web_lookup" (found via web search)
+  policySource        String? // "email" (stated in the email) | "web_lookup" (found via web search) | "amazon_default" (isAmazonOrder, no stated window — 30-day default, lookup skipped)
   confidence          String? // "high" | "medium" | "low"
   emailType           String? // "order_confirmation" | "shipping_confirmation" | "delivery" | "return_label" | "refund" | "other"
   orderTotal          Float? // total order amount, from the email body
@@ -223,7 +223,7 @@ model Order {
   deliveredAt         DateTime?
   returnDeadline       DateTime?
   deadlineIsEstimated  Boolean   @default(false)
-  policySource         String? // "web_lookup" | "stated_in_email" | "user_supplied"
+  policySource         String? // "web_lookup" | "stated_in_email" | "user_supplied" | "amazon_default"
   returnWindowDays     Int?
   // --- Milestone 15 addition --- "order_date" | "delivery_date" | null —
   // was already computed during extraction but never persisted, so

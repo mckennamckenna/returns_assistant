@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { logAnthropicUsage } from "./anthropicUsage";
+import { isAmazonOrder } from "./amazonBundle";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -13,6 +14,15 @@ const MODEL = "claude-sonnet-4-6";
 // few days before they strictly had to" for "never miss the real window."
 const STANDARD_SHIPPING_DAYS = 5;
 
+// Amazon's return window is well-known and deterministic enough (2026-08-08
+// owner decision) that a per-email web_lookup() call is pure waste: Step 0
+// census (TASKS.md, this task) found 94 of 99 Amazon-retailer emails ever
+// received (95%) already triggered a billed Sonnet+web-search lookup that
+// resolves to ~30 days. Scope is every isAmazonOrder() match, including
+// marketplace sellers — their policy imprecision is an accepted v1
+// simplification (see TASKS.md), not scoped out here.
+const AMAZON_DEFAULT_RETURN_WINDOW_DAYS = 30;
+
 export type Confidence = "high" | "medium" | "low";
 
 export type EmailType =
@@ -23,7 +33,7 @@ export type EmailType =
   | "refund"
   | "other";
 
-export type PolicySource = "email" | "web_lookup";
+export type PolicySource = "email" | "web_lookup" | "amazon_default";
 
 export interface LineItem {
   name: string;
@@ -603,6 +613,16 @@ export async function extractEmail(
   // delivery/shipping_confirmation stay eligible.
   if (parsed.returnWindowDays != null) {
     policySource = "email";
+  } else if (isAmazonOrder(parsed.retailer) && parsed.emailType !== "other") {
+    // Short-circuit BEFORE the web lookup — this is the whole point (see
+    // AMAZON_DEFAULT_RETURN_WINDOW_DAYS above): the call must never fire
+    // for an Amazon email with no stated window, not just end up
+    // overwritten afterward. Guard: only when returnWindowDays is
+    // genuinely null (checked by the outer if/else already) — an Amazon
+    // order that already has a resolved window for any other reason
+    // never reaches this branch.
+    parsed.returnWindowDays = AMAZON_DEFAULT_RETURN_WINDOW_DAYS;
+    policySource = "amazon_default";
   } else if (parsed.retailer && parsed.emailType !== "other") {
     try {
       const lookup = await lookupReturnPolicy(parsed.retailer, emailId);
