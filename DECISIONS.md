@@ -7,6 +7,30 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-08 — Amazon return-window default: 30 days, marketplace sellers included
+
+Owner decision: any `isAmazonOrder()` match with no stated return window defaults to
+`returnWindowDays: 30` and skips `lookupReturnPolicy()` entirely (branch:
+`amazon-return-window-default`, not yet merged). Scope is every `isAmazonOrder()` match,
+**including third-party marketplace sellers fulfilled through Amazon** — their return
+policy can differ from Amazon's own 30-day standard, but that imprecision is an accepted
+v1 simplification, not scoped out. Revisit if/when an "asterisk" pass on per-seller policy
+accuracy happens; not tracked as an open bug until then.
+
+Step 0 census (this task) found the volume justifying this: 94 of 99 Amazon-retailer
+emails ever received (95%) already carry `policySource: "web_lookup"`, i.e. already
+triggered a billed Sonnet+web-search call historically that deterministically resolves to
+~30 days. Guard confirmed necessary: of the 4 Amazon orders flagged `needsReview: true`,
+only 1 has a genuinely missing window — the other 3 already have `returnWindowDays: 30`
+via `web_lookup` and are flagged for an unrelated tier/category-confidence reason, left
+untouched by this rule.
+
+Grocery (Whole Foods / Amazon Fresh) is explicitly **not** part of this decision — it
+keys off retailer name rather than `isAmazonOrder()` and is its own separate, not-yet-
+started task (see `TASKS.md` 🔴 Now).
+
+---
+
 ## 2026-07-29 — CARD_SPEC Part 5 signed off; card-geometry build unblocked
 
 All 9 open decisions in `CARD_SPEC.md` Part 5 answered by the owner, recorded in

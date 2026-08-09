@@ -84,7 +84,13 @@ function PolicyLine({
   }
 
   const sourceText =
-    order.policySource === "stated_in_email" ? "stated in email" : order.policySource === "user_supplied" ? "user supplied" : null;
+    order.policySource === "stated_in_email"
+      ? "stated in email"
+      : order.policySource === "user_supplied"
+        ? "user supplied"
+        : order.policySource === "amazon_default"
+          ? "Amazon default, no stated window"
+          : null;
 
   return sourceText ? `${prefix} — ${sourceText}` : prefix;
 }
