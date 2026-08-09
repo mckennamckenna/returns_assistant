@@ -56,10 +56,21 @@
       the 3 flagged-for-tier-confidence rows are untouched by construction.
       `npx tsc --noEmit` clean on all touched files (10 pre-existing
       unrelated test-file errors confirmed via `git stash`, same before and
-      after). **Step 2 dry-run (read-only):** 1 candidate row,
-      `cms0p1qi00005l204zy6iq57m` (Amazon, order `113-5215249-6165864`) —
-      see session detail for the full before/after field diff. **STOPPED —
-      waiting on owner go before writing.**
+      after). **Step 2 APPLIED 2026-08-09, owner-approved.** 1 row
+      (`cms0p1qi00005l204zy6iq57m`, Amazon, order `113-5215249-6165864`):
+      `returnWindowDays` null→30, `policySource` null→`amazon_default`,
+      `returnDeadline` null→2026-08-24 (`deadlineIsEstimated: true`,
+      anchored on `orderDate` since no `returnWindowStartsFrom` was ever
+      stated), `needsReview` true→false via the existing
+      `recomputeOrderStatus()` (byproduct, not hand-set) — `status` also
+      advanced to `returnable`. Verified after: total `needsReview: true`
+      orders (all retailers) 22→21, exactly the expected delta; all 3 guard
+      rows re-checked unchanged (`returnWindowDays: 30`, `policySource:
+      web_lookup`, `needsReview: true` — untouched); 0 non-Amazon rows
+      touched. **Not pushed, not merged** — branch
+      `amazon-return-window-default`, commit `fa28b1b`, awaiting owner
+      merge decision. Marketplace-seller simplification logged in
+      `DECISIONS.md` 2026-08-08.
 - [ ] **Amazon grocery exclusion (Whole Foods / Amazon Fresh) — decoupled
       2026-08-09 from the task above.** Prior Step 0 run found grocery
       keys off retailer name, not `isAmazonOrder()` (Whole Foods:
