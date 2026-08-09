@@ -7,6 +7,29 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-09 — WATCH-ITEM: Amazon-default deadlines anchor on order-date, deliberately early
+
+Not a bug — a recorded trade-off, noted for future reference, no action taken.
+
+The `amazon_default` path (`lib/extract.ts`, see 2026-08-08 below) never sets
+`returnWindowStartsFrom`, so every windowless Amazon order it touches lands in
+`computeDeadline()`'s branch 2 (`orderDate + returnWindowDays`, `deadlineIsEstimated:
+true`) rather than the delivery-anchored branches — confirmed by walking the function's
+actual branch order and verified against the one backfilled row (`cms0p1qi0...`: orderDate
+2026-07-25 → deadline 2026-08-24, exactly orderDate + 30, `deliveredAt`/
+`estimatedDeliveryDate` both null throughout). The `STANDARD_SHIPPING_DAYS` 5-day buffer
+(branch 5) is never reached by this path.
+
+Consequence: Amazon return-window reminders computed this way will tend to land a few
+days earlier than the true delivery-anchored deadline would produce, since order-date
+always precedes delivery-date. Accepted as-is because it's conservative in the safe
+direction (an early reminder, never a missed one) — the same reasoning already governing
+`computeDeadline()`'s 2026-07-15 case-1b decision. If this ever needs tightening, the fix
+lever is routing `amazon_default` through a delivery estimate (e.g. carrier ETA or
+`deliveredAt`) instead of order-date — not attempted here.
+
+---
+
 ## 2026-08-08 — Amazon return-window default: 30 days, marketplace sellers included
 
 Owner decision: any `isAmazonOrder()` match with no stated return window defaults to
