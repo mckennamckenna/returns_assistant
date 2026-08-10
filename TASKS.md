@@ -32,6 +32,194 @@
 
 ## 🔴 Now
 
+- [ ] **Unified card geometry + order state machine (2x2 four-slot) —
+      MOVED TO 🔴 Now 2026-08-10: owner brief given this session, build
+      BEGINS.** `CARD_SPEC.md` is build-ready and the single source of
+      truth (Part 5 answered 2026-07-29; fifth needs-review action,
+      manual-link picker, and summary-tab set locked 2026-08-10) —
+      building on a branch, preview-first, not directly against `main`.
+      CONSOLIDATED 2026-07-25 from five previously-separate items (Needs
+      Review panel UI, mobile audit findings #3/#4/#5, and M2's UI half).
+      Each original item's full text is preserved verbatim as its own
+      sub-entry below — nothing dropped, only regrouped.
+      **Locked decisions (`CARD_SPEC.md` Part 5 has full rationale — not
+      restated here, recorded so they aren't re-litigated):** bucket name
+      is **"Needs review"** everywhere; slot-4 label is **`Keep`**
+      everywhere (detail page's `Keeping it` renamed to match); mobile #3
+      resolved as **NO glyph / NO `⋯` / NO swipe** — the expanded state
+      shows `more info` and a single **`Archive`** labeled control (row
+      stays four controls, not five); `Delete` is **not** a peer control —
+      tapping `Archive` opens an archive-or-delete prompt, `Delete` lives
+      inside it, junk-with-rescue, own confirm, never hard delete (**this
+      corrects sub-entry 2 below, whose text still carries the 2026-07-25
+      "trash-can icon" answer — `CARD_SPEC.md` Part 5 Q7 reverses that;
+      sub-entry 2 is kept verbatim as the historical record, not edited in
+      place. Note: as of 2026-08-10 this is also a correction to CARD_SPEC.md's
+      own "What changed" summary, which still read "Archive and Delete
+      become labeled text controls" before this session — fixed there
+      too, so the file no longer contradicts its own Part 5 answer**);
+      needs-review action registry is **FIVE** (Link to order [manual
+      picker, v1] / Create new order / Not a purchase / View detail /
+      Nothing), open/extensible, unknown → View detail; awaiting-refund
+      chip revised to **`Refund pending`** (from `Returned {date}`);
+      summary tabs are all four (Due this week / Needs review / Returns
+      in progress / Refunds pending) — **out of scope for this build**,
+      navigation not cards.
+      **Framing note (owner-confirmed 2026-07-25):** there is ONE four-slot
+      skeleton — (1) identity, (2) context, (3) state, (4) action — used at
+      two levels. A single order card is one 2x2. The needs-review bucket is
+      a CONTAINER (same pattern as the Amazon bundle card): its header is a
+      2x2 describing the group, and it holds N flagged orders, each rendered
+      as its own 2x2 row. Collapsed = compact stack (identity + why, no
+      action buttons); expanded = each row reveals its slot-4 action. Slots
+      3 and 4 on an order are driven by a single order state machine
+      (Awaiting delivery → Keep→archive; Returnable → Start return →
+      Awaiting drop-off → Awaiting refund → Complete→archive). Slot 4 is a
+      closed action set; an unregistered reason degrades to "view detail,"
+      never throws. The bucket needs an inline-row overflow limit before
+      "View all N →" opens a full page — reuse the Amazon bundle's
+      threshold, don't invent a second one.
+
+      ---
+      **Sub-entry 1 of 6 — Needs Review panel UI (original item; the
+      junk-mechanics backend piece that used to be embedded in this same
+      item was split out to ✅ Done 2026-07-25 since it already shipped —
+      the rest below is unbuilt UI, preserved verbatim):**
+- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
+      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
+      spec has landed.** Panel implementation of the quick-check surface
+      spec (mobile audit finding #5, below) — same underlying data
+      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
+      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
+      Decisions log entry, rewritten same commit) — the action model is now
+      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
+      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
+      unregistered type → Review-only, never throws. Still true and kept
+      from the old decision: delete stays behind a confirm; no inline
+      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
+      field/values, duplicate-target existence, explanation-string
+      accuracy) required and reported before any code, per this item's own
+      build instructions — see session detail in `HISTORY.md` once closed.
+      → see DECISIONS.md 2026-07-23 ("Needs Review panel registry rejected — not_ecommerce/duplicate aren't real flag types")
+
+      ---
+      **Sub-entry 2 of 6 — Mobile audit finding #3 ("..." overflow menu
+      replacement), original text below. DECIDED 2026-07-25 — see
+      DECISIONS.md 2026-07-25: replace ⋯ with a visible trash-can icon
+      (own confirm step) + always-visible Archive. No longer a standalone
+      open question; folded in here as resolved groundwork for the build.
+      SUPERSEDED 2026-08-10 by `CARD_SPEC.md` Part 5 Q7 (decided
+      2026-07-29, later than this note) — the live answer is the OPPOSITE:
+      NO glyph, NO trash icon, NO swipe. See "Locked decisions" above; this
+      sub-entry's text is preserved verbatim below as the historical
+      record, not the current answer.**
+      **3. "..." overflow menu replacement — spec, propose don't decide.**
+      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
+      tracking links when present) behind a "⋯" button. Two
+      always-available items don't justify a menu, and hiding
+      destructive-only actions (Delete) behind an ambiguous affordance is the
+      wrong pattern — a user has no visual cue that anything destructive
+      lives there. Proposed replacement, for owner decision, not decided
+      here: an explicit icon affordance (e.g. a trash-can icon with its own
+      confirm step, matching `handleDelete`'s existing
+      `window.confirm`) rather than a generic overflow glyph, with Archive
+      surfaced as its own always-visible action rather than tucked away
+      alongside a destructive one.
+
+      ---
+      **Sub-entry 3 of 6 — Mobile audit finding #4 (state-label
+      contradictions + button hierarchy), original text below:**
+      **4. State-label contradictions + button hierarchy — one workstream,
+      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
+      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
+      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
+      render independently of each other), and primary-CTA visual weight
+      shifts unpredictably between cards (two side-by-side buttons, two
+      buttons with different primary treatment, one full-width button, or
+      none, depending on `getVisibleActions()`'s combination for that order).
+      Underlying issue: the app has no consistent notion of "the user already
+      made a decision about this order" that other UI elements can defer to
+      — each label/badge/button is computed independently. Needs a spec pass
+      (what should suppress what, once a decision is made) before any design
+      or code change. The specific "Kept + at risk" combination observed
+      during this audit was a testing artifact (see note below), but the
+      broader label-fighting pattern is real independent of that instance.
+
+      ---
+      **Sub-entry 4 of 6 — Mobile audit finding #5 (quick-check /
+      review-disclosure surface), original text below:**
+      **5. Quick-check (needs-review) surface doesn't explain itself — spec
+      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
+      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
+      and "split into separate order" with no visible evidence supporting
+      either option and no explanation of why the system isn't confident in
+      the first place. Same root concern as the existing Next item about
+      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
+      it's not just a missing explanation string, it's that the whole
+      surface asks for a judgment call without giving the information
+      needed to make one. Needs a spec pass, not a copy tweak. **This is now
+      the hub for three distinct `needsReview` reasons that all need this
+      same disclosure surface to actually explain themselves:** #6a's
+      kept-status-conflict (`computeKeptStatusConflict()`), M2's
+      return-portal trust tier (`classifyReturnPortalTrust()`), and the
+      original missing-deadline case. Two more gaps in this space are
+      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
+      `reviewreasonlabel-missing-reasons`). Every session that adds a new
+      review-flagging mechanism makes this spec pass more overdue, not less
+      — it's gated on owner mockups, but it's the current highest-leverage
+      piece of unblocked work once those land.
+
+      ---
+      **Sub-entry 5 of 6 — M2 return-portal UI half (original item,
+      moved here in full from ⏳ Verifying 2026-07-25 — the shipped
+      review-signal half described within this same text is already live
+      and deployed; only the UI half is the reason this item is now
+      owner-blocked rather than passively verifying):**
+- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
+      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
+      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
+      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
+      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
+      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
+      `retailer-own-domain` — exact registrable-domain match only, never a
+      substring/contains check; `web-lookup-sourced` — measurement-only, not a
+      security boundary; `unknown-unverified`) and forces `Order.needsReview`
+      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
+      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
+      renders/opens exactly as before. Reason is re-derived live in
+      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
+      (it's a pure function of data already on the row). Tier distribution
+      logged count-only (no URL/retailer/order id). **What's still open:** no
+      domain display, no auto-open gating, no visible "unverified" mark — the
+      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
+      deferred to the pending review-disclosure spec (handles all
+      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
+      detail in `BUILD.md`'s Order-linking section + Decisions log.
+
+      ---
+      **Sub-entry 6 of 6 — four-slot panel build
+      (original text below, from the Task 1-4 tracker). RESOLVED
+      2026-08-10: the "not started until [owner brief]" blocker below is
+      removed — the owner brief is this session's greenlight, and
+      `CARD_SPEC.md` is the build-ready spec it was waiting on.**
+      **Needs Review four-slot inventory — REPORT ONLY, inventory
+      complete.** No longer blocked; build proceeds per `CARD_SPEC.md`.
+
+- **RESOLVED 2026-08-10 — owner brief given this session.** The
+  contradiction this note flagged (the four-slot panel build sub-entry
+  above said "not started until [owner brief]" while the four-slot
+  inventory was already marked COMPLETE) is resolved at the source — see
+  sub-entry 6 above, corrected in place.
+- → see DECISIONS.md 2026-07-23 ("STANDING CORRECTION: Needs Review panel registry superseded") — originally a standalone note here in 🔴 Now.
+> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see ✅ Done.
+> 2. ~~Apply `scripts/backfill-junk-other-emails.ts`~~ — done, see above.
+> 3. → folded into the "Unified card geometry + order state machine"
+>    item above, 2026-08-10 (moved from 🙋 Waiting on Owner to 🔴 Now).
+> 4. **Connect the email-level "Needs review" badge to the panel.** Must
+>    come AFTER Task 2 (now satisfied) — un-junked promotional email would
+>    have flooded a surface built for the real orphaned-genuine-commerce
+>    emails. Not started today unless owner says so.
+
 - [ ] **Exclude Amazon from the Sunday returns digest — BUILT, committed
       (`fd5ec95`), and pushed 2026-08-10. Deploy triggered on push; not yet
       hand-verified live. Pure content filter, 0 billed Anthropic calls,
@@ -61,10 +249,14 @@
 
 - [ ] **Amazon return-window default (30 days), forward short-circuit —
       Step 1 BUILT on branch `amazon-return-window-default` 2026-08-09,
-      not pushed, not merged. Step 2 backfill dry-run produced, WAITING ON
-      OWNER before any write. 0 billed Anthropic calls, 0 writes so far.
-      Owner decisions locked 2026-08-08. Grocery decoupled — separate task
-      below.** **Headline: 94 of 99 Amazon-retailer emails ever received
+      MERGED to `main` (`b2fbc10`) and PUSHED to `origin/main` this
+      session — confirmed via `git log`/`git merge-base --is-ancestor`,
+      not just taken on the owner's word. Awaiting owner hand-verification
+      in production — not ✅ until then. Step 2 backfill APPLIED,
+      owner-approved (detail below). 0 billed Anthropic calls, 0 writes
+      beyond the approved Step 2 backfill. Owner decisions locked
+      2026-08-08. Grocery decoupled — separate task below.** **Headline: 94
+      of 99 Amazon-retailer emails ever received
       (95%) already carry `policySource: "web_lookup"`** — i.e. already
       triggered a billed Sonnet+web-search call historically that
       deterministically resolves to ~30 days; that's the volume this rule
@@ -94,10 +286,11 @@
       orders (all retailers) 22→21, exactly the expected delta; all 3 guard
       rows re-checked unchanged (`returnWindowDays: 30`, `policySource:
       web_lookup`, `needsReview: true` — untouched); 0 non-Amazon rows
-      touched. **Not pushed, not merged** — branch
-      `amazon-return-window-default`, commit `fa28b1b`, awaiting owner
-      merge decision. Marketplace-seller simplification logged in
-      `DECISIONS.md` 2026-08-08.
+      touched. **Merged + pushed** — branch
+      `amazon-return-window-default`, merge commit `b2fbc10` on
+      `origin/main`, awaiting owner hand-verification in production (not
+      Done until then, per this board's own rule). Marketplace-seller
+      simplification logged in `DECISIONS.md` 2026-08-08.
 - [ ] **Amazon grocery exclusion (Whole Foods / Amazon Fresh) — decoupled
       2026-08-09 from the task above.** Prior Step 0 run found grocery
       keys off retailer name, not `isAmazonOrder()` (Whole Foods:
@@ -842,153 +1035,19 @@
   summary-stat pill from "Need attention" to "Needs review" (one name,
   all surfaces); reconcile slot-4's approved `Keep` copy against the
   detail page's existing `Keeping it` (same action, two surfaces today).
-- [ ] **Unified card geometry + order state machine (2x2 four-slot) —
-      CONSOLIDATED 2026-07-25 from five previously-separate items (Needs
-      Review panel UI, mobile audit findings #3/#4/#5, and M2's UI half).
-      Each original item's full text is preserved verbatim as its own
-      sub-entry below — nothing dropped, only regrouped.**
-      **Framing note (owner-confirmed 2026-07-25):** there is ONE four-slot
-      skeleton — (1) identity, (2) context, (3) state, (4) action — used at
-      two levels. A single order card is one 2x2. The needs-review bucket is
-      a CONTAINER (same pattern as the Amazon bundle card): its header is a
-      2x2 describing the group, and it holds N flagged orders, each rendered
-      as its own 2x2 row. Collapsed = compact stack (identity + why, no
-      action buttons); expanded = each row reveals its slot-4 action. Slots
-      3 and 4 on an order are driven by a single order state machine
-      (Awaiting delivery → Keep→archive; Returnable → Start return →
-      Awaiting drop-off → Awaiting refund → Complete→archive). Slot 4 is a
-      closed action set; an unregistered reason degrades to "view detail,"
-      never throws. The bucket needs an inline-row overflow limit before
-      "View all N →" opens a full page — reuse the Amazon bundle's
-      threshold, don't invent a second one.
+  **SUPERSEDED 2026-08-10:** `CARD_SPEC.md` now absorbs
+  `CARD_SPEC_Part5_signoff.md` in full (Part 5 answered inline, plus the
+  later fifth-action/manual-picker/summary-tab additions locked
+  2026-08-10) and is the single source of truth — the "sign-off wins
+  where it differs" override above no longer applies.
+  `CARD_SPEC_Part5_signoff.md` stays in the repo as a dated record of the
+  original sign-off, not a second live source.
 
-      ---
-      **Sub-entry 1 of 6 — Needs Review panel UI (original item; the
-      junk-mechanics backend piece that used to be embedded in this same
-      item was split out to ✅ Done 2026-07-25 since it already shipped —
-      the rest below is unbuilt UI, preserved verbatim):**
-- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
-      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
-      spec has landed.** Panel implementation of the quick-check surface
-      spec (mobile audit finding #5, below) — same underlying data
-      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
-      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
-      Decisions log entry, rewritten same commit) — the action model is now
-      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
-      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
-      unregistered type → Review-only, never throws. Still true and kept
-      from the old decision: delete stays behind a confirm; no inline
-      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
-      field/values, duplicate-target existence, explanation-string
-      accuracy) required and reported before any code, per this item's own
-      build instructions — see session detail in `HISTORY.md` once closed.
-      → see DECISIONS.md 2026-07-23 ("Needs Review panel registry rejected — not_ecommerce/duplicate aren't real flag types")
-
-      ---
-      **Sub-entry 2 of 6 — Mobile audit finding #3 ("..." overflow menu
-      replacement), original text below. DECIDED 2026-07-25 — see
-      DECISIONS.md 2026-07-25: replace ⋯ with a visible trash-can icon
-      (own confirm step) + always-visible Archive. No longer a standalone
-      open question; folded in here as resolved groundwork for the build.**
-      **3. "..." overflow menu replacement — spec, propose don't decide.**
-      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
-      tracking links when present) behind a "⋯" button. Two
-      always-available items don't justify a menu, and hiding
-      destructive-only actions (Delete) behind an ambiguous affordance is the
-      wrong pattern — a user has no visual cue that anything destructive
-      lives there. Proposed replacement, for owner decision, not decided
-      here: an explicit icon affordance (e.g. a trash-can icon with its own
-      confirm step, matching `handleDelete`'s existing
-      `window.confirm`) rather than a generic overflow glyph, with Archive
-      surfaced as its own always-visible action rather than tucked away
-      alongside a destructive one.
-
-      ---
-      **Sub-entry 3 of 6 — Mobile audit finding #4 (state-label
-      contradictions + button hierarchy), original text below:**
-      **4. State-label contradictions + button hierarchy — one workstream,
-      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
-      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
-      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
-      render independently of each other), and primary-CTA visual weight
-      shifts unpredictably between cards (two side-by-side buttons, two
-      buttons with different primary treatment, one full-width button, or
-      none, depending on `getVisibleActions()`'s combination for that order).
-      Underlying issue: the app has no consistent notion of "the user already
-      made a decision about this order" that other UI elements can defer to
-      — each label/badge/button is computed independently. Needs a spec pass
-      (what should suppress what, once a decision is made) before any design
-      or code change. The specific "Kept + at risk" combination observed
-      during this audit was a testing artifact (see note below), but the
-      broader label-fighting pattern is real independent of that instance.
-
-      ---
-      **Sub-entry 4 of 6 — Mobile audit finding #5 (quick-check /
-      review-disclosure surface), original text below:**
-      **5. Quick-check (needs-review) surface doesn't explain itself — spec
-      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
-      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
-      and "split into separate order" with no visible evidence supporting
-      either option and no explanation of why the system isn't confident in
-      the first place. Same root concern as the existing Next item about
-      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
-      it's not just a missing explanation string, it's that the whole
-      surface asks for a judgment call without giving the information
-      needed to make one. Needs a spec pass, not a copy tweak. **This is now
-      the hub for three distinct `needsReview` reasons that all need this
-      same disclosure surface to actually explain themselves:** #6a's
-      kept-status-conflict (`computeKeptStatusConflict()`), M2's
-      return-portal trust tier (`classifyReturnPortalTrust()`), and the
-      original missing-deadline case. Two more gaps in this space are
-      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
-      `reviewreasonlabel-missing-reasons`). Every session that adds a new
-      review-flagging mechanism makes this spec pass more overdue, not less
-      — it's gated on owner mockups, but it's the current highest-leverage
-      piece of unblocked work once those land.
-
-      ---
-      **Sub-entry 5 of 6 — M2 return-portal UI half (original item,
-      moved here in full from ⏳ Verifying 2026-07-25 — the shipped
-      review-signal half described within this same text is already live
-      and deployed; only the UI half is the reason this item is now
-      owner-blocked rather than passively verifying):**
-- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
-      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
-      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
-      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
-      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
-      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
-      `retailer-own-domain` — exact registrable-domain match only, never a
-      substring/contains check; `web-lookup-sourced` — measurement-only, not a
-      security boundary; `unknown-unverified`) and forces `Order.needsReview`
-      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
-      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
-      renders/opens exactly as before. Reason is re-derived live in
-      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
-      (it's a pure function of data already on the row). Tier distribution
-      logged count-only (no URL/retailer/order id). **What's still open:** no
-      domain display, no auto-open gating, no visible "unverified" mark — the
-      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
-      deferred to the pending review-disclosure spec (handles all
-      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
-      detail in `BUILD.md`'s Order-linking section + Decisions log.
-
-      ---
-      **Sub-entry 6 of 6 — four-slot panel build
-      (original text below, from the Task 1-4 tracker):**
-      **Needs Review four-slot inventory — REPORT ONLY.** Brief to follow
-         from owner; not started until then.
-
-- **NEEDS: owner brief for the four-slot panel build before it (and Task 4) can start. NOTE: this list's own four-slot panel build entry says "not started until [owner brief]" — flagged as contradicting the four-slot-inventory blockquote above (→ Done), which states that same inventory is COMPLETE.**
-- → see DECISIONS.md 2026-07-23 ("STANDING CORRECTION: Needs Review panel registry superseded") — originally a standalone note here in 🔴 Now.
-> 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see ✅ Done.
-> 2. ~~Apply `scripts/backfill-junk-other-emails.ts`~~ — done, see above.
-> 3. → folded into the "Unified card geometry + order state machine"
->    item below, 2026-07-25.
-> 4. **Connect the email-level "Needs review" badge to the panel.** Must
->    come AFTER Task 2 (now satisfied) — un-junked promotional email would
->    have flooded a surface built for the real orphaned-genuine-commerce
->    emails. Not started today unless owner says so.
+→ **Unified card geometry + order state machine (2x2 four-slot)** — MOVED
+  TO 🔴 Now 2026-08-10: owner brief given this session, `CARD_SPEC.md` is
+  build-ready, build starting on a branch, preview-first. Full item, its
+  6 preserved sub-entries, and the resolved four-slot-inventory
+  contradiction now live in 🔴 Now.
 
 ## ⏳ Verifying
 
