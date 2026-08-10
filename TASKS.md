@@ -32,9 +32,10 @@
 
 ## 🔴 Now
 
-- [ ] **Exclude Amazon from the Sunday returns digest — BUILT 2026-08-10,
-      tests + build clean, NOT YET committed/pushed/deployed. Pure content
-      filter, 0 billed Anthropic calls, 0 writes.**
+- [ ] **Exclude Amazon from the Sunday returns digest — BUILT, committed
+      (`fd5ec95`), and pushed 2026-08-10. Deploy triggered on push; not yet
+      hand-verified live. Pure content filter, 0 billed Anthropic calls,
+      0 writes.**
       `app/api/cron/weekly-digest/route.ts` — filter Amazon out of the
       "due this week" content selection (the forward-looking `sevenDaysOut`
       query, which is separate from and does NOT touch
