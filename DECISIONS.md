@@ -7,6 +7,32 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-10 — Amazon split across the two weekly emails
+
+Sunday returns digest (`weekly-digest`) EXCLUDES Amazon outright; Friday
+coverage-check (`weekly-coverage`) GROUPS Amazon into one roll-up line
+(separate, rescoped task — not this one). Rationale: Sunday is "what's due"
+content where Amazon (95% of volume, 30-day default, low-stakes) drowns the
+real signal; Friday is the alpha QA net where the goal is only to cut visual
+overwhelm, not hide coverage. **Empty-week: the Sunday digest still sends
+during alpha** — the weekly touchpoint is retained even when Amazon was the
+only thing due, so users fall through to the existing zero-returns fallback
+rather than getting no email. Known + accepted: on Amazon-only weeks the
+"all caught up" fallback copy is now technically untrue (real Amazon returns
+are due, just not surfaced) — folded into the existing "zero-returns
+fallback rethink" item, NOT solved here.
+
+**Supersedes "Amazon visibility comes from the Sunday digest / Friday
+coverage-check only" (2026-08-04):** Amazon is no longer in the Sunday
+digest, and Friday is a "what we caught" QA count, not a "what's coming up"
+deadline surface — so with per-order Amazon reminders already suppressed
+(`90dccd0`), Amazon return *deadlines* now have no dedicated email surface.
+Accepted: Amazon is awareness-only. `amazon-per-email-reminder-cadence`
+(🟡 Next, opposite direction) still needs its own reconciliation against
+this.
+
+---
+
 ## 2026-08-09 — WATCH-ITEM: Amazon-default deadlines anchor on order-date, deliberately early
 
 Not a bug — a recorded trade-off, noted for future reference, no action taken.

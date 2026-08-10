@@ -32,6 +32,32 @@
 
 ## 🔴 Now
 
+- [ ] **Exclude Amazon from the Sunday returns digest — BUILT 2026-08-10,
+      tests + build clean, NOT YET committed/pushed/deployed. Pure content
+      filter, 0 billed Anthropic calls, 0 writes.**
+      `app/api/cron/weekly-digest/route.ts` — filter Amazon out of the
+      "due this week" content selection (the forward-looking `sevenDaysOut`
+      query, which is separate from and does NOT touch
+      `lib/weeklyDigestDedup.ts`) using strict `isAmazonOrder(retailer)` from
+      `lib/amazonBundle.ts` (strict only — Whole Foods / Zappos excluded by
+      design). Apply in the shared content selection so both the normal and
+      `?force=true` paths are covered. Import cycle: import `isAmazonOrder`
+      INTO the route, not into a lib amazonBundle imports — same clean shape
+      as the shipped cron reminder skip (`90dccd0`); confirm via grep +
+      `npm run build`. **Empty-week behavior — DECIDED: on an all-Amazon
+      week the digest STILL SENDS (weekly touchpoint retained during alpha).
+      No skip-empty logic; zero-returns fallback copy unchanged.** Global for
+      all users (no per-user preference infra). Supersedes the 2026-08-04
+      "visibility comes from the digest only" rationale — see Decisions log.
+      **Tests:** new `__tests__/weeklyDigestAmazonExclusion.test.ts`
+      (route-mock convention, matching `__tests__/cronAmazonSkip.test.ts`,
+      since the filter lives inline in the route) — 5 cases: Amazon row
+      excluded / non-Amazon row retained / Amazon excluded under
+      `?force=true` / mixed batch drops only Amazon / all-Amazon week still
+      sends (no skip-empty). 521/521 full suite passing, `npm run build`
+      clean. **VERIFY BY: real Sunday 16:00 UTC cron fire — no ✅ until owner
+      hand-verifies in production.**
+
 - [ ] **Amazon return-window default (30 days), forward short-circuit —
       Step 1 BUILT on branch `amazon-return-window-default` 2026-08-09,
       not pushed, not merged. Step 2 backfill dry-run produced, WAITING ON

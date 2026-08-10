@@ -7,6 +7,7 @@ import { activeOrderFilter } from "@/lib/orderFilters";
 import { buildActionLink } from "@/lib/actionLinks";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 import { scheduledRunWeekStart } from "@/lib/weeklyDigestDedup";
+import { isAmazonOrder } from "@/lib/amazonBundle";
 
 export const dynamic = "force-dynamic";
 
@@ -168,8 +169,16 @@ export async function GET(request: NextRequest) {
           displayStatus: true,
         },
       });
-      // The where clause guarantees returnDeadline is non-null here.
-      const orders: DigestOrder[] = rawOrders.filter((o) => o.returnDeadline != null) as DigestOrder[];
+      // The where clause guarantees returnDeadline is non-null here. Amazon
+      // is excluded from the digest content (strict isAmazonOrder match —
+      // Whole Foods/Zappos not included by design; see AMAZON_HANDLING.md /
+      // DECISIONS.md 2026-08-10) on both the normal and ?force=true paths,
+      // since both flow through this same content query. An all-Amazon week
+      // still sends — falls through to buildBody/buildBodyHtml's existing
+      // zero-orders fallback, deliberately not skipped.
+      const orders: DigestOrder[] = rawOrders.filter(
+        (o) => o.returnDeadline != null && !isAmazonOrder(o.retailer),
+      ) as DigestOrder[];
 
       const body = buildBody(orders, now, user.id);
       const htmlBody = buildBodyHtml(orders, now, user.id);
