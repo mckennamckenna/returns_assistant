@@ -37,7 +37,7 @@ export function StartReturnButton({
 
   return (
     <button type="button" onClick={handleClick} disabled={pending} className={className}>
-      {pending ? "…" : "Start return"}
+      {pending ? "…" : "Start Return"}
     </button>
   );
 }

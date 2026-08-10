@@ -22,7 +22,7 @@ export function MarkRefundedButton({ orderId, className }: { orderId: string; cl
 
   return (
     <button type="button" onClick={handleClick} disabled={pending} className={className}>
-      {pending ? "…" : "Mark as refunded"}
+      {pending ? "…" : "Refund received?"}
     </button>
   );
 }

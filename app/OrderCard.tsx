@@ -1,16 +1,21 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import type { Order } from "@prisma/client";
-import { DisplayStatusBadge } from "./DisplayStatusBadge";
-import { DaysLeftChip } from "./DaysLeftChip";
 import { RetailerAvatar } from "./RetailerAvatar";
-import { OrderActionsMenu } from "./OrderActionsMenu";
+import { OrderStateChip } from "./OrderStateChip";
+import { ArchiveOrDeletePrompt } from "./ArchiveOrDeletePrompt";
 import { StartReturnButton } from "./StartReturnButton";
 import { MarkRefundedButton } from "./MarkRefundedButton";
 import { markReturnedAction, markKeptAction } from "./actions";
 import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
-import { isClosingSoon } from "@/lib/alerts";
 import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
-import { getVisibleActions } from "@/lib/orderActions";
+import { computeOrderCardState, orderCardChip, orderCardActions, REFUND_AMOUNT_FOOTNOTE } from "@/lib/orderCardState";
+
+// CARD_SPEC.md Part 5 Q2 — reuse the Amazon bundle's inline-overflow limit
+// (app/AmazonBundleCard.tsx's `.slice(0, 5)`), don't invent a second number.
+const LINE_ITEM_OVERFLOW_LIMIT = 5;
 
 function formatDate(date: Date | null): string {
   if (!date) return "—";
@@ -42,66 +47,82 @@ function itemSummary(lineItems: unknown): string | null {
   return rest.length > 0 ? `${first.name} +${rest.length} more` : first.name;
 }
 
-function QrIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20v.01" />
-    </svg>
-  );
+// Slot 2 (context) per CARD_SPEC.md Part 2's table — it's state-driven too,
+// not just slots 3/4: return_started swaps to the return-carrier line, kept/
+// complete drop context entirely, everything else shows items · price.
+function slotTwoContext(order: Order, itemSummaryText: string | null): string | null {
+  const state = computeOrderCardState(order);
+  switch (state) {
+    case "return_started":
+      return order.returnCarrier ? `${order.returnCarrier} QR code` : "QR code";
+    case "kept":
+    case "complete":
+      return null;
+    default:
+      return itemSummaryText;
+  }
 }
 
 // The redesigned order card, used for every order at every breakpoint —
-// return-window-design-tokens.md §6 Commit 2. Action row is status-driven
-// (see the Commit 2 plan's mapping table) since the doc's anatomy prose
-// describes one fixed two-button pair, but the underlying status machine
-// (lib/displayStatus.ts) has more states than that.
+// return-window-design-tokens.md §6 Commit 2. Slots 3 (chip) and 4 (action)
+// are a pure function of computeOrderCardState() (lib/orderCardState.ts,
+// CARD_SPEC.md Part 2) — no other code path computes them, which is the
+// structural fix for the "Kept + countdown" class of bug.
 export function OrderCard({ order, now }: { order: Order; now: Date }) {
-  const { canStartReturn, canMarkReturned, canKeep, canMarkRefunded } = getVisibleActions(order, now);
+  const [expanded, setExpanded] = useState(false);
+
+  const state = computeOrderCardState(order);
+  const chip = orderCardChip({
+    state,
+    displayStatus: order.displayStatus,
+    estimatedDeliveryDate: order.estimatedDeliveryDate,
+    returnDeadline: order.returnDeadline,
+    orderTotal: order.orderTotal,
+    lineItems: order.lineItems,
+    now,
+  });
+  const actions = orderCardActions(state).map((a) => a.id);
+  const showKeep = actions.includes("keep");
+  const showStartReturn = actions.includes("start_return");
+  const showMarkReturned = actions.includes("mark_returned");
+  const showMarkRefunded = actions.includes("mark_refunded");
+  const hasAnyAction = showKeep || showStartReturn || showMarkReturned || showMarkRefunded;
+
   const itemSummaryText = itemSummary(order.lineItems);
-  const atRisk = isClosingSoon(order, now);
-  // "Confirmed" means the retailer's email explicitly stated the return
-  // window/deadline (policySource === "stated_in_email") — everything else
-  // (web_lookup, user_supplied, null) stays hedged. Deliberately independent
-  // of deadlineIsEstimated, which tracks a different kind of uncertainty
-  // (whether the delivery-date anchor used to compute the deadline was
-  // itself confirmed) and stays wired to reminder-suppression logic
-  // (lib/reminders.ts) untouched by this display-only distinction.
-  const deadlineConfirmed = order.policySource === "stated_in_email";
+  const contextText = slotTwoContext(order, itemSummaryText);
+  const lineItems: LineItem[] = isLineItemArray(order.lineItems) ? order.lineItems : [];
+  const visibleLineItems = lineItems.slice(0, LINE_ITEM_OVERFLOW_LIMIT);
+  const hasOverflow = lineItems.length > LINE_ITEM_OVERFLOW_LIMIT;
 
   return (
     <div className="bg-card border border-border rounded-2xl p-[18px]">
-      {/* Mobile (below md): unchanged 5-line stacked layout. */}
+      {/* Slot 1 (identity) + Slot 3 (chip) on top; Slot 2 (context) below on
+          mobile, inline on desktop. Same underlying data at every
+          breakpoint — layout-only split, same as before. */}
       <div className="md:hidden flex items-start gap-3">
         <Link href={`/orders/${order.id}`} className="flex items-start gap-3 flex-1 min-w-0">
           <RetailerAvatar name={order.retailer || "?"} />
           <div className="min-w-0">
             <div className="text-lg font-medium text-ink truncate">{order.retailer || "Unknown retailer"}</div>
-            {(order.orderNumber || itemSummaryText) && (
+            {(order.orderNumber || contextText) && (
               <div className="text-xs text-muted truncate">
                 {order.orderNumber && (
                   <span title={order.orderNumber} aria-label={`Order number ${order.orderNumber}`}>
                     #{truncateOrderNumber(order.orderNumber)}
                   </span>
                 )}
-                {order.orderNumber && itemSummaryText && " · "}
-                {itemSummaryText}
+                {order.orderNumber && contextText && " · "}
+                {contextText}
               </div>
             )}
-            <div className="mt-1"><DisplayStatusBadge status={order.displayStatus} /></div>
           </div>
         </Link>
-        <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={!deadlineConfirmed} />
+        <OrderStateChip
+          chip={chip}
+          formatAmount={(total) => formatCurrency(total, order.orderCurrency)}
+        />
       </div>
 
-      {/* Desktop (md+): 4-line density pass — TRUST_AUDIT.md row-density
-          follow-up. Item description gets its own full-width line
-          deliberately (worst-case real data runs 190+ chars — compressing
-          it onto the retailer/order# line breaks on that case), so
-          retailer + order# combine on L1 instead, freeing a line overall.
-          Same underlying data as the mobile block above — layout-only. */}
       <div className="hidden md:block">
         <div className="flex items-center gap-3">
           <RetailerAvatar name={order.retailer || "?"} />
@@ -119,75 +140,142 @@ export function OrderCard({ order, now }: { order: Order; now: Date }) {
               </span>
             )}
           </Link>
-          <div className="shrink-0 flex items-center gap-2">
-            <DisplayStatusBadge status={order.displayStatus} />
-            <DaysLeftChip returnDeadline={order.returnDeadline} isEstimated={!deadlineConfirmed} />
+          <div className="shrink-0">
+            <OrderStateChip
+              chip={chip}
+              formatAmount={(total) => formatCurrency(total, order.orderCurrency)}
+            />
           </div>
         </div>
-        {itemSummaryText && <p className="text-xs text-muted truncate mt-1 ml-[60px]">{itemSummaryText}</p>}
+        {contextText && <p className="text-xs text-muted truncate mt-1 ml-[60px]">{contextText}</p>}
       </div>
 
-      <div className="flex items-baseline justify-between flex-wrap gap-x-2 gap-y-1 mt-3">
-        <span className="font-serif text-[27px] font-semibold text-ink">
-          {formatCurrency(order.orderTotal, order.orderCurrency)}
-          {atRisk && <span className="font-sans text-xs font-medium text-accent ml-1.5 align-middle">at risk</span>}
-        </span>
-        <span className="text-[13px] text-muted">
-          Return by {formatDate(order.returnDeadline)}
-        </span>
-      </div>
-      {order.orderTotal == null && (
+      {chip.amount?.asterisked && (
+        <p className="text-[10px] text-muted mt-1">{REFUND_AMOUNT_FOOTNOTE}</p>
+      )}
+
+      {/* Price display — shown whenever slot 2 is "items · price" per the
+          Part 2 table (awaiting_delivery / returnable / awaiting_refund).
+          "Return by" only where the deadline is still the actionable fact —
+          Part 5 Q5: awaiting_refund keeps price visible ("the price is
+          what's being refunded") without a return-by date, since the return
+          has already happened. */}
+      {(state === "awaiting_delivery" || state === "returnable" || state === "awaiting_refund") && (
+        <div className="flex items-baseline justify-between flex-wrap gap-x-2 gap-y-1 mt-3">
+          <span className="font-serif text-[27px] font-semibold text-ink">
+            {formatCurrency(order.orderTotal, order.orderCurrency)}
+          </span>
+          {(state === "awaiting_delivery" || state === "returnable") && (
+            <span className="text-[13px] text-muted">Return by {formatDate(order.returnDeadline)}</span>
+          )}
+        </div>
+      )}
+      {order.orderTotal == null && state !== "kept" && state !== "complete" && (
         <p className="text-xs text-muted mt-1">Forward your order confirmation to add the total</p>
       )}
 
-      <div className="flex items-center gap-2 mt-4">
-        {canStartReturn && (
-          <StartReturnButton
-            orderId={order.id}
-            returnPortalUrl={order.returnPortalUrl}
-            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 disabled:opacity-50 md:flex-none md:w-auto"
-          />
-        )}
-        {canMarkReturned && (
-          <form action={markReturnedAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none">
-            <button type="submit" className="w-full md:w-auto truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90">
-              Mark as returned
-            </button>
-          </form>
-        )}
-        {canMarkRefunded && (
-          <MarkRefundedButton
-            orderId={order.id}
-            className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 text-center md:flex-none md:w-auto"
-          />
-        )}
-        {canKeep && (
-          <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none flex flex-col items-start gap-1">
-            <button type="submit" className="w-full md:w-auto truncate border border-border text-ink text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-page">
-              Keeping it
-            </button>
-            <p className="text-[10px] text-muted">{KEPT_WARNING_CAPTION}</p>
-          </form>
-        )}
-        <OrderActionsMenu
-          orderId={order.id}
-          isArchived={order.archivedAt !== null}
-          trackingUrl={order.trackingNumber && order.trackingUrl ? order.trackingUrl : null}
-          returnTrackingUrl={order.returnTrackingNumber && order.returnTrackingUrl ? order.returnTrackingUrl : null}
-          className="md:ml-auto"
-        />
-      </div>
+      {/* Slot 4 (action) — pure function of state, per computeOrderCardState
+          above. Only one row of primary actions can ever render. */}
+      {hasAnyAction && (
+        <div className="flex items-center gap-2 mt-4">
+          {showStartReturn && (
+            <StartReturnButton
+              orderId={order.id}
+              returnPortalUrl={order.returnPortalUrl}
+              className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 disabled:opacity-50 md:flex-none md:w-auto"
+            />
+          )}
+          {showMarkReturned && (
+            <form action={markReturnedAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none">
+              <button type="submit" className="w-full md:w-auto truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90">
+                Dropped it off?
+              </button>
+            </form>
+          )}
+          {showMarkRefunded && (
+            <MarkRefundedButton
+              orderId={order.id}
+              className="flex-1 min-w-0 truncate bg-ink text-page text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-ink/90 text-center md:flex-none md:w-auto"
+            />
+          )}
+          {showKeep && (
+            <form action={markKeptAction.bind(null, order.id)} className="flex-1 min-w-0 md:flex-none flex flex-col items-start gap-1">
+              <button type="submit" className="w-full md:w-auto truncate border border-border text-ink text-sm font-medium rounded-lg px-4 md:px-6 py-2 hover:bg-page">
+                Keep
+              </button>
+              <p className="text-[10px] text-muted">{KEPT_WARNING_CAPTION}</p>
+            </form>
+          )}
+        </div>
+      )}
 
-      {order.displayStatus === "return_requested" && (
-        <button
-          type="button"
-          disabled
-          className="w-full flex items-center justify-center gap-2 bg-page text-muted text-xs font-medium rounded-lg px-4 py-2 mt-2 cursor-default"
-        >
-          <QrIcon />
-          View QR code
-          <span className="text-[10px] uppercase tracking-wide bg-border text-muted px-1.5 py-0.5 rounded-full">Soon</span>
-        </button>
+      {/* CARD_SPEC.md Part 5 Q7 — no "⋯", no glyph, no swipe/gesture. The
+          collapsed row is unchanged above; expand reveals per-item lines and
+          exactly two secondary controls: "more info" + "Archive" (the row
+          stays four controls, not five). */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={expanded ? "Collapse order details" : "Expand order details"}
+        className="w-full text-center text-muted text-xs py-1 mt-2 hover:text-ink"
+      >
+        {expanded ? "▴" : "▾"}
+      </button>
+
+      {expanded && (
+        <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
+          {visibleLineItems.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {visibleLineItems.map((item, i) => (
+                <li key={i} className="flex justify-between gap-2 text-sm">
+                  <span className="truncate text-ink">
+                    {item.name}
+                    {item.quantity != null && item.quantity > 1 ? ` ×${item.quantity}` : ""}
+                  </span>
+                  <span className="text-secondary whitespace-nowrap">
+                    {item.price != null ? formatCurrency(item.price, order.orderCurrency) : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {hasOverflow && (
+            <Link href={`/orders/${order.id}`} className="text-sm font-medium text-ink underline">
+              View all {lineItems.length} items
+            </Link>
+          )}
+          {(order.trackingNumber && order.trackingUrl) && (
+            <a
+              href={order.trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-secondary underline"
+            >
+              Track package
+            </a>
+          )}
+          {(order.returnTrackingNumber && order.returnTrackingUrl) && (
+            <a
+              href={order.returnTrackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-secondary underline"
+            >
+              Track your return
+            </a>
+          )}
+          <div className="flex items-center gap-4">
+            <Link href={`/orders/${order.id}`} className="text-sm font-medium text-ink underline">
+              more info
+            </Link>
+            <ArchiveOrDeletePrompt
+              orderId={order.id}
+              isArchived={order.archivedAt !== null}
+              className="text-sm font-medium text-ink underline"
+            />
+          </div>
+        </div>
       )}
     </div>
   );

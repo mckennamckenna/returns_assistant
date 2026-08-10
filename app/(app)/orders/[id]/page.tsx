@@ -7,10 +7,10 @@ import { DeleteButton } from "@/app/DeleteButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
 import { MarkRefundedButton } from "@/app/MarkRefundedButton";
 import { StartReturnButton } from "@/app/StartReturnButton";
-import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
+import { OrderStateChip } from "@/app/OrderStateChip";
 import { CopyButton } from "@/app/CopyButton";
 import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
-import { getVisibleActions } from "@/lib/orderActions";
+import { computeOrderCardState, orderCardChip, orderCardActions, REFUND_AMOUNT_FOOTNOTE } from "@/lib/orderCardState";
 import { returnWindowFromLabel } from "@/lib/returnWindowLabel";
 
 export const dynamic = "force-dynamic";
@@ -117,7 +117,24 @@ export default async function OrderDetail({
   }
 
   const now = new Date();
-  const { canStartReturn, canMarkReturned, canKeep, canMarkRefunded } = getVisibleActions(order, now);
+  // CARD_SPEC.md Part 2 — same pure state machine as app/OrderCard.tsx
+  // (lib/orderCardState.ts); this page must never compute its own action
+  // gating or status badge independently of that function.
+  const state = computeOrderCardState(order);
+  const chip = orderCardChip({
+    state,
+    displayStatus: order.displayStatus,
+    estimatedDeliveryDate: order.estimatedDeliveryDate,
+    returnDeadline: order.returnDeadline,
+    orderTotal: order.orderTotal,
+    lineItems: order.lineItems,
+    now,
+  });
+  const actions = orderCardActions(state).map((a) => a.id);
+  const canStartReturn = actions.includes("start_return");
+  const canMarkReturned = actions.includes("mark_returned");
+  const canKeep = actions.includes("keep");
+  const canMarkRefunded = actions.includes("mark_refunded");
 
   // Consolidated into one note below, rather than repeating "(estimated)" on
   // each field separately — see TRUST_AUDIT.md item 3.
@@ -134,7 +151,7 @@ export default async function OrderDetail({
       <div className="flex justify-between items-baseline gap-4 mt-4">
         <h1 className="text-2xl font-semibold text-ink">{order.retailer || "Unknown retailer"}</h1>
         <div className="flex items-center gap-2">
-          <DisplayStatusBadge status={order.displayStatus} />
+          <OrderStateChip chip={chip} formatAmount={(total) => formatCurrency(total, order.orderCurrency)} />
           {order.needsReview && (
             <span className="inline-block text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
               Needs Review
@@ -195,6 +212,7 @@ export default async function OrderDetail({
             }
           />
         </dl>
+        {chip.amount?.asterisked && <p className="text-xs text-muted mt-2">{REFUND_AMOUNT_FOOTNOTE}</p>}
 
         <div className="flex flex-wrap items-start gap-3 mt-4">
           {canStartReturn && (
@@ -227,7 +245,7 @@ export default async function OrderDetail({
           {canMarkReturned && (
             <form action={markReturnedAction.bind(null, order.id)}>
               <button type="submit" className="bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90">
-                Mark as returned
+                Dropped it off?
               </button>
             </form>
           )}
@@ -243,7 +261,7 @@ export default async function OrderDetail({
                 type="submit"
                 className="border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
               >
-                Keeping it
+                Keep
               </button>
               <span className="text-xs text-muted">{KEPT_WARNING_CAPTION}</span>
             </form>
