@@ -214,6 +214,10 @@ export default async function OrderDetail({
         </dl>
         {chip.amount?.asterisked && <p className="text-xs text-muted mt-2">{REFUND_AMOUNT_FOOTNOTE}</p>}
 
+        {/* Primary action row — exactly orderCardActions(state)'s output,
+            same as app/OrderCard.tsx. ArchiveOrderButton stays here for now
+            (not part of orderCardActions either — flagged separately, not
+            changed in this pass). */}
         <div className="flex flex-wrap items-start gap-3 mt-4">
           {canStartReturn && (
             <StartReturnButton
@@ -221,26 +225,6 @@ export default async function OrderDetail({
               returnPortalUrl={order.returnPortalUrl}
               className="bg-ink text-page text-sm font-medium rounded-lg px-4 py-2 hover:bg-ink/90 disabled:opacity-50"
             />
-          )}
-          {order.trackingNumber && order.trackingUrl && (
-            <a
-              href={order.trackingUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
-            >
-              Track package
-            </a>
-          )}
-          {order.returnTrackingNumber && order.returnTrackingUrl && (
-            <a
-              href={order.returnTrackingUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
-            >
-              Track your return
-            </a>
           )}
           {canMarkReturned && (
             <form action={markReturnedAction.bind(null, order.id)}>
@@ -272,6 +256,36 @@ export default async function OrderDetail({
             className="border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
           />
         </div>
+
+        {/* Informational, not an action — same relationship to the primary
+            action row as app/OrderCard.tsx's expanded section (tracking
+            links render after slot 4, never inside it), just not gated
+            behind a tap-to-expand toggle here, since a detail page is
+            already the "expanded" tier (Part 5 Q6). */}
+        {((order.trackingNumber && order.trackingUrl) || (order.returnTrackingNumber && order.returnTrackingUrl)) && (
+          <div className="flex flex-wrap items-center gap-3 mt-3">
+            {order.trackingNumber && order.trackingUrl && (
+              <a
+                href={order.trackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-secondary underline"
+              >
+                Track package
+              </a>
+            )}
+            {order.returnTrackingNumber && order.returnTrackingUrl && (
+              <a
+                href={order.returnTrackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-secondary underline"
+              >
+                Track your return
+              </a>
+            )}
+          </div>
+        )}
 
         {isLineItemArray(order.lineItems) && order.lineItems.length > 0 && (
           <div className="mt-4">
