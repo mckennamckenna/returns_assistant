@@ -65,6 +65,29 @@
       summary tabs are all four (Due this week / Needs review / Returns
       in progress / Refunds pending) — **out of scope for this build**,
       navigation not cards.
+      **BUILD PROGRESS 2026-08-11 (branch `card-geometry-state-machine`,
+      not pushed):** Step 0 reconciliation done and reviewed by owner
+      (Amazon bundle overflow limit confirmed as literal `5` in
+      `app/AmazonBundleCard.tsx`; O7 delivered-vs-displayStatus divergence
+      confirmed already fixed at the `deriveDisplayStatus` layer; `kept`
+      confirmed to have no internal `Order.status` value). Per this
+      session's owner brief, `kept` was promoted to a real `Order.status`
+      value — additive (String column, no schema migration), 33-row
+      backfill applied and verified (`status = displayStatus` wherever
+      `displayStatus === "kept"`, 0 mismatches against `keptAt`). **Build A**
+      (single-order card + state machine, `lib/orderCardState.ts`) and
+      **Build B** (needs-review bucket, `app/NeedsReviewBucket.tsx`) are
+      both built and committed locally — see `HISTORY.md` for the full
+      session detail once closed. Full test suite (541/541) and `next
+      build` pass; no new typecheck errors. **Not yet deployed** — awaiting
+      owner preview + explicit push instruction, per "Done means deployed."
+      One known capability trade-off from Build B, not a bug: the old
+      inline "Looks correct"/"Split into separate order" quick-actions on
+      needsReview orders are no longer reachable from the dashboard — an
+      already-linked order has no clean mapping onto the five-action
+      registry, so it degrades to `View detail` (Part 3 Q9's explicit
+      fallback design, not an oversight) — flagged here in case the owner
+      wants those two actions re-added to the order detail page later.
       **Framing note (owner-confirmed 2026-07-25):** there is ONE four-slot
       skeleton — (1) identity, (2) context, (3) state, (4) action — used at
       two levels. A single order card is one 2x2. The needs-review bucket is
