@@ -1756,6 +1756,25 @@
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
 
 ## 🟡 Next
+- [ ] **Return-tracking-number integrity + return-in-transit feature
+      (diagnostic first). NEW 2026-08-11**, surfaced via H&M #68468087873
+      (mckenna.sweazey@gmail.com), where `returnTrackingNumber` turned out
+      to be the same outbound DHL number as `trackingNumber` reused, not a
+      distinct return-carrier reference — found while diagnosing why the
+      order detail page's action row showed `Track your return` alongside
+      `Refund received?` (see card-geometry session detail, 2026-08-11).
+      TWO parts, gated:
+      **(1) READ-ONLY DIAGNOSTIC:** across all orders, how often is
+      `returnTrackingNumber` populated, how often does it EQUAL
+      `trackingNumber`, and when distinct, is it a real return-carrier
+      reference? Report the distribution before any code.
+      **(2) GATED ON (1):** if return tracking is reliably real, build
+      return-in-transit status into the Return started / Awaiting refund
+      states (genuine value-add). If it's often just the outbound number
+      reused, the live `Track your return` button is already misleading
+      users — fix the gate so it only shows on a verified return number.
+      **Note: the live-correctness angle (a button that may point users at
+      the wrong tracking number today) is reason not to let this sit.**
 - [ ] **Amazon extraction broken — order-email template change. NEW
       2026-07-25, owner-reported. DEPRIORITIZED 2026-07-29, owner
       decision — moved from 🔴 Now, stays open.** Amazon has changed its
