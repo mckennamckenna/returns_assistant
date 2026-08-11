@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { auth, signOut } from "@/auth";
-import { approveOrder, splitOrder } from "@/lib/orderReview";
+import { linkEmailToExistingOrder, createOrderFromOrphanedEmail, archiveOrphanedEmail } from "@/lib/orderReview";
+import { rescueEmail } from "@/lib/junk";
 import { DISPLAY_STATUS_RANK, buildStatusTransitionData } from "@/lib/displayStatus";
 
 export async function deleteEmail(emailId: string): Promise<void> {
@@ -31,30 +32,51 @@ export async function signOutAction(): Promise<void> {
   await signOut({ redirectTo: "/login" });
 }
 
-async function getNote(formData: FormData): Promise<string | null> {
-  const note = formData.get("note");
-  return typeof note === "string" ? note : null;
-}
-
-export async function approveOrderAction(orderId: string, formData: FormData): Promise<void> {
+// CARD_SPEC.md Part 3 needs-review bucket actions. Each checks ownership of
+// the email itself; linkToOrder additionally relies on
+// linkEmailToExistingOrder's own userId match between email and target
+// order (lib/orderReview.ts) before merging.
+export async function linkEmailToOrderAction(emailId: string, targetOrderId: string): Promise<void> {
   const session = await auth();
   if (!session?.user) return;
 
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { userId: true } });
-  if (!order || order.userId !== session.user.id) return;
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { userId: true } });
+  if (!email || email.userId !== session.user.id) return;
 
-  await approveOrder(orderId, await getNote(formData));
+  await linkEmailToExistingOrder(emailId, targetOrderId);
   revalidatePath("/");
 }
 
-export async function splitOrderAction(orderId: string, formData: FormData): Promise<void> {
+export async function createOrderFromEmailAction(emailId: string): Promise<void> {
   const session = await auth();
   if (!session?.user) return;
 
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { userId: true } });
-  if (!order || order.userId !== session.user.id) return;
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { userId: true } });
+  if (!email || email.userId !== session.user.id) return;
 
-  await splitOrder(orderId, await getNote(formData));
+  await createOrderFromOrphanedEmail(emailId);
+  revalidatePath("/");
+}
+
+export async function archiveOrphanedEmailAction(emailId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) return;
+
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { userId: true } });
+  if (!email || email.userId !== session.user.id) return;
+
+  await archiveOrphanedEmail(emailId);
+  revalidatePath("/");
+}
+
+export async function rescueEmailAction(emailId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) return;
+
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { userId: true } });
+  if (!email || email.userId !== session.user.id) return;
+
+  await rescueEmail(emailId);
   revalidatePath("/");
 }
 

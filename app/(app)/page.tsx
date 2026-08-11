@@ -2,20 +2,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, approveOrderAction, splitOrderAction } from "@/app/actions";
-import { DeleteButton } from "@/app/DeleteButton";
-import { ReviewCard } from "@/app/ReviewCard";
 import { SearchFilterBar } from "@/app/SearchFilterBar";
-import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
-import { decryptEmailContent } from "@/lib/emailEncryption";
-import { forwardTypeLabel } from "@/lib/forwardResolver";
 import { daysUntil } from "@/lib/reminders";
 import { OPEN_STATUSES, isClosingSoon } from "@/lib/alerts";
 import { SummaryCard } from "@/app/SummaryCard";
 import { OrderCard } from "@/app/OrderCard";
 import { AmazonBundleCard } from "@/app/AmazonBundleCard";
+import { NeedsReviewBucket } from "@/app/NeedsReviewBucket";
 import { isAmazonOrder } from "@/lib/amazonBundle";
 import { JUNK_FILTER } from "@/lib/junk";
+import { orderReviewRow, emailReviewRow } from "@/lib/needsReviewRows";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +31,6 @@ function getGreeting(): string {
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
-}
-
-function snippet(text: string | null, length = 160): string {
-  if (!text) return "";
-  const trimmed = text.trim();
-  return trimmed.length > length ? `${trimmed.slice(0, length)}…` : trimmed;
 }
 
 // Nulls always sort last, regardless of direction — a missing date or total
@@ -78,16 +68,20 @@ export default async function Home({
 
   const now = new Date();
 
-  const [allOrders, rawOrphanedEmails, reviewOrders] = await Promise.all([
+  const [allOrders, orphanedEmails, reviewOrders] = await Promise.all([
     prisma.order.findMany({
       // includes archived orders so the "Archived" filter tab can show them;
       // soft-deleted orders are still excluded
       where: { userId, deletedAt: null },
       include: { _count: { select: { emails: true } } },
     }),
+    // Lean select — CARD_SPEC.md Part 3's bucket row only needs retailer/
+    // date/amount, not the encrypted body fields the old "Unlinked emails"
+    // list used, so no decryptEmailContent() call is needed here anymore.
     prisma.email.findMany({
       where: { orderId: null, userId, ...JUNK_FILTER },
       orderBy: { receivedAt: "desc" },
+      select: { id: true, retailer: true, receivedAt: true, orderTotal: true, orderCurrency: true },
     }),
     prisma.order.findMany({
       where: { userId, needsReview: true, archivedAt: null, deletedAt: null },
@@ -101,11 +95,23 @@ export default async function Home({
     }),
   ]);
 
-  const orphanedEmails = rawOrphanedEmails.map(decryptEmailContent);
+  // CARD_SPEC.md Part 3 — one unified needs-review bucket, replacing the
+  // separate "Needs review" panel and "Unlinked emails" list below.
+  const needsReviewRows = [...reviewOrders.map(orderReviewRow), ...orphanedEmails.map(emailReviewRow)];
 
   // Stats only count active (non-archived) orders — archived orders are hidden
   // from the dashboard until the user explicitly opens the Archived tab.
   const activeOrders = allOrders.filter((o) => o.archivedAt === null);
+
+  // CARD_SPEC.md Part 3 — the "Link to order" manual picker's full list;
+  // linking into an archived order isn't offered (same active-only scope
+  // as the rest of the dashboard).
+  const linkablePickerOrders = activeOrders.map((o) => ({
+    id: o.id,
+    retailer: o.retailer,
+    orderNumber: o.orderNumber,
+    orderDate: o.orderDate,
+  }));
 
   const openOrders = activeOrders.filter((o) => OPEN_STATUSES.includes(o.status));
   const closingSoonOrders = openOrders.filter((o) => isClosingSoon(o, now));
@@ -176,28 +182,7 @@ export default async function Home({
         singleOrderRetailer={closingSoonOrders.length === 1 ? closingSoonOrders[0].retailer : null}
       />
 
-      {reviewOrders.length > 0 && (
-        <details open className="mb-8 bg-amber-50 border border-amber-200 rounded-2xl">
-          <summary className="cursor-pointer list-none px-5 py-4 md:px-6 md:py-5 font-semibold text-amber-900 flex items-center justify-between">
-            <span>Needs review ({reviewOrders.length})</span>
-            <span className="text-xs text-amber-700">▾</span>
-          </summary>
-          <div className="px-5 pb-5 md:px-6 md:pb-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-            {reviewOrders.map((order) => (
-              <div key={order.id} className="bg-white border border-amber-200 rounded-lg p-3 md:p-4">
-                <p className="text-sm font-medium text-ink leading-tight">{reviewReasonLabel(order)}</p>
-                <ReviewCard
-                  retailerLine={`${order.retailer || "Unknown retailer"}${order.orderNumber ? ` #${order.orderNumber}` : ""}`}
-                  note={reviewReason(order)}
-                  userNote={order.userNote}
-                  approveAction={approveOrderAction.bind(null, order.id)}
-                  splitAction={splitOrderAction.bind(null, order.id)}
-                />
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+      <NeedsReviewBucket rows={needsReviewRows} linkablePickerOrders={linkablePickerOrders} />
 
       {amazonOrders.length > 0 && statusFilter !== "archived" && (
         <AmazonBundleCard orders={amazonOrders} now={now} />
@@ -221,36 +206,6 @@ export default async function Home({
         </div>
       )}
 
-      {orphanedEmails.length > 0 && (
-        <div className="mt-10">
-          <h2 className="text-lg font-semibold text-ink mb-3">Unlinked emails</h2>
-          <p className="text-sm text-secondary mb-4">
-            Couldn&apos;t match these to a retailer + order number — review and clean up manually.
-          </p>
-          <ul className="flex flex-col gap-3">
-            {orphanedEmails.map((email) => (
-              <li key={email.id} className="bg-card border border-border rounded-xl flex items-stretch">
-                <Link href={`/emails/${email.id}`} className="flex-1 block p-4 hover:bg-page min-w-0">
-                  <div className="flex justify-between items-baseline gap-4">
-                    <span className="font-medium text-ink truncate">{forwardTypeLabel(email.forwardType)}</span>
-                    <span className="text-sm text-muted whitespace-nowrap">{email.receivedAt.toLocaleString()}</span>
-                  </div>
-                  <p className="font-semibold text-ink mt-1">{email.subject || "(no subject)"}</p>
-                  <p className="text-secondary mt-1">{snippet(email.textBody)}</p>
-                  {email.needsReview && (
-                    <span className="inline-block mt-2 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                      Needs review
-                    </span>
-                  )}
-                </Link>
-                <form action={deleteEmail.bind(null, email.id)} className="flex items-center pr-3">
-                  <DeleteButton label="Delete email" />
-                </form>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </main>
   );
 }

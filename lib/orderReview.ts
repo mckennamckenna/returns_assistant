@@ -1,5 +1,12 @@
 import { prisma } from "@/lib/db";
-import { createOrderFromEmail, rebuildOrderFromRemainingEmails, applyFallbackOrderDate, recomputeOrderStatus } from "@/lib/linkOrder";
+import {
+  createOrderFromEmail,
+  mergeEmailIntoOrder,
+  rebuildOrderFromRemainingEmails,
+  applyFallbackOrderDate,
+  recomputeOrderStatus,
+  recomputeDisplayStatus,
+} from "@/lib/linkOrder";
 import { classifyReturnPortalTrust } from "@/lib/extract";
 
 // Shared by both the user-facing "Needs Review" cards and the admin
@@ -58,6 +65,52 @@ export async function splitOrder(orderId: string, note?: string | null): Promise
   await recomputeOrderStatus(newOrderId);
 
   return { newOrderId };
+}
+
+// CARD_SPEC.md Part 3 — the needs-review bucket's "Link to order" action.
+// v1 is a manual pick: the user has already chosen targetOrderId themselves
+// from the full order list, so this just performs the same merge
+// linkEmailToOrder's auto-matcher performs on a match, minus the matching.
+// Scoped to the same user as both the email and the target order — callers
+// are still responsible for confirming that themselves (same convention as
+// approveOrder/splitOrder above).
+export async function linkEmailToExistingOrder(emailId: string, targetOrderId: string): Promise<boolean> {
+  const email = await prisma.email.findUnique({ where: { id: emailId } });
+  const targetOrder = await prisma.order.findUnique({ where: { id: targetOrderId } });
+  if (!email || !targetOrder || email.userId !== targetOrder.userId) return false;
+
+  await mergeEmailIntoOrder(targetOrder, email, null);
+  await prisma.email.update({ where: { id: emailId }, data: { orderId: targetOrderId, needsReview: false } });
+  await applyFallbackOrderDate(targetOrderId);
+  await recomputeOrderStatus(targetOrderId);
+  await recomputeDisplayStatus(targetOrderId);
+  return true;
+}
+
+// CARD_SPEC.md Part 3 — "Create new order." Offered when there's no
+// existing order to attach an orphaned email to; seeds a fresh Order from
+// the email's own extracted fields, same shape createOrderFromEmail always
+// produces (the no-match branch of linkEmailToOrder does exactly this).
+export async function createOrderFromOrphanedEmail(emailId: string): Promise<{ orderId: string } | null> {
+  const email = await prisma.email.findUnique({ where: { id: emailId } });
+  if (!email) return null;
+
+  const orderId = await createOrderFromEmail(email.userId, email, null);
+  await prisma.email.update({ where: { id: emailId }, data: { orderId, needsReview: false } });
+  await applyFallbackOrderDate(orderId);
+  await recomputeOrderStatus(orderId);
+  await recomputeDisplayStatus(orderId);
+  return { orderId };
+}
+
+// CARD_SPEC.md Part 3 — "Not a purchase." Junk-with-rescue (lib/junk.ts's
+// JUNK_FILTER/rescueEmail contract), never a hard delete — deliberately not
+// deleteEmail() above, which really does prisma.email.delete().
+export async function archiveOrphanedEmail(emailId: string): Promise<boolean> {
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { id: true } });
+  if (!email) return false;
+  await prisma.email.update({ where: { id: emailId }, data: { junkedAt: new Date() } });
+  return true;
 }
 
 // There's no stored "reason code" for needsReview — it's just a boolean,
