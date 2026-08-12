@@ -175,8 +175,15 @@ new one.
 
 - Slot 1: retailer
 - Slot 2: date · amount (e.g. `7/16 · $200`)
-- Slot 3: **why** — free text, open-ended (`possible duplicate`, `no return policy`)
-- Slot 4: **action** — from the registry below
+- Slot 3: **why** — a full sentence in the app's voice, specific to what's actually
+  going on (e.g. `"We think this email belongs to an existing order."`), not a terse
+  fragment (`possible duplicate`, `no return policy`) and not a generic catch-all
+  (`"This order needs a quick check"`). See the reason → action table below for the
+  canonical phrasings.
+- Slot 4: **action** — the row's primary action (from the registry below, chosen via
+  the reason → action mapping) plus an always-present `View detail` secondary. Rows
+  whose reason has no mapped primary action show `View detail` alone — see "The
+  View-detail rule" below.
 
 **Collapsed vs expanded:**
 
@@ -196,6 +203,21 @@ View-detail degrade default makes that safe):
 | View detail | "More info" | opens the item's detail. |
 | Nothing | (leave in bucket) | stays flagged, no-op. |
 
+**Reason → action mapping.** This is the missing logic the original draft skipped —
+"each row needs a reason string and an action" never said which reason gets which
+action. The table below is that mapping; it's the authority for what a given `why`
+renders as, not a suggestion:
+
+| Reason (slot-3 why — full sentence) | Primary action (slot-4) | Secondary |
+|---|---|---|
+| "We think this email belongs to an existing order." | Merge with existing order (Link to order) | View detail |
+| "We think this may not be e-commerce." | Not a purchase (delete / junk-with-rescue) | View detail |
+| "This looks like a duplicate of another order." | Merge with existing order (Link to order) | View detail |
+| "This looks like a real purchase with no order record." | Start a new order (Create new order) | View detail |
+| "We couldn't find a purchase date — the deadline may be estimated." | View detail (degrade — only action) | — |
+| "We couldn't find the order total." | View detail (degrade — only action) | — |
+| any unmapped reason | View detail (degrade) | — |
+
 - **Why "Create new order" is not redundant with "Link to order":** *Link* assumes a
   target order already exists. An orphaned email is often a real purchase with **no
   order record at all** — nothing to link to — so it must be able to *create* the order,
@@ -206,13 +228,20 @@ View-detail degrade default makes that safe):
   merchant) because a human eyeballing the list doesn't care what the sender string
   says. Smarter auto-suggestion is a later refinement, as is search/filter on the list
   once it gets long.
-- **Any reason with no registered action degrades to "View detail"** — never throws.
+- **The View-detail rule, precisely:** `View detail` is the **always-present secondary
+  on every row** — not merely a fallback that shows up when nothing else applies. A
+  mapped row (top four rows of the table above) shows **[primary action + View
+  detail]**, two controls. A degrade row (bottom three) shows **View detail alone**,
+  because there is no primary action to pair it with. Either way, `View detail` is
+  reachable from every row in the bucket, no exceptions.
+- **Any reason with no registered mapping degrades to `View detail`** — never throws.
   This is what lets the bucket ship before every possible reason is mapped, and what
-  makes the registry safely extensible.
+  makes the registry safely extensible: a new reason string can be added at any time
+  without a matching action existing yet, and the row still works.
 - Populations that feed this bucket (from the four-slot inventory): orphaned
   genuine-commerce emails, linked-but-flagged emails, duplicates, extraction
-  failures. Each just needs a slot-3 reason string and a slot-4 action; unknown →
-  View detail.
+  failures. Each just needs a slot-3 reason string (full sentence, per the table
+  above) and inherits its slot-4 action from the mapping; unknown → View detail.
 
 **Overflow:** the bucket can hold 3 today and 15 after a bad extraction week. Show
 up to N rows inline, then `View all {N} →` to a dedicated page. **Reuse the Amazon
