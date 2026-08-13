@@ -5,6 +5,55 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-13 — Retailer-lookup waste verified: cache justified, positive-first (INVERTS spec sequencing)
+
+**Read-only investigation, 0 billed API calls, 0 writes.** Separate parallel session;
+DB + logs read-only, script never imported extractEmail/lookupReturnPolicy. Measures the
+previously-inferred lookup waste and settles cache-vs-refactor for Track A.
+
+**Dataset:** full production history, 826 extracted rows — not the 103-row Aug 1–4
+outage-repair sample the earlier 26% figure came from.
+
+**Trigger rate:** lookupReturnPolicy() fired on 249/826 = 30.1% of extractions. Same
+order of magnitude as the board's 26% (that figure was sample-specific to the 103-row
+batch, not systemwide). Per-lookup cost confirmed unchanged: max 3 webSearchRequests,
+~32k input tokens every time.
+
+**Repeat rate (the decision number): 65.5% of fired lookups were redundant repeats —
+and this is a FLOOR, not an exact figure.** Grouping used exact-string match on
+lowercased+trimmed retailer, no punctuation stripping — so it SPLITS some real repeats
+into separate buckets (confirmed: "donni" (5) and "donni." (4) counted as two retailers,
+not one group of 9). Every such split undercounts repeats and never overcounts, so the
+true repeat rate is 65.5% or higher. Success/failure keyed directly on stored
+policySource ("web_lookup" = resolved, else failed) — direct field read, no inference.
+
+Breakdown of the 249 fired lookups:
+- Positive (success) repeats: 142 saveable — 87% of all saveable volume.
+- Negative (failure) repeats: 21 saveable — small, and 15 of those are a single retailer
+  ("ACE VISALIA RSC"), the known extraction mis-parse, not a broad pattern.
+- Combined: 163 of 249 fired lookups (65.5%) were saveable repeats.
+
+**Board impact — cache is justified, and sequencing INVERTS.** Nearly two-thirds of every
+expensive 3-search/32k-token lookup is redundant, so the cache clears the bar as a
+direct build (not the deeper per-order refactor). But positive repeats dominate at 87% of
+saveable volume, which REVERSES the cache spec's negative-first ordering: build the
+POSITIVE cache first (Target 18, H&M/Shopbop/Bloomingdale's 13 each, re-researched every
+order), negative as a cheaper follow-on. THIS REORDER AWAITS OWNER SIGN-OFF — recorded
+here as a measured finding, not yet a self-applied decision.
+
+**Two design findings for the build spec (not open questions — confirmed):**
+- Cache key must strip TRAILING PUNCTUATION, not just whitespace+case: "DONNI" vs
+  "DONNI." are splitting one retailer into two buckets today, so even a correct cache
+  would miss those hits without it. (On top of the existing Amazon-family fold.)
+- Negative-cache TTL must expire, not be permanent: "GLOBAL-E NL B.V" appears in BOTH the
+  positive and negative tables — same retailer sometimes resolves, sometimes doesn't — so
+  a permanent "no policy" entry would poison a later-resolvable retailer.
+
+**Track B (marketing, 51% of extractions) untouched by this pass** — remains the other
+independent lever, not competing with the cache for the same slot.
+
+---
+
 ## 2026-07-29 — End-of-session bookkeeping pass; card-geometry Part 5 sign-off verified (after an initial false negative)
 
 **Docs-only close-out, 0 billed API calls.** Requested as a routine board-reconciliation

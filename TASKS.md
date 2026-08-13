@@ -583,6 +583,22 @@
       question (retailer name vs. normalized domain, open question (2)
       above) with real numbers instead of a guess. Target: read ~Friday's
       accumulated data before spec'ing either cache.
+      **SEQUENCING INVERTED, 2026-08-13 (separate read-only investigation —
+      see `HISTORY.md`) — AWAITING OWNER SIGN-OFF, not yet applied.**
+      Full 826-row production measurement (not the 103-row sample the
+      earlier ~26% figure came from): `lookupReturnPolicy` fired on 30.1%
+      of extractions (249/826), and 65.5%+ of fired lookups were redundant
+      repeats — a floor, since exact-string grouping undercounts (e.g.
+      "donni" vs "donni." split one retailer into two buckets). Of the 163
+      saveable repeats, **142 (87%) were positive/success repeats** versus
+      only 21 negative-repeat saves, 15 of those a single retailer (ACE
+      VISALIA RSC — the known extraction mis-parse, not a broad pattern).
+      **This reverses the ordering above: PHASE 1b (positive cache) is now
+      the higher-value first build, this item (1a, negative) the smaller
+      follow-on.** Cache itself is confirmed justified as a direct build
+      either way (not the deeper refactor) — nothing here is done or
+      self-applied; this is a measured finding awaiting owner sign-off on
+      the resequencing, sized-and-ready-to-spec, not built.
 - [ ] **PHASE 1c — policy-lookup-gating. NEW 2026-07-22, from the 07-21
       cost investigation.** Decide whether `lookupReturnPolicy()` should be
       reachable from `delivery`- or `shipping_confirmation`-typed emails at
@@ -1869,6 +1885,22 @@
       looks like redundant *successful* lookups on repeat retailers.
       Confirm ordering against the cost-anatomy token pass before
       building either.
+      **SEQUENCING INVERTED, 2026-08-13 (separate read-only investigation —
+      see `HISTORY.md`) — AWAITING OWNER SIGN-OFF, not yet applied.** Same
+      finding as PHASE 1a's note in 🔴 Now: full 826-row measurement puts
+      positive-repeat saves at 87% of saveable lookup volume (142/163)
+      versus 21 for negative, so **this item (positive cache) is now the
+      higher-value first build, PHASE 1a (negative) the follow-on** —
+      inverting the 2026-07-22 "negative first" ordering above. Two
+      confirmed design findings for the eventual spec: cache key must
+      strip trailing punctuation, not just case/whitespace ("DONNI" vs
+      "DONNI." currently split one retailer into two buckets); any
+      negative-cache TTL must expire, not be permanent ("GLOBAL-E NL B.V"
+      appears in both the positive and negative outcome sets — same
+      retailer, inconsistent resolution, so a permanent failure entry
+      would poison a later-resolvable retailer). Not self-applied — owner
+      sign-off required before resequencing. Still sized-and-ready-to-spec,
+      not built.
 - [ ] **Live spend ceiling / alert — NEW 2026-08-04 (board hygiene pass).**
       A daily call-count or $ threshold that alerts BEFORE the Anthropic
       billing cap (the cliff) is hit — the thing that would have caught
