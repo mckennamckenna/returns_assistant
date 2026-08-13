@@ -1756,6 +1756,28 @@
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
 
 ## 🟡 Next
+- [ ] **Reconcile grocery entries. POINTER only, NEW 2026-08-13 — not started.**
+      The 2026-08-09 food/grocery-delivery-exclusion task is the live one;
+      confirm the older "Amazon grocery exclusion (Whole Foods / Amazon Fresh)"
+      item was retired/absorbed into it and delete it if still present. That
+      task is NOT STARTED and has two open Step-0 decisions: DoorDash non-food
+      (wholesale-exclude vs. smart) and surface (hidden vs. collapsed "not
+      tracked" section). Whole Foods + Good Eggs bucket rows depend on this.
+- [ ] **Extraction flow = TWO separate efforts, do not conflate. POINTER only,
+      NEW 2026-08-13 — not started.** (i) Amazon old-style/template-break
+      extraction bug — orders with real order numbers not matching (bucket
+      items 9-12); symptom line still needs specifying. (ii) Pipeline cost
+      redesign from the 2026-08-11 "scoping email flow" session — the
+      Sonnet-read-before-junk-decision front-gate; architectural, interacts
+      with the Gmail-OAuth pivot. Scope each in its own session.
+- [ ] **Needs-review bucket rebuild — BLOCKED on intake cleanup first. POINTER
+      only, NEW 2026-08-13 — not started.** Diagnostic (2026-08-11) found ~40%
+      of bucket rows are noise: 6 USPS carrier pings, grocery (covered by the
+      "Reconcile grocery entries" item above), 2 promo/non-commerce. Rebuild
+      the bucket UI (inline actions per reason→action table in `CARD_SPEC.md`
+      Part 3) only AFTER intake filters reduce the noise. New sub-task: USPS
+      "Expected Delivery" carrier-ping exclusion — no home yet, biggest single
+      noise source (6 rows).
 - [ ] **Return-tracking-number integrity + return-in-transit feature
       (diagnostic first). NEW 2026-08-11**, surfaced via H&M #68468087873
       (mckenna.sweazey@gmail.com), where `returnTrackingNumber` turned out
