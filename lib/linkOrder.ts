@@ -494,9 +494,24 @@ async function resolveOrderTotal(existing: Order, email: Email): Promise<number 
 // paths: an existing Order gets enriched with whatever the new email adds, never
 // blindly overwritten. Exported so the backfill script can call it directly,
 // bypassing the normal match step entirely.
+//
+// orderDate is write-once, not last-write-wins: once set, no later email of
+// any type — including another establishing one — may change it. A
+// same-type allowlist ("only order_confirmation/shipping_confirmation/
+// delivery may set orderDate") is NOT enough on its own: a shipping order's
+// own delivery email can arrive after its order_confirmation and carry a
+// later date, and both are establishing types, so an overwrite-permitted
+// allowlist would still silently replace a correct date with a wrong later
+// one (confirmed against a real production row, 2026-08-16 — see
+// TASKS.md). The establishing-type gate (ALLOWED_FALLBACK_EMAIL_TYPES,
+// above) still matters, but only for deciding what may set orderDate the
+// FIRST time; once set, it's frozen regardless of the type of any
+// subsequently-linked email.
 export async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
   const emailLineItems = asLineItemArray(email.lineItems);
-  const mergedOrderDate = email.orderDate ?? existing.orderDate;
+  const isEstablishingEmail = ALLOWED_FALLBACK_EMAIL_TYPES.has(email.emailType ?? "");
+  const establishesOrderDateNow = existing.orderDate == null && isEstablishingEmail && email.orderDate != null;
+  const mergedOrderDate = existing.orderDate ?? (isEstablishingEmail ? email.orderDate : null);
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
   const mergedEstimatedDeliveryDate = email.estimatedDeliveryDate ?? existing.estimatedDeliveryDate;
   const mergedDeliveredAt = email.deliveredAt ?? existing.deliveredAt;
@@ -518,11 +533,12 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
     where: { id: existing.id },
     data: {
       orderDate: mergedOrderDate,
-      // A genuinely-extracted orderDate on the new email always supersedes a
-      // prior fallback guess (mergedOrderDate above already prefers it) —
-      // so the estimated flag must clear in the same case, or it goes stale
-      // and keeps flagging a now-real date as inferred.
-      orderDateEstimated: email.orderDate ? false : existing.orderDateEstimated,
+      // Clears only the first time orderDate is genuinely established from
+      // an establishing email (establishesOrderDateNow) — a real stated
+      // date, not inferred, so orderDateEstimated should read false from
+      // that point on. In every other case orderDate isn't moving this
+      // merge (write-once), so the existing flag is left exactly as it was.
+      orderDateEstimated: establishesOrderDateNow ? false : existing.orderDateEstimated,
       deliveryDate: mergedDeliveryDate,
       estimatedDeliveryDate: mergedEstimatedDeliveryDate,
       deliveredAt: mergedDeliveredAt,

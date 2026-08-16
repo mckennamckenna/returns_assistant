@@ -16,7 +16,10 @@ const mockPrisma = {
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/crypto", () => ({ decrypt: (x: string) => x }));
 vi.mock("@/lib/emailBodyText", () => ({ resolveBodyText: () => null }));
-vi.mock("@/lib/extract", () => ({ computeDeadline: () => ({ returnDeadline: null, deadlineIsEstimated: false }) }));
+vi.mock("@/lib/extract", () => ({
+  computeDeadline: () => ({ returnDeadline: null, deadlineIsEstimated: false }),
+  normalizeReturnPortalUrl: (url: string | null) => url ?? null,
+}));
 vi.mock("@/lib/displayStatus", async () => {
   const real = await vi.importActual<typeof import("../lib/displayStatus")>("../lib/displayStatus");
   return real;
@@ -25,8 +28,13 @@ vi.mock("@/lib/trackingParser", () => ({
   parseTracking: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
 }));
 
-const { isRetailerPrefixMatch, parseForwardedHeaderDate, applyFallbackOrderDate, computeKeptStatusConflict } =
-  await import("../lib/linkOrder");
+const {
+  isRetailerPrefixMatch,
+  parseForwardedHeaderDate,
+  applyFallbackOrderDate,
+  computeKeptStatusConflict,
+  mergeEmailIntoOrder,
+} = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
   // ── Real fixture ──────────────────────────────────────────────────────────
@@ -270,5 +278,141 @@ describe("applyFallbackOrderDate", () => {
       expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
       expect(mockPrisma.order.update.mock.calls[0][0].data.orderDate).toEqual(receivedAt);
     });
+  });
+});
+
+// ── write-once orderDate (2026-08-16) ─────────────────────────────────────
+// Real production fixture: an order's orderDate must be set once from the
+// earliest establishing email and never move again, even from a LATER
+// establishing-typed email — a same-type allowlist alone isn't enough (a
+// delivery email arriving after order_confirmation is still "establishing"
+// but its date must not overwrite the earlier, correct one). See TASKS.md
+// 2026-08-16 and the comment on mergeEmailIntoOrder itself.
+describe("mergeEmailIntoOrder — write-once orderDate", () => {
+  const baseExisting = {
+    id: "order1",
+    orderDate: null as Date | null,
+    orderDateEstimated: false,
+    deliveryDate: null,
+    estimatedDeliveryDate: null,
+    deliveredAt: null,
+    returnWindowDays: 30,
+    returnWindowStartsFrom: "delivery_date",
+    orderTotal: null,
+    orderCurrency: null,
+    lineItems: [],
+    returnPortalUrl: null,
+    policySource: null,
+  };
+
+  function makeEmail(overrides: Record<string, unknown>) {
+    return {
+      emailType: null,
+      orderDate: null,
+      deliveryDate: null,
+      estimatedDeliveryDate: null,
+      deliveredAt: null,
+      returnWindowDays: null,
+      returnWindowStartsFrom: null,
+      orderTotal: null,
+      orderCurrency: null,
+      lineItems: [],
+      policySource: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mockPrisma.order.update.mockReset();
+    mockPrisma.order.update.mockResolvedValue({ id: "order1" });
+    mockPrisma.email.findFirst.mockReset();
+    // resolveOrderTotal's own findFirst lookup for a sibling order_confirmation
+    // — no confirmation exists in these fixtures, so it falls through to
+    // email.orderTotal ?? existing.orderTotal.
+    mockPrisma.email.findFirst.mockResolvedValue(null);
+  });
+
+  // ── Amazon non-regression: shipping_confirmation is Amazon's earliest
+  // establishing type (Amazon never produces order_confirmation) — the
+  // write-once gate must still let it establish orderDate on first merge. ──
+  it("Amazon non-regression: shipping_confirmation still establishes orderDate on first merge", async () => {
+    const shipDate = new Date("2026-07-01T00:00:00.000Z");
+    const email = makeEmail({ emailType: "shipping_confirmation", orderDate: shipDate });
+
+    await mergeEmailIntoOrder(baseExisting as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(shipDate);
+    expect(data.orderDateEstimated).toBe(false);
+  });
+
+  it("Amazon non-regression: a later delivery email does not move the orderDate a shipping_confirmation already set", async () => {
+    const shipDate = new Date("2026-07-01T00:00:00.000Z");
+    const existingAfterShipping = { ...baseExisting, orderDate: shipDate, orderDateEstimated: false };
+    const deliveryEmail = makeEmail({ emailType: "delivery", orderDate: new Date("2026-07-10T00:00:00.000Z") });
+
+    await mergeEmailIntoOrder(existingAfterShipping as any, deliveryEmail as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(shipDate); // unchanged, not the delivery date
+    expect(data.orderDateEstimated).toBe(false);
+  });
+
+  // ── Suzie Kondi replay: order_confirmation (2026-07-23) already
+  // established orderDate; a later delivery email (2026-07-31) must not
+  // move it, even though delivery is itself an establishing type. ──
+  it("Suzie delivery-email replay: does not move an orderDate order_confirmation already established", async () => {
+    const confirmedDate = new Date("2026-07-23T00:00:00.000Z");
+    const existingAfterConfirmation = { ...baseExisting, orderDate: confirmedDate, orderDateEstimated: false };
+    const deliveryEmail = makeEmail({ emailType: "delivery", orderDate: new Date("2026-07-31T00:00:00.000Z") });
+
+    await mergeEmailIntoOrder(existingAfterConfirmation as any, deliveryEmail as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(confirmedDate); // unchanged, not the delivery date
+    expect(data.orderDateEstimated).toBe(false);
+  });
+
+  // ── Suzie Kondi replay: the actual bug fixture. A refund email arriving
+  // after order_confirmation must not overwrite orderDate OR flip
+  // orderDateEstimated — this is the exact production corruption. ──
+  it("refund-after-confirmation replay: does not overwrite orderDate, orderDateEstimated left untouched", async () => {
+    const confirmedDate = new Date("2026-07-23T00:00:00.000Z");
+    const existingAfterConfirmation = { ...baseExisting, orderDate: confirmedDate, orderDateEstimated: false };
+    // Mirrors the real Suzie Kondi refund email: emailType "refund", with
+    // its own extracted orderDate equal to its own receivedAt (2026-08-12),
+    // not the true purchase date.
+    const refundEmail = makeEmail({ emailType: "refund", orderDate: new Date("2026-08-12T00:00:00.000Z") });
+
+    await mergeEmailIntoOrder(existingAfterConfirmation as any, refundEmail as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(confirmedDate); // NOT 2026-08-12
+    expect(data.orderDateEstimated).toBe(false); // untouched, not reset
+  });
+
+  // ── First-write gate: a non-establishing email as the FIRST-ever linked
+  // email must not establish orderDate either (mirrors the J.Crew
+  // #2523415500 orphan — a lone refund email creating an order with
+  // orderDate left null, not set to the refund's own date). ──
+  it("a refund email never establishes orderDate when nothing has set it yet", async () => {
+    const refundEmail = makeEmail({ emailType: "refund", orderDate: new Date("2026-08-12T00:00:00.000Z") });
+
+    await mergeEmailIntoOrder(baseExisting as any, refundEmail as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.orderDate).toBeNull();
+    expect(data.orderDateEstimated).toBe(false);
+  });
+
+  it("an order_confirmation establishes orderDate on first merge and clears orderDateEstimated", async () => {
+    const confirmedDate = new Date("2026-07-23T00:00:00.000Z");
+    const email = makeEmail({ emailType: "order_confirmation", orderDate: confirmedDate });
+
+    await mergeEmailIntoOrder({ ...baseExisting, orderDateEstimated: true } as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(confirmedDate);
+    expect(data.orderDateEstimated).toBe(false);
   });
 });
