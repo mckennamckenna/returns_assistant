@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { isFoodGroceryDomain } from "@/lib/foodGroceryExclusion";
 
 // Junk is a soft state on Email.junkedAt — never a delete. An email that's
 // been auto-filed as confirmed non-commerce is still fully recoverable via
@@ -25,24 +26,40 @@ export const JUNK_FILTER = {
   junkedAt: null,
 } as const;
 
-// Pure function — safe to test without DB or mocks. Scoped deliberately
-// narrow: ONLY emailType === "other" on an orphaned email (orderId still
-// null at the point this is checked). Two real populations were confirmed
-// (2026-07-22 diagnostic, real production data) to look superficially
-// similar but must never auto-junk:
-//   - commerce-typed but unlinked (delivery/shipping_confirmation/
-//     order_confirmation with orderNumber: null) — 15 real cases found,
-//     12 of 15 with an obvious candidate order already in the system.
-//     These are real purchases; junking them would hide money-costing
-//     data from the user. Tracked separately (TASKS.md 🔴 Now, the
-//     no-fallback-matcher gap) — not this file's problem to solve, but
-//     definitely this file's problem not to make worse.
-//   - emailType === null — the runExtraction.ts catch-block failure
-//     fingerprint (a genuinely successful extraction always sets
-//     emailType to something, even "other"). An extraction failure is not
-//     evidence of anything about the email's content; must stay visible
-//     for a human (or a re-extraction) to resolve.
-export function shouldAutoJunk(email: { emailType: string | null; orderId: string | null }): boolean {
+// Pure function — safe to test without DB or mocks. Two independent
+// branches, checked in order:
+//
+// 1. Sender-domain match (Food + grocery delivery exclusion, TASKS.md
+//    🔴 Now, 2026-08-18) — fromDomain is the ingestion-time sender domain,
+//    passed only by the pre-extraction call site (app/api/inbound/route.ts,
+//    before the Haiku classifier and Sonnet extraction both run). This is
+//    the cost win: a match here means neither billed call ever fires.
+//    Independent of emailType/orderId, which aren't known yet at that
+//    point in the pipeline.
+//
+// 2. emailType === "other" on an orphaned email (orderId still null at
+//    the point this is checked) — the original, post-extraction rule.
+//    Scoped deliberately narrow. Two real populations were confirmed
+//    (2026-07-22 diagnostic, real production data) to look superficially
+//    similar but must never auto-junk:
+//      - commerce-typed but unlinked (delivery/shipping_confirmation/
+//        order_confirmation with orderNumber: null) — 15 real cases found,
+//        12 of 15 with an obvious candidate order already in the system.
+//        These are real purchases; junking them would hide money-costing
+//        data from the user. Tracked separately (TASKS.md 🔴 Now, the
+//        no-fallback-matcher gap) — not this file's problem to solve, but
+//        definitely this file's problem not to make worse.
+//      - emailType === null — the runExtraction.ts catch-block failure
+//        fingerprint (a genuinely successful extraction always sets
+//        emailType to something, even "other"). An extraction failure is
+//        not evidence of anything about the email's content; must stay
+//        visible for a human (or a re-extraction) to resolve.
+export function shouldAutoJunk(email: {
+  emailType: string | null;
+  orderId: string | null;
+  fromDomain?: string | null;
+}): boolean {
+  if (email.fromDomain && isFoodGroceryDomain(email.fromDomain)) return true;
   return email.orderId === null && email.emailType === "other";
 }
 

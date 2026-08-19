@@ -6,6 +6,7 @@ import { resolveBodyText } from "@/lib/emailBodyText";
 import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displayStatus";
 import { parseTracking } from "@/lib/trackingParser";
 import { shouldAutoJunk } from "@/lib/junk";
+import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
 
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
@@ -636,6 +637,22 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
 export async function linkEmailToOrder(emailId: string, returnPortalUrl: string | null = null): Promise<void> {
   const email = await prisma.email.findUnique({ where: { id: emailId } });
   if (!email) return;
+
+  // Retailer-name backstop (Food + grocery delivery exclusion, TASKS.md
+  // 🔴 Now, 2026-08-18) — Amazon Fresh / Whole Foods Market arrive from
+  // Amazon's generic order-update@amazon.com, so they can't be caught by
+  // the sender-domain pre-junk in shouldAutoJunk (lib/junk.ts) without
+  // also junking every real Amazon order. Checked here instead, on the
+  // retailer name extraction already resolved, before any order-matching
+  // or order-creation logic below runs — a match never reaches an Order.
+  // Idempotency guard mirrors the orphaned-"other" branch further down:
+  // never overwrite an existing junkedAt.
+  if (isFoodGroceryRetailer(email.retailer)) {
+    if (email.junkedAt == null) {
+      await prisma.email.update({ where: { id: emailId }, data: { junkedAt: new Date() } });
+    }
+    return;
+  }
 
   // A refund email with no order number (Bugs 9+10: Shopbop and H&M both
   // did this) still gets a shot at linking via findRefundFallbackOrder

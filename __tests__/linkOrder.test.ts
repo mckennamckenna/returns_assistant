@@ -11,6 +11,8 @@ const mockPrisma = {
   },
   email: {
     findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
   },
 };
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
@@ -34,6 +36,7 @@ const {
   applyFallbackOrderDate,
   computeKeptStatusConflict,
   mergeEmailIntoOrder,
+  linkEmailToOrder,
 } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
@@ -414,5 +417,127 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toEqual(confirmedDate);
     expect(data.orderDateEstimated).toBe(false);
+  });
+});
+
+// ── linkEmailToOrder — retailer-name backstop ────────────────────────────
+// Food + grocery delivery exclusion (TASKS.md 🔴 Now, 2026-08-18). Amazon
+// Fresh / Whole Foods Market share Amazon's generic sender domain, so
+// they're caught here, post-extraction, on the retailer name — before any
+// order-matching/creation logic runs. Only the email table needs mocking:
+// a match returns before the order table is ever touched.
+
+describe("linkEmailToOrder — retailer-name backstop", () => {
+  beforeEach(() => {
+    mockPrisma.email.findUnique.mockReset();
+    mockPrisma.email.update.mockReset();
+    mockPrisma.order.findUnique.mockReset();
+    mockPrisma.order.update.mockReset();
+  });
+
+  it("junks an Amazon Fresh email and returns before touching the order table", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue({
+      id: "email_1",
+      retailer: "Amazon Fresh",
+      orderNumber: "112-1234567-1234567",
+      emailType: "order_confirmation",
+      junkedAt: null,
+    });
+
+    await linkEmailToOrder("email_1");
+
+    expect(mockPrisma.email.update).toHaveBeenCalledWith({
+      where: { id: "email_1" },
+      data: { junkedAt: expect.any(Date) },
+    });
+    expect(mockPrisma.order.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
+  });
+
+  it("junks a Whole Foods Market email the same way", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue({
+      id: "email_2",
+      retailer: "Whole Foods Market",
+      orderNumber: "WF-123",
+      emailType: "order_confirmation",
+      junkedAt: null,
+    });
+
+    await linkEmailToOrder("email_2");
+
+    expect(mockPrisma.email.update).toHaveBeenCalledWith({
+      where: { id: "email_2" },
+      data: { junkedAt: expect.any(Date) },
+    });
+  });
+
+  it("is case-insensitive on the retailer name", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue({
+      id: "email_3",
+      retailer: "amazon fresh",
+      orderNumber: "112-1234567-1234567",
+      emailType: "order_confirmation",
+      junkedAt: null,
+    });
+
+    await linkEmailToOrder("email_3");
+
+    expect(mockPrisma.email.update).toHaveBeenCalledWith({
+      where: { id: "email_3" },
+      data: { junkedAt: expect.any(Date) },
+    });
+  });
+
+  it("idempotent: does NOT overwrite an already-set junkedAt", async () => {
+    const alreadyJunkedAt = new Date("2026-08-01T00:00:00.000Z");
+    mockPrisma.email.findUnique.mockResolvedValue({
+      id: "email_4",
+      retailer: "Amazon Fresh",
+      orderNumber: "112-1234567-1234567",
+      emailType: "order_confirmation",
+      junkedAt: alreadyJunkedAt,
+    });
+
+    await linkEmailToOrder("email_4");
+
+    expect(mockPrisma.email.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves a real Amazon (non-food) email untouched by the backstop — falls through to the normal orphan path instead", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue({
+      id: "email_5",
+      retailer: "Amazon",
+      orderNumber: null,
+      emailType: "order_confirmation",
+      junkedAt: null,
+    });
+
+    await linkEmailToOrder("email_5");
+
+    // Reached the pre-existing orphan branch (no orderNumber, real
+    // "order_confirmation" so shouldAutoJunk's emailType rule doesn't
+    // fire either) — needsReview: true, no junkedAt. Proves the backstop
+    // itself never matched "Amazon".
+    expect(mockPrisma.email.update).toHaveBeenCalledWith({
+      where: { id: "email_5" },
+      data: { needsReview: true },
+    });
+  });
+
+  it("does not junk an unrelated retailer", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue({
+      id: "email_6",
+      retailer: "Mango",
+      orderNumber: null,
+      emailType: "order_confirmation",
+      junkedAt: null,
+    });
+
+    await linkEmailToOrder("email_6");
+
+    expect(mockPrisma.email.update).toHaveBeenCalledWith({
+      where: { id: "email_6" },
+      data: { needsReview: true },
+    });
   });
 });
