@@ -5,6 +5,110 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-19 — Two trust bugs shipped and verified: write-once orderDate + coverage-check establishing-email gate
+
+**Multi-session arc closed out: diagnosis → gated build → shipped → backfilled → live-verified.
+0 billed Anthropic calls across every pass, including the two production writes (the
+merge fix itself and the 1-row backfill) — both recompute deadlines via the pure
+`computeDeadline()`, never `lookupReturnPolicy()`.**
+
+**Origin.** The owner's Friday coverage-check digest (2026-08-14 run) showed two lines
+that weren't new purchases: Suzie Kondi ($1,509.39) and J.Crew ($350.65). Investigation
+surfaced two independent, compounding bugs, not one.
+
+**Bug 1 — `mergeEmailIntoOrder` orderDate was last-write-wins, not gated.**
+`lib/linkOrder.ts`'s merge path (`const mergedOrderDate = email.orderDate ?? existing.orderDate`)
+let ANY later-linked email's own extracted `orderDate` silently overwrite an
+already-correct value, with no `emailType` gate on the overwrite — unlike
+`applyFallbackOrderDate`'s existing establishing-type gate, which only governs the
+FIRST write. Suzie Kondi's real order (`order_confirmation`, 2026-07-23) got clobbered
+to 2026-08-12 — the date of a `refund` email that linked weeks later, restating its own
+received date as if it were the order date. Root-caused via a purpose-built read-only
+provenance diagnostic (`scripts/pm-diag-orderdate-provenance.ts`) that classifies every
+order's stored `orderDate` against its linked emails' extracted dates
+(`CORRUPTED_RECOVERABLE`/`CORRUPTED_UNRECOVERABLE`/`SUSPICIOUS_AMBIGUOUS`). Unscoped
+population scan (all users, 150 orders with a non-null `orderDate`): 2
+`CORRUPTED_RECOVERABLE`, 0 `CORRUPTED_UNRECOVERABLE`, 1 `SUSPICIOUS_AMBIGUOUS`
+(Bloomingdale's — eyeballed, confirmed a benign same-day coincidence between an
+`order_confirmation` and a `refund` email that happened to restate the same correct
+date, not corruption).
+
+**Decision: write-once, not a same-type allowlist.** The obvious first fix — "only
+`order_confirmation`/`shipping_confirmation`/`delivery` may set/overwrite `orderDate`"
+— was proposed, then proven insufficient before being built: Suzie's own email chain
+has a `delivery` email (2026-07-31) arriving after its `order_confirmation`
+(2026-07-23), and `delivery` is itself an establishing type. An overwrite-permitted
+allowlist would have let the later `delivery` date silently replace the earlier correct
+one — reproducing the identical bug class one step removed. Shipped shape: `orderDate`
+is set once from the first establishing email that supplies one, then frozen —
+regardless of the type of any later-linked email, establishing or not.
+`orderDateEstimated` only clears the first time it's genuinely established, otherwise
+left untouched on every subsequent merge. `BUILD.md`'s merge-rule and orderDate-fallback
+bullets updated in the same commit (old last-write-wins text marked superseded, not
+deleted).
+
+**Bug 2 — same real order ingested under two order numbers (independent finding,
+deferred).** J.Crew's `$350.65` digest line traced to Order `cmsr633e00003l1049lnzyre9`
+(#2523415500) — a duplicate orphan of a real, healthy order, #2522877374
+(`cmre1luf00003l1049r31eqoy`, status `kept`, real `order_confirmation` +
+`shipping_confirmation`). The purchase's refund email carried its OWN return-service
+order number (2523415500), unrelated to the original (2522877374), so `lib/linkOrder.ts`
+matching spawned a new orphan instead of rejoining it. Confirmed as the broader
+recurrence of the parked Mango watch-item (`F4VLSF`/`F4VLSF00` — ReBOUND suffix), but a
+wider mechanism: Mango was a suffix-append (fuzzy suffix-strip would catch it); J.Crew's
+two numbers are wholly unrelated (suffix-strip would not). Item/style-code overlap
+confirmed as the real match signal (6-of-11 style codes matched exactly between the two
+orders, verified via a decrypt-and-compare script scoped to the owner); order number,
+`fromEmail`, and refund amount all diverge and are NOT reliable signals. **Deferred by
+owner 2026-08-16** — real fix lives in `lib/linkOrder.ts` matching, not built this arc.
+The coverage-check gate below is this bug's interim containment, not its fix.
+
+**Bug 2's containment — coverage-check establishing-email gate.** The digest's purchase
+list previously counted any linked order that entered the 7-day window, keyed off
+`Order.orderDate` defaulting to inclusion when null. Shipped fix: an order needs ≥1
+establishing email (anywhere in its history, not just this week) to render as a
+purchase line; orders backed only by `refund`/`return_label`/`other` — the #2523415500
+orphan class — are dropped outright, not relabeled with different copy (a relabeled
+line still gives a phantom Order its own line). `emailType: null` extraction-failure
+rows are untouched by design — those stay visible, that's this digest's QA-net job
+(the 2026-08-07 flood finding). This replaces null-defaults-to-inclusion as the primary
+purchase signal, so it's robust to a legitimately-null OR corrupted `orderDate`.
+
+**Shipped.** Branch `writeonce-orderdate-coverage-gate`, cut clean from `origin/main`
+(3 commits: `8d3d49e` write-once fix, `2da71e4` coverage gate, `25cd981` backfill
+script), full suite 529/529, `npm run build` clean. Pushed as a fast-forward directly to
+`origin/main` (`95e9167..25cd981`) WITHOUT touching local `main` — the in-progress
+card-geometry rebuild sitting on `main` (10 commits) stayed local and unpushed by
+design; local and `origin/main` are now explicitly diverged (10 vs. 3), not one
+containing the other. Deployed `dpl_2WPH1DZHadcEfE15zUwMoQR276Br`, READY, production,
+`app.myreturnwindow.com`.
+
+**Backfill — Suzie Kondi #99500 only.** Fitness Superstore #48868, also sized by the
+same population scan, was explicitly EXCLUDED from this backfill: its
+establishing-email date is 2025-07-09, a full year before its stored 2026-07-09 — the
+opposite direction from this bug's pattern and matching the known wrong-year-extraction
+shape, not this corruption class. Flagged as its own read-only follow-up (🐛 Bugs,
+Infra/reliability), not folded in. Dry-run reviewed and approved before `--apply`;
+applied and re-verified live: `orderDate` 2026-08-12 → 2026-07-23, `returnDeadline`
+2026-09-07 → 2026-08-18, `orderDateEstimated` stayed `false`.
+
+**Live verification (read-only, no send, no `Reminder` write, 0 billed calls).** Replayed
+the shipped coverage-check logic against the real current 7-day window
+(`scripts/pm-verify-coverage-gate-live.ts`): J.Crew orphan #2523415500 correctly
+excluded by the new gate; Suzie Kondi #99500 correctly excluded by the PRE-EXISTING
+staleness check instead of the gate — direct confirmation the two fixes compose
+correctly, since Suzie's order has a real establishing email (clears the gate) and now a
+real restored `orderDate` (correctly recognized as an old order, not a new one); real
+`order_confirmation`-backed orders (SKIMS, Good Eggs) still present; unlinked-email path
+unaffected. Cross-user aggregate (13 users, counts only): 26 would-include, 2 excluded
+by the gate, 12 by staleness.
+
+**New pointer, not started:** a standalone unlinked `shipping_confirmation` surfaced as
+"an unknown retailer" during the live verification (store name never resolved) —
+logged in 🟡 Next, read-only identify only when picked up.
+
+---
+
 ## 2026-08-13 — Retailer-lookup waste verified: cache justified, positive-first (INVERTS spec sequencing)
 
 **Read-only investigation, 0 billed API calls, 0 writes.** Separate parallel session;

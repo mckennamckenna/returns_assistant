@@ -32,6 +32,23 @@
 
 ## 🔴 Now
 
+- [ ] Postmark rejected-path backward sample — NEW 2026-08-18, candidate
+      read-only investigation, not started. Emails Haiku drops
+      (non-commerce → no Email row) are retained in Postmark with full
+      content + headers for the account retention window (45 days
+      default, adjustable 7-365; VERIFY our actual setting live) and are
+      retrievable read-only via the Messages API. Gives a backward sample
+      of the rejected population for the recent window — match Postmark
+      inbound against Email rows by MessageID; present-in-Postmark-but-no-
+      row = the rejected set. Limits: window-bounded (recent ~45d only);
+      Postmark has the email but NOT Haiku's verdict or per-call cost, so
+      labeling a sample by hand (free, ~50-100 emails) or re-running
+      classification (BILLED — state count first) is needed to answer "how
+      much of what Haiku rejected was actually commerce." Complementary to
+      the forward measurement layer, not a replacement. Verify live: (a)
+      Postmark retention setting, (b) Messages API credentials still
+      wired.
+
 - [ ] **Unified card geometry + order state machine (2x2 four-slot) —
       MOVED TO 🔴 Now 2026-08-10: owner brief given this session, build
       BEGINS.** `CARD_SPEC.md` is build-ready and the single source of
@@ -1419,6 +1436,191 @@
       class of gap as the already-tracked "no-fallback-matcher" orphan
       items elsewhere in this file, worth checking whether it's the same
       root cause or a new one.
+- [ ] **Weekly coverage-check digest junk RECURRED AGAIN on the 2026-08-14
+      run — NEW FINDING 2026-08-16, READ-ONLY diagnosis
+      (`scripts/pm-repro-coverage-digest-mckenna-v2.ts`, already-existing +
+      2 new one-off ownership-checked scripts this session, all
+      uncommitted), 0 billed Anthropic calls, 0 writes.** Owner received a
+      digest showing Suzie Kondi and J.Crew lines, neither a new purchase
+      that week — both are old, already-refunded orders. Confirmed via the
+      real `Reminder.sentAt` window (2026-08-07T16:46:56Z →
+      2026-08-14T16:46:56Z): both retailers' only emails landing in that
+      window were a `return_label` + a `refund` email (Suzie Kondi) and a
+      lone `refund` email (J.Crew) — post-purchase-loop mail, not new
+      orders. **Two distinct causes:**
+      **1. J.Crew — the already-known gap, recurring.** Same root cause as
+      the Chan Luu incident above: this Order was created entirely from an
+      orphaned `refund` email (no `order_confirmation` ever linked), so
+      `orderDate` is correctly left null by `applyFallbackOrderDate`'s
+      type gate (`lib/linkOrder.ts`) — but the coverage-check's
+      null-defaults-to-inclusion policy then shows it as if freshly
+      bought. Confirms candidate fix (a) from the 2026-08-08 entry above
+      (an `emailType` allowlist in the coverage-check, e.g. only
+      `order_confirmation` counts as "you bought this") is still open and
+      would fix this instance too.
+      **CORRECTION 2026-08-16, per this file's "don't let a hypothesis get
+      mistaken for fact" rule — not rewritten in place, appended instead:**
+      the "orphaned `refund` email, no `order_confirmation` ever linked"
+      mechanism above is confirmed correct as a description of Order
+      #2523415500 itself. What's wrong is the implication that no real
+      J.Crew order exists behind it. It does — #2523415500 is a duplicate
+      orphan of a separate, healthy Order, **#2522877374**, which has its
+      own real `order_confirmation`/`shipping_confirmation` and an intact
+      `orderDate`. See the new bug entry below, "Same real order ingested
+      under two order numbers," for the full mechanism and verification.
+      **2. Suzie Kondi — NEW, not previously documented.** This is a
+      DIFFERENT bug, upstream of the digest: the order's `orderDate` was
+      NOT null — it had been silently overwritten to the refund email's
+      own date. `mergeEmailIntoOrder` (`lib/linkOrder.ts` line ~499,
+      `const mergedOrderDate = email.orderDate ?? existing.orderDate`) has
+      no `emailType` gate, unlike `applyFallbackOrderDate`'s
+      `ALLOWED_FALLBACK_EMAIL_TYPES` a few lines away in the same file. The
+      refund email's own AI-extracted `orderDate` field (confirmed on the
+      row: set to the refund email's own received date) unconditionally
+      superseded the order's real, already-correct `orderDate` when the
+      refund email was linked, also clearing `orderDateEstimated` to
+      `false` (line ~525) since a "genuinely extracted" date is trusted
+      unconditionally — so the corruption doesn't even self-flag as an
+      estimate. Net effect: a real order placed weeks earlier now reads as
+      placed the day its refund posted. This is a data-correctness bug,
+      not just a digest-display one — `orderDate` feeds `returnDeadline`
+      too (moot for a completed/refunded order, but not for any other
+      order this same merge path touches with a still-open deadline).
+      **Not fixed here — diagnosis only.** Two fix directions, not built,
+      need an owner call: (a) apply the same
+      `ALLOWED_FALLBACK_EMAIL_TYPES`-style gate to `mergeEmailIntoOrder`'s
+      `orderDate` merge (only `order_confirmation`/`shipping_confirmation`/
+      `delivery`-typed emails' extracted `orderDate` may set/overwrite —
+      this is the data-correctness fix, independent of the digest); (b)
+      the coverage-check `emailType` allowlist from the 2026-08-08 entry
+      (the digest-specific fix — would also cover J.Crew and any future
+      null-orderDate orphan). Likely want both: (a) prevents the order
+      record itself from silently going wrong; (b) prevents the digest
+      from over-trusting `orderDate` even when it's null for legitimate
+      reasons.
+      **ADDENDUM 2026-08-16 — read-only provenance diagnostic run
+      (`scripts/pm-diag-orderdate-provenance.ts`), 0 billed calls, 0
+      writes, scoped to owner's data only.** Confirms the finding above
+      directly: Suzie Kondi #99500's stored `orderDate` (2026-08-12)
+      matches its `refund` email's own extracted date exactly, while its
+      `order_confirmation`/`shipping_confirmation` emails both carry the
+      true date (2026-07-23) — classified `CORRUPTED_RECOVERABLE`, true
+      date recoverable. Population scan across all 53 of this owner's
+      orders with a non-null `orderDate`: exactly **1** `CORRUPTED_RECOVERABLE`
+      (this same row), **0** `CORRUPTED_UNRECOVERABLE`, **0**
+      `SUSPICIOUS_AMBIGUOUS` — **owner-scoped and provisional as first
+      written; see the unscoped, all-users rerun below, which is the real
+      sizing since `mergeEmailIntoOrder` is shared code, not
+      owner-specific.** Also checked J.Crew **#2522877374** specifically
+      (a different order than the digest offender): it DOES have two
+      establishing emails linked (order_confirmation +
+      shipping_confirmation, both 2026-07-09) and its `orderDate` is
+      intact (`OK_FROM_ESTABLISHING`) — status `kept`.
+      **CORRECTION 2026-08-16 (same session, caught before this entry was
+      acted on):** the line above originally read "two distinct real
+      J.Crew purchases on this account" — that was wrong. It is **one
+      purchase, two Order rows (duplicate — see the new bug entry directly
+      below, "Same real order ingested under two order numbers")**.
+      #2523415500 ($350.65, refund-only, `orderDate: null`, created
+      2026-08-13) is a duplicate orphan of #2522877374, not a second real
+      purchase. No fix or backfill applied this pass — diagnosis only, per
+      this file's own convention.
+      **FOLLOW-UP 2026-08-16 — unscoped population scan (all users, same
+      script, `--all-users`), 0 billed calls, 0 writes.** Real sizing,
+      across all 150 orders (any user) with a non-null `orderDate`: **2**
+      `CORRUPTED_RECOVERABLE` (Suzie Kondi #99500 above, plus a
+      newly-surfaced `Fitness Superstore #48868`, id
+      `cmrdz8en40009jp04kvmeuvv8`, stored 2026-07-09 → recoverable to
+      2025-07-09 — note the year gap, not eyeballed further this pass),
+      **0** `CORRUPTED_UNRECOVERABLE`, **1** `SUSPICIOUS_AMBIGUOUS`
+      (`Bloomingdale's #779507885`, id `cms6rt854000bkv04e19mdwcv`, stored
+      2026-07-26, matches both an establishing and non-establishing
+      email's extracted date — needs eyeballing, not done here). This is
+      the real blast radius for a future `mergeEmailIntoOrder` backfill,
+      not the owner-scoped "1" above. Not fixed or backfilled — sizing
+      only.
+- [ ] **Same real order ingested under two order numbers → duplicate
+      Order + split state — NEW 2026-08-16, owner-confirmed, DEFERRED (not
+      fixable today).** One real J.Crew purchase exists as two Order rows:
+      **#2522877374** (`cmre1luf00003l1049r31eqoy`; `order_confirmation` +
+      `shipping_confirmation`, `orderDate` 2026-07-09, status `kept` — the
+      healthy original) and **#2523415500** (`cmsr633e00003l1049lnzyre9`;
+      lone orphaned refund, `orderDate` null, created 2026-08-13 — the
+      refunded twin). The purchase's refund email carried order number
+      2523415500, unrelated to the original 2522877374, so
+      `lib/linkOrder.ts` matching spawned a new orphan instead of matching
+      back. Matching is partial: the `return_label` emails (no order
+      number/date) fallback-matched onto the original and resurfaced the
+      Kept order for review (the 08-16 "return_label on a Kept order"
+      card), while the refund did not. **Two-fold trust damage:** (1) the
+      digest surfaces the orphan as a fresh J.Crew purchase (the 08-14
+      line); (2) the real order shows `kept` when it was actually
+      returned/refunded, because its refund landed on the twin.
+      **Recurrence of the Mango order-number-mismatch watch-item** (⚪
+      Someday — `F4VLSF` vs `F4VLSF00`, ReBOUND suffix) — this is the
+      recurrence that item said to wait for — **but a BROADER mechanism.**
+      Mango was a suffix-append (fuzzy suffix-strip catches it); J.Crew's
+      two numbers are wholly unrelated, so suffix-strip would NOT.
+      General pattern: post-purchase mail (refund especially) can carry a
+      return-service reference bearing no relation to the original order
+      number. Same class as the Chan Luu return-approval orphan
+      (Trust-breaking, 2026-08-08, above).
+      **Deferred by owner 2026-08-16. No fix this session.** When built,
+      lives in `lib/linkOrder.ts` matching — candidate signals to rejoin
+      an orphan refund to its order: customer email + item names + amount
+      + return reference (order number is unreliable). Fold the Mango
+      watch-item in at that point. **Interim containment:** the digest
+      new-purchase-signal fix (require an establishing/`order_confirmation`
+      email to count as "you bought this") folds #2523415500 out of the
+      digest without solving the duplicate — ship it regardless.
+      **VERIFICATION 2026-08-16 — full read-only dump + identifier
+      comparison (`scripts/pm-diag-jcrew-duplicate-order-compare.ts`), 0
+      billed calls, 0 writes, ownership-checked on both rows.** #2523415500's
+      only linked email: `refund`, subject "Your J.Crew return or exchange
+      has arrived," `orderNumber: "2523415500"` stated on the email itself
+      (a J.Crew-generated return/exchange reference, not the original
+      order number), `fromEmail: jcrew@service.jcrew.com`. Candidate-signal
+      results against #2522877374: **item name/style codes are an exact
+      match** — all 6 line items on the orphan (styles CV252, CU576,
+      CV100 ×2 sizes, CR536 ×2 sizes) are a subset of the original's 11
+      line items, same style codes/colors/sizes, just reformatted between
+      the two extractions — the strongest signal available. Amount is
+      close but inexact: orphan refund $350.65 vs. the matching 6 items'
+      combined original price $326.00 (a ~$24.65 gap, plausibly tax/
+      shipping/restocking on the return, not investigated further).
+      `fromEmail` does NOT match — original's senders are
+      `jcrew@mailfrom.orders.jcrew.com` / `jcrew@mailfrom.dev.orders.jcrew.com`
+      / `jcrew@jcrew.narvar.com` (plus the owner's own address from one
+      manual forward); none match the orphan's `jcrew@service.jcrew.com`.
+      Order number does NOT match, confirmed (2523415500 vs 2522877374,
+      wholly unrelated, as already stated above). **Confirmed via the
+      coverage-check repro** (`scripts/pm-repro-coverage-digest-mckenna-v2.ts`)
+      that the 08-14 digest's "J.Crew — $350.65" line traces to
+      #2523415500 specifically — it's the only J.Crew row in the real send
+      window; #2522877374 has zero email activity in that window (last
+      activity was return_labels on 07-30 and 08-04, both before the
+      window opens 08-07).
+      **FIX-DIRECTION CORRECTION 2026-08-16 — record only, do not build.**
+      The 08-14 entry's fix #1 ("apply the same `ALLOWED_FALLBACK_EMAIL_TYPES`-
+      style gate to `mergeEmailIntoOrder`'s `orderDate` merge — only
+      order_confirmation/shipping_confirmation/delivery-typed emails may
+      set/overwrite") is insufficient as stated and must NOT be built in
+      that literal form. Suzie Kondi's own email chain proves why: its
+      `order_confirmation` (2026-07-23, correct) is followed by a
+      `delivery` email (2026-07-31) that also carries its own extracted
+      `orderDate` — and `delivery` is itself an establishing type. A
+      same-type-allowlist-may-overwrite rule would let the later delivery
+      email's date silently replace the earlier, correct order_confirmation
+      date, reproducing the identical corruption class one step removed.
+      The correct fix shape is **write-once**: `orderDate` may be set from
+      the first establishing-typed email that supplies one, and never
+      overwritten again afterward regardless of the type of any
+      subsequently-linked email, establishing or not. Note for the build
+      session; nothing built this pass.
+      When this matcher is built, join on item/style-code overlap
+      (confirmed 08-16: 6-of-11 style codes matched exactly between
+      #2522877374 and orphan #2523415500). Order number, fromEmail, and
+      amount all diverge — do NOT use them as match signals.
 - [ ] **Friday weekly coverage-check digest badly broken — REGRESSION,
       user-facing, multiple alpha users, weekly all-users email. HIGH
       SEVERITY. Confirmed 2026-07-25 on 2+ alpha users via real received
@@ -1740,6 +1942,11 @@
       inaccurate.)
 
 ### Infra / reliability
+- [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
+      2025-07-09, a year before stored 2026-07-09; found 2026-08-16 sizing
+      the write-once `orderDate` backfill.** Wrong-year-extraction shape.
+      Archived, deadline past, not user-visible. Deferred: real-old-order
+      vs. mis-extraction, read-only.
 - [ ] **`lookupReturnPolicy` needs a bounded timeout — latent bug, NEW
       2026-08-05, from the Aug-4 backfill.** During that backfill, the
       lookup for retailer "Suzie Kondi" hung near the Anthropic SDK's
@@ -1756,6 +1963,13 @@
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
 
 ## 🟡 Next
+- [ ] **Unknown retailer in weekly digest. POINTER only, NEW 2026-08-19 —
+      DO NOT START.** A standalone (unlinked) `shipping_confirmation`
+      surfaces as "an unknown retailer" in the coverage digest (seen
+      2026-08-16, owner window, read-only verification pass on the
+      just-shipped establishing-email gate). Store name didn't resolve.
+      Read-only identify only when picked up; likely tied to existing
+      retailer-lookup/extraction gaps.
 - [ ] **Reconcile grocery entries. POINTER only, NEW 2026-08-13 — not started.**
       The 2026-08-09 food/grocery-delivery-exclusion task is the live one;
       confirm the older "Amazon grocery exclusion (Whole Foods / Amazon Fresh)"
@@ -1770,6 +1984,36 @@
       redesign from the 2026-08-11 "scoping email flow" session — the
       Sonnet-read-before-junk-decision front-gate; architectural, interacts
       with the Gmail-OAuth pivot. Scope each in its own session.
+      **UPDATED 2026-08-18 — scoping session, three read-only diagnostic
+      passes (worktree, zero writes, zero billed calls each). Every cheap
+      deterministic pre-Sonnet gate tested was REFUTED; direction changed
+      from "add a gate" to "instrument the classifier, then tune Haiku on
+      real data."**
+      **(1) List-Unsubscribe drop-gate — REFUTED.** Full corpus (947
+      rows): 6.8% of header-present mail is a real linked order (overturns
+      the 2026-07-23 note's 0/20 sample). Owner hand-verified in own
+      inbox: transactional and marketing are byte-identical in headers for
+      at least one retailer (Monos) — no header rule can separate them.
+      **(2) JSON-LD schema.org "keep" gate — REFUTED.** 0.5% real-order
+      coverage (2/392); near-nobody in this corpus emits it. Precision
+      perfect (0 marketing false-positives), coverage nil.
+      **(3) Sending-domain split — INCONCLUSIVE.** Only 3 of 11 top
+      retailers had marketing mail in-corpus to compare; 2 split cleanly
+      (Bloomingdale's, Chewy), 1 ambiguous (Target). 8 of 11
+      unconfirmable. A real build would need to filter to
+      `forwardType:"auto"` first (manual forwarding rewrites From/DKIM to
+      gmail.com).
+      **Conclusion:** on this DTC-heavy retailer mix only CONTENT
+      separates transactional from marketing — the classifier's job — so
+      the lever is the Haiku `isCommerceEmail()` classifier itself, not a
+      pre-gate. But it can't be measured or tuned today: the
+      Haiku-rejected path creates no row (contentless `DiscardLog`), and
+      `anthropic_usage` is a `console.log`, not a queryable table. NEXT
+      BUILD = the measurement layer (instrument passed + rejected paths),
+      THEN decide on a stricter prompt / 3-way-confidence Haiku on real
+      data. Owner directive: this must work before the Gmail-OAuth pivot
+      proceeds, and we are NOT assuming Gmail's own categories will do
+      this for us. Not built.
 - [ ] **Needs-review bucket rebuild — BLOCKED on intake cleanup first. POINTER
       only, NEW 2026-08-13 — not started.** Diagnostic (2026-08-11) found ~40%
       of bucket rows are noise: 6 USPS carrier pings, grocery (covered by the
@@ -2590,6 +2834,12 @@
       Do NOT fix yet. Watch whether third-party return services (ReBOUND, Narvar,
       Happy Returns, etc.) consistently append suffixes across multiple retailers.
       If the pattern recurs, build fuzzy suffix-strip matching in `lib/linkOrder.ts`.
+      **RECURRED 2026-08-16 — see 🐛 Bugs (Trust-breaking): "Same real order
+      ingested under two order numbers → duplicate Order + split state"
+      (J.Crew #2522877374 / #2523415500).** Broader than this item's
+      suffix-append case — J.Crew's two numbers are wholly unrelated, so
+      the fuzzy suffix-strip fix scoped here wouldn't catch it. Deferred by
+      owner; fold this item in when that broader matching work is built.
 
 ## ⚪ Someday
 - [ ] **Retailer logos — MOVED here 2026-07-26 (was 🟡 Next), per the
@@ -2675,6 +2925,42 @@
 
 ## ✅ Done
 
+- [x] **Write-once `orderDate` in `mergeEmailIntoOrder` + Suzie #99500 backfill —
+      SHIPPED & VERIFIED 2026-08-19.** Committed `25cd981` on branch
+      `writeonce-orderdate-coverage-gate` (cut clean from `origin/main`, 3
+      commits), pushed as a fast-forward directly to `origin/main`
+      (`95e9167..25cd981`) without touching local `main` — the in-progress
+      card-geometry work on `main` stayed local and unpushed by design.
+      Deployed `dpl_2WPH1DZHadcEfE15zUwMoQR276Br`, READY, production,
+      `app.myreturnwindow.com`. Backfill applied and verified live: Suzie
+      Kondi #99500 (`cmrx0ebri0003jr04itjef17j`) `orderDate` 2026-08-12 →
+      2026-07-23, `returnDeadline` 2026-09-07 → 2026-08-18,
+      `orderDateEstimated` stayed `false` — re-queried after the write to
+      confirm it landed. Owner-verified in production. ✅**
+      Original 🔴 Now entry, preserved verbatim below, not edited in place:
+- [ ] Write-once `orderDate` in `mergeEmailIntoOrder` + backfill of merge-corrupted rows — PROMOTED TO 🔴 Now 2026-08-16 from 🐛 Trust-breaking (08-14 Suzie finding); diagnosis closed this session (unscoped: 2 CORRUPTED_RECOVERABLE, 0 UNRECOVERABLE, 1 AMBIGUOUS / 150 orders, cross-user). Root fix for the silent-overwrite class: `mergeEmailIntoOrder` (`lib/linkOrder.ts` ~499, `email.orderDate ?? existing.orderDate`) lets any later email clobber a correct `orderDate` and clears `orderDateEstimated` to false (~525). Locked decision: WRITE-ONCE, not the type-allowlist the 08-14 entry proposed. `orderDate` is set once from the earliest establishing email and never overwritten; the establishing-type gate (`order_confirmation`/`shipping_confirmation`/`delivery`) survives only as a guard on what may establish it (refund/return_label/other may never be first writer either). On the record: Suzie's `delivery` email carries its own date (2026-07-31, not the 07-23 purchase date), so an allowlist that lets `delivery` overwrite would still corrupt — allowlist treats the symptom, write-once the cause. Scope strictly `orderDate`; `estimatedDeliveryDate`/deadline anchor stays writable (preorder decision, this file). Backfill: dry-run→`--apply`, Suzie #99500 only, restore `orderDate` + `orderDateEstimated` + recompute `returnDeadline`. Suzie `completed`, deadline recompute moot for user visibility. Eyeball the AMBIGUOUS Bloomingdale's row first — likely same-day collision, confirm not corruption. BUILD.md invariant same commit. Non-regression tests: Amazon path unchanged; Suzie delivery-email replay no longer moves `orderDate`. VERIFY BY: read-only replay of the real Suzie refund email through deployed merge, then query the backfilled row in prod. Not ✅ until owner confirms in prod.
+      **Backfill corrected 2026-08-16 to Suzie #99500 only. Fitness
+      Superstore #48868 REMOVED: establishing-email date is 2025-07-09, a
+      year before the stored 2026-07-09 — opposite direction from this bug
+      and matching the known wrong-year extraction shape (cf.
+      returnDeadline<orderDate sweep). Restoring would overwrite one wrong
+      date with another. Deferred to its own read-only look.**
+- [x] **Coverage-check establishing-email gate — SHIPPED & VERIFIED
+      2026-08-19.** Same commit/branch/deploy as the write-once fix above
+      (`25cd981`, `dpl_2WPH1DZHadcEfE15zUwMoQR276Br`). Verified read-only
+      against the live 7-day window (`scripts/pm-verify-coverage-gate-live.ts`,
+      no `sendEmail` call, no `Reminder` write, 0 billed calls): J.Crew
+      orphan #2523415500 correctly excluded by the new gate; Suzie Kondi
+      #99500 correctly dropped by the pre-existing staleness check instead
+      (not the gate) — confirms the two fixes compose correctly, since
+      Suzie's order has a real establishing email and now a real restored
+      `orderDate`, so it clears the gate and is then correctly recognized
+      as an old order; real `order_confirmation`-backed orders (SKIMS, Good
+      Eggs) still present; unlinked-email path unaffected. Cross-user
+      aggregate (13 users, counts only): 26 would-include, 2 excluded by
+      the gate, 12 by staleness. Owner-verified. ✅**
+      Original 🔴 Now entry, preserved verbatim below, not edited in place:
+- [ ] Coverage-check new-purchase-signal gate — PROMOTED TO 🔴 Now 2026-08-16; closes candidate fix (a) from the 08-08 entry. Purchase list counts only orders backed by a purchase signal, not "any order that entered the window." Locked decision (owner 2026-08-16): DROP duplicate/non-establishing orphans; do NOT relabel. Gate on "order has ≥1 establishing email"; an order whose only emails are `refund`/`return_label`/`other` (the #2523415500 orphan class) is dropped, not given a "return received" line — relabeling a phantom Order just gives a phantom its own line. Preserve `emailType: null` extraction-failure visibility — those stay, that's the QA net's job (08-07 flood). Replaces null-defaults-to-inclusion as the primary mechanism (an establishing email, not a non-null `orderDate`, is the "you bought this" test), so it's robust when `orderDate` is legitimately null or corrupted. Confirmed this session: the $350.65 J.Crew line traces only to orphan #2523415500 (no establishing email) → gate folds it out; also the interim containment for the deferred same-order-two-numbers matching bug. `app/api/cron/weekly-coverage/route.ts` only; no data writes. VERIFY BY: coverage repro against the real send window (read-only, no send) — orphans gone, extraction-failure rows present; then next real Friday digest clean. NOT via `?force=true`. Not ✅ until owner confirms the real digest.
 - [x] **`runExtraction.ts:8` findUnique-gap fix — DEPLOYED & VERIFIED
       2026-08-08 — object-passing fix for the inbound route (id-based
       callers now catch the re-fetch failure too). Tests + build clean
@@ -3820,6 +4106,18 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- **Cheap deterministic pre-Sonnet junk gates — all REFUTED on real data
+  (2026-08-18), three read-only passes. Do not re-propose without new
+  evidence:** (1) List-Unsubscribe drop = 6.8% real orders caught (the
+  2026-07-23 header-based-junk-drop 0/20 sample is SUPERSEDED); (2)
+  JSON-LD keep-gate = 0.5% coverage; (3) sending-domain split =
+  unconfirmable for the DTC-heavy majority. Root reason: our retailer mix
+  is smaller DTC brands (single-stream Shopify/Klaviyo senders) that don't
+  separate transactional from marketing by header, markup, or domain —
+  only content does, which is the classifier's job. Standing direction:
+  the lever is the Haiku classifier; the prerequisite is instrumentation
+  (rejected-path capture + queryable `anthropic_usage`), NOT another gate.
+  Same logging also unblocks PHASE 1a/1b cache sizing — design it once.
 - **Principle: "match the existing pattern" is not sufficient guidance when
   contexts differ** (2026-07-17, mobile audit finding #1/#1b). The caption
   fix copied the order detail page's `flex flex-col items-start gap-1`
