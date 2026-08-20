@@ -98,16 +98,139 @@
       `amazon-return-window-default`, commit `fa28b1b`, awaiting owner
       merge decision. Marketplace-seller simplification logged in
       `DECISIONS.md` 2026-08-08.
-- [ ] **Amazon grocery exclusion (Whole Foods / Amazon Fresh) — decoupled
-      2026-08-09 from the task above.** Prior Step 0 run found grocery
-      keys off retailer name, not `isAmazonOrder()` (Whole Foods:
-      `retailer: "Whole Foods Market"`, fails `isAmazonOrder()` by
-      design; Amazon Fresh: `retailer: "Amazon Fresh"`, passes
-      `isAmazonOrder()` but is already `needsReview: false` while
-      carrying a live wrong 15-day deadline, 2026-08-04, already past —
-      so it sits outside any "flagged population" backfill scope too).
-      Not started — needs its own scoping pass on a population defined by
-      retailer name, not the flagged-Amazon population.
+- [ ] **Food + grocery delivery exclusion (category-level) — SUPERSEDES
+      the 2026-08-09 "Amazon grocery exclusion" entry, which is deleted
+      as part of this promotion. NOT STARTED, scoped 2026-08-18 with
+      owner.** Both Step-0 decisions locked this session: (1) DoorDash
+      non-food = wholesale-exclude, enumerated list, no per-order
+      cleverness (per 07-20 decision "stay out of the way, not be smart
+      about brand-family membership," Decisions log ~line 4288-4290);
+      (2) surface = junk, via existing `Email.junkedAt` + `JUNK_FILTER`
+      — no new UI, no Archive (different primitive, wrong bucket:
+      Archive is user-finished orders, junk is shouldn't-have-been-
+      tracked). **Detection is TWO-LAYERED, both required:** (a) sender-
+      domain pre-junk in `shouldAutoJunk` (`lib/junk.ts`) at ingestion,
+      before Haiku — enumerated list: doordash.com, ubereats.com,
+      grubhub.com, instacart.com, postmates.com, caviar.com,
+      wholefoodsmarket.com, goodeggs.com. This is the cost win —
+      matched Emails skip both Haiku and Sonnet, `Email` row created
+      with `junkedAt` pre-set, same pattern flagged at line ~2180 as
+      "biggest identified cost fix available, zero model calls to
+      implement or run." (b) retailer-name backstop post-extraction,
+      for Amazon-brand food services (Amazon Fresh, Whole Foods Market
+      via Amazon.com — both arrive from generic
+      `order-update@amazon.com`, cannot sender-domain without breaking
+      real Amazon orders). Post-extraction match on `retailer` → junk
+      Email, do not create Order (or delete-then-junk if pipeline
+      already committed). Cost saving doesn't apply here, only the
+      exclusion. **Historical sweep IN SCOPE (owner-locked 2026-08-18,
+      revised mid-session from earlier new-arrivals-only call).** Same
+      rule, run against existing Emails: match sender domain or Amazon-
+      brand food retailer name → set `junkedAt`. Any Order derived from
+      a now-junked Email is deleted as a consequence — not a separate
+      design question, Orders here have no unique data (every field
+      extracted from the Email, which is preserved). Fixes the known
+      live-wrong Amazon Fresh row (2026-08-04 past deadline). Fully
+      unblocks the needs-review-bucket rebuild (~line 1973-1976).
+      **Coverage-check behavior:** junked = excluded by design
+      (`JUNK_FILTER`), same as any other junked class. Admin rescue via
+      existing admin junk/rescue view. User-facing rescue is a separate
+      🟡 Next entry (user-findable junk view) — NOT blocking this task.
+      **Step 0 (READ-ONLY, ZERO Anthropic calls, ZERO writes):** census
+      against the sender-domain list and Amazon-brand food retailer
+      names, across (i) inbound Emails last 30 days for the sender-
+      domain hit rate, (ii) all historical Emails for total sweep
+      count, (iii) all historical Orders for count of Orders that would
+      be deleted as a consequence. Surface any food/grocery senders
+      present in the data but NOT on the enumerated list. Confirm
+      Amazon Fresh + Whole Foods Market are the only Amazon-brand food
+      services present. Report before Step 1. **Step 0 reviewed and
+      approved by owner 2026-08-19** — 3 hits/30 days, 11 hits full-
+      history (7 domain + 4 backstop), 4 Orders would be deleted (0 with
+      non-matched sibling emails), no genuine list-expansion candidates,
+      confirmed only Amazon Fresh + Whole Foods Market are Amazon-brand
+      food. **Step 1 BUILT on branch `food-grocery-exclusion` 2026-08-19,
+      not pushed, not merged.** Named constants + matchers in new
+      `lib/foodGroceryExclusion.ts` (`FOOD_GROCERY_SENDER_DOMAINS`,
+      `AMAZON_FOOD_RETAILER_NAMES`, `extractDomain`, `isFoodGroceryDomain`,
+      `isFoodGroceryRetailer` — case-insensitive, subdomain-aware).
+      Sender-domain check added to `shouldAutoJunk` (`lib/junk.ts`) as a
+      new independent branch (`fromDomain` param, optional — existing
+      post-extraction call site unaffected), wired into
+      `app/api/inbound/route.ts` ahead of the Haiku (`isCommerceEmail`)
+      call; a match still creates the Email row (`junkedAt` pre-set,
+      never a silent discard) and returns before Sonnet. Retailer-name
+      backstop added to `linkEmailToOrder` (`lib/linkOrder.ts`), right
+      after the `!email` guard, before any order-matching/creation logic
+      — confirmed `Email.retailer` is populated there (written in
+      `runExtraction.ts` before `linkEmailToOrder` is called, re-fetched
+      fresh), so the originally proposed hook location held, no move
+      needed. Idempotency guard on the backstop (never overwrites an
+      existing `junkedAt`). `lib/extract.ts`'s `lookupReturnPolicy` gate
+      extended with an `isFoodGroceryRetailer` branch (skips the billed
+      lookup for Amazon-brand food, same shared predicate as the
+      backstop) — no direct unit test for this branch specifically
+      (matches existing convention: `extractEmail`'s internals, including
+      the neighboring `isAmazonOrder` branch, aren't unit-tested anywhere
+      in this codebase; coverage comes via the already-tested
+      `isFoodGroceryRetailer` predicate it calls). 35 new/changed tests
+      across 4 files (`foodGroceryExclusion.test.ts` new,
+      `inboundFoodGroceryPreJunk.test.ts` new, `junk.test.ts` and
+      `linkOrder.test.ts` extended) — including owner-requested
+      confirmation (2026-08-19) that the sender-domain matcher is
+      dot-boundary, not substring (`notdoordash.com` /
+      `doordash.com.evil.com` don't match) and that an Amazon subdomain
+      sender (`mail.amazon.com`, `email.amazon.com`) is left untouched by
+      the pre-junk layer, not just bare `amazon.com`. Full suite 569/569
+      passing, `npm run build` clean. **Step 2 dry-run reviewed
+      2026-08-19** (`scripts/dryrun-food-grocery-sweep.ts`) — surfaced
+      one flagged (expected, not a real problem) deviation: 10 Emails to
+      junk vs. the census's raw 11, explained by the idempotency guard
+      correctly skipping the 1 email already junked via Step 0 anomaly
+      #7. Also surfaced a new anomaly the original census didn't check:
+      4 Reminder rows (3 Whole Foods Market + 1 Amazon Fresh) reference
+      the 2 mid-flow orders about to be deleted. Owner verified before
+      applying: (1) reminder dispatch (`app/api/cron/route.ts` lines
+      188-244) queries `Order` first via `reminderOrderWhere()`, then
+      does a keyed `prisma.reminder.findUnique` scoped to that live
+      order's id — the only 2 `prisma.reminder.*` call sites in the
+      codebase — so an orphaned Reminder row (`orderId: null`) is
+      structurally unreachable, never just conventionally inert; (2)
+      auto-archive (`lib/autoArchive.ts`) sets precedent — it never
+      cleans up a hidden order's existing Reminder rows either, relying
+      entirely on `reminderOrderWhere()`'s `activeOrderFilter` to exclude
+      it from future dispatch. Both confirmed, not assumed. **Step 2
+      APPLIED 2026-08-19, owner-approved**
+      (`scripts/apply-food-grocery-sweep.ts`, single transaction, pre-
+      flight re-validated live counts against the approved dry-run
+      before writing anything — would have aborted with zero writes on
+      any drift). **10 Emails junked, 4 Orders deleted (both mid-flow
+      rows — Whole Foods Market `cmruuzq6z0003jx04yy5dogqv` and Amazon
+      Fresh `cms2lbw7j0009w9mqt8cghqni` — deleted as reconfirmed), 4
+      Reminders orphaned** (`orderId` → `null` via the existing `ON
+      DELETE SET NULL` constraint, no cleanup step per the accepted
+      precedent) — exact match to the reviewed dry-run, zero deviation.
+      Post-write verification: 0 of the 10 target Emails still show
+      `junkedAt: null`; 0 of the 4 target Orders still exist. Full suite
+      still 569/569, `npm run build` clean after the apply. **Tests:**
+      sender-domain matches for each enumerated domain; retailer-name
+      backstop for Amazon Fresh + Whole Foods Market; mixed batch
+      (Instacart + real Amazon in same run) — real Amazon untouched;
+      existing `other` / `not_ecommerce` junk paths unchanged; case-
+      insensitive, including dot-boundary (not substring) matching and
+      an Amazon-subdomain sender left untouched; rescue path unaffected;
+      historical sweep idempotent by construction (skips already-junked
+      Emails and already-deleted Orders) — verified live via the
+      pre-flight re-validation gate, not yet via an actual re-run.
+      **Not pushed, not merged** — branch `food-grocery-exclusion`,
+      commit `b5434a0` (Step 1). **VERIFY BY:** owner confirms in
+      production after merge — Amazon Fresh row with the 2026-08-04
+      past deadline no longer on dashboard (now moot, deleted by the
+      sweep already, but should stay gone); needs-review-bucket grocery
+      rows gone; post-deploy, next real food/grocery arrival junked
+      without model spend (check billing dashboard the day after the
+      first matched live arrival); no new grocery rows in needs-review.
+      Not ✅ until owner confirms in prod.
 - [ ] **Historical `emailType` census (cost-priority input) — DONE
       2026-08-05, READ-ONLY, confirmed zero billed Anthropic calls, zero
       writes.** Follow-on to the Aug-4 backfill's small-sample finding
@@ -1658,6 +1781,16 @@
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
 
 ## 🟡 Next
+- [ ] **User-findable junk view. NEW 2026-08-18 — not started.** Junked
+      Emails (marketing, non-commerce, food/grocery per the food+grocery
+      exclusion task in 🔴 Now) are currently admin-rescuable only.
+      Owner wants a user-facing surface: findable but deliberately
+      harder than Archive — not top-nav, not a dashboard filter; think
+      settings-adjacent or a deep-link page. Shape TBD. Adjacent to the
+      existing admin cross-user junk/rescue view (blocked on mocks,
+      ~line 2022) — may share components. Not part of the food+grocery
+      exclusion build; that task ships without this and this ships when
+      specced.
 - [ ] **Amazon extraction broken — order-email template change. NEW
       2026-07-25, owner-reported. DEPRIORITIZED 2026-07-29, owner
       decision — moved from 🔴 Now, stays open.** Amazon has changed its

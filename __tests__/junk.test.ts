@@ -32,6 +32,36 @@ describe("shouldAutoJunk", () => {
   });
 });
 
+// ── shouldAutoJunk — sender-domain branch ───────────────────────────────
+// Food + grocery delivery exclusion (TASKS.md 🔴 Now, 2026-08-18). Called
+// at ingestion (app/api/inbound/route.ts) before emailType/orderId are
+// even known — a fromDomain match short-circuits independent of both.
+
+describe("shouldAutoJunk — sender-domain match", () => {
+  it("junks on a fromDomain match, regardless of emailType/orderId (pre-extraction: neither is known yet)", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "doordash.com" })).toBe(true);
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "instacart.com" })).toBe(true);
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "goodeggs.com" })).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "DoorDash.COM" })).toBe(true);
+  });
+
+  it("does NOT junk a real Amazon sender domain — the backstop, not this layer, covers Amazon-brand food", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "amazon.com" })).toBe(false);
+  });
+
+  it("does NOT junk an unrelated retailer domain", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "mango.com" })).toBe(false);
+  });
+
+  it("falls through to the emailType/orderId rule when fromDomain is absent (existing post-extraction call site is unaffected)", () => {
+    expect(shouldAutoJunk({ emailType: "other", orderId: null })).toBe(true);
+    expect(shouldAutoJunk({ emailType: "delivery", orderId: null })).toBe(false);
+  });
+});
+
 // ── JUNK_FILTER ──────────────────────────────────────────────────────────
 // The shared where-clause fragment every email-listing consumer must
 // spread in. Shape-only test — the real regression guard is the consumer

@@ -11,6 +11,8 @@ import { recordInboundArrival, INBOUND_FLOOD_THRESHOLD } from "@/lib/inboundVolu
 import { rateLimit } from "@/lib/rateLimit";
 import { classifyForwardType, resolveAnchorDate, type RawHeader } from "@/lib/forwardResolver";
 import { resolveBodyText } from "@/lib/emailBodyText";
+import { shouldAutoJunk } from "@/lib/junk";
+import { extractDomain } from "@/lib/foodGroceryExclusion";
 
 const INBOUND_RATE_LIMIT = 30;
 const INBOUND_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
@@ -80,6 +82,51 @@ export function isInboundWebhookAuthorized(authorizationHeader: string | null): 
   // guard shape as lib/actionToken.ts's signature comparisons.
   if (provided.length !== expected.length) return false;
   return timingSafeEqual(provided, expected);
+}
+
+// Shared by both the normal ingestion path and the sender-domain pre-junk
+// path below — the only difference between the two is whether junkedAt is
+// set on the resulting row, not how the row itself is built.
+function buildEmailCreateData(payload: PostmarkInboundPayload, userId: string, inboundToken: string | null) {
+  const encrypted = encryptEmailContent({
+    fromEmail: payload.FromFull?.Email ?? "",
+    fromName: payload.FromFull?.Name ?? null,
+    textBody: payload.TextBody ?? null,
+    htmlBody: payload.HtmlBody ?? null,
+  });
+
+  const receivedAt = payload.Date ? new Date(payload.Date) : new Date();
+  const forwardType = classifyForwardType(payload.Headers);
+  const { anchorDate, anchorSource } = resolveAnchorDate({
+    forwardType,
+    headers: payload.Headers,
+    bodyText: resolveBodyText(payload.TextBody ?? null, payload.HtmlBody ?? null),
+    receivedAt,
+  });
+
+  return {
+    userId,
+    fromEmail: encrypted.fromEmail,
+    fromName: encrypted.fromName,
+    toHash: inboundToken,
+    subject: payload.Subject,
+    textBody: encrypted.textBody,
+    htmlBody: encrypted.htmlBody,
+    receivedAt,
+    rawJson: encryptRawJson(payload),
+    forwardType,
+    anchorDate,
+    anchorSource,
+    messageId: payload.MessageID ?? null,
+  };
+}
+
+function isDuplicateMessageIdRace(error: unknown): boolean {
+  return (
+    error instanceof Object &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -238,6 +285,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Sender-domain pre-junk (Food + grocery delivery exclusion, TASKS.md
+    // 🔴 Now, 2026-08-18) — the cost win: a matched sender skips BOTH the
+    // Haiku commerce classifier below AND the Sonnet extraction call
+    // further down. Still creates the Email row (junkedAt pre-set), never
+    // a silent discard like the non-commerce branch below — rescueEmail()
+    // (lib/junk.ts) stays a real recovery path. Checked ahead of the
+    // Haiku call on purpose: this is the whole point of putting it here
+    // instead of downstream.
+    const fromDomain = extractDomain(payload.FromFull?.Email ?? "");
+    if (shouldAutoJunk({ emailType: null, orderId: null, fromDomain })) {
+      try {
+        await prisma.email.create({
+          data: { ...buildEmailCreateData(payload, user.id, inboundToken), junkedAt: new Date() },
+        });
+      } catch (error) {
+        if (payload.MessageID && isDuplicateMessageIdRace(error)) {
+          console.log("Discarded duplicate inbound delivery (race with a concurrent redelivery):", payload.MessageID);
+          await prisma.discardLog.create({ data: { reason: "duplicate_messageid" } });
+          return NextResponse.json({ ok: true });
+        }
+        throw error;
+      }
+
+      console.log("Pre-junked inbound email at ingestion (sender-domain match), skipped Haiku + Sonnet:", fromDomain);
+      return NextResponse.json({ ok: true });
+    }
+
     let isCommerce: boolean;
     try {
       isCommerce = await isCommerceEmail(payload.TextBody, payload.HtmlBody);
@@ -259,45 +333,9 @@ export async function POST(request: NextRequest) {
 
     console.log("Inbound email payload:", JSON.stringify(payload));
 
-    const encrypted = encryptEmailContent({
-      fromEmail: payload.FromFull?.Email ?? "",
-      fromName: payload.FromFull?.Name ?? null,
-      textBody: payload.TextBody ?? null,
-      htmlBody: payload.HtmlBody ?? null,
-    });
-
-    // ANCHOR_DATE_RESOLVER.md Part 2 — computed once here, at ingestion,
-    // from the plaintext payload (before encryption) and the raw headers.
-    // Pure/deterministic, no AI call, never fails the request: a resolver
-    // bug should not be able to drop an inbound email.
-    const receivedAt = payload.Date ? new Date(payload.Date) : new Date();
-    const forwardType = classifyForwardType(payload.Headers);
-    const { anchorDate, anchorSource } = resolveAnchorDate({
-      forwardType,
-      headers: payload.Headers,
-      bodyText: resolveBodyText(payload.TextBody ?? null, payload.HtmlBody ?? null),
-      receivedAt,
-    });
-
     let email;
     try {
-      email = await prisma.email.create({
-        data: {
-          userId: user.id,
-          fromEmail: encrypted.fromEmail,
-          fromName: encrypted.fromName,
-          toHash: inboundToken,
-          subject: payload.Subject,
-          textBody: encrypted.textBody,
-          htmlBody: encrypted.htmlBody,
-          receivedAt,
-          rawJson: encryptRawJson(payload),
-          forwardType,
-          anchorDate,
-          anchorSource,
-          messageId: payload.MessageID ?? null,
-        },
-      });
+      email = await prisma.email.create({ data: buildEmailCreateData(payload, user.id, inboundToken) });
     } catch (error) {
       // Race backstop for the dedup check above: two near-simultaneous
       // redeliveries can both pass the findFirst check before either has
@@ -305,12 +343,7 @@ export async function POST(request: NextRequest) {
       // Email turns the loser into a P2002 here instead of a second row —
       // treat it exactly like the pre-check duplicate path, not a real
       // failure. Anything else re-throws to the outer catch, unchanged.
-      if (
-        payload.MessageID &&
-        error instanceof Object &&
-        "code" in error &&
-        (error as { code?: string }).code === "P2002"
-      ) {
+      if (payload.MessageID && isDuplicateMessageIdRace(error)) {
         console.log("Discarded duplicate inbound delivery (race with a concurrent redelivery):", payload.MessageID);
         await prisma.discardLog.create({ data: { reason: "duplicate_messageid" } });
         return NextResponse.json({ ok: true });

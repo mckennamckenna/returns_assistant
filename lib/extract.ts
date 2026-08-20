@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { logAnthropicUsage } from "./anthropicUsage";
 import { isAmazonOrder } from "./amazonBundle";
+import { isFoodGroceryRetailer } from "./foodGroceryExclusion";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -623,6 +624,13 @@ export async function extractEmail(
     // never reaches this branch.
     parsed.returnWindowDays = AMAZON_DEFAULT_RETURN_WINDOW_DAYS;
     policySource = "amazon_default";
+  } else if (isFoodGroceryRetailer(parsed.retailer)) {
+    // Food + grocery delivery exclusion (TASKS.md 🔴 Now, 2026-08-18) —
+    // Amazon Fresh / Whole Foods Market get junked one step later in
+    // linkEmailToOrder (lib/linkOrder.ts) regardless of what a policy
+    // lookup would find, so skip the billed call entirely. policySource
+    // stays null; returnWindowDays stays whatever extraction returned
+    // (typically null) since neither is ever read once the email is junked.
   } else if (parsed.retailer && parsed.emailType !== "other") {
     try {
       const lookup = await lookupReturnPolicy(parsed.retailer, emailId);
