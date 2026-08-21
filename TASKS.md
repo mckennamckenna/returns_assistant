@@ -1792,6 +1792,31 @@
       locations above. Building on branch `fix-missing-select-bandwidth`;
       owner reviews diff before merge. See 🔴 Now for the active pointer.
       Slug: `missing-select-email-order-queries`.
+- [ ] **Follow-up (low priority): `weekly-coverage` cron fetches full
+      `Email` rows with no select — split out of the missing-select
+      bandwidth bug 2026-08-20, deliberately NOT built in that pass.**
+      `app/api/cron/weekly-coverage/route.ts`'s `email.findMany` (all
+      users' recent-window emails, once/week) selects the nested `order`
+      relation but not the outer `Email` fields — full `textBody`/
+      `htmlBody`/`rawJson` per row. Weekly frequency, not page-load
+      frequency, so lower priority than the 2026-08-20 fix. Same
+      remediation shape: trace what the digest content actually reads
+      off each email and add a matching `select`.
+- [ ] **Follow-up (low priority): order-detail page fetches full linked
+      `Email` rows with no select — split out of the missing-select
+      bandwidth bug 2026-08-20, deliberately NOT built in that pass.**
+      `app/(app)/orders/[id]/page.tsx`'s `order.findUnique({ include: {
+      emails: {...} } })` has no `select` on the nested `emails` —
+      fetches every column, including `textBody`/`htmlBody`/`rawJson`,
+      for every email linked to the order being viewed. Per-order-detail-
+      view frequency only (one order at a time), not a hot path.
+- [ ] **Follow-up (low priority): admin split-order review action fetches
+      full linked `Email` rows with no select — split out of the
+      missing-select bandwidth bug 2026-08-20, deliberately NOT built in
+      that pass.** `lib/orderReview.ts`'s `order.findUnique({ include: {
+      emails: true } })` (the split-order admin action) has the same
+      unselected-include pattern. Admin-only, rare action — lowest
+      priority of the three deferred locations.
 
 ## 🟡 Next
 - [ ] **Ingestion observability + recovery. NEW 2026-08-20 — not scoped,
