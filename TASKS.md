@@ -231,6 +231,20 @@
       without model spend (check billing dashboard the day after the
       first matched live arrival); no new grocery rows in needs-review.
       Not ✅ until owner confirms in prod.
+- [ ] **Missing `select` on Email/Order queries driving Neon bandwidth over
+      quota — promoted from 🐛 Bugs (Infra / reliability) 2026-08-20, per
+      session brief. IN PROGRESS: scoping now, no code changes yet.** Full
+      diagnosis, exact field lists per call site, and the codebase-wide
+      sweep live in the Bugs entry below — this line exists so Now reflects
+      the task before work starts, per this board's scope-control rule.
+      Fix scope for this pass: `app/(app)/page.tsx`'s orphaned-emails query
+      (primary offender), `lib/alerts.ts`'s `getAlertOrders` (secondary,
+      frequency-driven), `lib/linkOrder.ts`'s `resolveFallbackOrderDate`
+      and `rebuildOrderFromRemainingEmails` (same class of bug, incidental)
+      — plus whatever additional locations the codebase-wide sweep turns
+      up, scoped with the owner before building. Build on a branch, owner
+      reviews the diff before merge. Move to ✅ Done in the same commit
+      that merges the fix.
 - [ ] **Historical `emailType` census (cost-priority input) — DONE
       2026-08-05, READ-ONLY, confirmed zero billed Anthropic calls, zero
       writes.** Follow-on to the Aug-4 backfill's small-sample finding
@@ -1779,6 +1793,53 @@
       `lookupReturnPolicy` (`lib/extract.ts`) that fails the row to
       `needsReview` instead of hanging. Real production code change — its
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
+- [ ] **Missing `select` on Email/Order Prisma queries — Neon free-tier
+      5 GB/month transfer quota hit 100% (5.32 GB, cycle started
+      2026-07-31, ~11 days to reset) on a low-request-volume app (16.24
+      CU-hrs/20 days, short RAM spikes not sustained load). NEW
+      2026-08-20, READ-ONLY investigation, zero writes, zero Anthropic
+      calls.** **Smoking gun:** `app/(app)/page.tsx`'s orphaned-emails
+      dashboard query (`prisma.email.findMany({ where: { orderId: null,
+      userId, ...JUNK_FILTER } })`) has no `select` — fetches full
+      `Email` rows including `textBody`/`htmlBody`/`rawJson` (avg
+      ~438 KB combined per row — `htmlBody` avg ~188 KB, `rawJson` avg
+      ~236 KB, max ~688 KB — measured via server-side `octet_length`
+      aggregate, not a row fetch) for every orphaned/unlinked email, on
+      every dashboard load. Page is `force-dynamic` (no caching) and is
+      the app's home route. One active account currently has 35 visible
+      orphaned emails (~15 MB in that single query on a single page
+      load); another has 19 (~8 MB). A handful of visits/day per account
+      plausibly accounts for most of the 5.32 GB on its own.
+      **Compounding, smaller:** `lib/alerts.ts`'s `getAlertOrders` (no
+      `select` on `Order`) runs in `app/(app)/layout.tsx` — wraps every
+      authenticated page, also `force-dynamic`, fires on every
+      navigation app-wide — but `Order` rows are far smaller (no big
+      text blobs; `lineItems` avg ~231 bytes) than `Email` rows, so this
+      compounds via frequency, not row size. Also `lib/linkOrder.ts`'s
+      `resolveFallbackOrderDate` and `rebuildOrderFromRemainingEmails`
+      fetch full `Email` rows (unused `rawJson` included) at
+      ingestion/admin-action frequency, not page-load frequency — lower
+      volume but same class of bug.
+      **Ruled out / not meaningful:** the same-day food+grocery-exclusion
+      census/dry-run/apply scripts (this file, above) DO full-table-scan
+      `Email`, but every one scopes `select` to small columns only (id,
+      fromEmail, subject, retailer, orderId, receivedAt, junkedAt,
+      emailType) — no body/`rawJson` fields. Three runs over ~1,062 rows
+      is well under 1 MB each, negligible next to the dashboard query.
+      **DB connection:** `DATABASE_URL` points at the direct Neon host,
+      not the `-pooler` endpoint — not going through Neon's PgBouncer
+      pooler. `lib/db.ts` uses a module-level singleton correctly (the
+      dev-only global-cache guard only matters for hot-reload). Given
+      low request volume this is a secondary factor, not the driver.
+      **Not checked:** Neon's Query Performance / Active Queries tabs —
+      behind the paid-plan gate on the free tier.
+      **Fix, in progress:** add `select` clauses scoped to exactly the
+      fields each caller reads (traced, not guessed) to the dashboard
+      orphaned-emails query, `getAlertOrders`, `resolveFallbackOrderDate`,
+      and `rebuildOrderFromRemainingEmails`, plus any other locations the
+      codebase-wide sweep surfaces as comparable hot-path risk. Building
+      on a branch; owner reviews diff before merge. See 🔴 Now for the
+      active pointer. Slug: `missing-select-email-order-queries`.
 
 ## 🟡 Next
 - [ ] **User-findable junk view. NEW 2026-08-18 — not started.** Junked
