@@ -815,25 +815,6 @@
       "Returned" cards showing "Return by —" and prompting the user to
       forward original order confirmations. Owner flagged these as edge
       cases to handle separately, not part of this workstream.
-- [ ] **Missing `select` on Email/Order queries driving Neon bandwidth over
-      quota — promoted from 🐛 Bugs (Infra / reliability) 2026-08-20, per
-      session brief. IN PROGRESS: scoped, owner-approved, building on
-      branch `fix-missing-select-bandwidth`.** Full diagnosis, exact field
-      lists per call site, and the codebase-wide sweep live in the Bugs
-      entry below — this line exists so Now reflects the task before work
-      starts, per this board's scope-control rule. **Scope, owner-approved
-      2026-08-20:** `app/(app)/page.tsx`'s orphaned-emails query (primary
-      offender), `lib/alerts.ts`'s `getAlertOrders`, and four spots in
-      `lib/linkOrder.ts` — `resolveFallbackOrderDate`,
-      `rebuildOrderFromRemainingEmails`, `resolveOrderTotal`, and
-      `linkEmailToOrder`'s entry fetch (the latter two added after the
-      codebase-wide sweep found them same-class and same-file, one
-      ingestion-hot-path). **Explicitly deferred to follow-up, not in this
-      build:** `weekly-coverage` cron's `email.findMany`, the order-detail
-      page's unselected nested `emails` include, and `orderReview.ts`'s
-      split-action include — all lower-frequency, logged separately. Build
-      on a branch, owner reviews diff before merge. Move to ✅ Done in the
-      same commit that merges the fix.
 
 ## 🙋 Waiting on Owner
 
@@ -1680,6 +1661,54 @@
       picked the less-complete value over the more-complete one. Investigation
       only — confirm which merge rule in `lib/linkOrder.ts`/`lib/extract.ts`
       chose `$42.75` over `$46.76` before any change.
+- [ ] **[Low] "View all" next to the closing-soon alerts badge doesn't
+      visibly filter — NEW 2026-08-21, owner-reported, verified in both
+      preview and production, pre-existing/unrelated to the same-day
+      missing-select fix. Not fixed tonight — symptom only, root cause
+      not confirmed.** Clicking the "View all" button next to the
+      "Due in the next 7 days" summary navigates to
+      `/?status=closing_soon` but the dashboard doesn't visibly apply a
+      filter. **Component locations for whoever picks this up:** the
+      button itself is `SummaryCard`'s `href` prop
+      (`app/SummaryCard.tsx:39-44`, "View all" link), wired from
+      `app/(app)/page.tsx:183` (`href="/?status=closing_soon"`). **Flag
+      for whoever picks this up:** on inspection, `page.tsx:71` does read
+      `params.status` and `page.tsx:140` does apply a `closing_soon`
+      branch (`if (statusFilter === "closing_soon") return
+      isClosingSoon(order, now);`) to the rendered order list — so
+      "the parameter is never read" is NOT confirmed as the cause; this
+      logic looked correct on a code read alone. Actual cause unconfirmed
+      — candidates not yet checked: stale client-side navigation cache on
+      a same-route search-param change, a test-data condition where the
+      visible set already equaled the closing-soon set, or something
+      client-observable only (network tab / actual RSC payload), not a
+      static-code-read bug. Low priority — button just doesn't do what
+      the user expects, no wrong data shown.
+- [ ] **[Medium] `/alerts` nav link greyed out and unclickable — NEW
+      2026-08-21, owner-reported during click-through, verified in both
+      preview and production, pre-existing/unrelated to the same-day
+      missing-select fix. Not fixed tonight. Higher priority than the
+      "View all" bug above — this blocks reaching a whole page of the
+      app via navigation, not just one filtered view.** **Root cause
+      confirmed on desktop, unlike the bug above:** `app/Sidebar.tsx:57-
+      64` renders the "Alerts" nav item as a plain `<span
+      className="... text-muted ... cursor-default ...">`, NOT a
+      `<Link href="/alerts">` — every other Sidebar item (`Dashboard`,
+      `Archived`, `Settings`, `Privacy`) is a real `<Link>`. It still
+      renders the live `alertCount` badge next to it
+      (`Sidebar.tsx:59-63`), which is what makes it read as a real,
+      broken nav item rather than a deliberate placeholder — contrast
+      with `ComingSoonItem` (`Sidebar.tsx:7-16`), the actual
+      not-yet-built pattern, which is also a non-link `<span>` but
+      carries an explicit "Soon" pill so it doesn't look broken.
+      **Mobile looks unaffected on inspection:** `app/BottomNav.tsx:50-
+      59`'s "Alerts" tab IS a real `<Link href="/alerts">` — not
+      independently verified live, flagging only that the code doesn't
+      show the same defect there. Whoever picks this up: confirm mobile
+      before assuming this is desktop-only. `/alerts` itself
+      (`app/(app)/alerts/page.tsx`) was not touched by tonight's fix and
+      renders fine when reached directly by URL — this is a nav-wiring
+      gap, not a page bug.
 
 ### Cosmetic
 - **RESOLVED 2026-07-20 (see 🔴 Now):** ~~Sidebar account email truncates
@@ -1730,82 +1759,6 @@
       `lookupReturnPolicy` (`lib/extract.ts`) that fails the row to
       `needsReview` instead of hanging. Real production code change — its
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
-- [ ] **Missing `select` on Email/Order Prisma queries — Neon free-tier
-      5 GB/month transfer quota hit 100% (5.32 GB, cycle started
-      2026-07-31, ~11 days to reset) on a low-request-volume app (16.24
-      CU-hrs/20 days, short RAM spikes not sustained load). NEW
-      2026-08-20, READ-ONLY investigation, zero writes, zero Anthropic
-      calls. SCOPED 2026-08-20, owner-approved, building now.**
-      **Smoking gun:** `app/(app)/page.tsx`'s orphaned-emails dashboard
-      query (`prisma.email.findMany({ where: { orderId: null, userId,
-      ...JUNK_FILTER } })`) has no `select` — fetches full `Email` rows
-      including `textBody`/`htmlBody`/`rawJson` (avg ~438 KB combined per
-      row — `htmlBody` avg ~188 KB, `rawJson` avg ~236 KB, max ~688 KB —
-      measured via server-side `octet_length` aggregate, not a row fetch)
-      for every orphaned/unlinked email, on every dashboard load. Page is
-      `force-dynamic` (no caching) and is the app's home route. One
-      active account currently has 35 visible orphaned emails (~15 MB in
-      that single query on a single page load); another has 19 (~8 MB).
-      A handful of visits/day per account plausibly accounts for most of
-      the 5.32 GB on its own.
-      **Compounding, smaller:** `lib/alerts.ts`'s `getAlertOrders` (no
-      `select` on `Order`) runs in `app/(app)/layout.tsx` — wraps every
-      authenticated page, also `force-dynamic`, fires on every navigation
-      app-wide — but `Order` rows are far smaller (no big text blobs;
-      `lineItems` avg ~231 bytes) than `Email` rows, so this compounds
-      via frequency, not row size.
-      **Traced deeper into `lib/linkOrder.ts`, same class of bug:**
-      `resolveFallbackOrderDate` and `rebuildOrderFromRemainingEmails`
-      fetch full `Email` rows (unused `rawJson` included) at
-      ingestion/admin-action frequency. The codebase-wide sweep also
-      found `resolveOrderTotal`'s `email.findFirst` (fires on **every**
-      ingested email except `order_confirmation` type, reading only
-      `.orderTotal` off a full row) and `linkEmailToOrder`'s entry fetch
-      (fires on **every** non-pre-junked inbound email — traced the
-      whole ~160-line function; only `rawJson`/`fromEmail`/`fromName`
-      are genuinely unused, `textBody`/`htmlBody` are needed for
-      shipping/return tracking parse on a subset of email types) — both
-      added to this build's scope, same file, same PR.
-      **Explicitly deferred, lower frequency, logged as follow-ups not
-      built here:** `app/api/cron/weekly-coverage/route.ts`'s
-      `email.findMany` (weekly, all users, full `Email` rows, nested
-      `order` relation is selected but outer fields aren't);
-      `app/(app)/orders/[id]/page.tsx`'s order-detail query (`include: {
-      emails: {...} }`, no select on the nested emails — per order-detail
-      view only); `lib/orderReview.ts`'s split-order action (same
-      `include`-without-select pattern, admin-only).
-      **Ruled out / not meaningful:** the 2026-08-19 food+grocery-
-      exclusion census/dry-run/apply scripts (see ✅ Done) DO full-table-
-      scan `Email`, but every one scopes `select` to small columns only
-      (id, fromEmail, subject, retailer, orderId, receivedAt, junkedAt,
-      emailType) — no body/`rawJson` fields. Three runs over ~1,062 rows
-      is well under 1 MB each, negligible next to the dashboard query.
-      **DB connection:** `DATABASE_URL` points at the direct Neon host,
-      not the `-pooler` endpoint — not going through Neon's PgBouncer
-      pooler. `lib/db.ts` uses a module-level singleton correctly (the
-      dev-only global-cache guard only matters for hot-reload). Given low
-      request volume this is a secondary factor, not the driver.
-      **Not checked:** Neon's Query Performance / Active Queries tabs —
-      behind the paid-plan gate on the free tier.
-      **Fix:** `select` clauses scoped to exactly the fields each caller
-      reads (traced per call site, not guessed) on the 6 in-scope
-      locations above. Building on branch `fix-missing-select-bandwidth`;
-      owner reviews diff before merge. See 🔴 Now for the active pointer.
-      **Design note, owner-flagged 2026-08-21, not urgent — carry into
-      the Done write-up at merge:** `lib/linkOrder.ts:697-727`
-      (`linkEmailToOrder`'s entry fetch) has the widest `select` of the
-      six by design, not oversight — the fetched row flows whole into
-      four callees (`mergeEmailIntoOrder`, `createOrderFromEmail`,
-      `applyShippingTracking`/`applyReturnTracking` via their narrowed
-      `Pick<Email,...>` param types, plus `findRefundFallbackOrder`),
-      so its select is the union of what all four need, not any single
-      caller's minimal set. A future pass could split this into a
-      per-callee narrower fetch (e.g. only pulling `textBody`/`htmlBody`
-      when `emailType` is actually `shipping_confirmation`/
-      `return_label`, in a second conditional query) for a further
-      bandwidth cut, at the cost of an extra round-trip on the common
-      path. Not scoped or built here — record only.
-      Slug: `missing-select-email-order-queries`.
 - [ ] **Follow-up (low priority): `weekly-coverage` cron fetches full
       `Email` rows with no select — split out of the missing-select
       bandwidth bug 2026-08-20, deliberately NOT built in that pass.**
@@ -2740,6 +2693,63 @@
       becomes noticeable.
 
 ## ✅ Done
+
+- [x] **Missing `select` on Email/Order Prisma queries — Neon bandwidth-
+      quota fix. DONE 2026-08-21, code-complete/tested/merged to `main`
+      via branch `fix-missing-select-bandwidth`; production
+      bandwidth-reduction confirmation (Neon transfer trend) still
+      pending — not observable from a single deploy, needs a few days
+      of real traffic.** Root cause: Neon's free-tier 5 GB/month transfer
+      quota hit 100% (5.32 GB, cycle started 2026-07-31) on a
+      low-request-volume app. **Smoking gun:** `app/(app)/page.tsx`'s
+      orphaned-emails dashboard query had no `select` — fetched full
+      `Email` rows (`textBody`/`htmlBody`/`rawJson`, avg ~438 KB combined
+      per row, `rawJson` alone avg ~236 KB, max ~688 KB) on every
+      dashboard load (`force-dynamic`, app's home route). One active
+      account had 35 visible orphaned emails (~15 MB in that one query on
+      one page load).
+      **Fixed, 6 locations, each `select` traced from actual caller
+      usage, not guessed** (full field-by-field mapping reviewed with
+      owner before merge): `app/(app)/page.tsx`'s orphaned-emails query;
+      `lib/alerts.ts`'s `getAlertOrders` (`OrderCard`'s prop type
+      narrowed to a new exported `OrderCardOrder = Pick<Order,...>` so
+      both this trimmed query and the dashboard's full-row order list
+      satisfy it); and four spots in `lib/linkOrder.ts` —
+      `resolveFallbackOrderDate`, `rebuildOrderFromRemainingEmails`,
+      `resolveOrderTotal`, and `linkEmailToOrder`'s entry fetch (the
+      latter two surfaced by a codebase-wide sweep, both fire on every
+      ingested email, added to scope same file/same PR).
+      `mergeEmailIntoOrder`, `createOrderFromEmail`,
+      `applyShippingTracking`, and `applyReturnTracking` now take
+      narrowed `Pick<Email,...>` types instead of the full `Email` model.
+      **Design note:** `linkEmailToOrder`'s entry fetch has the widest
+      select of the six by design — the row flows whole into four
+      callees, so its select is the union of what all four need, not any
+      single caller's minimal set. A future pass could split it into a
+      per-callee narrower fetch; not scoped here.
+      **Deferred to follow-up, not built in this pass** (see 🐛 Bugs →
+      Infra/reliability, 3 separate entries): `weekly-coverage` cron's
+      `email.findMany`, the order-detail page's unselected nested
+      `emails` include, `orderReview.ts`'s split-action include — all
+      lower-frequency than the 6 fixed.
+      **Verification:** zero new TypeScript errors (confirmed against a
+      stashed baseline — 22 pre-existing errors, all unrelated, identical
+      before/after); full test suite 569/569 passing; `npm run build`
+      clean. Manual click-through coverage was partial: the `/alerts`
+      page render couldn't be manually verified (blocked by the
+      pre-existing nav-link bug logged below) and the orphaned-email
+      snippet render couldn't be verified against real data (owner has
+      too few orphan rows to see one) — for both, correctness coverage
+      comes from TypeScript compilation itself: a `select` missing a
+      field the JSX or a callee reads would have failed `tsc`/`next
+      build`, and neither did.
+      **Two pre-existing bugs found during click-through review, logged
+      separately below, confirmed NOT caused by this change** (parity
+      between preview and already-live production): the "View all"
+      closing-soon link and the `/alerts` sidebar nav item.
+      Investigation bandwidth cost: 2 server-side aggregate queries
+      (~15 scalar values), effectively zero against the quota. Slug:
+      `missing-select-email-order-queries`.
 
 - [x] **Food + grocery delivery exclusion (category-level) — DONE
       2026-08-20, all five prod verifications green. ✅** Two-layered
