@@ -128,6 +128,66 @@
       every unlinked email defaults to the "real purchase, no record" reason.
       0 billed Anthropic API calls this session (all DB-inspectable checks,
       no model calls). 0 database writes (all code/test/docs changes).
+      **SECOND PASS 2026-08-21 (same session, same branch) — LAYOUT ONLY,
+      reason detection from the above pass NOT re-touched.** Step 0: confirmed
+      `CARD_SPEC.md`'s authority hasn't been overridden anywhere (no
+      DECISIONS.md/TASKS.md entry supersedes Part 3; the file still reads
+      "RECONCILED / SIGNED OFF — build-ready... single source of truth").
+      Closes the gap between Part 3's container/geometry rules and what the
+      first pass actually shipped — the first pass got reason detection right
+      but never fully matched the Amazon-bundle container pattern it was
+      supposed to reuse. **Confirmed threshold: literal `5`**, `.slice(0, 5)`
+      in `app/AmazonBundleCard.tsx:56` — `lib/amazonBundle.ts` itself holds no
+      threshold constant, only Amazon-specific status/composition helpers;
+      already correctly read into `NeedsReviewBucket.tsx`'s
+      `INLINE_OVERFLOW_LIMIT`, confirmed unchanged and correct (see below).
+      **Two real bugs found and fixed, three items checked and found
+      already-correct:**
+      (1) **Header toggle (real bug, fixed)** — `app/NeedsReviewBucket.tsx`'s
+      entire header was wrapped in one `<button>`; restructured to match
+      `AmazonBundleCard.tsx`'s actual pattern exactly — inert slot-1/slot-2
+      text block, a discrete slot-4 icon button on the right.
+      (2) **Row geometry (real bug, fixed)** — `app/NeedsReviewRow.tsx` stacked
+      retailer/date·amount/why in one left-hand column with buttons to the
+      right; rebuilt as the left-column (slot 1 above slot 2) / right-column
+      (slot 3, slot 4 beneath once expanded) skeleton Part 3 specifies.
+      (3) **Always-present View detail secondary (real bug, fixed, the
+      important one)** — `app/NeedsReviewRowActions.tsx:45` silently returns
+      `null` for `link_to_order`, and the old row unconditionally rendered
+      `LinkToOrderPicker` for every email row regardless of its actual action
+      — so a `create_new_order` row showed "Start a new order" +
+      "Merge with existing order" together and **View detail never rendered
+      at all**, violating Part 3's explicit rule. Fixed: exactly one "More
+      info" (the registry's own label, `NEEDS_REVIEW_ACTION_LABELS.view_detail`,
+      not a hardcoded duplicate string) always renders; a mapped row also gets
+      its one correct primary control (`LinkToOrderPicker` for `link_to_order`,
+      `NeedsReviewRowActions` otherwise) alongside it — two controls, never
+      zero, never a stray third.
+      (4) **Overflow enforcement — checked, already correct, not touched.**
+      `INLINE_OVERFLOW_LIMIT = 5` already caps the dashboard bucket
+      unconditionally (`rows.slice(0, 5)`, not gated on expand state); the "20
+      rows all inline" observation that prompted this pass was almost
+      certainly `/needs-review`, the dedicated overflow page, which is
+      unlimited *by design* — same pattern as Amazon's own `/amazon` page.
+      (5) **Row-level collapse/expand — checked, already correct, not
+      touched.** Bucket-level `expanded` state already gates every row's
+      slot-4 uniformly, matching Amazon's single-toggle-for-all-rows model
+      (not per-row toggles — Amazon doesn't have those either).
+      (6) **Container reuse — no separate component extracted, per explicit
+      instruction ("not a new component").** `lib/amazonBundle.ts` has no
+      generic container utilities to import (Amazon-specific business logic
+      only) — structure/behavior matched by hand instead, per Part 4's
+      "point at this," not "import this."
+      **Verification:** `tsc --noEmit` clean; test suite 600/601 (same
+      pre-existing, unrelated, owner-deferred failure as the first pass);
+      `npm run build` clean (same pre-existing `actionToken.ts` Edge warning).
+      No test additions this pass — `app/NeedsReviewBucket.tsx`/
+      `NeedsReviewRow.tsx` are presentational components with no existing unit
+      coverage, matching this codebase's established convention of testing
+      `lib/*.ts` logic, not JSX components, directly (same as
+      `AmazonBundleCard.tsx`/`OrderCard.tsx`, neither of which has component
+      tests either).
+      0 billed Anthropic API calls this pass. 0 database writes.
 
 - [ ] Postmark rejected-path backward sample — NEW 2026-08-18, candidate
       read-only investigation, not started. Emails Haiku drops

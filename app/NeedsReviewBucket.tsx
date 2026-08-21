@@ -31,21 +31,29 @@ export function NeedsReviewBucket({
     <div className="bg-amber-50 border border-amber-200 rounded-2xl p-[18px] mb-4">
       {/* Header 2x2: Slot 1 "Needs review", Slot 2 count, Slot 3 the orange
           attention treatment (the whole card, per the existing panel's
-          convention), Slot 4 expand/collapse. */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="w-full flex items-center justify-between gap-4"
-      >
-        <div className="min-w-0 text-left">
+          convention), Slot 4 expand/collapse — a DISCRETE corner button, same
+          shape as app/AmazonBundleCard.tsx's header, not the whole header
+          wrapped in one button (2026-08-21 layout fix: slots 1-2 are inert
+          text, only the icon on the right is interactive). */}
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
           <div className="text-lg font-medium text-amber-900 truncate">Needs review</div>
           <div className="text-xs text-amber-700 truncate">
             {rows.length} item{rows.length === 1 ? "" : "s"}
           </div>
         </div>
-        <span className="shrink-0 text-xs text-amber-700">{expanded ? "▴" : "▾"}</span>
-      </button>
+        <div className="shrink-0">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Collapse needs review" : "Expand needs review"}
+            className="text-amber-700 text-xs px-1"
+          >
+            {expanded ? "▴" : "▾"}
+          </button>
+        </div>
+      </div>
 
       {/* Collapsed = compact stack of rows, slots 1-3 only (identity + why,
           no buttons). Expanded = each row reveals its slot-4 action. */}
