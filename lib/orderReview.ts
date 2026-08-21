@@ -7,7 +7,7 @@ import {
   recomputeOrderStatus,
   recomputeDisplayStatus,
 } from "@/lib/linkOrder";
-import { classifyReturnPortalTrust } from "@/lib/extract";
+import { NEEDS_REVIEW_REASON_TEXT, type NeedsReviewReasonId } from "@/lib/needsReviewReasons";
 
 // Shared by both the user-facing "Needs Review" cards and the admin
 // dashboard — callers are responsible for their own access control
@@ -129,22 +129,19 @@ export function reviewReason(order: { returnDeadline: Date | null; emails: { ext
   return "An incoming email's order number closely matched this order's — please confirm it's the same purchase.";
 }
 
-type ReviewOrderForLabel = {
+export type ReviewOrderForLabel = {
+  id: string;
   orderNumber: string | null;
   orderDate: Date | null;
   orderTotal: number | null;
   userNote: string | null;
-  retailer: string | null;
-  returnPortalUrl: string | null;
-  policySource: string | null;
-  emails: {
-    orderNumber: string | null;
-    confidence: string | null;
-    receivedAt: Date;
-    forwardType: string | null;
-    anchorDate: Date | null;
-  }[];
+  emails: { orderNumber: string | null }[];
 };
+
+export interface ReviewCandidateOrder {
+  id: string;
+  orderNumber: string | null;
+}
 
 // [auto]-prefixed userNote entries are the merge logic's own audit trail
 // (lib/linkOrder.ts's retailerPrefixNote/refundFallbackNote) — the most
@@ -155,58 +152,56 @@ type ReviewOrderForLabel = {
 // user-authored text.
 const RETAILER_PREFIX_NOTE = /^\[auto\] retailer prefix match: "(.+)" ← "(.+)"$/m;
 
-// Plain-language translation of the same underlying signals reviewReason
-// inspects — shown prominently, always, regardless of whether a
-// technical note exists. Checked in priority order: an [auto] merge note is
-// the most specific, actionable explanation when present (it's the actual
-// recorded trigger, not an inference); an orderNumber-mismatch is the next
-// most specific; the rest are progressively more generic fallbacks.
-export function reviewReasonLabel(order: ReviewOrderForLabel): string {
+// CARD_SPEC.md Part 3 — order-kind bucket rows' reason, mapped onto the
+// spec's canonical reason vocabulary (lib/needsReviewReasons.ts). Checked in
+// priority order, cheap-version scope (owner-locked 2026-08-21):
+//
+// 1. An [auto] retailer-prefix-merge note is the strongest, most specific
+//    signal that this order is probably the same purchase as another one
+//    already in the system — CARD_SPEC's "duplicate" reason.
+// 2. A linked email's orderNumber that differs from this order's own AND
+//    actually matches a DIFFERENT existing order (not just "differs," which
+//    the pre-rebuild code treated as sufficient on its own) — CARD_SPEC's
+//    "belongs to an existing order" reason. candidateOrders lets a caller
+//    with no other-orders data on hand (e.g. the admin dashboard) pass []
+//    and safely skip this check rather than throw.
+// 3/4. Missing orderDate / orderTotal — trivial, non-classifier-adjacent
+//    null checks with exact-fit spec sentences, kept distinct rather than
+//    folded into the generic tail (2026-08-21 owner decision).
+// 5. Everything else (previously separate return-portal-untrusted,
+//    unconfirmed-forward-date, and low-confidence checks, plus the true
+//    catch-all) collapses into one generic "uncertain_details" reason —
+//    cheap-version simplification; the full-detection version that
+//    re-differentiates these is a logged TASKS.md 🟡 Next follow-up, not
+//    built here.
+export function computeOrderReviewReason(
+  order: ReviewOrderForLabel,
+  candidateOrders: ReviewCandidateOrder[] = [],
+): { reasonId: NeedsReviewReasonId; why: string } {
   const prefixMatch = order.userNote?.match(RETAILER_PREFIX_NOTE);
   if (prefixMatch) {
-    return `This looks like it might be the same order as an existing "${prefixMatch[1]}" purchase — please confirm`;
+    return { reasonId: "duplicate", why: NEEDS_REVIEW_REASON_TEXT.duplicate };
   }
-  const isOrderNumberMismatch = order.emails.some((email) => email.orderNumber && email.orderNumber !== order.orderNumber);
-  if (isOrderNumberMismatch) {
-    return "We matched this return email to an existing order — please confirm it's correct";
+
+  const mismatchedNumbers = order.emails
+    .map((email) => email.orderNumber)
+    .filter((n): n is string => !!n && n !== order.orderNumber);
+  const belongsToAnotherOrder = mismatchedNumbers.some((mismatched) =>
+    candidateOrders.some(
+      (candidate) =>
+        candidate.id !== order.id && candidate.orderNumber && candidate.orderNumber.toLowerCase() === mismatched.toLowerCase(),
+    ),
+  );
+  if (belongsToAnotherOrder) {
+    return { reasonId: "belongs_to_existing_order", why: NEEDS_REVIEW_REASON_TEXT.belongs_to_existing_order };
   }
-  // M2 (SECURITY_AUDIT.md) — re-derived live, not stored: unlike the
-  // [auto] merge notes above, this reason is a pure function of data
-  // already on the row (returnPortalUrl/retailer/policySource), so there's
-  // nothing to persist — recomputing it here can never go stale. Contrast
-  // with lib/linkOrder.ts's computeKeptStatusConflict, whose reason
-  // depends on a point-in-time fact (was displayStatus "kept" at the
-  // moment the conflicting email arrived) that isn't recoverable from the
-  // order's current state alone; that one still has no dedicated reason
-  // field either (falls through to the generic fallback below) — a known
-  // gap, not fixed here.
-  if (classifyReturnPortalTrust(order.returnPortalUrl, order.retailer, order.policySource) === "unknown-unverified") {
-    return "The return link on this order could not be verified against the retailer's domain";
-  }
-  // ANCHOR_DATE_RESOLVER.md (2026-07-25), Part 4 decision 3: when the
-  // order's earliest-linked email is a manual forward whose date the
-  // resolver genuinely couldn't confirm, say so specifically rather than
-  // falling through to the generic missing-orderDate reason below. Gated
-  // on forwardType === "manual" (an actual resolver verdict), not just
-  // anchorDate == null — a pre-resolver row has forwardType null and must
-  // fall through unchanged, since null there means "never classified," not
-  // "resolver ran and couldn't confirm a date."
-  const earliestEmail =
-    order.emails.length > 0
-      ? [...order.emails].sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())[0]
-      : null;
-  if (earliestEmail?.forwardType === "manual" && earliestEmail.anchorDate == null) {
-    return "We couldn't confirm the date on a forwarded email";
-  }
+
   if (!order.orderDate) {
-    return "We couldn't find a purchase date — the return deadline may be estimated";
-  }
-  if (order.emails.some((email) => email.confidence === "low")) {
-    return "We're not certain about some details on this order";
+    return { reasonId: "missing_order_date", why: NEEDS_REVIEW_REASON_TEXT.missing_order_date };
   }
   if (order.orderTotal == null) {
-    return "Order total couldn't be found";
+    return { reasonId: "missing_order_total", why: NEEDS_REVIEW_REASON_TEXT.missing_order_total };
   }
-  return "This order needs a quick check";
+  return { reasonId: "uncertain_details", why: NEEDS_REVIEW_REASON_TEXT.uncertain_details };
 }
 

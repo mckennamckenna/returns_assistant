@@ -62,6 +62,34 @@ describe("shouldAutoJunk — sender-domain match", () => {
   });
 });
 
+// ── shouldAutoJunk — USPS carrier-ping domain match ─────────────────────
+// USPS carrier-ping exclusion (TASKS.md 🔴 Now, needs-review bucket
+// rebuild, 2026-08-21). Same layer/cost-win as the food-grocery branch
+// above — a fromDomain match short-circuits before emailType/orderId are
+// even known. Deliberately catches emailType "delivery"/"shipping_confirmation"
+// too (unlike the food-grocery branch's neighbors, which only ever pre-junk
+// at the domain layer): a bare USPS status ping IS commerce-adjacent
+// content by emailType, but carries no return-tracking value regardless.
+
+describe("shouldAutoJunk — USPS carrier-ping domain match", () => {
+  it("junks a tracking.usps.com sender regardless of emailType/orderId", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "tracking.usps.com" })).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "Tracking.USPS.com" })).toBe(true);
+  });
+
+  it("does NOT junk the bare usps.com domain", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "usps.com" })).toBe(false);
+  });
+
+  it("does NOT junk an unrelated carrier domain", () => {
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "ups.com" })).toBe(false);
+    expect(shouldAutoJunk({ emailType: null, orderId: null, fromDomain: "fedex.com" })).toBe(false);
+  });
+});
+
 // ── JUNK_FILTER ──────────────────────────────────────────────────────────
 // The shared where-clause fragment every email-listing consumer must
 // spread in. Shape-only test — the real regression guard is the consumer

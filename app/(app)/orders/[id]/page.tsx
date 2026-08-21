@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, markReturnedAction, markKeptAction } from "@/app/actions";
+import { deleteEmail, markReturnedAction, markKeptAction, approveOrderAction } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
 import { MarkRefundedButton } from "@/app/MarkRefundedButton";
@@ -12,6 +12,7 @@ import { CopyButton } from "@/app/CopyButton";
 import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { computeOrderCardState, orderCardChip, orderCardActions, REFUND_AMOUNT_FOOTNOTE } from "@/lib/orderCardState";
 import { returnWindowFromLabel } from "@/lib/returnWindowLabel";
+import { computeOrderReviewReason } from "@/lib/orderReview";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,21 @@ export default async function OrderDetail({
     notFound();
   }
 
+  // CARD_SPEC.md Part 3 — this page's resolution control (2026-08-21).
+  // Only queried when actually flagged, since most orders never need it.
+  // Same candidate-orders shape as the bucket's belongs-to-existing-order/
+  // duplicate check (lib/needsReviewRows.ts) — active orders, excluding
+  // this one implicitly via computeOrderReviewReason's own id check.
+  const reviewReason = order.needsReview
+    ? computeOrderReviewReason(
+        order,
+        await prisma.order.findMany({
+          where: { userId: session.user.id, archivedAt: null, deletedAt: null },
+          select: { id: true, orderNumber: true },
+        }),
+      )
+    : null;
+
   const now = new Date();
   // CARD_SPEC.md Part 2 — same pure state machine as app/OrderCard.tsx
   // (lib/orderCardState.ts); this page must never compute its own action
@@ -159,6 +175,27 @@ export default async function OrderDetail({
           )}
         </div>
       </div>
+
+      {/* CARD_SPEC.md Part 3 — the resolution control this page was missing
+          (2026-08-21): the "Needs Review" badge above used to dead-end with
+          no explanation and no way to clear it. Shows the same spec-exact
+          why-sentence the bucket row shows, plus the one action that's
+          always valid here regardless of the specific detected reason —
+          see app/actions.ts's approveOrderAction for why this page can't
+          simply mirror the bucket's per-reason action verbatim. */}
+      {order.needsReview && reviewReason && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-3 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-sm text-amber-900">{reviewReason.why}</p>
+          <form action={approveOrderAction.bind(null, order.id)}>
+            <button
+              type="submit"
+              className="text-xs font-medium rounded-lg px-2.5 py-1 bg-ink text-page hover:bg-ink/90 whitespace-nowrap"
+            >
+              Looks correct
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="border border-border rounded-lg p-4 mt-4">
         {hasEstimatedField && (

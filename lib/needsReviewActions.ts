@@ -1,3 +1,5 @@
+import type { NeedsReviewReasonId } from "./needsReviewReasons";
+
 // CARD_SPEC.md Part 3 — the needs-review bucket's v1 action registry (Q9):
 // five actions, open/extensible, unknown-reason -> View detail, never throws.
 export type NeedsReviewActionId = "link_to_order" | "create_new_order" | "not_a_purchase" | "view_detail" | "nothing";
@@ -18,18 +20,34 @@ export const NEEDS_REVIEW_ACTION_LABELS: Record<NeedsReviewActionId, string> = {
 
 export interface NeedsReviewRowInput {
   kind: "order" | "email";
-  hasRetailer: boolean;
+  reasonId: NeedsReviewReasonId;
 }
 
-// Picks the ONE primary registered action for a row (slot 4 is singular —
-// "the action," not a menu of five). An already-linked Order has nothing to
-// manually link or create, so it degrades to View detail (Q9's explicit
-// fallback) — this bucket doesn't invent a new "merge two orders" flow. An
-// orphaned email with an extracted retailer has enough data to seed a fresh
-// order; one with no retailer at all is the strongest available signal
-// that it isn't a purchase.
+// CARD_SPEC.md Part 3's reason -> action mapping, routed on the row's
+// actual detected reason (2026-08-21 rebuild — the 2026-08-11 build routed
+// on kind + hasRetailer only and never consulted the reason at all).
+//
+// order-kind rows are already-merged Orders, not raw unlinked emails — the
+// Link-to-order picker (app/LinkToOrderPicker.tsx) only attaches an
+// unlinked emailId to an Order, it has no order-to-order merge capability.
+// So belongs_to_existing_order/duplicate degrade to view_detail for
+// order-kind rows even though the same reason maps to link_to_order for
+// email-kind rows (2026-08-21 owner decision — real merge machinery is
+// deferred, see TASKS.md 🟡 Next "Order-to-order merge action").
+//
+// not_a_purchase has no reason routed to it in this pass (not-e-commerce
+// detection is out of cheap-version scope) but stays in the registry —
+// Q9's open/extensible registry, unknown-reason-degrades-safely design.
 export function needsReviewAction(row: NeedsReviewRowInput): NeedsReviewActionSpec {
-  const id: NeedsReviewActionId =
-    row.kind === "order" ? "view_detail" : row.hasRetailer ? "create_new_order" : "not_a_purchase";
+  let id: NeedsReviewActionId;
+  if (row.kind === "order") {
+    id = "view_detail";
+  } else if (row.reasonId === "belongs_to_existing_order" || row.reasonId === "duplicate") {
+    id = "link_to_order";
+  } else if (row.reasonId === "real_purchase_no_record") {
+    id = "create_new_order";
+  } else {
+    id = "view_detail";
+  }
   return { id, label: NEEDS_REVIEW_ACTION_LABELS[id] };
 }

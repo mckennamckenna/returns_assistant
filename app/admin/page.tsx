@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { isValidAdminSecret } from "@/lib/adminAuth";
-import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
+import { reviewReason, computeOrderReviewReason } from "@/lib/orderReview";
 import { getInboundAddress } from "@/lib/inboundAddress";
 import { adminApproveAction, adminSplitAction } from "./actions";
 
@@ -90,7 +90,11 @@ export default async function AdminPage({
                   </div>
                   <span className="text-sm text-secondary">{order.user.email}</span>
                 </div>
-                <p className="text-sm font-medium text-ink mt-2">{reviewReasonLabel(order)}</p>
+                {/* No cross-user candidate-orders list fetched here (admin is a
+                    cross-user debug view, not scoped to one user's orders) — the
+                    belongs-to-existing-order check just never fires, same
+                    open/extensible-registry-safe degrade as an unmapped reason. */}
+                <p className="text-sm font-medium text-ink mt-2">{computeOrderReviewReason(order, []).why}</p>
                 <p className="text-xs text-muted mt-1">{reviewReason(order)}</p>
                 <p className="text-xs text-muted mt-2">
                   Emails: {order.emails.map((e) => e.subject || "(no subject)").join(" · ")}

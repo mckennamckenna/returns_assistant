@@ -20,17 +20,16 @@ export default async function NeedsReviewPage() {
     prisma.order.findMany({
       where: { userId, needsReview: true, archivedAt: null, deletedAt: null },
       include: {
-        emails: {
-          select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true, receivedAt: true, forwardType: true, anchorDate: true },
-          orderBy: { receivedAt: "desc" },
-        },
+        // Trimmed 2026-08-21 — see app/(app)/page.tsx's identical query for
+        // the full rationale (matches computeOrderReviewReason()'s needs).
+        emails: { select: { orderNumber: true } },
       },
       orderBy: { updatedAt: "desc" },
     }),
     prisma.email.findMany({
       where: { orderId: null, userId, ...JUNK_FILTER },
       orderBy: { receivedAt: "desc" },
-      select: { id: true, retailer: true, receivedAt: true, orderTotal: true, orderCurrency: true },
+      select: { id: true, retailer: true, receivedAt: true, orderTotal: true, orderCurrency: true, orderNumber: true },
     }),
     prisma.order.findMany({
       where: { userId, archivedAt: null, deletedAt: null },
@@ -39,7 +38,10 @@ export default async function NeedsReviewPage() {
     }),
   ]);
 
-  const rows = [...reviewOrders.map(orderReviewRow), ...orphanedEmails.map(emailReviewRow)];
+  const rows = [
+    ...reviewOrders.map((order) => orderReviewRow(order, linkablePickerOrders)),
+    ...orphanedEmails.map((email) => emailReviewRow(email, linkablePickerOrders)),
+  ];
 
   return (
     <main className="flex-1 min-w-0 px-5 pt-4 pb-20 md:pb-8 md:pl-12 md:pr-8 md:pt-12 max-w-[860px]">

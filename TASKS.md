@@ -32,6 +32,103 @@
 
 ## 🔴 Now
 
+- [ ] **Needs-review bucket rebuild (CARD_SPEC.md Part 3 compliance) — BUILT
+      2026-08-21 on branch `needs-review-bucket-rebuild`, NOT PUSHED.
+      Preview-first per owner instruction — awaiting owner preview + explicit
+      "ship" before pushing to `origin/main`. Not ✅ until owner verifies in
+      production.** Root cause (established the prior session, re-confirmed
+      here): the bucket was built 2026-08-11 (`cd6d639`) against `CARD_SPEC.md`
+      Part 3 as it stood then; the reason→action mapping table was added to
+      the spec one day later (`ea939b1`, 2026-08-12), whose own commit message
+      flagged the gap and logged it as a follow-up that was never executed —
+      this session executes it.
+      **Owner-locked scope, cheap version (not full spec compliance — see the
+      full-detection follow-up logged in 🟡 Next):** only two reasons are
+      DB-detected — `belongs_to_existing_order` (an email's/mismatched linked
+      email's orderNumber exactly matches a DIFFERENT existing Order) and
+      `duplicate` (order-kind only, via the existing `[auto]` retailer-prefix-
+      merge audit trail in `userNote`). Everything else degrades to one
+      generic reason per population: email-kind rows default to "real
+      purchase, no order record" (true by construction — every row here is
+      unlinked); order-kind rows keep `missing_order_date`/`missing_order_total`
+      distinct (trivial null checks, exact-fit spec sentences, not
+      classifier-adjacent) and collapse everything remaining (return-portal-
+      untrusted, unconfirmed-forward-date, low-confidence, true fallback) into
+      one `uncertain_details` reason reusing existing in-app copy verbatim
+      ("We're not certain about some details on this order") — spec has no
+      canonical sentence for this residual tail, owner-approved 2026-08-21
+      rather than inventing new copy silently.
+      **Files:** new `lib/needsReviewReasons.ts` (single source of truth for
+      the reason vocabulary + spec-exact sentences, shared by both kinds of
+      row and the action router); `lib/orderReview.ts`'s `reviewReasonLabel`
+      replaced by `computeOrderReviewReason` (returns `{reasonId, why}`,
+      strengthened the order-number-mismatch check to require an actual match
+      against a different real Order, not just "differs from this order's
+      own," per the owner's literal "matches an existing Order" framing);
+      `lib/needsReviewRows.ts`'s `orderReviewRow`/`emailReviewRow` now take a
+      `candidateOrders` param (reuses the existing active-orders list already
+      computed for the Link-to-order picker) and carry `reasonId` on
+      `NeedsReviewRowData`; `lib/needsReviewActions.ts`'s `needsReviewAction`
+      now routes on `{kind, reasonId}` instead of `{kind, hasRetailer}`.
+      **Order-kind action degrade (owner-approved 2026-08-21):** order-kind
+      rows are already-merged Orders, not raw unlinked emails — the existing
+      Link-to-order picker only attaches an unlinked `emailId` to an Order, no
+      order-to-order merge capability exists — so `belongs_to_existing_order`/
+      `duplicate` degrade to `view_detail` for order-kind rows even though the
+      same reason maps to `link_to_order` for email-kind rows. Real fix
+      deferred, see 🟡 Next "Order-to-order merge action."
+      **Order detail page resolution control (`app/(app)/orders/[id]/page.tsx`):**
+      previously dead-ended — a "Needs Review" badge with no explanation and
+      no way to clear it. Now shows the same spec-exact why-sentence plus one
+      action, `approveOrderAction` ("Looks correct," reuses the existing
+      `lib/orderReview.ts` human-override function) — judgment call, not a
+      literal mirror of the bucket's per-reason action, since the bucket's
+      order-kind action is always `view_detail` and this page IS that
+      destination; flagged for the owner to catch/correct in preview if a
+      different resolution was intended.
+      **Intake gating (owner decided between two proposals before any code was
+      written, 2026-08-21):** USPS — new `lib/uspsCarrierPingExclusion.ts`,
+      `tracking.usps.com` added to the ingestion-time sender-domain pre-junk
+      in `shouldAutoJunk` (`lib/junk.ts`), same layer/cost-win as the
+      food-grocery gate (skips Haiku+Sonnet on a match). Census this session:
+      exactly 6 live tracking.usps.com rows, all a generic "USPS® Expected
+      Delivery on {date}" template with no return-policy/order-total data and
+      an unreliable-or-absent retailer name even when extraction succeeds —
+      content has ~no return-tracking value to lose even in the theoretical
+      case where it's the only email that arrived for a purchase. Promo — NO
+      new gating built. Census found the 3 visible "promo" rows
+      (em.target.com ×2, email.bloomingdales.com ×1) all have `extractedAt`
+      set and timestamps falling entirely inside the already-documented
+      2026-07-31T18:01–08-01T04:56 credit-outage extraction-failure cluster —
+      outage residue, not a live gating gap. The existing
+      `emailType === "other"` auto-junk rule already correctly excludes
+      genuine promo content going forward; a new domain-based gate would also
+      have been unsafe here (unlike food-grocery's spam-only senders,
+      em.target.com/email.bloomingdales.com are dual-purpose retailer domains
+      that also send real transactional email).
+      **Housekeeping:** deleted the two stale local branch refs
+      (`card-geometry-state-machine`, `food-grocery-exclusion`) — re-verified
+      this session (1:1 commit-message correspondence check against `main`'s
+      own history, all 9 commits across both branches confirmed already
+      present under different hashes) before deleting.
+      **Verification:** `npx tsc --noEmit` clean on every touched file (6
+      pre-existing, unrelated failures in `__tests__/anthropicUsage.test.ts`
+      only); full test suite 600/601 (the 1 failure is the already-logged,
+      owner-deferred timezone off-by-one in `orderCardChip`, untouched by this
+      build); `npm run build` clean (the Edge-runtime `crypto` warning is
+      pre-existing, in `lib/actionToken.ts`, untouched by this build). New/
+      updated tests: `__tests__/orderReview.test.ts`, `needsReviewActions.test.ts`,
+      `needsReviewRows.test.ts` (new), `uspsCarrierPingExclusion.test.ts`
+      (new), `junk.test.ts`.
+      **Known behavior change worth flagging explicitly (not a bug — the
+      literal owner-locked scope):** the ~27 live email-kind rows that
+      previously rendered "Archive" (via the old `hasRetailer` proxy for
+      "probably not commerce") now render "Start a new order" instead, since
+      not-e-commerce detection is out of cheap-version scope this pass and
+      every unlinked email defaults to the "real purchase, no record" reason.
+      0 billed Anthropic API calls this session (all DB-inspectable checks,
+      no model calls). 0 database writes (all code/test/docs changes).
+
 - [ ] Postmark rejected-path backward sample — NEW 2026-08-18, candidate
       read-only investigation, not started. Emails Haiku drops
       (non-commerce → no Email row) are retained in Postmark with full
@@ -2116,6 +2213,26 @@
       priority of the three deferred locations.
 
 ## 🟡 Next
+- [ ] **Full-detection reason mapping for the needs-review bucket. NEW
+      2026-08-21 — not started.** Deferred from the same day's needs-review
+      bucket rebuild (see 🔴 Now), which shipped a deliberately cheap version:
+      only `belongs_to_existing_order` and `duplicate` are DB-detected; not-
+      e-commerce detection was explicitly out of scope ("Do NOT attempt
+      classifier-adjacent detection... in this pass"), and several
+      already-differentiated order-kind signals (return-portal-untrusted,
+      unconfirmed-forward-date, low-confidence) were folded into one generic
+      `uncertain_details` reason rather than kept distinct. This item is the
+      full version. Scope, not yet built: (1) real not-e-commerce detection
+      for email-kind rows — the cheap version dropped the old `hasRetailer`
+      proxy entirely (see 🔴 Now's "known behavior change" note: ~27 rows that
+      used to show "Archive" now show "Start a new order"), so this needs a
+      real signal, not a revived proxy; (2) email-kind duplicate detection —
+      no canonical dedup key exists to compare one orphaned email against
+      another orphaned email (as opposed to an established Order), which is
+      why the cheap version only checks against existing Orders; inventing
+      one wasn't in this session's scope; (3) re-differentiate order-kind's
+      collapsed `uncertain_details` tail back into its original three signals
+      if the generic sentence proves too vague in practice.
 - [ ] **Unknown retailer in weekly digest. POINTER only, NEW 2026-08-19 —
       DO NOT START.** A standalone (unlinked) `shipping_confirmation`
       surfaces as "an unknown retailer" in the coverage digest (seen
@@ -2169,14 +2286,14 @@
       data. Owner directive: this must work before the Gmail-OAuth pivot
       proceeds, and we are NOT assuming Gmail's own categories will do
       this for us. Not built.
-- [ ] **Needs-review bucket rebuild — BLOCKED on intake cleanup first. POINTER
-      only, NEW 2026-08-13 — not started.** Diagnostic (2026-08-11) found ~40%
-      of bucket rows are noise: 6 USPS carrier pings, grocery (covered by the
-      "Reconcile grocery entries" item above), 2 promo/non-commerce. Rebuild
-      the bucket UI (inline actions per reason→action table in `CARD_SPEC.md`
-      Part 3) only AFTER intake filters reduce the noise. New sub-task: USPS
-      "Expected Delivery" carrier-ping exclusion — no home yet, biggest single
-      noise source (6 rows).
+- [ ] **Needs-review bucket rebuild — POINTER only, NEW 2026-08-13, MOVED TO
+      🔴 Now 2026-08-21 (see that entry for the full build).** Diagnostic
+      (2026-08-11) found ~40% of bucket rows are noise: 6 USPS carrier pings,
+      grocery (covered by the "Reconcile grocery entries" item above), 2
+      promo/non-commerce. Both named sub-populations were run to ground in
+      the 2026-08-21 session: USPS got a real ingestion-time gate; the promo
+      rows turned out to be outage-cluster residue, not a live gating gap —
+      see the 🔴 Now entry for the full census and reasoning.
 - [ ] **Return-tracking-number integrity + return-in-transit feature
       (diagnostic first). NEW 2026-08-11**, surfaced via H&M #68468087873
       (mckenna.sweazey@gmail.com), where `returnTrackingNumber` turned out
@@ -2977,6 +3094,39 @@
 - [ ] Archive page tidy-up — strip to essentials: archived orders + static chrome (nav,
       menus) only. No filter dropdowns, no cross-bucket counts, no nudges toward active
       orders. Archive is a quiet room, not another dashboard.
+- [ ] **Order-to-order merge action — DESIGN + BUILD, not a small follow-up. NEW
+      2026-08-21 — not started.** Deferred from the same day's needs-review bucket
+      rebuild session, specifically the order-row action decision: owner accepted CC's
+      "Degrade to View detail always" recommendation, which noted "Stays inside 'cheap
+      version' scope — no new merge machinery this pass" (see that session's 🔴 Now
+      needs-review bucket rebuild entry / close-out for the full decision record). Today,
+      order-kind bucket rows whose reason detects as
+      `duplicate` or `belongs-to-existing-order` show the accurate spec-aligned
+      why-sentence but their action always degrades to `View detail`, because the
+      existing Link-to-order picker only attaches an unlinked `emailId` to an Order — it
+      has no capability to merge one already-created Order into another. This item is
+      that capability. **Open design questions to resolve when picked up, not answered
+      here:** what happens to the losing order's linked emails (migrate to the winning
+      order, or stay dual-linked?); what happens to the losing order's Reminders (cancel
+      or migrate?); confirm-step design (destructive/near-destructive, needs its own
+      friction); undo behavior; display behavior if a new email later arrives addressed
+      to the losing order's id after the merge has happened.
+- [ ] **Needs-review bucket residue cleanup (one-time), not a feature. NEW 2026-08-21 —
+      not started.** Residue left behind by three going-forward gating/exclusion ships,
+      none of which retroactively swept rows that already existed before they shipped —
+      spawned by the same day's needs-review bucket rebuild session. Three independently
+      identifiable sub-populations: (1) ~3 promo rows (`em.target.com` ×2,
+      `email.bloomingdales.com` ×1) that are actually residue of the already-tracked
+      2026-07-31/08-01 credit-outage extraction-failure cluster, per this session's
+      promo-gate census — not a live gating gap, just still sitting in the bucket; (2)
+      USPS carrier-ping rows that landed before this session's ingestion-time
+      `tracking.usps.com` pre-junk gate shipped (6 live at census time this session;
+      exact count TBD whenever this is picked up); (3) pre-2026-08-19 grocery emails
+      that predate the food-grocery-exclusion ship and were never swept by its own
+      historical sweep (which only covered its own detection criteria, not this
+      unrelated older residue). **Approach when picked up:** read-only identification
+      script first, then an owner-confirmed deletion pass — not a code-path change,
+      same one-off census/cleanup pattern already used elsewhere in `scripts/`.
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **Manual-forward exposure for food/grocery exclusion — NEW
       2026-08-20, investigated, zero exposure found.** The sender-domain

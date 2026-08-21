@@ -30,7 +30,7 @@ export function NeedsReviewRow({
   linkablePickerOrders: LinkablePickerOrder[];
 }) {
   const detailHref = row.kind === "order" ? `/orders/${row.id}` : `/emails/${row.id}`;
-  const action = needsReviewAction({ kind: row.kind, hasRetailer: row.retailer != null });
+  const action = needsReviewAction({ kind: row.kind, reasonId: row.reasonId });
   const amountText = formatCurrency(row.amount, row.currency);
   const dateAmount = [
     row.date ? row.date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" }) : null,

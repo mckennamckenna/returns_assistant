@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { auth, signOut } from "@/auth";
-import { linkEmailToExistingOrder, createOrderFromOrphanedEmail, archiveOrphanedEmail } from "@/lib/orderReview";
+import { linkEmailToExistingOrder, createOrderFromOrphanedEmail, archiveOrphanedEmail, approveOrder } from "@/lib/orderReview";
 import { rescueEmail } from "@/lib/junk";
 import { DISPLAY_STATUS_RANK, buildStatusTransitionData } from "@/lib/displayStatus";
 
@@ -67,6 +67,27 @@ export async function archiveOrphanedEmailAction(emailId: string): Promise<void>
 
   await archiveOrphanedEmail(emailId);
   revalidatePath("/");
+}
+
+// CARD_SPEC.md Part 3 — the order detail page's resolution control for a
+// needsReview order (2026-08-21). Order-kind bucket rows always degrade to
+// View detail (lib/needsReviewActions.ts — Link-to-order has no
+// order-to-order merge capability, see TASKS.md 🟡 Next). This page IS that
+// View-detail destination, so mirroring the bucket's action verbatim would
+// be a self-link/no-op. The one action that's genuinely always valid here
+// regardless of the order's specific detected reason is the existing human
+// override already built in lib/orderReview.ts: confirm the order is fine
+// as-is and clear the flag.
+export async function approveOrderAction(orderId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) return;
+
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { userId: true } });
+  if (!order || order.userId !== session.user.id) return;
+
+  await approveOrder(orderId, null);
+  revalidatePath("/");
+  revalidatePath(`/orders/${orderId}`);
 }
 
 export async function rescueEmailAction(emailId: string): Promise<void> {

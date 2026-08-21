@@ -76,28 +76,29 @@ export default async function Home({
       include: { _count: { select: { emails: true } } },
     }),
     // Lean select — CARD_SPEC.md Part 3's bucket row only needs retailer/
-    // date/amount, not the encrypted body fields the old "Unlinked emails"
-    // list used, so no decryptEmailContent() call is needed here anymore.
+    // date/amount/orderNumber, not the encrypted body fields the old
+    // "Unlinked emails" list used, so no decryptEmailContent() call is
+    // needed here anymore. orderNumber (added 2026-08-21) feeds the
+    // belongs-to-existing-order reason check in lib/needsReviewRows.ts.
     prisma.email.findMany({
       where: { orderId: null, userId, ...JUNK_FILTER },
       orderBy: { receivedAt: "desc" },
-      select: { id: true, retailer: true, receivedAt: true, orderTotal: true, orderCurrency: true },
+      select: { id: true, retailer: true, receivedAt: true, orderTotal: true, orderCurrency: true, orderNumber: true },
     }),
     prisma.order.findMany({
       where: { userId, needsReview: true, archivedAt: null, deletedAt: null },
       include: {
-        emails: {
-          select: { subject: true, extractionNotes: true, orderNumber: true, confidence: true, receivedAt: true, forwardType: true, anchorDate: true },
-          orderBy: { receivedAt: "desc" },
-        },
+        // Trimmed 2026-08-21 to just what computeOrderReviewReason() reads
+        // (lib/orderReview.ts) — the removed fields (subject/
+        // extractionNotes/confidence/forwardType/anchorDate) only fed
+        // reason branches that collapsed into the generic "uncertain
+        // details" tail this session; nothing else in this file reads
+        // reviewOrders.emails.
+        emails: { select: { orderNumber: true } },
       },
       orderBy: { updatedAt: "desc" },
     }),
   ]);
-
-  // CARD_SPEC.md Part 3 — one unified needs-review bucket, replacing the
-  // separate "Needs review" panel and "Unlinked emails" list below.
-  const needsReviewRows = [...reviewOrders.map(orderReviewRow), ...orphanedEmails.map(emailReviewRow)];
 
   // Stats only count active (non-archived) orders — archived orders are hidden
   // from the dashboard until the user explicitly opens the Archived tab.
@@ -105,13 +106,22 @@ export default async function Home({
 
   // CARD_SPEC.md Part 3 — the "Link to order" manual picker's full list;
   // linking into an archived order isn't offered (same active-only scope
-  // as the rest of the dashboard).
+  // as the rest of the dashboard). Also doubles as the candidate-orders
+  // list the belongs-to-existing-order/duplicate reason checks match
+  // against (2026-08-21) — same population, same fields needed.
   const linkablePickerOrders = activeOrders.map((o) => ({
     id: o.id,
     retailer: o.retailer,
     orderNumber: o.orderNumber,
     orderDate: o.orderDate,
   }));
+
+  // CARD_SPEC.md Part 3 — one unified needs-review bucket, replacing the
+  // separate "Needs review" panel and "Unlinked emails" list below.
+  const needsReviewRows = [
+    ...reviewOrders.map((order) => orderReviewRow(order, linkablePickerOrders)),
+    ...orphanedEmails.map((email) => emailReviewRow(email, linkablePickerOrders)),
+  ];
 
   const openOrders = activeOrders.filter((o) => OPEN_STATUSES.includes(o.status));
   const closingSoonOrders = openOrders.filter((o) => isClosingSoon(o, now));

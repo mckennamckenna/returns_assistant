@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { isFoodGroceryDomain } from "@/lib/foodGroceryExclusion";
+import { isUspsCarrierDomain } from "@/lib/uspsCarrierPingExclusion";
 
 // Junk is a soft state on Email.junkedAt — never a delete. An email that's
 // been auto-filed as confirmed non-commerce is still fully recoverable via
@@ -26,7 +27,7 @@ export const JUNK_FILTER = {
   junkedAt: null,
 } as const;
 
-// Pure function — safe to test without DB or mocks. Two independent
+// Pure function — safe to test without DB or mocks. Three independent
 // branches, checked in order:
 //
 // 1. Sender-domain match (Food + grocery delivery exclusion, TASKS.md
@@ -37,7 +38,11 @@ export const JUNK_FILTER = {
 //    Independent of emailType/orderId, which aren't known yet at that
 //    point in the pipeline.
 //
-// 2. emailType === "other" on an orphaned email (orderId still null at
+// 2. USPS carrier-ping domain match (lib/uspsCarrierPingExclusion.ts,
+//    TASKS.md 🔴 Now, needs-review bucket rebuild, 2026-08-21) — same
+//    layer and cost win as (1), checked at the same point in the pipeline.
+//
+// 3. emailType === "other" on an orphaned email (orderId still null at
 //    the point this is checked) — the original, post-extraction rule.
 //    Scoped deliberately narrow. Two real populations were confirmed
 //    (2026-07-22 diagnostic, real production data) to look superficially
@@ -60,6 +65,7 @@ export function shouldAutoJunk(email: {
   fromDomain?: string | null;
 }): boolean {
   if (email.fromDomain && isFoodGroceryDomain(email.fromDomain)) return true;
+  if (email.fromDomain && isUspsCarrierDomain(email.fromDomain)) return true;
   return email.orderId === null && email.emailType === "other";
 }
 
