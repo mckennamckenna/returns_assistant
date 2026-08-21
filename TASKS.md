@@ -815,6 +815,25 @@
       "Returned" cards showing "Return by —" and prompting the user to
       forward original order confirmations. Owner flagged these as edge
       cases to handle separately, not part of this workstream.
+- [ ] **Missing `select` on Email/Order queries driving Neon bandwidth over
+      quota — promoted from 🐛 Bugs (Infra / reliability) 2026-08-20, per
+      session brief. IN PROGRESS: scoped, owner-approved, building on
+      branch `fix-missing-select-bandwidth`.** Full diagnosis, exact field
+      lists per call site, and the codebase-wide sweep live in the Bugs
+      entry below — this line exists so Now reflects the task before work
+      starts, per this board's scope-control rule. **Scope, owner-approved
+      2026-08-20:** `app/(app)/page.tsx`'s orphaned-emails query (primary
+      offender), `lib/alerts.ts`'s `getAlertOrders`, and four spots in
+      `lib/linkOrder.ts` — `resolveFallbackOrderDate`,
+      `rebuildOrderFromRemainingEmails`, `resolveOrderTotal`, and
+      `linkEmailToOrder`'s entry fetch (the latter two added after the
+      codebase-wide sweep found them same-class and same-file, one
+      ingestion-hot-path). **Explicitly deferred to follow-up, not in this
+      build:** `weekly-coverage` cron's `email.findMany`, the order-detail
+      page's unselected nested `emails` include, and `orderReview.ts`'s
+      split-action include — all lower-frequency, logged separately. Build
+      on a branch, owner reviews diff before merge. Move to ✅ Done in the
+      same commit that merges the fix.
 
 ## 🙋 Waiting on Owner
 
@@ -1711,6 +1730,68 @@
       `lookupReturnPolicy` (`lib/extract.ts`) that fails the row to
       `needsReview` instead of hanging. Real production code change — its
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
+- [ ] **Missing `select` on Email/Order Prisma queries — Neon free-tier
+      5 GB/month transfer quota hit 100% (5.32 GB, cycle started
+      2026-07-31, ~11 days to reset) on a low-request-volume app (16.24
+      CU-hrs/20 days, short RAM spikes not sustained load). NEW
+      2026-08-20, READ-ONLY investigation, zero writes, zero Anthropic
+      calls. SCOPED 2026-08-20, owner-approved, building now.**
+      **Smoking gun:** `app/(app)/page.tsx`'s orphaned-emails dashboard
+      query (`prisma.email.findMany({ where: { orderId: null, userId,
+      ...JUNK_FILTER } })`) has no `select` — fetches full `Email` rows
+      including `textBody`/`htmlBody`/`rawJson` (avg ~438 KB combined per
+      row — `htmlBody` avg ~188 KB, `rawJson` avg ~236 KB, max ~688 KB —
+      measured via server-side `octet_length` aggregate, not a row fetch)
+      for every orphaned/unlinked email, on every dashboard load. Page is
+      `force-dynamic` (no caching) and is the app's home route. One
+      active account currently has 35 visible orphaned emails (~15 MB in
+      that single query on a single page load); another has 19 (~8 MB).
+      A handful of visits/day per account plausibly accounts for most of
+      the 5.32 GB on its own.
+      **Compounding, smaller:** `lib/alerts.ts`'s `getAlertOrders` (no
+      `select` on `Order`) runs in `app/(app)/layout.tsx` — wraps every
+      authenticated page, also `force-dynamic`, fires on every navigation
+      app-wide — but `Order` rows are far smaller (no big text blobs;
+      `lineItems` avg ~231 bytes) than `Email` rows, so this compounds
+      via frequency, not row size.
+      **Traced deeper into `lib/linkOrder.ts`, same class of bug:**
+      `resolveFallbackOrderDate` and `rebuildOrderFromRemainingEmails`
+      fetch full `Email` rows (unused `rawJson` included) at
+      ingestion/admin-action frequency. The codebase-wide sweep also
+      found `resolveOrderTotal`'s `email.findFirst` (fires on **every**
+      ingested email except `order_confirmation` type, reading only
+      `.orderTotal` off a full row) and `linkEmailToOrder`'s entry fetch
+      (fires on **every** non-pre-junked inbound email — traced the
+      whole ~160-line function; only `rawJson`/`fromEmail`/`fromName`
+      are genuinely unused, `textBody`/`htmlBody` are needed for
+      shipping/return tracking parse on a subset of email types) — both
+      added to this build's scope, same file, same PR.
+      **Explicitly deferred, lower frequency, logged as follow-ups not
+      built here:** `app/api/cron/weekly-coverage/route.ts`'s
+      `email.findMany` (weekly, all users, full `Email` rows, nested
+      `order` relation is selected but outer fields aren't);
+      `app/(app)/orders/[id]/page.tsx`'s order-detail query (`include: {
+      emails: {...} }`, no select on the nested emails — per order-detail
+      view only); `lib/orderReview.ts`'s split-order action (same
+      `include`-without-select pattern, admin-only).
+      **Ruled out / not meaningful:** the 2026-08-19 food+grocery-
+      exclusion census/dry-run/apply scripts (see ✅ Done) DO full-table-
+      scan `Email`, but every one scopes `select` to small columns only
+      (id, fromEmail, subject, retailer, orderId, receivedAt, junkedAt,
+      emailType) — no body/`rawJson` fields. Three runs over ~1,062 rows
+      is well under 1 MB each, negligible next to the dashboard query.
+      **DB connection:** `DATABASE_URL` points at the direct Neon host,
+      not the `-pooler` endpoint — not going through Neon's PgBouncer
+      pooler. `lib/db.ts` uses a module-level singleton correctly (the
+      dev-only global-cache guard only matters for hot-reload). Given low
+      request volume this is a secondary factor, not the driver.
+      **Not checked:** Neon's Query Performance / Active Queries tabs —
+      behind the paid-plan gate on the free tier.
+      **Fix:** `select` clauses scoped to exactly the fields each caller
+      reads (traced per call site, not guessed) on the 6 in-scope
+      locations above. Building on branch `fix-missing-select-bandwidth`;
+      owner reviews diff before merge. See 🔴 Now for the active pointer.
+      Slug: `missing-select-email-order-queries`.
 
 ## 🟡 Next
 - [ ] **Ingestion observability + recovery. NEW 2026-08-20 — not scoped,
