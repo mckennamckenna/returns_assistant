@@ -332,15 +332,12 @@
       Done until then, per this board's own rule). Marketplace-seller
       simplification logged in `DECISIONS.md` 2026-08-08.
 - [ ] **Amazon grocery exclusion (Whole Foods / Amazon Fresh) — decoupled
-      2026-08-09 from the task above.** Prior Step 0 run found grocery
-      keys off retailer name, not `isAmazonOrder()` (Whole Foods:
-      `retailer: "Whole Foods Market"`, fails `isAmazonOrder()` by
-      design; Amazon Fresh: `retailer: "Amazon Fresh"`, passes
-      `isAmazonOrder()` but is already `needsReview: false` while
-      carrying a live wrong 15-day deadline, 2026-08-04, already past —
-      so it sits outside any "flagged population" backfill scope too).
-      Not started — needs its own scoping pass on a population defined by
-      retailer name, not the flagged-Amazon population.
+      2026-08-09, RETIRED 2026-08-21 during main/origin-main
+      reconciliation: superseded by the broader food + grocery delivery
+      exclusion task before this branch's line ever started it (see ✅
+      Done — that entry's own text confirms this one was "superseded ...
+      and deleted as part of this promotion"). Not built independently,
+      not carried forward as open work.**
 - [ ] **Historical `emailType` census (cost-priority input) — DONE
       2026-08-05, READ-ONLY, confirmed zero billed Anthropic calls, zero
       writes.** Follow-on to the Aug-4 backfill's small-sample finding
@@ -1377,6 +1374,55 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **7/21/2026 ingestion incident — 12 orphaned rows. Investigated
+      2026-08-20, confirmed as a genuine incident window, not an
+      isolated glitch. Not fixed — cleanup is a separate, owner-approved
+      step, not done here.** Surfaced while investigating a
+      food-grocery-exclusion "miss" (see the ✅ Done entry's correction
+      note) — the 3 Whole Foods rows involved turned out to be part of a
+      much larger, previously-undercounted pattern.
+      **Incident window: 2026-07-21, 15:59–21:39 UTC (5.7 hours).** Four
+      same-timestamp duplicate clusters, spanning four unrelated original
+      senders (rules out a sender-side cause):
+        - 15:59:22 UTC — FedEx "out for delivery" (tracking 522569099412):
+          13 rows, 7 extracted, **6 never extracted**
+        - 17:36:09 UTC — Amazon/Whole Foods "order picked up": 4 rows, 1
+          extracted, **3 never extracted**
+        - 19:11:20 UTC — FedEx "delivered" (same tracking 522569099412): 8
+          rows, 6 extracted, **2 never extracted**
+        - 21:39:09 UTC — Mejuri "The wait is over!": 2 rows, 1 extracted,
+          **1 never extracted**
+      **12 of 52 Emails received that day (23%) have `extractedAt IS
+      NULL` — never even attempted, not attempted-and-failed** (a failed
+      attempt still stamps `extractedAt` per `runExtraction.ts`'s catch
+      block). 27 of the 52 (52%) were part of a duplicate-timestamp
+      cluster at all. Two of the four clusters (15:59, 21:39) were not
+      previously documented anywhere; the 19:11:20 cluster was partially
+      known as "ACE VISALIA RSC ×6" (the Bugs/Infra digest-duplicate
+      item and Decisions log) but that entry only ever counted the 6
+      successfully-extracted duplicates, never the 2 that never
+      extracted at all.
+      **Ruled out:** a bad deploy — zero commits landed on 2026-07-21 at
+      all (last commit before: 2026-07-20T21:52 PT; next: 2026-07-22).
+      DiscardLog shows no spike (4 rows all day, all `non_commerce`,
+      proportionally lower than a quiet-day baseline) — whatever failed,
+      it wasn't over-rejection at the classification/discard layer.
+      **Most likely mechanism, unconfirmed:** the already-logged
+      Anthropic credit-balance outage was measured ending
+      2026-07-20T22:52:46Z, hours before this window — but degraded
+      (not fully down) API behavior extending past that bookend, causing
+      some `runExtraction` calls to hang/time out and the resulting
+      redelivery to land as a new row, is consistent with every cluster
+      showing a MIX of extracted/unextracted outcomes (never clean 0% or
+      100%). **Cannot be confirmed — no runtime/error logs are available
+      this far back**, and there is no other log source with per-request
+      detail (`DiscardLog` carries no per-email identifier).
+      **Cleanup, not yet run:** junk all 12 orphaned rows (match:
+      `receivedAt` within the incident window AND `extractedAt IS
+      NULL`). Small script, mirrors the food-grocery sweep pattern
+      (census → dry-run → owner-approved apply). Needs its own
+      owner-approved dry-run before any write — separate flow from this
+      board update.
 - [ ] **Weekly coverage-check digest junk RECURRED on the 2026-08-07 run —
       NEW FINDING 2026-08-08, READ-ONLY diagnosis (scripts/pm-repro-coverage-
       digest-mckenna*.ts, uncommitted), 0 billed Anthropic calls, 0 writes.
@@ -1947,6 +1993,22 @@
       the write-once `orderDate` backfill.** Wrong-year-extraction shape.
       Archived, deadline past, not user-visible. Deferred: real-old-order
       vs. mis-extraction, read-only.
+- [ ] **`forwardType` classifier undercount — NEW 2026-08-20, found while
+      investigating food-grocery-exclusion's manual-forward exposure
+      (see 👀 Watching entry). Small, no urgency, not fixed.** 58 Emails
+      have a decrypted `fromEmail` that exactly equals the owning
+      `User.email` (the direct signal for "this was a manual forward") —
+      but only 16 of those 58 are classified `forwardType === "manual"`
+      by the existing header heuristic (`classifyForwardType`,
+      `lib/forwardResolver.ts`). Discrepancy: 42. Not investigated
+      further — root cause unknown (could be header-signature gaps in
+      the `+caf_=`/`X-Forwarded-For`/`-To` heuristic, or rows predating
+      `forwardType` tracking entirely that happen to also be
+      self-addressed). Doesn't affect food-grocery-exclusion (that
+      feature doesn't read `forwardType`) — affects any current or
+      future downstream consumer of the field (currently just the
+      anchor-date resolver's `auto`/`manual` branch and the
+      `forwardTypeLabel()` UI string).
 - [ ] **`lookupReturnPolicy` needs a bounded timeout — latent bug, NEW
       2026-08-05, from the Aug-4 backfill.** During that backfill, the
       lookup for retailer "Suzie Kondi" hung near the Anthropic SDK's
@@ -1970,13 +2032,15 @@
       just-shipped establishing-email gate). Store name didn't resolve.
       Read-only identify only when picked up; likely tied to existing
       retailer-lookup/extraction gaps.
-- [ ] **Reconcile grocery entries. POINTER only, NEW 2026-08-13 — not started.**
-      The 2026-08-09 food/grocery-delivery-exclusion task is the live one;
-      confirm the older "Amazon grocery exclusion (Whole Foods / Amazon Fresh)"
-      item was retired/absorbed into it and delete it if still present. That
-      task is NOT STARTED and has two open Step-0 decisions: DoorDash non-food
-      (wholesale-exclude vs. smart) and surface (hidden vs. collapsed "not
-      tracked" section). Whole Foods + Good Eggs bucket rows depend on this.
+- [x] **Reconcile grocery entries. POINTER only, NEW 2026-08-13 — RESOLVED
+      2026-08-21 during main/origin-main reconciliation.** The
+      2026-08-09 food/grocery-delivery-exclusion task (this pointer's
+      "the live one") shipped and is now ✅ Done; the older "Amazon
+      grocery exclusion (Whole Foods / Amazon Fresh)" item has been
+      marked RETIRED (🔴 Now) as part of this same merge, confirming
+      this pointer's own ask. Its two named Step-0 decisions (DoorDash
+      wholesale-exclude, junk-surface choice) were both resolved as part
+      of shipping the live task — see that entry's Done write-up.
 - [ ] **Extraction flow = TWO separate efforts, do not conflate. POINTER only,
       NEW 2026-08-13 — not started.** (i) Amazon old-style/template-break
       extraction bug — orders with real order numbers not matching (bucket
@@ -2041,6 +2105,34 @@
       users — fix the gate so it only shows on a verified return number.
       **Note: the live-correctness angle (a button that may point users at
       the wrong tracking number today) is reason not to let this sit.**
+- [ ] **Ingestion observability + recovery. NEW 2026-08-20 — not scoped,
+      waiting on owner priority.** Direct predecessor: the 2026-07-21
+      ingestion incident (🐛 Bugs, Trust-breaking) could not be
+      root-caused because no per-request logging existed at any
+      ingestion stage — `DiscardLog` carries no per-email identifier, no
+      other log source has per-request detail, and by the time this was
+      investigated (2026-08-20) Vercel's own runtime logs had long since
+      aged out. Its 12 rows of debris sat undetected for a month because
+      nothing auto-recovers a stuck `extractedAt: null` row. Two-part
+      scope, cost/shape TBD in its own scoping session: (a) per-request
+      logging at each ingestion stage (webhook receipt, commerce
+      classification, row creation, extraction) sufficient to diagnose a
+      future incident like 7/21 while it's still in the log-retention
+      window; (b) an auto-recovery mechanism for rows that end up with
+      `extractedAt IS NULL` past some threshold — a retry, not just
+      visibility. Both future incidents and their downstream data damage
+      (silently orphaned rows, invisible to users and to the
+      needs-review queue alike) depend on this existing at some point.
+- [ ] **User-findable junk view. NEW 2026-08-18 — not started.** Junked
+      Emails (marketing, non-commerce, food/grocery per the food+grocery
+      exclusion task in 🔴 Now) are currently admin-rescuable only.
+      Owner wants a user-facing surface: findable but deliberately
+      harder than Archive — not top-nav, not a dashboard filter; think
+      settings-adjacent or a deep-link page. Shape TBD. Adjacent to the
+      existing admin cross-user junk/rescue view (blocked on mocks,
+      ~line 2022) — may share components. Not part of the food+grocery
+      exclusion build; that task ships without this and this ships when
+      specced.
 - [ ] **Amazon extraction broken — order-email template change. NEW
       2026-07-25, owner-reported. DEPRIORITIZED 2026-07-29, owner
       decision — moved from 🔴 Now, stays open.** Amazon has changed its
@@ -2795,6 +2887,24 @@
       menus) only. No filter dropdowns, no cross-bucket counts, no nudges toward active
       orders. Archive is a quiet room, not another dashboard.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Manual-forward exposure for food/grocery exclusion — NEW
+      2026-08-20, investigated, zero exposure found.** The sender-domain
+      pre-junk layer (`shouldAutoJunk`'s `fromDomain` check) is
+      structurally blind for manually-forwarded emails: the From header
+      becomes the user's own address, not the retailer's, so a manual
+      forward of a real food/grocery email would slip past that layer
+      (the retailer-name backstop is unaffected — it reads the
+      AI-extracted `retailer`, not the sender). Checked all 58 Emails
+      where decrypted `fromEmail` exactly equals the owning `User.email`
+      (the manual-forward signal): parsed the quoted inner `From:` line
+      from the body for 57 of 58, and checked subject/body content
+      against every enumerated food/grocery name for all 58. **Zero
+      exposure — 58/58 are real, unrelated retailers** (Old Navy,
+      Tuckernuck, Nordstrom, Shopbop, Chan Luu, etc.); one content match
+      ("caviar") is the same Chan Luu jewelry false positive documented
+      elsewhere, not a real Caviar-app email. **Revisit trigger: a real
+      food/grocery manual-forward lands in the needs-review bucket** —
+      until then this is a latent, not demonstrated, gap.
 - [ ] **P0 cross-user data exposure (Wayfair + On) — MOVED here 2026-08-06
       from 🔴 Now, owner decision: not a systemic bug, don't build a fix
       now.** Diagnosed 2026-07-28 (mechanism traced to the byte, full
@@ -2961,6 +3071,49 @@
       the gate, 12 by staleness. Owner-verified. ✅**
       Original 🔴 Now entry, preserved verbatim below, not edited in place:
 - [ ] Coverage-check new-purchase-signal gate — PROMOTED TO 🔴 Now 2026-08-16; closes candidate fix (a) from the 08-08 entry. Purchase list counts only orders backed by a purchase signal, not "any order that entered the window." Locked decision (owner 2026-08-16): DROP duplicate/non-establishing orphans; do NOT relabel. Gate on "order has ≥1 establishing email"; an order whose only emails are `refund`/`return_label`/`other` (the #2523415500 orphan class) is dropped, not given a "return received" line — relabeling a phantom Order just gives a phantom its own line. Preserve `emailType: null` extraction-failure visibility — those stay, that's the QA net's job (08-07 flood). Replaces null-defaults-to-inclusion as the primary mechanism (an establishing email, not a non-null `orderDate`, is the "you bought this" test), so it's robust when `orderDate` is legitimately null or corrupted. Confirmed this session: the $350.65 J.Crew line traces only to orphan #2523415500 (no establishing email) → gate folds it out; also the interim containment for the deferred same-order-two-numbers matching bug. `app/api/cron/weekly-coverage/route.ts` only; no data writes. VERIFY BY: coverage repro against the real send window (read-only, no send) — orphans gone, extraction-failure rows present; then next real Friday digest clean. NOT via `?force=true`. Not ✅ until owner confirms the real digest.
+- [x] **Food + grocery delivery exclusion (category-level) — DONE
+      2026-08-20, all five prod verifications green. ✅** Two-layered
+      detection: (a) sender-domain pre-junk in `shouldAutoJunk`
+      (`lib/junk.ts`), wired into `app/api/inbound/route.ts` ahead of the
+      Haiku classifier — enumerated list (doordash.com, ubereats.com,
+      grubhub.com, instacart.com, postmates.com, caviar.com,
+      wholefoodsmarket.com, goodeggs.com), dot-boundary matching, cost win
+      (matched senders skip both Haiku and Sonnet); (b) retailer-name
+      backstop in `linkEmailToOrder` (`lib/linkOrder.ts`) for Amazon-brand
+      food services (Amazon Fresh, Whole Foods Market) that share
+      Amazon's generic sender domain. Named constants + matchers in new
+      `lib/foodGroceryExclusion.ts`. `lib/extract.ts`'s
+      `lookupReturnPolicy` gate also skips the billed lookup for
+      Amazon-brand food. Step 0 census owner-approved 2026-08-19; Step 1
+      built and merged to `main` (`4aa0a31`, `--no-ff`, 3-commit split
+      preserved: code `b5434a0`, audit-trail scripts `4d9f8c9`, board
+      `6ec1b3a`) and deployed; Step 2 historical sweep dry-run reviewed
+      then applied 2026-08-19 — **10 Emails junked, 4 Orders deleted
+      (both mid-flow rows, Whole Foods Market `cmruuzq6z0003jx04yy5dogqv`
+      and Amazon Fresh `cms2lbw7j0009w9mqt8cghqni`, reconfirmed before
+      delete), 4 Reminders orphaned** (accepted precedent, no cleanup
+      step — matches how `lib/autoArchive.ts` already treats hidden
+      orders' reminders). 569/569 tests passing, `npm run build` clean
+      throughout.
+      **All five VERIFY BY criteria confirmed green in production,
+      2026-08-20:** (1) Amazon Fresh 2026-08-04 past-deadline row no
+      longer on dashboard (deleted by the sweep); (2) no grocery rows in
+      the needs-review bucket; (3) post-deploy, a real DoorDash email
+      arrived and was pre-junked within 10 seconds, zero Anthropic spend
+      (confirmed against the row directly, `junkedAt` 10s after
+      `receivedAt`); (4) no new grocery rows in needs-review since
+      deploy; (5) needs-review-bucket rebuild (~line 1973-1976 note)
+      unblocked as designed.
+      **Correction, logged so it isn't re-litigated:** 3 Whole Foods
+      Market rows visible in unlinked-emails were originally attributed
+      to a food-grocery-exclusion miss (retailer-based census blind
+      spot). Two follow-up investigations (2026-08-20) reclassified
+      them: they're 3 of 12 rows orphaned by the **2026-07-21 ingestion
+      incident** (🐛 Bugs, below) — `runExtraction` never ran on them at
+      all, so neither exclusion layer ever had a `retailer` or
+      `fromDomain` to check. Not a food-grocery-exclusion failure; the
+      feature was never in a position to catch these three. See the new
+      Bug entry for the full incident trace and cleanup plan.
 - [x] **`runExtraction.ts:8` findUnique-gap fix — DEPLOYED & VERIFIED
       2026-08-08 — object-passing fix for the inbound route (id-based
       callers now catch the re-fetch failure too). Tests + build clean

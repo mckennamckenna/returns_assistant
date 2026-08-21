@@ -10,6 +10,19 @@ export const dynamic = "force-dynamic";
 const REMINDER_TYPE = "weekly_coverage_check";
 const LOOKBACK_DAYS = 7;
 
+// Mirrors lib/linkOrder.ts's ALLOWED_FALLBACK_EMAIL_TYPES — an order backed
+// by one of these is a real purchase; an order backed only by
+// refund/return_label/other (never an order_confirmation, shipping_confirmation,
+// or delivery) is a duplicate/orphan of a real order elsewhere, not a
+// purchase of its own (2026-08-16: the #2523415500 class — a lone refund
+// email spawned a brand-new Order instead of matching its real original).
+// This is the "you bought this" test now, not a non-null orderDate — an
+// order's orderDate can be legitimately null (fallback couldn't resolve
+// one) or, before the write-once fix, corrupted by a later non-establishing
+// email; neither should decide inclusion on its own. Duplicated here rather
+// than imported so this route's purchase-signal logic stays self-contained.
+const ESTABLISHING_EMAIL_TYPES = ["order_confirmation", "shipping_confirmation", "delivery"];
+
 function formatCurrency(total: number | null, currency: string | null): string | null {
   if (total == null) return null;
   try {
@@ -121,31 +134,57 @@ export async function GET(request: NextRequest) {
     try {
       const recentEmails = await prisma.email.findMany({
         where: { userId: user.id, receivedAt: { gte: lookbackStart }, ...JUNK_FILTER },
-        include: { order: { select: { retailer: true, orderTotal: true, orderCurrency: true, orderDate: true } } },
+        include: {
+          order: {
+            select: {
+              retailer: true,
+              orderTotal: true,
+              orderCurrency: true,
+              orderDate: true,
+              // Existence check only (take: 1) — is this order backed by
+              // ANY establishing email across its whole history, not just
+              // ones received this week. See ESTABLISHING_EMAIL_TYPES above.
+              emails: { where: { emailType: { in: ESTABLISHING_EMAIL_TYPES } }, select: { id: true }, take: 1 },
+            },
+          },
+        },
       });
 
       // Dedupe by order — several emails (confirmation, shipping,
       // delivery) about the same order this week should produce one
       // line, not one per email. Unlinked emails fall back to the
-      // email's own retailer field, one line each.
+      // email's own retailer field, one line each — unchanged by this
+      // gate: an emailType:null extraction-failure row has no orderId at
+      // all, so it never reaches the linked branch below. Those stay
+      // visible on purpose (the QA net's job — the 2026-08-07 flood
+      // finding), only linked orphans are subject to the new gate.
       //
-      // Linked emails are additionally filtered on the ORDER's own
-      // placedDate (Order.orderDate), not the triggering email's
-      // receivedAt — otherwise an order placed weeks ago whose delivery
-      // email merely arrived this week reads as a new purchase. orderDate
-      // already resolves the right "placed" signal end-to-end
-      // (applyFallbackOrderDate, lib/linkOrder.ts): it's derived from the
-      // EARLIEST linked email, never a later one like a delivery notice,
-      // and only from an allowed emailType. Only exclude on positive
-      // evidence the order predates this week's window — a null
-      // placedDate (fallback couldn't resolve one) defaults to inclusion
-      // rather than silently hiding a real this-week purchase.
+      // Linked emails must clear TWO checks, in order:
+      // 1. Purchase-signal gate — the order must have at least one
+      //    establishing email (order_confirmation/shipping_confirmation/
+      //    delivery) somewhere in its history. An order backed only by
+      //    refund/return_label/other never counts as "you bought this" —
+      //    it's dropped outright, not relabeled with different copy,
+      //    since a relabeled line still gives a duplicate/orphan Order its
+      //    own line in the digest. This replaces null-defaults-to-inclusion
+      //    as the primary purchase test: it doesn't matter whether
+      //    orderDate is null or even corrupted, only whether real purchase
+      //    evidence exists anywhere on the order.
+      // 2. Staleness check — the ORDER's own placedDate (Order.orderDate),
+      //    not the triggering email's receivedAt — otherwise an order
+      //    placed weeks ago whose delivery email merely arrived this week
+      //    reads as a new purchase. Only excludes on positive evidence the
+      //    order predates this week's window; a null placedDate on an
+      //    order that already passed gate 1 (so real purchase evidence
+      //    exists, just no resolved date) still defaults to inclusion.
       const seenOrderIds = new Set<string>();
       const items: CoverageItem[] = [];
       for (const email of recentEmails) {
         if (email.orderId) {
           if (seenOrderIds.has(email.orderId)) continue;
           seenOrderIds.add(email.orderId);
+          const hasEstablishingEmail = (email.order?.emails?.length ?? 0) > 0;
+          if (!hasEstablishingEmail) continue;
           const placedDate = email.order?.orderDate ?? null;
           if (placedDate !== null && placedDate < lookbackStart) continue;
           items.push({

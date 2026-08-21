@@ -6,6 +6,7 @@ import { resolveBodyText } from "@/lib/emailBodyText";
 import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displayStatus";
 import { parseTracking } from "@/lib/trackingParser";
 import { shouldAutoJunk } from "@/lib/junk";
+import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
 
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
@@ -494,9 +495,24 @@ async function resolveOrderTotal(existing: Order, email: Email): Promise<number 
 // paths: an existing Order gets enriched with whatever the new email adds, never
 // blindly overwritten. Exported so the backfill script can call it directly,
 // bypassing the normal match step entirely.
+//
+// orderDate is write-once, not last-write-wins: once set, no later email of
+// any type — including another establishing one — may change it. A
+// same-type allowlist ("only order_confirmation/shipping_confirmation/
+// delivery may set orderDate") is NOT enough on its own: a shipping order's
+// own delivery email can arrive after its order_confirmation and carry a
+// later date, and both are establishing types, so an overwrite-permitted
+// allowlist would still silently replace a correct date with a wrong later
+// one (confirmed against a real production row, 2026-08-16 — see
+// TASKS.md). The establishing-type gate (ALLOWED_FALLBACK_EMAIL_TYPES,
+// above) still matters, but only for deciding what may set orderDate the
+// FIRST time; once set, it's frozen regardless of the type of any
+// subsequently-linked email.
 export async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
   const emailLineItems = asLineItemArray(email.lineItems);
-  const mergedOrderDate = email.orderDate ?? existing.orderDate;
+  const isEstablishingEmail = ALLOWED_FALLBACK_EMAIL_TYPES.has(email.emailType ?? "");
+  const establishesOrderDateNow = existing.orderDate == null && isEstablishingEmail && email.orderDate != null;
+  const mergedOrderDate = existing.orderDate ?? (isEstablishingEmail ? email.orderDate : null);
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
   const mergedEstimatedDeliveryDate = email.estimatedDeliveryDate ?? existing.estimatedDeliveryDate;
   const mergedDeliveredAt = email.deliveredAt ?? existing.deliveredAt;
@@ -518,11 +534,12 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
     where: { id: existing.id },
     data: {
       orderDate: mergedOrderDate,
-      // A genuinely-extracted orderDate on the new email always supersedes a
-      // prior fallback guess (mergedOrderDate above already prefers it) —
-      // so the estimated flag must clear in the same case, or it goes stale
-      // and keeps flagging a now-real date as inferred.
-      orderDateEstimated: email.orderDate ? false : existing.orderDateEstimated,
+      // Clears only the first time orderDate is genuinely established from
+      // an establishing email (establishesOrderDateNow) — a real stated
+      // date, not inferred, so orderDateEstimated should read false from
+      // that point on. In every other case orderDate isn't moving this
+      // merge (write-once), so the existing flag is left exactly as it was.
+      orderDateEstimated: establishesOrderDateNow ? false : existing.orderDateEstimated,
       deliveryDate: mergedDeliveryDate,
       estimatedDeliveryDate: mergedEstimatedDeliveryDate,
       deliveredAt: mergedDeliveredAt,
@@ -620,6 +637,22 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
 export async function linkEmailToOrder(emailId: string, returnPortalUrl: string | null = null): Promise<void> {
   const email = await prisma.email.findUnique({ where: { id: emailId } });
   if (!email) return;
+
+  // Retailer-name backstop (Food + grocery delivery exclusion, TASKS.md
+  // 🔴 Now, 2026-08-18) — Amazon Fresh / Whole Foods Market arrive from
+  // Amazon's generic order-update@amazon.com, so they can't be caught by
+  // the sender-domain pre-junk in shouldAutoJunk (lib/junk.ts) without
+  // also junking every real Amazon order. Checked here instead, on the
+  // retailer name extraction already resolved, before any order-matching
+  // or order-creation logic below runs — a match never reaches an Order.
+  // Idempotency guard mirrors the orphaned-"other" branch further down:
+  // never overwrite an existing junkedAt.
+  if (isFoodGroceryRetailer(email.retailer)) {
+    if (email.junkedAt == null) {
+      await prisma.email.update({ where: { id: emailId }, data: { junkedAt: new Date() } });
+    }
+    return;
+  }
 
   // A refund email with no order number (Bugs 9+10: Shopbop and H&M both
   // did this) still gets a shot at linking via findRefundFallbackOrder

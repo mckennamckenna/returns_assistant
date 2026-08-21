@@ -80,13 +80,19 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+// Every fixture below that represents a real purchase carries a non-empty
+// `emails` array on its `order` object — the establishing-email gate
+// (2026-08-16) now requires it. `HAS_ESTABLISHING` is deliberately opaque
+// (id only) since the gate only checks presence, not content.
+const HAS_ESTABLISHING = [{ id: "establishing_email_1" }];
+
 describe("weekly coverage-check — linked orders filtered by placedDate, not triggering email", () => {
   it("1. a linked order placed this week is included", async () => {
     mockEmailFindMany.mockResolvedValue([
       makeEmail({
         orderId: "order_1",
         receivedAt: THIS_WEEK,
-        order: { retailer: "Emme Parsons", orderTotal: 40, orderCurrency: "USD", orderDate: THIS_WEEK },
+        order: { retailer: "Emme Parsons", orderTotal: 40, orderCurrency: "USD", orderDate: THIS_WEEK, emails: HAS_ESTABLISHING },
       }),
     ]);
 
@@ -109,6 +115,7 @@ describe("weekly coverage-check — linked orders filtered by placedDate, not tr
           orderTotal: 40,
           orderCurrency: "USD",
           orderDate: THREE_WEEKS_AGO, // ...but the order itself was placed weeks ago
+          emails: HAS_ESTABLISHING, // clears the establishing gate — this test isolates the staleness check alone
         },
       }),
     ]);
@@ -123,7 +130,7 @@ describe("weekly coverage-check — linked orders filtered by placedDate, not tr
   });
 
   it("3. a linked order placed this week with confirmation + shipping emails both this week still dedupes to one line", async () => {
-    const order = { retailer: "Mejuri", orderTotal: 80, orderCurrency: "USD", orderDate: THIS_WEEK };
+    const order = { retailer: "Mejuri", orderTotal: 80, orderCurrency: "USD", orderDate: THIS_WEEK, emails: HAS_ESTABLISHING };
     mockEmailFindMany.mockResolvedValue([
       makeEmail({ id: "email_conf", orderId: "order_mejuri", receivedAt: THIS_WEEK, order }),
       makeEmail({ id: "email_ship", orderId: "order_mejuri", receivedAt: THIS_WEEK, order }),
@@ -150,12 +157,12 @@ describe("weekly coverage-check — linked orders filtered by placedDate, not tr
     expect(textBody).toContain("SilkSilky");
   });
 
-  it("5. a linked order whose placedDate is indeterminate (orderDate null) is included, not silently dropped", async () => {
+  it("5. a linked order whose placedDate is indeterminate (orderDate null) but WITH a real establishing email is included, not silently dropped", async () => {
     mockEmailFindMany.mockResolvedValue([
       makeEmail({
         orderId: "order_indeterminate",
         receivedAt: THIS_WEEK,
-        order: { retailer: "Good Eggs", orderTotal: null, orderCurrency: null, orderDate: null },
+        order: { retailer: "Good Eggs", orderTotal: null, orderCurrency: null, orderDate: null, emails: HAS_ESTABLISHING },
       }),
     ]);
 
@@ -165,6 +172,37 @@ describe("weekly coverage-check — linked orders filtered by placedDate, not tr
     expect(body.sent[0].orderCount).toBe(1);
     const textBody = mockSendEmail.mock.calls[0][0].textBody as string;
     expect(textBody).toContain("Good Eggs");
+  });
+
+  it("5b. a linked order with NO establishing email anywhere is dropped, even though orderDate is null (the #2523415500 orphan class) — NEW 2026-08-16", async () => {
+    mockEmailFindMany.mockResolvedValue([
+      makeEmail({
+        orderId: "order_orphan_refund",
+        receivedAt: THIS_WEEK,
+        order: { retailer: "J.Crew", orderTotal: 350.65, orderCurrency: "USD", orderDate: null, emails: [] },
+      }),
+    ]);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(body.sent[0].orderCount).toBe(0);
+    const textBody = mockSendEmail.mock.calls[0][0].textBody as string;
+    expect(textBody).not.toContain("J.Crew");
+    expect(textBody).toContain("We didn't receive any shopping emails from you this week.");
+  });
+
+  it("5c. an extraction-failure row (emailType: null, unlinked) is still included — the QA net's job, unaffected by the establishing gate — NEW 2026-08-16", async () => {
+    mockEmailFindMany.mockResolvedValue([
+      makeEmail({ orderId: null, receivedAt: THIS_WEEK, retailer: null, order: null }),
+    ]);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(body.sent[0].orderCount).toBe(1);
+    const textBody = mockSendEmail.mock.calls[0][0].textBody as string;
+    expect(textBody).toContain("an unknown retailer");
   });
 
   it("6a. dedup: a user already sent this scheduled week is skipped, no send, no new Reminder row", async () => {
@@ -185,7 +223,7 @@ describe("weekly coverage-check — linked orders filtered by placedDate, not tr
       makeEmail({
         orderId: "order_1",
         receivedAt: THIS_WEEK,
-        order: { retailer: "Emme Parsons", orderTotal: 40, orderCurrency: "USD", orderDate: THIS_WEEK },
+        order: { retailer: "Emme Parsons", orderTotal: 40, orderCurrency: "USD", orderDate: THIS_WEEK, emails: HAS_ESTABLISHING },
       }),
     ]);
 
