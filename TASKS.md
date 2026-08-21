@@ -1791,6 +1791,20 @@
       reads (traced per call site, not guessed) on the 6 in-scope
       locations above. Building on branch `fix-missing-select-bandwidth`;
       owner reviews diff before merge. See 🔴 Now for the active pointer.
+      **Design note, owner-flagged 2026-08-21, not urgent — carry into
+      the Done write-up at merge:** `lib/linkOrder.ts:697-727`
+      (`linkEmailToOrder`'s entry fetch) has the widest `select` of the
+      six by design, not oversight — the fetched row flows whole into
+      four callees (`mergeEmailIntoOrder`, `createOrderFromEmail`,
+      `applyShippingTracking`/`applyReturnTracking` via their narrowed
+      `Pick<Email,...>` param types, plus `findRefundFallbackOrder`),
+      so its select is the union of what all four need, not any single
+      caller's minimal set. A future pass could split this into a
+      per-callee narrower fetch (e.g. only pulling `textBody`/`htmlBody`
+      when `emailType` is actually `shipping_confirmation`/
+      `return_label`, in a second conditional query) for a further
+      bandwidth cut, at the cost of an extra round-trip on the common
+      path. Not scoped or built here — record only.
       Slug: `missing-select-email-order-queries`.
 - [ ] **Follow-up (low priority): `weekly-coverage` cron fetches full
       `Email` rows with no select — split out of the missing-select
