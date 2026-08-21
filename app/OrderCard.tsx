@@ -17,6 +17,32 @@ import { computeOrderCardState, orderCardChip, orderCardActions, REFUND_AMOUNT_F
 // (app/AmazonBundleCard.tsx's `.slice(0, 5)`), don't invent a second number.
 const LINE_ITEM_OVERFLOW_LIMIT = 5;
 
+// Exactly the Order fields this component reads — lets callers with a
+// trimmed `select` (e.g. lib/alerts.ts's getAlertOrders) satisfy this prop
+// without fetching the whole row. A full `Order` object still satisfies
+// this type structurally, so callers that do fetch full rows (the main
+// dashboard list) are unaffected.
+export type OrderCardOrder = Pick<
+  Order,
+  | "id"
+  | "retailer"
+  | "orderNumber"
+  | "displayStatus"
+  | "deliveredAt"
+  | "estimatedDeliveryDate"
+  | "returnDeadline"
+  | "orderTotal"
+  | "orderCurrency"
+  | "lineItems"
+  | "returnCarrier"
+  | "returnPortalUrl"
+  | "archivedAt"
+  | "trackingNumber"
+  | "trackingUrl"
+  | "returnTrackingNumber"
+  | "returnTrackingUrl"
+>;
+
 function formatDate(date: Date | null): string {
   if (!date) return "—";
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -50,7 +76,7 @@ function itemSummary(lineItems: unknown): string | null {
 // Slot 2 (context) per CARD_SPEC.md Part 2's table — it's state-driven too,
 // not just slots 3/4: return_started swaps to the return-carrier line, kept/
 // complete drop context entirely, everything else shows items · price.
-function slotTwoContext(order: Order, itemSummaryText: string | null): string | null {
+function slotTwoContext(order: OrderCardOrder, itemSummaryText: string | null): string | null {
   const state = computeOrderCardState(order);
   switch (state) {
     case "return_started":
@@ -68,7 +94,7 @@ function slotTwoContext(order: Order, itemSummaryText: string | null): string | 
 // are a pure function of computeOrderCardState() (lib/orderCardState.ts,
 // CARD_SPEC.md Part 2) — no other code path computes them, which is the
 // structural fix for the "Kept + countdown" class of bug.
-export function OrderCard({ order, now }: { order: Order; now: Date }) {
+export function OrderCard({ order, now }: { order: OrderCardOrder; now: Date }) {
   const [expanded, setExpanded] = useState(false);
 
   const state = computeOrderCardState(order);

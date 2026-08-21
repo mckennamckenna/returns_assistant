@@ -1968,6 +1968,72 @@
       picked the less-complete value over the more-complete one. Investigation
       only — confirm which merge rule in `lib/linkOrder.ts`/`lib/extract.ts`
       chose `$42.75` over `$46.76` before any change.
+- [ ] **[Low] "View all" next to the closing-soon alerts badge doesn't
+      visibly filter — NEW 2026-08-21, owner-reported, verified in both
+      preview and production, pre-existing/unrelated to the same-day
+      missing-select fix. Not fixed tonight — symptom only, root cause
+      not confirmed.** Clicking the "View all" button next to the
+      "Due in the next 7 days" summary navigates to
+      `/?status=closing_soon` but the dashboard doesn't visibly apply a
+      filter. **Component locations for whoever picks this up:** the
+      button itself is `SummaryCard`'s `href` prop
+      (`app/SummaryCard.tsx:39-44`, "View all" link), wired from
+      `app/(app)/page.tsx:183` (`href="/?status=closing_soon"`). **Flag
+      for whoever picks this up:** on inspection, `page.tsx:71` does read
+      `params.status` and `page.tsx:140` does apply a `closing_soon`
+      branch (`if (statusFilter === "closing_soon") return
+      isClosingSoon(order, now);`) to the rendered order list — so
+      "the parameter is never read" is NOT confirmed as the cause; this
+      logic looked correct on a code read alone. Actual cause unconfirmed
+      — candidates not yet checked: stale client-side navigation cache on
+      a same-route search-param change, a test-data condition where the
+      visible set already equaled the closing-soon set, or something
+      client-observable only (network tab / actual RSC payload), not a
+      static-code-read bug. Low priority — button just doesn't do what
+      the user expects, no wrong data shown.
+- [ ] **[Medium] `/alerts` nav link greyed out and unclickable — NEW
+      2026-08-21, owner-reported during click-through, verified in both
+      preview and production, pre-existing/unrelated to the same-day
+      missing-select fix. Not fixed tonight. Higher priority than the
+      "View all" bug above — this blocks reaching a whole page of the
+      app via navigation, not just one filtered view.** **Root cause
+      confirmed on desktop, unlike the bug above:** `app/Sidebar.tsx:57-
+      64` renders the "Alerts" nav item as a plain `<span
+      className="... text-muted ... cursor-default ...">`, NOT a
+      `<Link href="/alerts">` — every other Sidebar item (`Dashboard`,
+      `Archived`, `Settings`, `Privacy`) is a real `<Link>`. It still
+      renders the live `alertCount` badge next to it
+      (`Sidebar.tsx:59-63`), which is what makes it read as a real,
+      broken nav item rather than a deliberate placeholder — contrast
+      with `ComingSoonItem` (`Sidebar.tsx:7-16`), the actual
+      not-yet-built pattern, which is also a non-link `<span>` but
+      carries an explicit "Soon" pill so it doesn't look broken.
+      **Mobile looks unaffected on inspection:** `app/BottomNav.tsx:50-
+      59`'s "Alerts" tab IS a real `<Link href="/alerts">` — not
+      independently verified live, flagging only that the code doesn't
+      show the same defect there. Whoever picks this up: confirm mobile
+      before assuming this is desktop-only. `/alerts` itself
+      (`app/(app)/alerts/page.tsx`) was not touched by tonight's fix and
+      renders fine when reached directly by URL — this is a nav-wiring
+      gap, not a page bug.
+- [ ] **[Low] Timezone off-by-one in `orderCardChip`'s Arrives-date label —
+      NEW 2026-08-21, found while verifying the main/origin-main
+      reconciliation merge. Pre-existing on local `main`'s own prior
+      unpushed card-geometry commits, becomes visible in production for
+      the first time via tonight's push. Not fixed tonight, per owner
+      decision — logged instead, same treatment as the two nav bugs
+      above.** `lib/orderCardState.ts:93`'s `awaiting_delivery` chip
+      formats `estimatedDeliveryDate` via
+      `toLocaleDateString(undefined, ...)`, which renders in the
+      server's local timezone — a UTC-midnight date rolls back a day in
+      any negative UTC-offset zone. Confirmed via
+      `__tests__/orderCardState.test.ts`: `new Date("2026-08-15T00:00:00Z")`
+      renders as "Arrives Aug 14", not "Arrives Aug 15" (1 test failing,
+      known, not a regression from this merge — file byte-identical to
+      its pre-merge state on local `main`). **Fix (not applied):**
+      format using the date's UTC components instead of local timezone.
+      Low priority — display-only, users see the date off by one day at
+      most, not blocking.
 
 ### Cosmetic
 - **RESOLVED 2026-07-20 (see 🔴 Now):** ~~Sidebar account email truncates
@@ -2023,6 +2089,31 @@
       `lookupReturnPolicy` (`lib/extract.ts`) that fails the row to
       `needsReview` instead of hanging. Real production code change — its
       own small pass, not built here. Slug: `lookup-return-policy-timeout`.
+- [ ] **Follow-up (low priority): `weekly-coverage` cron fetches full
+      `Email` rows with no select — split out of the missing-select
+      bandwidth bug 2026-08-20, deliberately NOT built in that pass.**
+      `app/api/cron/weekly-coverage/route.ts`'s `email.findMany` (all
+      users' recent-window emails, once/week) selects the nested `order`
+      relation but not the outer `Email` fields — full `textBody`/
+      `htmlBody`/`rawJson` per row. Weekly frequency, not page-load
+      frequency, so lower priority than the 2026-08-20 fix. Same
+      remediation shape: trace what the digest content actually reads
+      off each email and add a matching `select`.
+- [ ] **Follow-up (low priority): order-detail page fetches full linked
+      `Email` rows with no select — split out of the missing-select
+      bandwidth bug 2026-08-20, deliberately NOT built in that pass.**
+      `app/(app)/orders/[id]/page.tsx`'s `order.findUnique({ include: {
+      emails: {...} } })` has no `select` on the nested `emails` —
+      fetches every column, including `textBody`/`htmlBody`/`rawJson`,
+      for every email linked to the order being viewed. Per-order-detail-
+      view frequency only (one order at a time), not a hot path.
+- [ ] **Follow-up (low priority): admin split-order review action fetches
+      full linked `Email` rows with no select — split out of the
+      missing-select bandwidth bug 2026-08-20, deliberately NOT built in
+      that pass.** `lib/orderReview.ts`'s `order.findUnique({ include: {
+      emails: true } })` (the split-order admin action) has the same
+      unselected-include pattern. Admin-only, rare action — lowest
+      priority of the three deferred locations.
 
 ## 🟡 Next
 - [ ] **Unknown retailer in weekly digest. POINTER only, NEW 2026-08-19 —
@@ -3071,6 +3162,78 @@
       the gate, 12 by staleness. Owner-verified. ✅**
       Original 🔴 Now entry, preserved verbatim below, not edited in place:
 - [ ] Coverage-check new-purchase-signal gate — PROMOTED TO 🔴 Now 2026-08-16; closes candidate fix (a) from the 08-08 entry. Purchase list counts only orders backed by a purchase signal, not "any order that entered the window." Locked decision (owner 2026-08-16): DROP duplicate/non-establishing orphans; do NOT relabel. Gate on "order has ≥1 establishing email"; an order whose only emails are `refund`/`return_label`/`other` (the #2523415500 orphan class) is dropped, not given a "return received" line — relabeling a phantom Order just gives a phantom its own line. Preserve `emailType: null` extraction-failure visibility — those stay, that's the QA net's job (08-07 flood). Replaces null-defaults-to-inclusion as the primary mechanism (an establishing email, not a non-null `orderDate`, is the "you bought this" test), so it's robust when `orderDate` is legitimately null or corrupted. Confirmed this session: the $350.65 J.Crew line traces only to orphan #2523415500 (no establishing email) → gate folds it out; also the interim containment for the deferred same-order-two-numbers matching bug. `app/api/cron/weekly-coverage/route.ts` only; no data writes. VERIFY BY: coverage repro against the real send window (read-only, no send) — orphans gone, extraction-failure rows present; then next real Friday digest clean. NOT via `?force=true`. Not ✅ until owner confirms the real digest.
+- [x] **Missing `select` on Email/Order Prisma queries — Neon bandwidth-
+      quota fix. DONE 2026-08-21, code-complete/tested/merged to `main`
+      via branch `fix-missing-select-bandwidth`; production
+      bandwidth-reduction confirmation (Neon transfer trend) still
+      pending — not observable from a single deploy, needs a few days
+      of real traffic.** Root cause: Neon's free-tier 5 GB/month transfer
+      quota hit 100% (5.32 GB, cycle started 2026-07-31) on a
+      low-request-volume app. **Smoking gun:** `app/(app)/page.tsx`'s
+      orphaned-emails dashboard query had no `select` — fetched full
+      `Email` rows (`textBody`/`htmlBody`/`rawJson`, avg ~438 KB combined
+      per row, `rawJson` alone avg ~236 KB, max ~688 KB) on every
+      dashboard load (`force-dynamic`, app's home route). One active
+      account had 35 visible orphaned emails (~15 MB in that one query on
+      one page load).
+      **Fixed, 6 locations, each `select` traced from actual caller
+      usage, not guessed** (full field-by-field mapping reviewed with
+      owner before merge): `app/(app)/page.tsx`'s orphaned-emails query;
+      `lib/alerts.ts`'s `getAlertOrders` (`OrderCard`'s prop type
+      narrowed to a new exported `OrderCardOrder = Pick<Order,...>` so
+      both this trimmed query and the dashboard's full-row order list
+      satisfy it); and four spots in `lib/linkOrder.ts` —
+      `resolveFallbackOrderDate`, `rebuildOrderFromRemainingEmails`,
+      `resolveOrderTotal`, and `linkEmailToOrder`'s entry fetch (the
+      latter two surfaced by a codebase-wide sweep, both fire on every
+      ingested email, added to scope same file/same PR).
+      `mergeEmailIntoOrder`, `createOrderFromEmail`,
+      `applyShippingTracking`, and `applyReturnTracking` now take
+      narrowed `Pick<Email,...>` types instead of the full `Email` model.
+      **Design note:** `linkEmailToOrder`'s entry fetch has the widest
+      select of the six by design — the row flows whole into four
+      callees, so its select is the union of what all four need, not any
+      single caller's minimal set. A future pass could split it into a
+      per-callee narrower fetch; not scoped here.
+      **Deferred to follow-up, not built in this pass** (see 🐛 Bugs →
+      Infra/reliability, 3 separate entries): `weekly-coverage` cron's
+      `email.findMany`, the order-detail page's unselected nested
+      `emails` include, `orderReview.ts`'s split-action include — all
+      lower-frequency than the 6 fixed.
+      **Verification:** zero new TypeScript errors (confirmed against a
+      stashed baseline — 22 pre-existing errors, all unrelated, identical
+      before/after); full test suite 569/569 passing; `npm run build`
+      clean. Manual click-through coverage was partial: the `/alerts`
+      page render couldn't be manually verified (blocked by the
+      pre-existing nav-link bug logged below) and the orphaned-email
+      snippet render couldn't be verified against real data (owner has
+      too few orphan rows to see one) — for both, correctness coverage
+      comes from TypeScript compilation itself: a `select` missing a
+      field the JSX or a callee reads would have failed `tsc`/`next
+      build`, and neither did.
+      **Two pre-existing bugs found during click-through review, logged
+      separately below, confirmed NOT caused by this change** (parity
+      between preview and already-live production): the "View all"
+      closing-soon link and the `/alerts` sidebar nav item.
+      Investigation bandwidth cost: 2 server-side aggregate queries
+      (~15 scalar values), effectively zero against the quota. Slug:
+      `missing-select-email-order-queries`.
+      **Correction from the 2026-08-21 main/origin-main reconciliation
+      merge (see that merge commit):** local `main`'s previously-
+      unpushed card-geometry work (`app/OrderCard.tsx`,
+      `app/(app)/page.tsx`) had independently redesigned the dashboard's
+      needs-review UI and, as a side effect, already replaced the
+      orphaned-emails query with an even leaner select (`id`, `retailer`,
+      `receivedAt`, `orderTotal`, `orderCurrency` — no `textBody` at
+      all, since the new unified bucket doesn't render a snippet). That
+      version was kept over this task's own select for that one query.
+      The other 5 fixed locations are unaffected. `OrderCard`'s
+      `OrderCardOrder` type was also re-derived against the redesigned
+      component: gained `deliveredAt`/`estimatedDeliveryDate`/
+      `returnCarrier` (now read by `computeOrderCardState`/`orderCardChip`/
+      `slotTwoContext`), dropped `policySource`/`needsReview` (no longer
+      read by the new component). `getAlertOrders`' select updated to
+      match.
 - [x] **Food + grocery delivery exclusion (category-level) — DONE
       2026-08-20, all five prod verifications green. ✅** Two-layered
       detection: (a) sender-domain pre-junk in `shouldAutoJunk`
