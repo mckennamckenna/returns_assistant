@@ -8,6 +8,45 @@ import { parseTracking } from "@/lib/trackingParser";
 import { shouldAutoJunk } from "@/lib/junk";
 import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
 
+// Narrow field sets for functions that take a full Email but only read a
+// handful of fields — lets their callers `select` instead of fetching whole
+// rows (Email carries encrypted textBody/htmlBody/rawJson, avg ~438KB/row
+// combined; see TASKS.md's missing-select-email-order-queries entry). A
+// full `Email` object still satisfies these structurally, so existing
+// full-row callers are unaffected.
+type MergeableEmail = Pick<
+  Email,
+  | "lineItems"
+  | "emailType"
+  | "orderDate"
+  | "deliveryDate"
+  | "estimatedDeliveryDate"
+  | "deliveredAt"
+  | "returnWindowDays"
+  | "returnWindowStartsFrom"
+  | "policySource"
+  | "orderCurrency"
+  | "orderTotal"
+>;
+type NewOrderEmail = Pick<
+  Email,
+  | "retailer"
+  | "orderNumber"
+  | "orderDate"
+  | "deliveryDate"
+  | "estimatedDeliveryDate"
+  | "deliveredAt"
+  | "returnWindowDays"
+  | "returnWindowStartsFrom"
+  | "returnDeadline"
+  | "deadlineIsEstimated"
+  | "policySource"
+  | "orderTotal"
+  | "orderCurrency"
+  | "lineItems"
+>;
+type TrackingEmail = Pick<Email, "emailType" | "textBody" | "htmlBody">;
+
 // If a return label was issued this long ago with no refund email since,
 // assume the customer has shipped it back and the refund is in flight.
 const RETURN_PROCESSING_DAYS = 14;
@@ -121,6 +160,7 @@ async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
   const earliestEmail = await prisma.email.findFirst({
     where: { orderId },
     orderBy: { receivedAt: "asc" },
+    select: { forwardType: true, anchorDate: true, textBody: true, htmlBody: true, receivedAt: true },
   });
   if (!earliestEmail) return null;
 
@@ -281,7 +321,7 @@ export async function recomputeDisplayStatus(orderId: string): Promise<void> {
 // Scrapes carrier/trackingNumber/trackingUrl from a shipping_confirmation email
 // body and writes them to the order. Skips if the order already has tracking
 // info (from an earlier shipping email) or if the email is not a shipping_confirmation.
-async function applyShippingTracking(orderId: string, email: Email): Promise<void> {
+async function applyShippingTracking(orderId: string, email: TrackingEmail): Promise<void> {
   if (email.emailType !== "shipping_confirmation") return;
 
   const existing = await prisma.order.findUnique({
@@ -310,7 +350,7 @@ async function applyShippingTracking(orderId: string, email: Email): Promise<voi
 // carrier-pattern logic as applyShippingTracking. Skips if tracking info is
 // already present (first return label wins) or if the email is not a return_label.
 // Never blocks return_requested status — null result is always safe.
-async function applyReturnTracking(orderId: string, email: Email): Promise<void> {
+async function applyReturnTracking(orderId: string, email: TrackingEmail): Promise<void> {
   if (email.emailType !== "return_label") return;
 
   const existing = await prisma.order.findUnique({
@@ -476,13 +516,14 @@ export async function findRefundFallbackOrder(
 // while backfilling more aggressive shipping/delivery extraction: a
 // correct $433.64 order_confirmation total got silently overwritten by
 // two shipping emails' partial-package totals, in merge order.
-async function resolveOrderTotal(existing: Order, email: Email): Promise<number | null> {
+async function resolveOrderTotal(existing: Order, email: Pick<Email, "emailType" | "orderTotal">): Promise<number | null> {
   if (email.emailType === "order_confirmation") {
     return email.orderTotal ?? existing.orderTotal;
   }
 
   const confirmation = await prisma.email.findFirst({
     where: { orderId: existing.id, emailType: "order_confirmation", orderTotal: { not: null } },
+    select: { orderTotal: true },
   });
   if (confirmation) {
     return confirmation.orderTotal;
@@ -508,7 +549,7 @@ async function resolveOrderTotal(existing: Order, email: Email): Promise<number 
 // above) still matters, but only for deciding what may set orderDate the
 // FIRST time; once set, it's frozen regardless of the type of any
 // subsequently-linked email.
-export async function mergeEmailIntoOrder(existing: Order, email: Email, returnPortalUrl: string | null): Promise<string> {
+export async function mergeEmailIntoOrder(existing: Order, email: MergeableEmail, returnPortalUrl: string | null): Promise<string> {
   const emailLineItems = asLineItemArray(email.lineItems);
   const isEstablishingEmail = ALLOWED_FALLBACK_EMAIL_TYPES.has(email.emailType ?? "");
   const establishesOrderDateNow = existing.orderDate == null && isEstablishingEmail && email.orderDate != null;
@@ -563,7 +604,7 @@ export async function mergeEmailIntoOrder(existing: Order, email: Email, returnP
 // re-derives this when un-merging an email from an existing order.
 export async function createOrderFromEmail(
   userId: string,
-  email: Email,
+  email: NewOrderEmail,
   returnPortalUrl: string | null,
 ): Promise<string> {
   const created = await prisma.order.create({
@@ -598,7 +639,25 @@ export async function createOrderFromEmail(
 // returnPortalUrl is deliberately left untouched: it isn't stored on
 // Email, so it can't be recovered from the remaining emails alone.
 export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<void> {
-  const emails = await prisma.email.findMany({ where: { orderId }, orderBy: { receivedAt: "asc" } });
+  const emails = await prisma.email.findMany({
+    where: { orderId },
+    orderBy: { receivedAt: "asc" },
+    select: {
+      orderDate: true,
+      deliveryDate: true,
+      estimatedDeliveryDate: true,
+      deliveredAt: true,
+      returnWindowDays: true,
+      returnWindowStartsFrom: true,
+      returnDeadline: true,
+      deadlineIsEstimated: true,
+      policySource: true,
+      orderTotal: true,
+      orderCurrency: true,
+      lineItems: true,
+      emailType: true,
+    },
+  });
   if (emails.length === 0) return;
 
   const [first, ...rest] = emails;
@@ -635,7 +694,37 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
 // derived from any one email) — it's threaded through from the in-memory
 // extraction result straight onto the Order, never persisted per-email.
 export async function linkEmailToOrder(emailId: string, returnPortalUrl: string | null = null): Promise<void> {
-  const email = await prisma.email.findUnique({ where: { id: emailId } });
+  const email = await prisma.email.findUnique({
+    where: { id: emailId },
+    // Everything this function (and everything it calls: mergeEmailIntoOrder,
+    // createOrderFromEmail, applyShippingTracking/applyReturnTracking,
+    // resolveOrderTotal, findRefundFallbackOrder) actually reads off `email`.
+    // Deliberately excludes rawJson/fromEmail/fromName/subject — this ran on
+    // every non-pre-junked inbound email with no select before, the single
+    // largest ingestion-path contributor to the Neon bandwidth-quota
+    // incident (see TASKS.md's missing-select-email-order-queries entry).
+    select: {
+      retailer: true,
+      orderNumber: true,
+      userId: true,
+      emailType: true,
+      junkedAt: true,
+      lineItems: true,
+      orderTotal: true,
+      orderCurrency: true,
+      policySource: true,
+      orderDate: true,
+      deliveryDate: true,
+      estimatedDeliveryDate: true,
+      deliveredAt: true,
+      returnWindowDays: true,
+      returnWindowStartsFrom: true,
+      returnDeadline: true,
+      deadlineIsEstimated: true,
+      textBody: true,
+      htmlBody: true,
+    },
+  });
   if (!email) return;
 
   // Retailer-name backstop (Food + grocery delivery exclusion, TASKS.md

@@ -12,6 +12,31 @@ import { isClosingSoon } from "@/lib/alerts";
 import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
 import { getVisibleActions } from "@/lib/orderActions";
 
+// Exactly the Order fields this component reads — lets callers with a
+// trimmed `select` (e.g. lib/alerts.ts's getAlertOrders) satisfy this prop
+// without fetching the whole row. A full `Order` object still satisfies
+// this type structurally, so callers that do fetch full rows (the main
+// dashboard list) are unaffected.
+export type OrderCardOrder = Pick<
+  Order,
+  | "id"
+  | "retailer"
+  | "orderNumber"
+  | "displayStatus"
+  | "returnDeadline"
+  | "orderTotal"
+  | "orderCurrency"
+  | "returnPortalUrl"
+  | "archivedAt"
+  | "trackingNumber"
+  | "trackingUrl"
+  | "returnTrackingNumber"
+  | "returnTrackingUrl"
+  | "lineItems"
+  | "policySource"
+  | "needsReview"
+>;
+
 function formatDate(date: Date | null): string {
   if (!date) return "—";
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -58,7 +83,7 @@ function QrIcon() {
 // (see the Commit 2 plan's mapping table) since the doc's anatomy prose
 // describes one fixed two-button pair, but the underlying status machine
 // (lib/displayStatus.ts) has more states than that.
-export function OrderCard({ order, now }: { order: Order; now: Date }) {
+export function OrderCard({ order, now }: { order: OrderCardOrder; now: Date }) {
   const { canStartReturn, canMarkReturned, canKeep, canMarkRefunded } = getVisibleActions(order, now);
   const itemSummaryText = itemSummary(order.lineItems);
   const atRisk = isClosingSoon(order, now);

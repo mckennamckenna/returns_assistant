@@ -7,7 +7,7 @@ import { DeleteButton } from "@/app/DeleteButton";
 import { ReviewCard } from "@/app/ReviewCard";
 import { SearchFilterBar } from "@/app/SearchFilterBar";
 import { reviewReason, reviewReasonLabel } from "@/lib/orderReview";
-import { decryptEmailContent } from "@/lib/emailEncryption";
+import { decrypt } from "@/lib/crypto";
 import { forwardTypeLabel } from "@/lib/forwardResolver";
 import { daysUntil } from "@/lib/reminders";
 import { OPEN_STATUSES, isClosingSoon } from "@/lib/alerts";
@@ -88,6 +88,11 @@ export default async function Home({
     prisma.email.findMany({
       where: { orderId: null, userId, ...JUNK_FILTER },
       orderBy: { receivedAt: "desc" },
+      // Only what the "Unlinked emails" list below actually renders — this
+      // list previously fetched full Email rows (textBody/htmlBody/rawJson,
+      // avg ~438KB/row) on every dashboard load, the single largest
+      // contributor to the 2026-08-20 Neon bandwidth-quota incident.
+      select: { id: true, forwardType: true, receivedAt: true, subject: true, textBody: true, needsReview: true },
     }),
     prisma.order.findMany({
       where: { userId, needsReview: true, archivedAt: null, deletedAt: null },
@@ -101,7 +106,10 @@ export default async function Home({
     }),
   ]);
 
-  const orphanedEmails = rawOrphanedEmails.map(decryptEmailContent);
+  const orphanedEmails = rawOrphanedEmails.map((email) => ({
+    ...email,
+    textBody: email.textBody ? decrypt(email.textBody) : null,
+  }));
 
   // Stats only count active (non-archived) orders — archived orders are hidden
   // from the dashboard until the user explicitly opens the Archived tab.
