@@ -2247,6 +2247,24 @@
       type, and `OPEN_STATUSES`, but `computeOrderStatus()` never actually
       writes it — always `"returnable"` instead. Harmless, just
       inaccurate.)
+- [ ] **Needs-review bucket desktop styling — NEW 2026-08-21, owner-reported
+      during Build B's rebuild preview. Not fixed tonight, not blocking
+      ship.** Rows work functionally per `CARD_SPEC.md` Part 3 (correct
+      data, correct always-visible actions per Q10) but the layout reads
+      sparse on desktop: excessive horizontal gap between the left column
+      (retailer / date·amount) and the right column (why-sentence /
+      actions), and inconsistent vertical density between rows. Likely
+      culprit, not confirmed — `app/NeedsReviewRow.tsx`'s row `<Link>` uses
+      `flex-1` on **both** columns (`min-w-0 flex-1` left, `min-w-0 flex-1
+      text-right` right), forcing an even 50/50 split regardless of how
+      short the left column's content actually is (e.g. "Zara · 8/21
+      $697.10"), which reads as excess whitespace at typical desktop
+      widths; the vertical-density complaint may trace to `dateAmount`
+      being conditionally rendered (`{dateAmount && <p>...}</p>}`) — a row
+      missing date/amount has less content height than one that has it, so
+      rows sit at different heights next to each other. **Mobile rendering
+      not independently verified — verify before scoping a fix**, per
+      owner instruction; don't assume the desktop diagnosis carries over.
 
 ### Infra / reliability
 - [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
