@@ -2309,8 +2309,89 @@
       emails: true } })` (the split-order admin action) has the same
       unselected-include pattern. Admin-only, rare action — lowest
       priority of the three deferred locations.
+- [ ] **Zara retailer identification failure despite visible signal — NEW
+      2026-08-21. Diagnosed read-only, root cause confirmed empirically
+      against the real email row, not fixed.** `shipping_confirmation` from
+      Zara (order 54421192781, $697.10, 11 line items, delivery date — all
+      extracted correctly) has `retailer: null`, `emailType` correctly
+      `shipping_confirmation`, `extractionNotes`: "Retailer cannot be
+      identified from the email body — no brand name, logo text, or sender
+      name is present..." Renders in the needs-review bucket as "Unknown
+      retailer 8/21 $697.10" — real purchase, real order number, wrong
+      reason surfaced (the row's why-text implies no data at all, when
+      almost everything WAS extracted correctly except this one field).
+      **Root cause, confirmed against the actual row (not just the
+      pipeline code):** `buildPrompt()` (`lib/extract.ts`) sends the model
+      `subject` + `textBody` only — by explicit design, never the `From`
+      header ("`retailer` must NEVER be read from the subject or From
+      header — body only"). This email's stored `textBody` is empty (an
+      HTML-only send); `resolveBodyText()` (`lib/emailBodyText.ts`) falls
+      back to `htmlBody` converted via `html-to-text`, which is configured
+      `{ selector: "img", format: "skip" }` (drops every `<img>` entirely,
+      no alt-text extraction) and `{ selector: "a", options: { ignoreHref:
+      true } }` (drops every link's href, keeps only visible anchor text).
+      Checked the raw `htmlBody` directly: it contains "ZARA" 53 times, but
+      **every single occurrence** is inside one of the three dropped
+      categories — the logo (`<img src=".../logo_Zara_2019.png">`, no alt
+      text present even if it weren't skipped), the "Manage your order"
+      link's `href="https://www.zara.com/...")` (visible anchor text is
+      just "Manage your order," brand-free — the URL containing "zara.com"
+      is exactly what `ignoreHref` throws away), and `@font-face` CSS
+      resource URLs (never body content to begin with). Zero literal
+      occurrences of "ZARA" survive as genuine visible running text
+      anywhere in the email. Confirmed `fromEmail: noreply@zara.com` /
+      `fromName: "Zara"` are both present and would trivially resolve this
+      — but that signal is deliberately excluded from retailer
+      identification by design, not an oversight this diagnostic surfaced.
+      **Direct answer to "does the extractor consult logo alt-text, image
+      OCR, or sender domain as retailer signals": no to all three.** Body
+      text only (subject + resolved textBody/htmlBody-to-text), and the
+      html-to-text conversion step actively discards image content (no alt
+      extraction, let alone OCR) and link hrefs before the model ever sees
+      the email. **Different failure mode from the H&M case** (that one
+      was attachment-only content, i.e. data genuinely absent from any
+      email field DB-side; this one has the answer sitting in `htmlBody`
+      the whole time, just filtered out by the text-conversion step before
+      extraction runs). Not fixed tonight — diagnosis only, per instruction.
+      Candidate future fixes, none built: stop skipping `<img alt="...">`
+      text specifically (cheap, no model-cost change, would need a real
+      corpus check for false-positive risk — alt text isn't always a brand
+      name); a From-header retailer fallback specifically for the
+      needsReview-with-null-retailer case (reopens the "never trust From"
+      design decision, would need its own reasoning); real image OCR
+      (meaningfully bigger scope, billed-cost implications). None
+      evaluated in depth here — diagnostic only.
 
 ## 🟡 Next
+- [ ] **Needs-review default-action heuristic may be backwards at the edges
+      — NEW 2026-08-21, not started, ORDER MATTERS (see below).** Current
+      logic (`lib/needsReviewRows.ts`'s `detectEmailReviewReason`,
+      `real_purchase_no_record` → "Start a new order" as the default when no
+      DB-detected match exists): defaults toward creating a new order
+      whenever an orphaned email doesn't cleanly match an existing one.
+      **H&M case exposing the edge:** Order 68462778273 already exists in
+      the DB; a `return_label` email for it lands as an orphan (never linked)
+      and the bucket row wrongly offers "Start a new order" as the primary
+      action when the correct action is Merge with the existing order.
+      **Open question, census-first, not answered here:** across the
+      current orphan population, what fraction correspond to an existing
+      order that just failed to link (this heuristic should favor Merge)
+      vs. a genuinely new, never-before-seen order (favor Create)? Decide
+      whether the *default* primary action should flip from "Start a new
+      order" to "Merge with existing order" (demoting the other to
+      secondary) based on what that census actually shows — not a guess.
+      **ORDER MATTERS, this stacks on top of two already-tracked linking
+      investigations — fix those first, then re-census, then decide the
+      default:** (1) "H&M — do we extract from attachments?" (🔴 Now,
+      confirmed no attachment extraction at all — a real linking gap, not
+      just a heuristic problem, for at least some H&M orphans); (2) the
+      Chan Luu return-approval orphan (🐛 Bugs — a return-tracking email
+      that should have matched back to an existing order instead created a
+      phantom new one, same underlying "orphan that should have linked"
+      shape as this H&M case). Census-ing the CURRENT orphan population
+      before those land would bake in counts that are still artificially
+      inflated by known, separate linking bugs — the default-action
+      decision needs a census taken *after* those are fixed, not before.
 - [ ] **Full-detection reason mapping for the needs-review bucket. NEW
       2026-08-21 — not started.** Deferred from the same day's needs-review
       bucket rebuild (see 🔴 Now), which shipped a deliberately cheap version:
