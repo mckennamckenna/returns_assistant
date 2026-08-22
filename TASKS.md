@@ -94,6 +94,19 @@
       Spot-check the other two H&M orders (`66993117803`, `68468087873`,
       both fully linked today) don't regress. No ✅ until owner
       hand-verifies in production.
+
+      **Root cause confirmed 2026-08-22 (pre-code verification, read-only, 0 billed calls).** Hypothesis held: `resolveBodyText` returned `textBody` verbatim; `htmlBody` was never converted. Both bodies substantial (`textBody` 7,005 non-whitespace chars, `htmlBody` 107,496 raw); `textBody` clears `MIN_TEXT_BODY_CHARS` (20) by orders of magnitude, so the helper returns it immediately and the htmlBody branch is unreachable for this row. The literal `Order number 68462778273` sentence exists only in `htmlBody`; in `textBody` the digits appear only inside S3 label URLs (correctly ignored as URL noise). Fix belongs in `lib/emailBodyText.ts`'s `resolveBodyText` (or a two-pass extraction wrapper), NOT in the extraction prompt — the model was handed a body that objectively did not contain a labeled order number and correctly answered NULL.
+
+      **Distinguished from Zara (also in 🔴 Now this session):** Zara = `textBody` empty → `htmlBody` used → html-to-text conversion stripped the signal (images/hrefs dropped). H&M = both bodies populated → `textBody` chosen → `htmlBody` (which has the clean signal) never reached. Same family ("wrong body source given to model"), different mechanisms, different files. Do not conflate the two fixes.
+
+      **Fix scope (CC's design call, constrained):** either (a) two-pass retry — if extraction returns NULL on key fields (`orderNumber` primarily) and the un-chosen body has substantial content, re-run extraction against it, or (b) merge/dedupe both sources into one input, or (c) a body-completeness heuristic. Hard constraint: do NOT invert the default globally to prefer `htmlBody` — the existing "prefer textBody when substantial" rule is correct for the majority case where rendered plain text is cleaner than tag-soup. Fix must preserve that default and only override when there's real evidence the chosen source is missing signal that the other has.
+
+      **Post-deploy verification (expanded from initial entry — mandatory, all three):**
+      (1) Targeted re-extract of `Email.id: cmt090ioq0001l404crsih7w9` as final step of the deploy — the existing broken row does NOT self-heal from the code fix alone (fix helps future inbound; this row stays orphaned until re-extracted). One row, ~1 billed call, stated up front per the header's cost-disclosure rule.
+      (2) Confirm post-re-extract: `Email.orderNumber = "68462778273"`, `Email.orderId` populated to order `68462778273`, row leaves the needs-review bucket. Spot-check the two other H&M orders (`66993117803`, `68468087873`, both fully linked today) unchanged.
+      (3) Cousin census, read-only, 0 billed calls: count `Email` rows where `retailer IS NOT NULL AND orderNumber IS NULL AND emailType IN ('return_label', 'refund', 'shipping_confirmation') AND textBody IS NOT NULL AND htmlBody IS NOT NULL AND LENGTH(textBody) > 100`. Sizes the "same failure shape as H&M" population. Report count only — no auto-re-extract, that's a separate owner decision once the number is known.
+
+      No ✅ until owner hand-verifies (1)+(2) in production.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
@@ -2334,6 +2347,47 @@
       evaluated in depth here — diagnostic only.
 
 ## 🟡 Next
+- [ ] **Needs-review bucket UX quality — four findings from the 2026-08-22 H&M
+      row screenshot review. NEW 2026-08-22, not started. Deliberately NOT
+      folded into the 2026-08-21 default-action heuristic item below** —
+      that item is about default-action DIRECTION (Merge vs Create) once a
+      row is in the bucket; these four are about display quality and action
+      wiring when a row is displayed at all. Different workstreams, don't
+      conflate.
+      **1. Confidence calibration.** Detail page rendered `CONFIDENCE: high`
+      on the H&M row while five downstream-critical fields were blank
+      (`orderNumber`, `orderDate`, `deliveryDate`, `returnDeadline`,
+      `orderTotal`). Whatever confidence is currently measuring is not the
+      useful-fields hit rate. Recalibrate against fields-that-gate-linking,
+      not against retailer-identification-succeeded-alone. Not a fix here —
+      investigate what confidence currently reflects, then decide.
+      **2. Copy correction on the needs-review row.** Row read "This looks
+      like a real purchase with no order record" — DB had three H&M orders
+      in the same account. The copy asserts an absence the DB disproves.
+      Should read closer to "…couldn't be matched to an existing order" —
+      and where same-retailer candidates exist, surface them (feeds
+      Finding 3). Small copy change, but requires the row-rendering path to
+      know the difference between "no candidates in DB" and "candidates
+      exist, linker couldn't disambiguate."
+      **3. Action-registry wiring gap.** The five locked needs-review
+      actions per `CARD_SPEC` Part 5 include "Link to order [manual picker,
+      v1]." That action did NOT appear on the H&M row despite three
+      same-retailer candidates being present. Either the manual picker
+      isn't wired into the action-selection logic yet, or the selection
+      logic isn't offering it when it should. Wiring bug against a locked
+      spec, not a design question. Check `lib/needsReviewRows.ts`
+      action-registry paths.
+      **4. Missing-price display.** H&M row showed no dollar amount while
+      sibling rows in the same screenshot showed `$20.00` / `$697.10`.
+      `orderTotal` didn't extract, so nothing to render. Question is
+      display-layer: when `orderTotal` is genuinely absent, show a computed
+      line-item sum, an em-dash, or hide the price slot? Design decision,
+      not a bug.
+      **All four moot for the specific H&M row 2026-08-22 once the
+      extraction fix ships and the row links** — but stay real for any
+      orphan that legitimately can't be linked, which is the entire reason
+      the needs-review bucket exists. Do not defer on "the immediate row
+      goes away."
 - [ ] **Needs-review default-action heuristic may be backwards at the edges
       — NEW 2026-08-21, not started, ORDER MATTERS (see below).** Current
       logic (`lib/needsReviewRows.ts`'s `detectEmailReviewReason`,
