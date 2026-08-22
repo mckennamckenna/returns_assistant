@@ -24,7 +24,11 @@ export function NeedsReviewBucket({
 
   if (rows.length === 0) return null;
 
-  const visibleRows = rows.slice(0, INLINE_OVERFLOW_LIMIT);
+  // CARD_SPEC.md Part 3 Q10 (correction, 2026-08-21): the toggle governs ROW
+  // COUNT only — collapsed = first N, expanded = all — never per-row action
+  // visibility. Every rendered row is always its full 2x2 (see
+  // app/NeedsReviewRow.tsx, which no longer takes an `expanded` prop at all).
+  const visibleRows = expanded ? rows : rows.slice(0, INLINE_OVERFLOW_LIMIT);
   const hasOverflow = rows.length > INLINE_OVERFLOW_LIMIT;
 
   return (
@@ -55,15 +59,18 @@ export function NeedsReviewBucket({
         </div>
       </div>
 
-      {/* Collapsed = compact stack of rows, slots 1-3 only (identity + why,
-          no buttons). Expanded = each row reveals its slot-4 action. */}
+      {/* Collapsed = first N rows; expanded = all rows — every row rendered
+          here is always its full 2x2, action included (Q10). */}
       <div className="mt-4 flex flex-col gap-3">
         {visibleRows.map((row) => (
-          <NeedsReviewRow key={`${row.kind}-${row.id}`} row={row} expanded={expanded} linkablePickerOrders={linkablePickerOrders} />
+          <NeedsReviewRow key={`${row.kind}-${row.id}`} row={row} linkablePickerOrders={linkablePickerOrders} />
         ))}
       </div>
 
-      {expanded && hasOverflow && (
+      {/* Q10: a parallel shortcut from the COLLAPSED state only — once
+          expanded, every row is already visible inline, so there's nothing
+          left for this link to reveal. */}
+      {!expanded && hasOverflow && (
         <div className="mt-3 pt-3 border-t border-amber-200">
           <Link href="/needs-review" className="text-sm font-medium text-amber-900 underline">
             View all {rows.length} →

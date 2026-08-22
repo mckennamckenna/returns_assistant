@@ -9,8 +9,12 @@ import { NeedsReviewRow } from "@/app/NeedsReviewRow";
 export const dynamic = "force-dynamic";
 
 // CARD_SPEC.md Part 3 — the needs-review bucket's "View all N ->" page,
-// reached from app/NeedsReviewBucket.tsx once its inline limit overflows.
-// Same row data/actions as the bucket, just unlimited and always expanded.
+// reached from app/NeedsReviewBucket.tsx's collapsed state (Q10, corrected
+// 2026-08-21: the link only shows when collapsed — once the bucket itself
+// is expanded there's nothing left inline for this page to add). Same row
+// data/actions as the bucket, just unlimited — every row's action is
+// always visible either way (app/NeedsReviewRow.tsx no longer has an
+// "expanded" concept to pass through).
 export default async function NeedsReviewPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -60,7 +64,7 @@ export default async function NeedsReviewPage() {
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-[18px] flex flex-col gap-3">
           {rows.map((row) => (
-            <NeedsReviewRow key={`${row.kind}-${row.id}`} row={row} expanded linkablePickerOrders={linkablePickerOrders} />
+            <NeedsReviewRow key={`${row.kind}-${row.id}`} row={row} linkablePickerOrders={linkablePickerOrders} />
           ))}
         </div>
       )}

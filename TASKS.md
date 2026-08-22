@@ -188,6 +188,44 @@
       `AmazonBundleCard.tsx`/`OrderCard.tsx`, neither of which has component
       tests either).
       0 billed Anthropic API calls this pass. 0 database writes.
+      **THIRD PASS 2026-08-21 (same session, same branch) — SPEC CORRECTION,
+      owner-authored, not a bug fix.** Owner reviewed the running preview
+      after the second pass and found Part 3's own "Collapsed vs expanded"
+      bullet — implemented literally in both prior passes — was itself wrong:
+      gating slot 4 (the action) behind the bucket-level expand toggle
+      produced two-tap friction (expand, then act) instead of the one-tap
+      access from the dashboard the bucket exists to provide. **Correction,
+      not a bug:** both prior passes built exactly what Part 3 said at the
+      time; the spec's own prescribed behavior was the thing that was wrong,
+      caught only once the owner could interact with a real running build —
+      exactly the kind of thing preview-first is for.
+      **CARD_SPEC.md updated in the same commit, traceably** (owner
+      instruction): the "Collapsed vs expanded" bullet (~line 188) rewritten
+      — toggle now governs row COUNT only (N rows collapsed vs. all rows
+      expanded), every rendered row always shows its full 2x2 including slot
+      4, superseded text preserved inline for the record; the "Overflow"
+      bullet reconciled to match (the `/needs-review` "View all N →" link is
+      now a parallel shortcut from the COLLAPSED state only — once expanded,
+      the bucket already shows everything inline, so there's nothing left
+      for that link to add); new **Q10 (correction, added 2026-08-21)** in
+      Part 5 recording the full before/after and why, following the existing
+      Q-extra precedent for post-hoc additions.
+      **Code:** `app/NeedsReviewBucket.tsx` — `visibleRows` now
+      `expanded ? rows : rows.slice(0, 5)` (was always `rows.slice(0, 5)`
+      regardless of toggle state); "View all N" link gated on
+      `!expanded && hasOverflow` (was `expanded && hasOverflow`).
+      `app/NeedsReviewRow.tsx` — the `expanded` prop removed entirely (no
+      longer has any effect to gate); slot 4's action div now always
+      renders unconditionally. Both call sites
+      (`app/NeedsReviewBucket.tsx`, `app/(app)/needs-review/page.tsx`)
+      updated to match the new signature — `tsc --noEmit` confirmed this
+      left no dangling references anywhere in the tree.
+      **Verification:** `tsc --noEmit` clean; test suite 600/601 (same
+      pre-existing, unrelated, owner-deferred failure); `npm run build`
+      clean (same pre-existing `actionToken.ts` Edge warning). No test
+      additions, same rationale as the second pass (presentational
+      components, no existing unit coverage convention to extend).
+      0 billed Anthropic API calls this pass. 0 database writes.
 
 - [ ] Postmark rejected-path backward sample — NEW 2026-08-18, candidate
       read-only investigation, not started. Emails Haiku drops

@@ -19,16 +19,17 @@ const linkButtonClass = "text-xs font-medium text-secondary underline hover:text
 // CARD_SPEC.md Part 3 — one row = one 2x2: Slot 1 retailer, Slot 2
 // date · amount, Slot 3 why (full sentence), Slot 4 action (registry).
 // Left column (slot 1 above slot 2) and right column (slot 3, with slot 4
-// beneath it once expanded) — same skeleton as the single-order card and
-// the Amazon bundle rows (2026-08-21 layout fix; the prior build stacked
-// all three of slots 1-3 in one left-hand column instead).
+// beneath it) — same skeleton as the single-order card and the Amazon
+// bundle rows. Slot 4 is ALWAYS visible (Q10, corrected 2026-08-21): the
+// bucket's collapse/expand toggle governs how many rows render, never
+// whether an individual rendered row's action shows — gating it behind a
+// second tap was the two-tap-friction bug the correction fixed. This
+// component no longer takes an `expanded` prop at all as a result.
 export function NeedsReviewRow({
   row,
-  expanded,
   linkablePickerOrders,
 }: {
   row: NeedsReviewRowData;
-  expanded: boolean;
   linkablePickerOrders: LinkablePickerOrder[];
 }) {
   const detailHref = row.kind === "order" ? `/orders/${row.id}` : `/emails/${row.id}`;
@@ -44,10 +45,9 @@ export function NeedsReviewRow({
 
   return (
     <div className="border-t border-amber-200 pt-3 first:border-t-0 first:pt-0">
-      {/* Collapsed = slots 1-3 only, no buttons — this Link is the entire
-          collapsed row. Slot 4 can't live inside it (interactive controls
-          can't nest inside an anchor), so it renders below, outside the
-          Link, only once expanded. */}
+      {/* Slots 1-3 — this Link can't also hold slot 4 (interactive controls
+          can't nest inside an anchor), so slot 4 renders just below it,
+          outside the Link, always. */}
       <Link href={detailHref} className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-ink truncate">{row.retailer ?? "Unknown retailer"}</p>
@@ -58,27 +58,25 @@ export function NeedsReviewRow({
         </div>
       </Link>
 
-      {expanded && (
-        <div className="flex items-center justify-end gap-2 mt-2">
-          {/* CARD_SPEC.md Part 3's View-detail rule, precisely: a mapped row
-              (primary action exists) renders [primary + View detail], two
-              controls. A degrade row (no mapped primary — action is already
-              view_detail) renders View detail alone. Never neither, never
-              both a stray extra control (the prior build always rendered
-              the Merge picker for every email row regardless of its actual
-              action, so a create_new_order row showed two unrelated
-              buttons and no View detail at all — fixed here). */}
-          {!isDegrade &&
-            (action.id === "link_to_order" && row.kind === "email" ? (
-              <LinkToOrderPicker emailId={row.id} orders={linkablePickerOrders} className={linkButtonClass} />
-            ) : (
-              <NeedsReviewRowActions emailId={row.id} actionId={action.id} label={action.label} className={actionButtonClass} />
-            ))}
-          <Link href={detailHref} className={isDegrade ? actionButtonClass : linkButtonClass}>
-            {NEEDS_REVIEW_ACTION_LABELS.view_detail}
-          </Link>
-        </div>
-      )}
+      <div className="flex items-center justify-end gap-2 mt-2">
+        {/* CARD_SPEC.md Part 3's View-detail rule, precisely: a mapped row
+            (primary action exists) renders [primary + View detail], two
+            controls. A degrade row (no mapped primary — action is already
+            view_detail) renders View detail alone. Never neither, never
+            both a stray extra control (the prior build always rendered
+            the Merge picker for every email row regardless of its actual
+            action, so a create_new_order row showed two unrelated
+            buttons and no View detail at all — fixed here). */}
+        {!isDegrade &&
+          (action.id === "link_to_order" && row.kind === "email" ? (
+            <LinkToOrderPicker emailId={row.id} orders={linkablePickerOrders} className={linkButtonClass} />
+          ) : (
+            <NeedsReviewRowActions emailId={row.id} actionId={action.id} label={action.label} className={actionButtonClass} />
+          ))}
+        <Link href={detailHref} className={isDegrade ? actionButtonClass : linkButtonClass}>
+          {NEEDS_REVIEW_ACTION_LABELS.view_detail}
+        </Link>
+      </div>
     </div>
   );
 }

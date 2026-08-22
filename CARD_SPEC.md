@@ -185,11 +185,18 @@ new one.
   whose reason has no mapped primary action show `View detail` alone — see "The
   View-detail rule" below.
 
-**Collapsed vs expanded:**
+**Collapsed vs expanded — CORRECTED 2026-08-21, see Part 5 Q10:**
 
-- Collapsed = compact stack of rows showing slots 1–3 only (identity + why, no
-  buttons).
-- Expanded = each row reveals its slot-4 action.
+- Collapsed = the first N rows (N = the Amazon bundle's overflow threshold, see
+  "Overflow" below), each rendered as its full 2x2 — slot 4's action is **always
+  visible**, never gated behind the toggle.
+- Expanded = all rows, same full 2x2 per row as collapsed — nothing hidden.
+- The toggle governs **row count only** (N rows vs. all rows), never per-row slot
+  visibility. (Superseded text, preserved for the record: "Collapsed = compact
+  stack of rows showing slots 1–3 only (identity + why, no buttons). Expanded =
+  each row reveals its slot-4 action." — this gated the action behind the
+  toggle, which owner review of the running build found created two-tap
+  friction: expand, then act, instead of one tap straight from the dashboard.)
 
 **Slot 3 (why) is open-ended. Slot 4 (action) is a v1 registry of FIVE** (Q9 — treat as
 an open registry, not a closed set; owner wants room to add actions over time, and the
@@ -243,10 +250,16 @@ renders as, not a suggestion:
   failures. Each just needs a slot-3 reason string (full sentence, per the table
   above) and inherits its slot-4 action from the mapping; unknown → View detail.
 
-**Overflow:** the bucket can hold 3 today and 15 after a bad extraction week. Show
-up to N rows inline, then `View all {N} →` to a dedicated page. **Reuse the Amazon
-bundle's threshold — do not invent a second number** (read the literal from
-`lib/amazonBundle.ts` in Step 0).
+**Overflow:** the bucket can hold 3 today and 15 after a bad extraction week. The
+bucket's own collapse/expand toggle (see "Collapsed vs expanded" above, corrected
+2026-08-21) already reveals every row inline once expanded — `View all {N} →` to
+a dedicated page is a parallel shortcut reachable from the **collapsed** state,
+for reading many rows on their own page rather than scrolling them inline on the
+dashboard; once expanded, nothing is hidden left to link to, so the link only
+needs to show when collapsed. **Reuse the Amazon bundle's threshold — do not
+invent a second number** (read the literal from `lib/amazonBundle.ts` in Step 0
+— confirmed 2026-08-21: the literal `5` lives in `app/AmazonBundleCard.tsx`,
+`lib/amazonBundle.ts` itself holds no threshold constant).
 
 ---
 
@@ -361,6 +374,23 @@ dropped-off order awaiting refund arguably sits in both) — decide whether they
 into one or read as two pipeline stages once the real screen exists. **Out of scope for
 this card build** (the tabs are navigation, not cards) — flagged here so it isn't lost.
 → **ANSWER: all four; reconcile the returns/refunds overlap later, on the real screen.**
+
+**Q10 (correction, added 2026-08-21) — Needs-review bucket collapse/expand: what
+does the toggle govern?** Originally (Part 3's "Collapsed vs expanded" bullet,
+now corrected above): collapsed showed slots 1-3 only on every visible row, with
+slot 4 (the action) gated behind expanding the bucket — a design carried over
+from the single-order-card's own expand-to-reveal-more-controls pattern (Part 2).
+Built literally as written, then reviewed against a running preview by the
+owner: this produced two-tap friction on the dashboard (expand the bucket, THEN
+tap the row's action) instead of the one-tap access the bucket exists to
+provide. **CORRECTION:** the toggle governs row COUNT only (N rows collapsed vs.
+all rows expanded); every rendered row is always its full 2x2, slot 4 included,
+regardless of collapse state. This also reconciles the "Overflow" bullet
+(directly below Part 3's row spec) with this one — see that bullet's
+2026-08-21 update for how the two now compose (inline expand vs. the dedicated
+`/needs-review` page are parallel shortcuts, not the same mechanism).
+→ **ANSWER: toggle = row count only; slot 4 is always visible on every rendered
+row, collapsed or expanded.**
 
 ---
 
