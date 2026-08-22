@@ -1,3 +1,4 @@
+// READ-ONLY. 0 billed Anthropic calls, 0 writes (findMany only).
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 

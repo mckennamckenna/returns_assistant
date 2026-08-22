@@ -8,8 +8,16 @@ const prisma = new PrismaClient();
 const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "—");
 
 async function main() {
+  if (!process.env.PM_DIAG_ORDER_ID) {
+    console.error("Set PM_DIAG_ORDER_ID before running (Bloomingdale's order)");
+    process.exit(1);
+  }
+  if (!process.env.PM_DIAG_ORDER_ID_2) {
+    console.error("Set PM_DIAG_ORDER_ID_2 before running (Fitness Superstore order)");
+    process.exit(1);
+  }
   const bloomies = await prisma.order.findUnique({
-    where: { id: "cms6rt854000bkv04e19mdwcv" },
+    where: { id: process.env.PM_DIAG_ORDER_ID },
     include: { emails: true },
   });
   console.log("=== Bloomingdale's #779507885 (SUSPICIOUS_AMBIGUOUS) ===\n");
@@ -38,7 +46,7 @@ async function main() {
   }
 
   const fitness = await prisma.order.findUnique({
-    where: { id: "cmrdz8en40009jp04kvmeuvv8" },
+    where: { id: process.env.PM_DIAG_ORDER_ID_2 },
   });
   console.log("\n\n=== Fitness Superstore #48868 (CORRUPTED_RECOVERABLE) — open/returnable check ===\n");
   if (!fitness) {

@@ -2347,6 +2347,18 @@
       evaluated in depth here — diagnostic only.
 
 ## 🟡 Next
+- [ ] **Historical pm-diag script PII retrofit — NEW 2026-08-22, not started.**
+      New pm-diag scripts landing 2026-08-22 and forward use
+      `process.env.PM_DIAG_*` for user emails, order IDs, and order totals
+      (see brief 4C). Scripts committed before 2026-08-22 still have real
+      user data hardcoded — real emails, specific dollar amounts, specific
+      order IDs — permanently in git history. Retrofit them to the same
+      env-var pattern so the convention is uniform and any future
+      contributor reading the repo sees only one pattern, not two. Scope:
+      `git log --diff-filter=A --name-only -- 'scripts/pm-*'` before
+      2026-08-22 to enumerate; owner confirms list before edits begin. Does
+      NOT scrub git history (that requires force-push, out of scope) — only
+      updates current file contents forward from the retrofit commit.
 - [ ] **Needs-review bucket UX quality — four findings from the 2026-08-22 H&M
       row screenshot review. NEW 2026-08-22, not started. Deliberately NOT
       folded into the 2026-08-21 default-action heuristic item below** —
@@ -3511,6 +3523,19 @@
       API for non-urgent backend work. Revisit the rest before >20 real users.
       Prompt caching alone can be pulled forward from Someday if pre-beta AI cost
       becomes noticeable.
+- [ ] **Logo.dev retailer-logo coverage — investigated 2026-07-13, not shipped.**
+      Read-only feasibility check (full report `LOGO_COVERAGE.md` existed on
+      branch `card-geometry-state-machine` briefly 2026-08-22 before being
+      removed from this push; retrievable from that branch's git history if
+      needed). Three findings worth preserving so this doesn't get
+      re-investigated from scratch: (1) raw hit rate 93.5%, but only 78.3%
+      confidently-correct once wrong-logo false positives are excluded; (2)
+      specific wrong-logo risk from third-party returns vendors (e.g.
+      Optiturn) resolving to unrelated real companies' logos; (3) API key was
+      confined to gitignored `.env.local`, never pushed to Vercel — safe to
+      leave dormant. Revisit only if retailer-logo display becomes a real
+      product need; the 78% confidently-correct number is the bar to clear
+      against whatever alternative is being considered.
 
 ## ✅ Done
 

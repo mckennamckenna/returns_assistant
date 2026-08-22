@@ -49,7 +49,11 @@ const ESTABLISHING = new Set(["order_confirmation", "shipping_confirmation", "de
 const NON_ESTABLISHING = new Set(["refund", "return_label", "other"]);
 
 // Whose data this run is scoped to — resolved to a userId at runtime.
-const OWNER_EMAIL = "mckenna.sweazey@gmail.com";
+if (!process.env.PM_DIAG_USER_EMAIL) {
+  console.error("Set PM_DIAG_USER_EMAIL before running");
+  process.exit(1);
+}
+const OWNER_EMAIL = process.env.PM_DIAG_USER_EMAIL;
 
 // Named targets for the deep dump.
 const TARGETS = [

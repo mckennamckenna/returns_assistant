@@ -1,5 +1,5 @@
 // READ-ONLY repro of app/api/cron/weekly-coverage/route.ts's exact query
-// logic, scoped to mckenna.sweazey@gmail.com only, to explain a specific
+// logic, scoped to the account set via PM_DIAG_USER_EMAIL only, to explain a specific
 // received digest. No writes, no Anthropic calls, no Reminder rows touched.
 //
 // Usage: npx tsx scripts/pm-repro-coverage-digest-mckenna.ts
@@ -9,7 +9,11 @@ const prisma = new PrismaClient();
 const LOOKBACK_DAYS = 7;
 
 async function main() {
-  const user = await prisma.user.findFirst({ where: { email: "mckenna.sweazey@gmail.com" } });
+  if (!process.env.PM_DIAG_USER_EMAIL) {
+    console.error("Set PM_DIAG_USER_EMAIL before running");
+    process.exit(1);
+  }
+  const user = await prisma.user.findFirst({ where: { email: process.env.PM_DIAG_USER_EMAIL } });
   if (!user) {
     console.log("User not found.");
     return;

@@ -4,16 +4,41 @@
  * READ-ONLY diagnostic. 0 billed Anthropic calls, 0 DB writes
  * (findMany/findFirst only). Scoped strictly to Caroline Guthrie's account.
  *
- * Purpose: classify the "The RealReal — $7,921.75" bug report per the
- * bug-class taxonomy in TASKS.md (Trust-breaking section, 2026-08-08 /
- * 2026-08-14 coverage-check-recurrence entries + 2026-08-16 write-once
- * orderDate entry). Mirrors scripts/pm-diag-orderdate-provenance.ts's
- * ownership-scoping and establishing/non-establishing classification,
- * targeted at one order instead of a population scan.
+ * Purpose: classify a "The RealReal" order-total bug report (amount set via
+ * PM_DIAG_ORDER_TOTAL) per the bug-class taxonomy in TASKS.md (Trust-breaking
+ * section, 2026-08-08 / 2026-08-14 coverage-check-recurrence entries +
+ * 2026-08-16 write-once orderDate entry). Mirrors
+ * scripts/pm-diag-orderdate-provenance.ts's ownership-scoping and
+ * establishing/non-establishing classification, targeted at one order
+ * instead of a population scan.
+ *
+ * Requires env vars: PM_DIAG_USER_EMAIL, PM_DIAG_ORDER_TOTAL,
+ * PM_DIAG_ORDER_ID (the retailer's own order number, e.g. an "R..."
+ * RealReal order number).
  */
 
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
+
+if (!process.env.PM_DIAG_USER_EMAIL) {
+  console.error("Set PM_DIAG_USER_EMAIL before running");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_ORDER_TOTAL) {
+  console.error("Set PM_DIAG_ORDER_TOTAL before running");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_ORDER_ID) {
+  console.error("Set PM_DIAG_ORDER_ID before running (the retailer's own order number, e.g. an \"R...\" RealReal order number)");
+  process.exit(1);
+}
+const ORDER_TOTAL = Number(process.env.PM_DIAG_ORDER_TOTAL);
+if (Number.isNaN(ORDER_TOTAL)) {
+  console.error("PM_DIAG_ORDER_TOTAL must be a number");
+  process.exit(1);
+}
+const USER_EMAIL: string = process.env.PM_DIAG_USER_EMAIL;
+const ORDER_NUMBER: string = process.env.PM_DIAG_ORDER_ID;
 
 const ESTABLISHING = new Set(["order_confirmation", "shipping_confirmation", "delivery"]);
 const NON_ESTABLISHING = new Set(["refund", "return_label", "other"]);
@@ -41,12 +66,12 @@ async function main() {
 
   if (users.length !== 1) {
     console.log(`\nSTOP: expected exactly 1 user match, found ${users.length}. Not proceeding via name/email fuzzy match.`);
-    console.log(`Falling back: searching for any Order with retailer matching RealReal and orderTotal near $7,921.75, across all users (id/email only, no cross-user content).`);
+    console.log(`Falling back: searching for any Order with retailer matching RealReal and orderTotal near $${ORDER_TOTAL.toFixed(2)}, across all users (id/email only, no cross-user content).`);
     const candidateOrders = await prisma.order.findMany({
       where: {
         OR: [
           { retailer: { contains: "RealReal", mode: "insensitive" } },
-          { AND: [{ orderTotal: { gte: 7921.0 } }, { orderTotal: { lte: 7922.0 } }] },
+          { AND: [{ orderTotal: { gte: ORDER_TOTAL - 1 } }, { orderTotal: { lte: ORDER_TOTAL + 1 } }] },
         ],
       },
       select: { id: true, retailer: true, orderNumber: true, orderTotal: true, userId: true, user: { select: { name: true, email: true } } },
@@ -61,7 +86,7 @@ async function main() {
       userId,
       OR: [
         { retailer: { contains: "RealReal", mode: "insensitive" } },
-        { orderTotal: { gte: 7921.0, lte: 7922.0 } },
+        { orderTotal: { gte: ORDER_TOTAL - 1, lte: ORDER_TOTAL + 1 } },
       ],
     },
     include: {
@@ -71,7 +96,7 @@ async function main() {
     },
   });
 
-  console.log(`\n=== Orders matching RealReal / ~$7,921.75 for userId ${userId} ===`);
+  console.log(`\n=== Orders matching RealReal / ~$${ORDER_TOTAL.toFixed(2)} for userId ${userId} ===`);
   console.log(`Found ${orders.length} candidate order(s).`);
 
   for (const o of orders) {
@@ -107,11 +132,11 @@ async function main() {
       });
       if (typeof e.orderTotal === "number") {
         sumAmounts += e.orderTotal;
-        if (Math.abs(e.orderTotal - 7921.75) < 0.01) matchesSingle = true;
+        if (Math.abs(e.orderTotal - ORDER_TOTAL) < 0.01) matchesSingle = true;
       }
     }
     console.log(`  Sum of linked emails' orderTotal: ${sumAmounts.toFixed(2)}`);
-    console.log(`  Single email exact-matches $7,921.75: ${matchesSingle}`);
+    console.log(`  Single email exact-matches $${ORDER_TOTAL.toFixed(2)}: ${matchesSingle}`);
   }
 
   // Also check for the exact figure anywhere else on the account (in case
@@ -121,7 +146,7 @@ async function main() {
     where: { userId },
     include: { emails: { orderBy: { receivedAt: "asc" } } },
   });
-  console.log(`\n=== Full account order count: ${allOrders.length} — scanning for $7,921.75 as a cross-order sum ===`);
+  console.log(`\n=== Full account order count: ${allOrders.length} — scanning for $${ORDER_TOTAL.toFixed(2)} as a cross-order sum ===`);
   let allTotal = 0;
   const realRealLike: any[] = [];
   for (const o of allOrders as any[]) {
@@ -145,17 +170,17 @@ main()
   });
 
 async function checkForOrphanConfirmation() {
-  const users = await prisma.user.findMany({ where: { email: "guthrie.caroline@gmail.com" }, select: { id: true } });
+  const users = await prisma.user.findMany({ where: { email: USER_EMAIL }, select: { id: true } });
   if (users.length !== 1) return;
   const userId = users[0].id;
 
-  console.log(`\n\n=== Searching ALL of Caroline's emails (linked + unlinked) for order_confirmation near R268770184 / RealReal, 2026-07-15 to 2026-08-21 ===`);
+  console.log(`\n\n=== Searching ALL of Caroline's emails (linked + unlinked) for order_confirmation near ${ORDER_NUMBER} / RealReal, 2026-07-15 to 2026-08-21 ===`);
   const emails = await prisma.email.findMany({
     where: {
       userId,
       receivedAt: { gte: new Date("2026-07-15T00:00:00Z"), lte: new Date("2026-08-21T23:59:59Z") },
       OR: [
-        { orderNumber: "R268770184" },
+        { orderNumber: ORDER_NUMBER },
         { retailer: { contains: "RealReal", mode: "insensitive" } },
       ],
     },

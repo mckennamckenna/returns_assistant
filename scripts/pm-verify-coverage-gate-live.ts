@@ -8,7 +8,7 @@
 // send or a dedup-affecting write. 0 billed Anthropic calls (no extraction
 // path touched), 0 DB writes (findMany/findUnique only).
 //
-// Scoped to mckenna.sweazey@gmail.com — the account the shipped bug (the
+// Scoped to the account set via PM_DIAG_USER_EMAIL — the account the shipped bug (the
 // J.Crew #2523415500 orphan) was diagnosed and fixed against — plus a
 // count-only cross-user aggregate (no other user's order details printed).
 import { PrismaClient } from "@prisma/client";
@@ -16,7 +16,15 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const LOOKBACK_DAYS = 7;
 const ESTABLISHING_EMAIL_TYPES = ["order_confirmation", "shipping_confirmation", "delivery"];
-const OWNER_EMAIL = "mckenna.sweazey@gmail.com";
+if (!process.env.PM_DIAG_USER_EMAIL) {
+  console.error("Set PM_DIAG_USER_EMAIL before running");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_ORDER_ID) {
+  console.error("Set PM_DIAG_ORDER_ID before running (the J.Crew orphan order to spot-check)");
+  process.exit(1);
+}
+const OWNER_EMAIL = process.env.PM_DIAG_USER_EMAIL;
 
 interface Row {
   orderId: string | null;
@@ -121,7 +129,7 @@ async function main() {
   if (excludedStale.length === 0) console.log("  (none)");
 
   // Specific check requested: is the J.Crew orphan #2523415500 present anywhere, and if so, where?
-  const jcrewOrphanId = "cmsr633e00003l1049lnzyre9";
+  const jcrewOrphanId = process.env.PM_DIAG_ORDER_ID!;
   const inIncluded = included.some((r) => r.orderId === jcrewOrphanId);
   const inExcludedOrphan = excludedOrphan.some((r) => r.orderId === jcrewOrphanId);
   console.log(`\n=== Specific check: J.Crew orphan #2523415500 (${jcrewOrphanId}) ===`);

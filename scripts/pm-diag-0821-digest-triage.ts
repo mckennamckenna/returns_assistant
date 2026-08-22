@@ -3,19 +3,47 @@
 // (1) Caroline's RealReal $7,921.75 — owner says it's the SUM of recommended
 //     items in the email, not the purchased item. Check lineItems + body for
 //     a "recommended"/"you may also like" section.
-// (2) mckenna's H&M return_label orphan (cmt090ioq0001l404crsih7w9) that
+// (2) mckenna's H&M return_label orphan (id set via PM_DIAG_EMAIL_ID) that
 //     surfaced in the real 2026-08-21 Friday digest — owner thinks it's a
 //     linking issue. Check its own orderNumber and compare against mckenna's
 //     existing H&M orders.
 // (3) mckenna's unknown-retailer shipping_confirmation
-//     (cmsyjhrcw0001jm04stofqk35) from the same digest — check whether the
-//     retailer name is actually recoverable from the body.
+//     (id set via PM_DIAG_EMAIL_ID_2) from the same digest — check whether
+//     the retailer name is actually recoverable from the body.
 // Ownership-scoped: Caroline's row checked against her own userId; mckenna's
-// two rows checked against his own userId.
+// two rows checked against his own userId. User emails and row ids are read
+// from PM_DIAG_USER_EMAIL / PM_DIAG_USER_EMAIL_2 / PM_DIAG_ORDER_ID /
+// PM_DIAG_EMAIL_ID / PM_DIAG_EMAIL_ID_2 — see fail-fast checks below.
 import { PrismaClient } from "@prisma/client";
 import { decrypt } from "../lib/crypto";
 
 const prisma = new PrismaClient();
+
+if (!process.env.PM_DIAG_USER_EMAIL) {
+  console.error("Set PM_DIAG_USER_EMAIL before running (mckenna's account)");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_USER_EMAIL_2) {
+  console.error("Set PM_DIAG_USER_EMAIL_2 before running (Caroline's account)");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_ORDER_ID) {
+  console.error("Set PM_DIAG_ORDER_ID before running (Caroline's RealReal order)");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_EMAIL_ID) {
+  console.error("Set PM_DIAG_EMAIL_ID before running (mckenna's H&M return_label orphan)");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_EMAIL_ID_2) {
+  console.error("Set PM_DIAG_EMAIL_ID_2 before running (mckenna's unknown-retailer shipping_confirmation)");
+  process.exit(1);
+}
+const USER_EMAIL: string = process.env.PM_DIAG_USER_EMAIL;
+const CAROLINE_EMAIL: string = process.env.PM_DIAG_USER_EMAIL_2;
+const CAROLINE_ORDER_ID: string = process.env.PM_DIAG_ORDER_ID;
+const HM_EMAIL_ID: string = process.env.PM_DIAG_EMAIL_ID;
+const UNKNOWN_RETAILER_EMAIL_ID: string = process.env.PM_DIAG_EMAIL_ID_2;
 
 function snippet(body: string | null, label: string) {
   if (!body) return `(no ${label})`;
@@ -25,11 +53,11 @@ function snippet(body: string | null, label: string) {
 
 async function part1_caroline() {
   console.log("\n\n========== PART 1 — Caroline's RealReal $7,921.75 ==========");
-  const owner = await prisma.user.findFirst({ where: { email: "guthrie.caroline@gmail.com" } });
+  const owner = await prisma.user.findFirst({ where: { email: CAROLINE_EMAIL } });
   if (!owner) return console.log("Caroline not found.");
 
   const order = await prisma.order.findUnique({
-    where: { id: "cmsvzhb8k0003jz04f2z3h3dz" },
+    where: { id: CAROLINE_ORDER_ID },
     include: { emails: true },
   });
   if (!order || order.userId !== owner.id) return console.log("Order not found or ownership mismatch.");
@@ -53,7 +81,7 @@ async function part1_caroline() {
 
 async function part2_hm_link(ownerId: string) {
   console.log("\n\n========== PART 2 — mckenna's H&M return_label orphan (Fri 8/21 digest) ==========");
-  const email = await prisma.email.findUnique({ where: { id: "cmt090ioq0001l404crsih7w9" } });
+  const email = await prisma.email.findUnique({ where: { id: HM_EMAIL_ID } });
   if (!email || email.userId !== ownerId) return console.log("Email not found or ownership mismatch.");
 
   console.log({
@@ -81,7 +109,7 @@ async function part2_hm_link(ownerId: string) {
 
 async function part3_unknown_retailer(ownerId: string) {
   console.log("\n\n========== PART 3 — mckenna's unknown-retailer shipping_confirmation (Fri 8/21 digest) ==========");
-  const email = await prisma.email.findUnique({ where: { id: "cmsyjhrcw0001jm04stofqk35" } });
+  const email = await prisma.email.findUnique({ where: { id: UNKNOWN_RETAILER_EMAIL_ID } });
   if (!email || email.userId !== ownerId) return console.log("Email not found or ownership mismatch.");
 
   const fromEmail = email.fromEmail ? decrypt(email.fromEmail) : null;
@@ -107,7 +135,7 @@ async function part3_unknown_retailer(ownerId: string) {
 async function main() {
   await part1_caroline();
 
-  const mckenna = await prisma.user.findFirst({ where: { email: "mckenna.sweazey@gmail.com" } });
+  const mckenna = await prisma.user.findFirst({ where: { email: USER_EMAIL } });
   if (!mckenna) return console.log("mckenna not found.");
   await part2_hm_link(mckenna.id);
   await part3_unknown_retailer(mckenna.id);

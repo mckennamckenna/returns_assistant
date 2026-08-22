@@ -1,5 +1,5 @@
 // READ-ONLY follow-up repro. Finds the actual weekly_coverage_check
-// Reminder.sentAt for mckenna.sweazey@gmail.com, rebuilds the digest against
+// Reminder.sentAt for the account set via PM_DIAG_USER_EMAIL, rebuilds the digest against
 // the REAL window used at that exact send time, and reports both the
 // junked and unjunked state of every candidate row (to catch rows that were
 // unjunked at send time but got junked afterward). No writes, no Anthropic
@@ -12,7 +12,11 @@ const prisma = new PrismaClient();
 const LOOKBACK_DAYS = 7;
 
 async function main() {
-  const user = await prisma.user.findFirst({ where: { email: "mckenna.sweazey@gmail.com" } });
+  if (!process.env.PM_DIAG_USER_EMAIL) {
+    console.error("Set PM_DIAG_USER_EMAIL before running");
+    process.exit(1);
+  }
+  const user = await prisma.user.findFirst({ where: { email: process.env.PM_DIAG_USER_EMAIL } });
   if (!user) return console.log("User not found.");
 
   const reminders = await prisma.reminder.findMany({

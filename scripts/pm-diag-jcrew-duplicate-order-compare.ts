@@ -3,23 +3,37 @@
 // offender, orphaned refund-only order), plus a shared-identifier
 // comparison against #2522877374 (the healthy original) — what a matcher
 // could plausibly have used to rejoin them. Ownership-scoped to
-// mckenna.sweazey@gmail.com via userId check on both rows before printing.
+// the account set via PM_DIAG_USER_EMAIL via userId check on both rows before printing.
 import { PrismaClient } from "@prisma/client";
 import { decrypt } from "../lib/crypto";
 
 const prisma = new PrismaClient();
-const OWNER_EMAIL = "mckenna.sweazey@gmail.com";
+if (!process.env.PM_DIAG_USER_EMAIL) {
+  console.error("Set PM_DIAG_USER_EMAIL before running");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_ORDER_ID) {
+  console.error("Set PM_DIAG_ORDER_ID before running (the orphan order)");
+  process.exit(1);
+}
+if (!process.env.PM_DIAG_ORDER_ID_2) {
+  console.error("Set PM_DIAG_ORDER_ID_2 before running (the original order)");
+  process.exit(1);
+}
+const OWNER_EMAIL: string = process.env.PM_DIAG_USER_EMAIL;
+const ORPHAN_ORDER_ID: string = process.env.PM_DIAG_ORDER_ID;
+const ORIGINAL_ORDER_ID: string = process.env.PM_DIAG_ORDER_ID_2;
 
 async function main() {
   const owner = await prisma.user.findFirst({ where: { email: OWNER_EMAIL } });
   if (!owner) return console.log("Owner not found.");
 
   const orphan = await prisma.order.findUnique({
-    where: { id: "cmsr633e00003l1049lnzyre9" },
+    where: { id: ORPHAN_ORDER_ID },
     include: { emails: true },
   });
   const original = await prisma.order.findUnique({
-    where: { id: "cmre1luf00003l1049r31eqoy" },
+    where: { id: ORIGINAL_ORDER_ID },
     include: { emails: true },
   });
 

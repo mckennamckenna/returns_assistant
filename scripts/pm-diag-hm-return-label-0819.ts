@@ -6,7 +6,11 @@ import { PrismaClient } from "@prisma/client";
 import { decrypt } from "../lib/crypto";
 
 const prisma = new PrismaClient();
-const OWNER_EMAIL = "mckenna.sweazey@gmail.com";
+if (!process.env.PM_DIAG_USER_EMAIL) {
+  console.error("Set PM_DIAG_USER_EMAIL before running");
+  process.exit(1);
+}
+const OWNER_EMAIL = process.env.PM_DIAG_USER_EMAIL;
 
 function stripBoilerplate(html: string): string {
   return html
