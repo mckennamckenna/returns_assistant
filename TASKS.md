@@ -40,6 +40,60 @@
       retailer identification failure despite visible signal" — not
       duplicated here, see that entry for the reasoning pass needed before
       touching `lib/extract.ts`.
+- [ ] **H&M `return_label` order-number extraction gap — NEW 2026-08-22,
+      root-caused read-only per session brief; BUILD BEGINS 2026-08-22,
+      paired with the Zara From-header display fallback (above) as today's
+      two-item push.** Row identified: `Email.id: cmt090ioq0001l404crsih7w9`,
+      `subject: "We've received your return request"`, `fromEmail:
+      us@delivery.hm.com`, received 2026-08-19. `Email.orderNumber: NULL`,
+      `Email.retailer: "H&M"` (populated correctly), `Email.orderId: NULL`
+      (orphaned). Order number `68462778273` is present in `htmlBody` as
+      ordinary labeled running text near the top ("Order number 68462778273
+      Return registered date 08/19/2026") — clean, unambiguous. In
+      `textBody` the same number appears only inside label-download S3 URLs
+      (`.../labels/2026-08-19/1613594/68462778273/...`), never as labeled
+      text.
+      **Classification: (b) — extraction gap, not linking bug.** Signal
+      never reached `lib/linkOrder.ts` because `Email.orderNumber` was
+      NULL; the matcher can't route what isn't there. Fix belongs in
+      `lib/extract.ts` and/or `lib/emailBodyText.ts`'s `resolveBodyText`,
+      not the linking layer. **Cousin failure to the Zara item (also in
+      🔴 Now this session):** both are "body-text pipeline chose the wrong
+      source, model never saw the signal that was there" — Zara: `textBody`
+      empty and htmlBody stripped by html-to-text; H&M: both bodies
+      populated, leading hypothesis is that `resolveBodyText` preferred
+      `textBody` and never converted `htmlBody`. Design the two fixes with
+      awareness of each other — do NOT ship independent bespoke patches
+      that fight later.
+      **Verify hypothesis BEFORE writing any fix — one Prisma read + one
+      grep, ~5 min, 0 billed calls, mandatory pre-code step:** call
+      `resolveBodyText` directly against this row, snapshot the returned
+      string, grep for the literal `Order number 68462778273`. If absent →
+      hypothesis holds, fix belongs in body-resolution (either merge/dedupe
+      both sources, or "if key fields NULL after extraction and other body
+      has content, retry against it"). If present → hypothesis wrong, model
+      was handed the clean sentence and missed it; fix belongs in the
+      extraction prompt or its examples. Report which before writing any
+      fix. This is a hard gate — one wrong root-cause framing already this
+      session ("orphan-relinking matcher"), no second one.
+      **Design constraint, do not solve past:** whatever body-source rule
+      changes here also has to be sane for retailer-identification cases
+      where rendered plain text is legitimately cleaner than tag-soup HTML.
+      Don't invert the default globally.
+      **Scope reduction, no expansion mid-session:** this fix is this one
+      row's failure mode. Explicitly NOT in scope: (a) cross-retailer
+      census of similar (b) failures — separate 🟡 Next follow-on if
+      worthwhile; (b) H&M attachment parsing — the separate 🔴 Now item
+      (line 799) is unchanged by this; (c) the 15-orphans fallback-matcher
+      item (also 🔴 Now) — different failure population, stays untouched;
+      (d) the 🟡 Next default-action heuristic (line 2189) — that item
+      stays open on its own census merits.
+      **Verify by (production):** post-deploy, re-extract this specific row
+      and confirm `Email.orderNumber` populates to `68462778273` and the
+      row auto-links to order `68462778273` with no user action.
+      Spot-check the other two H&M orders (`66993117803`, `68468087873`,
+      both fully linked today) don't regress. No ✅ until owner
+      hand-verifies in production.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
