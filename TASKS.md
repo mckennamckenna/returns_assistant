@@ -32,6 +32,55 @@
 
 ## 🔴 Now
 
+- [ ] **Zara "unknown retailer" digest line — PROMOTED here 2026-08-22, owner
+      directive: zero tolerance for "unknown retailer" lines going forward.**
+      Full diagnosis, root cause, and recommended fix direction (sender-
+      domain/`fromName` fallback for retailer display only, when body
+      extraction returns null) live in 🐛 Bugs → Infra / reliability, "Zara
+      retailer identification failure despite visible signal" — not
+      duplicated here, see that entry for the reasoning pass needed before
+      touching `lib/extract.ts`.
+- [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
+      it's the sum of OTHER items in the order, not the item she actually
+      purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
+      diagnostic this session (`scripts/pm-diag-caroline-realreal.ts` +
+      raw-body pull, uncommitted), 0 billed Anthropic calls, 0 writes,
+      scoped to Caroline's account only. [needs clarification] — root cause
+      not yet resolved to one side or the other, see below.** Pulled and
+      decrypted both linked `shipping_confirmation` emails' raw `htmlBody`
+      directly. Each email has a real, distinct structure: **`Shipped
+      Today:`** names exactly ONE item (email 1: "Coco Shop Floral Print
+      Long Dress"; email 2: "Gucci Horsebit Accent Leather Sandals") — no
+      price given for either. Separately, both emails carry an identical
+      **`Other Items In This Order:`** section listing the other 8 pieces
+      with prices (Prada ×2, Tory Burch, Chanel $2980, Hermès $2340, TOTEME
+      $1137.50, Bottega Veneta $837, etc.) — summing to $7,921.75.
+      Extraction summed the "Other Items In This Order" list (the only
+      priced items available) and did NOT include the actual "Shipped
+      Today" item in the sum since it carries no price in either email —
+      `extractionNotes` says this plainly on both rows ("no grand total was
+      stated directly ... two additional items ... were omitted from the
+      sum, so the true order total is likely higher"). Searched the full
+      decrypted body for recommendation/cross-sell language ("recommend,"
+      "you may also like," "picked for you," etc.) — **none found.** The
+      email's own heading literally reads "Other Items In This Order," which
+      reads as a genuine multi-item order manifest (RealReal is a
+      multi-consignor marketplace; one checkout commonly ships as several
+      parcels over days/weeks, each email listing what shipped today plus
+      the rest of the order for reference), not a marketing widget disguised
+      as one. **Two live explanations, not distinguishable from our data
+      alone:** (a) this genuinely is one 9-item order and Caroline is
+      misremembering/hasn't tracked that she bundled that many pieces into
+      one cart across staggered shipments — no bug, nothing to fix; (b)
+      RealReal's own template is grouping items from a SEPARATE order/cart
+      under this order's "Other Items In This Order" section for shipping-
+      consolidation reasons, and our extraction is faithfully reproducing a
+      retailer-side mislabeling — real bug, but the fix (stop trusting
+      "Other Items In This Order" as this order's total) needs Caroline to
+      confirm the mismatch first. **Next step: ask Caroline to check her own
+      RealReal purchase history for #R268770184 and confirm whether all 9
+      named items are genuinely hers** — not guessable from the email
+      content or our DB alone.
 - [ ] Postmark rejected-path backward sample — NEW 2026-08-18, candidate
       read-only investigation, not started. Emails Haiku drops
       (non-commerce → no Email row) are retained in Postmark with full
@@ -853,6 +902,32 @@
       here at all.) A matcher that guesses on ambiguous cases would
       silently attach an email to the wrong order — worse than staying
       orphaned. Not fixed here.
+      **CONFIRMED COMPOUNDING SYMPTOM 2026-08-22, READ-ONLY (real-window
+      replay via `scripts/pm-repro-coverage-digest-mckenna-v2.ts` +
+      `scripts/pm-diag-0821-digest-triage.ts`, uncommitted), 0 billed calls,
+      0 writes, mckenna.sweazey@gmail.com only.** This same orphan class also
+      leaks into the Friday coverage-check digest, not just the needs-review
+      bucket — owner-reported. mckenna's real 2026-08-21 send window
+      (2026-08-14T16:56:43Z→2026-08-21T16:56:43Z) contains an orphaned
+      `return_label` email from H&M (id `cmt090ioq0001l404crsih7w9`,
+      received 2026-08-19, `orderId: null`, `orderNumber: null`,
+      `extractionNotes` correctly declines to set `orderTotal` since the
+      $939.90 line-item sum is "returned items only ... not the full order
+      total"). mckenna has 3 real H&M orders on file; the strongest linking
+      candidate is `68462778273` ($1,131.88, placed 2026-07-21, status
+      `returnable`/`returned`, `returnedAt` stamped 2026-08-21) — same order
+      already named above. **Root cause is the SAME orphan-relinking gap**,
+      just a second surfacing: the 2026-08-19 coverage-check
+      establishing-email gate only filters LINKED orders (`orderId` set); an
+      *unlinked* email of any type — including a `return_label`/`refund`
+      update for an order the user already has — still renders in the
+      digest, by design, as the "missing-order signal this email exists to
+      surface" (see HISTORY.md 2026-08-19). For a real linking failure like
+      this one, that "signal" reads to the user as a confusing/redundant
+      digest line, not a useful QA net. Not fixed here — same underlying fix
+      (relink orphaned post-purchase mail via item/style-code overlap, per
+      the J.Crew matcher design already queued) would resolve this
+      symptom too, without needing a separate digest-side change.
       **Types in this report need re-verification before matcher design
       (2026-07-23, Task 1 verify gate):** the Fitness Superstore ×2 pair is
       actually typed `order_confirmation`, not delivery/shipping as this
@@ -2176,6 +2251,25 @@
       email field DB-side; this one has the answer sitting in `htmlBody`
       the whole time, just filtered out by the text-conversion step before
       extraction runs). Not fixed tonight — diagnosis only, per instruction.
+      **PROMOTED to 🔴 Now 2026-08-22 — owner directive: zero tolerance for
+      "unknown retailer" digest lines going forward.** Confirmed still live
+      via real-window replay this session (`scripts/pm-diag-0821-digest-triage.ts`,
+      read-only, 0 billed calls, mckenna.sweazey@gmail.com): the real
+      2026-08-21 Friday digest send window contains a second Zara row on the
+      same order number (`54421192781`, a `shipping_confirmation` "Your
+      order has left the warehouse," `retailer: null`, `orderId: null`) —
+      this one's `extractionNotes` show NO price/line-item data extracted at
+      all (unlike the $697.10/11-item row above, which extracted everything
+      else correctly) — same root cause reproducing on a second, thinner
+      email from the same order. Confirms the gap isn't a one-off. Given the
+      owner's "can't have any" bar, the fastest real fix is the sender-domain/
+      `fromName` fallback candidate below (`noreply@zara.com` / "Zara" are
+      reliably present on both rows) — used only as a last-resort DISPLAY
+      fallback when body-based `retailer` extraction returns null, not as an
+      authoritative data source, so it doesn't reopen the "never trust
+      From for retailer" rule for data that already resolved from the body.
+      Not built yet — needs the same reasoning pass the original note below
+      already flagged before touching `lib/extract.ts`.
       Candidate future fixes, none built: stop skipping `<img alt="...">`
       text specifically (cheap, no model-cost change, would need a real
       corpus check for false-positive risk — alt text isn't always a brand
@@ -3313,229 +3407,9 @@
 ## ✅ Done
 
 - [x] **Needs-review bucket rebuild (CARD_SPEC.md Part 3 compliance) — SHIPPED
-      & VERIFIED 2026-08-21. Owner live-verified on `app.myreturnwindow.com`
-      against an 8-point checklist. ✅** Root cause: built 2026-08-11
-      (`cd6d639`) against `CARD_SPEC.md` Part 3 as it stood before the
-      reason→action mapping table was added the next day (`ea939b1`,
-      2026-08-12) — a logged-but-never-executed follow-up, finally executed
-      this session across three build passes on branch
-      `needs-review-bucket-rebuild`: **(1)** `8de835b` — real reason
-      detection (`belongs_to_existing_order`/`duplicate` DB-detected,
-      spec-exact sentences replacing the banned generic fallback, the order
-      detail page's missing resolution control added, USPS ingestion-time
-      gate); **(2)** `fd6ad84` — container/row layout fixes found by
-      re-reading Part 3 and Amazon's reference pattern directly against the
-      actual shipped code (header toggle wrapping the whole header instead
-      of a discrete slot-4 control; row geometry stacked instead of the
-      left-col/right-col 2x2; the always-present View-detail secondary
-      silently missing on mapped rows); **(3)** `561a95d` — `CARD_SPEC.md`
-      Part 3 **Q10 correction**: owner review of the running preview found
-      the spec's own "Collapsed vs expanded" bullet was itself wrong
-      (gating slot 4 behind the bucket-level toggle produced two-tap
-      friction), corrected traceably in the same commit with the
-      superseded text preserved inline, not a code bug — both prior passes
-      had built exactly what the spec said at the time. Merged to `main`
-      and pushed fast-forward (`daedda6..198932b`), deployed as
-      `dpl_8hJxiabe3PA6KomDEnDgwN38joRx`, `app.myreturnwindow.com` Ready,
-      now owner-confirmed live. Full session detail — owner-locked
-      cheap-detection scope, every file touched, verification results each
-      pass, known behavior changes, the full three-pass build log —
-      preserved verbatim below, not edited in place.**
-      Original 🔴 Now entry, preserved verbatim below, not edited in place:
-- [ ] **Needs-review bucket rebuild (CARD_SPEC.md Part 3 compliance) — Pushed
-      and deployed to production (commit `198932b`, deploy
-      `dpl_8hJxiabe3PA6KomDEnDgwN38joRx`, `app.myreturnwindow.com` Ready).
-      Awaiting owner live verification before marking ✅.** Root cause (established the prior session, re-confirmed
-      here): the bucket was built 2026-08-11 (`cd6d639`) against `CARD_SPEC.md`
-      Part 3 as it stood then; the reason→action mapping table was added to
-      the spec one day later (`ea939b1`, 2026-08-12), whose own commit message
-      flagged the gap and logged it as a follow-up that was never executed —
-      this session executes it.
-      **Owner-locked scope, cheap version (not full spec compliance — see the
-      full-detection follow-up logged in 🟡 Next):** only two reasons are
-      DB-detected — `belongs_to_existing_order` (an email's/mismatched linked
-      email's orderNumber exactly matches a DIFFERENT existing Order) and
-      `duplicate` (order-kind only, via the existing `[auto]` retailer-prefix-
-      merge audit trail in `userNote`). Everything else degrades to one
-      generic reason per population: email-kind rows default to "real
-      purchase, no order record" (true by construction — every row here is
-      unlinked); order-kind rows keep `missing_order_date`/`missing_order_total`
-      distinct (trivial null checks, exact-fit spec sentences, not
-      classifier-adjacent) and collapse everything remaining (return-portal-
-      untrusted, unconfirmed-forward-date, low-confidence, true fallback) into
-      one `uncertain_details` reason reusing existing in-app copy verbatim
-      ("We're not certain about some details on this order") — spec has no
-      canonical sentence for this residual tail, owner-approved 2026-08-21
-      rather than inventing new copy silently.
-      **Files:** new `lib/needsReviewReasons.ts` (single source of truth for
-      the reason vocabulary + spec-exact sentences, shared by both kinds of
-      row and the action router); `lib/orderReview.ts`'s `reviewReasonLabel`
-      replaced by `computeOrderReviewReason` (returns `{reasonId, why}`,
-      strengthened the order-number-mismatch check to require an actual match
-      against a different real Order, not just "differs from this order's
-      own," per the owner's literal "matches an existing Order" framing);
-      `lib/needsReviewRows.ts`'s `orderReviewRow`/`emailReviewRow` now take a
-      `candidateOrders` param (reuses the existing active-orders list already
-      computed for the Link-to-order picker) and carry `reasonId` on
-      `NeedsReviewRowData`; `lib/needsReviewActions.ts`'s `needsReviewAction`
-      now routes on `{kind, reasonId}` instead of `{kind, hasRetailer}`.
-      **Order-kind action degrade (owner-approved 2026-08-21):** order-kind
-      rows are already-merged Orders, not raw unlinked emails — the existing
-      Link-to-order picker only attaches an unlinked `emailId` to an Order, no
-      order-to-order merge capability exists — so `belongs_to_existing_order`/
-      `duplicate` degrade to `view_detail` for order-kind rows even though the
-      same reason maps to `link_to_order` for email-kind rows. Real fix
-      deferred, see 🟡 Next "Order-to-order merge action."
-      **Order detail page resolution control (`app/(app)/orders/[id]/page.tsx`):**
-      previously dead-ended — a "Needs Review" badge with no explanation and
-      no way to clear it. Now shows the same spec-exact why-sentence plus one
-      action, `approveOrderAction` ("Looks correct," reuses the existing
-      `lib/orderReview.ts` human-override function) — judgment call, not a
-      literal mirror of the bucket's per-reason action, since the bucket's
-      order-kind action is always `view_detail` and this page IS that
-      destination; flagged for the owner to catch/correct in preview if a
-      different resolution was intended.
-      **Intake gating (owner decided between two proposals before any code was
-      written, 2026-08-21):** USPS — new `lib/uspsCarrierPingExclusion.ts`,
-      `tracking.usps.com` added to the ingestion-time sender-domain pre-junk
-      in `shouldAutoJunk` (`lib/junk.ts`), same layer/cost-win as the
-      food-grocery gate (skips Haiku+Sonnet on a match). Census this session:
-      exactly 6 live tracking.usps.com rows, all a generic "USPS® Expected
-      Delivery on {date}" template with no return-policy/order-total data and
-      an unreliable-or-absent retailer name even when extraction succeeds —
-      content has ~no return-tracking value to lose even in the theoretical
-      case where it's the only email that arrived for a purchase. Promo — NO
-      new gating built. Census found the 3 visible "promo" rows
-      (em.target.com ×2, email.bloomingdales.com ×1) all have `extractedAt`
-      set and timestamps falling entirely inside the already-documented
-      2026-07-31T18:01–08-01T04:56 credit-outage extraction-failure cluster —
-      outage residue, not a live gating gap. The existing
-      `emailType === "other"` auto-junk rule already correctly excludes
-      genuine promo content going forward; a new domain-based gate would also
-      have been unsafe here (unlike food-grocery's spam-only senders,
-      em.target.com/email.bloomingdales.com are dual-purpose retailer domains
-      that also send real transactional email).
-      **Housekeeping:** deleted the two stale local branch refs
-      (`card-geometry-state-machine`, `food-grocery-exclusion`) — re-verified
-      this session (1:1 commit-message correspondence check against `main`'s
-      own history, all 9 commits across both branches confirmed already
-      present under different hashes) before deleting.
-      **Verification:** `npx tsc --noEmit` clean on every touched file (6
-      pre-existing, unrelated failures in `__tests__/anthropicUsage.test.ts`
-      only); full test suite 600/601 (the 1 failure is the already-logged,
-      owner-deferred timezone off-by-one in `orderCardChip`, untouched by this
-      build); `npm run build` clean (the Edge-runtime `crypto` warning is
-      pre-existing, in `lib/actionToken.ts`, untouched by this build). New/
-      updated tests: `__tests__/orderReview.test.ts`, `needsReviewActions.test.ts`,
-      `needsReviewRows.test.ts` (new), `uspsCarrierPingExclusion.test.ts`
-      (new), `junk.test.ts`.
-      **Known behavior change worth flagging explicitly (not a bug — the
-      literal owner-locked scope):** the ~27 live email-kind rows that
-      previously rendered "Archive" (via the old `hasRetailer` proxy for
-      "probably not commerce") now render "Start a new order" instead, since
-      not-e-commerce detection is out of cheap-version scope this pass and
-      every unlinked email defaults to the "real purchase, no record" reason.
-      0 billed Anthropic API calls this session (all DB-inspectable checks,
-      no model calls). 0 database writes (all code/test/docs changes).
-      **SECOND PASS 2026-08-21 (same session, same branch) — LAYOUT ONLY,
-      reason detection from the above pass NOT re-touched.** Step 0: confirmed
-      `CARD_SPEC.md`'s authority hasn't been overridden anywhere (no
-      DECISIONS.md/TASKS.md entry supersedes Part 3; the file still reads
-      "RECONCILED / SIGNED OFF — build-ready... single source of truth").
-      Closes the gap between Part 3's container/geometry rules and what the
-      first pass actually shipped — the first pass got reason detection right
-      but never fully matched the Amazon-bundle container pattern it was
-      supposed to reuse. **Confirmed threshold: literal `5`**, `.slice(0, 5)`
-      in `app/AmazonBundleCard.tsx:56` — `lib/amazonBundle.ts` itself holds no
-      threshold constant, only Amazon-specific status/composition helpers;
-      already correctly read into `NeedsReviewBucket.tsx`'s
-      `INLINE_OVERFLOW_LIMIT`, confirmed unchanged and correct (see below).
-      **Two real bugs found and fixed, three items checked and found
-      already-correct:**
-      (1) **Header toggle (real bug, fixed)** — `app/NeedsReviewBucket.tsx`'s
-      entire header was wrapped in one `<button>`; restructured to match
-      `AmazonBundleCard.tsx`'s actual pattern exactly — inert slot-1/slot-2
-      text block, a discrete slot-4 icon button on the right.
-      (2) **Row geometry (real bug, fixed)** — `app/NeedsReviewRow.tsx` stacked
-      retailer/date·amount/why in one left-hand column with buttons to the
-      right; rebuilt as the left-column (slot 1 above slot 2) / right-column
-      (slot 3, slot 4 beneath once expanded) skeleton Part 3 specifies.
-      (3) **Always-present View detail secondary (real bug, fixed, the
-      important one)** — `app/NeedsReviewRowActions.tsx:45` silently returns
-      `null` for `link_to_order`, and the old row unconditionally rendered
-      `LinkToOrderPicker` for every email row regardless of its actual action
-      — so a `create_new_order` row showed "Start a new order" +
-      "Merge with existing order" together and **View detail never rendered
-      at all**, violating Part 3's explicit rule. Fixed: exactly one "More
-      info" (the registry's own label, `NEEDS_REVIEW_ACTION_LABELS.view_detail`,
-      not a hardcoded duplicate string) always renders; a mapped row also gets
-      its one correct primary control (`LinkToOrderPicker` for `link_to_order`,
-      `NeedsReviewRowActions` otherwise) alongside it — two controls, never
-      zero, never a stray third.
-      (4) **Overflow enforcement — checked, already correct, not touched.**
-      `INLINE_OVERFLOW_LIMIT = 5` already caps the dashboard bucket
-      unconditionally (`rows.slice(0, 5)`, not gated on expand state); the "20
-      rows all inline" observation that prompted this pass was almost
-      certainly `/needs-review`, the dedicated overflow page, which is
-      unlimited *by design* — same pattern as Amazon's own `/amazon` page.
-      (5) **Row-level collapse/expand — checked, already correct, not
-      touched.** Bucket-level `expanded` state already gates every row's
-      slot-4 uniformly, matching Amazon's single-toggle-for-all-rows model
-      (not per-row toggles — Amazon doesn't have those either).
-      (6) **Container reuse — no separate component extracted, per explicit
-      instruction ("not a new component").** `lib/amazonBundle.ts` has no
-      generic container utilities to import (Amazon-specific business logic
-      only) — structure/behavior matched by hand instead, per Part 4's
-      "point at this," not "import this."
-      **Verification:** `tsc --noEmit` clean; test suite 600/601 (same
-      pre-existing, unrelated, owner-deferred failure as the first pass);
-      `npm run build` clean (same pre-existing `actionToken.ts` Edge warning).
-      No test additions this pass — `app/NeedsReviewBucket.tsx`/
-      `NeedsReviewRow.tsx` are presentational components with no existing unit
-      coverage, matching this codebase's established convention of testing
-      `lib/*.ts` logic, not JSX components, directly (same as
-      `AmazonBundleCard.tsx`/`OrderCard.tsx`, neither of which has component
-      tests either).
-      0 billed Anthropic API calls this pass. 0 database writes.
-      **THIRD PASS 2026-08-21 (same session, same branch) — SPEC CORRECTION,
-      owner-authored, not a bug fix.** Owner reviewed the running preview
-      after the second pass and found Part 3's own "Collapsed vs expanded"
-      bullet — implemented literally in both prior passes — was itself wrong:
-      gating slot 4 (the action) behind the bucket-level expand toggle
-      produced two-tap friction (expand, then act) instead of the one-tap
-      access from the dashboard the bucket exists to provide. **Correction,
-      not a bug:** both prior passes built exactly what Part 3 said at the
-      time; the spec's own prescribed behavior was the thing that was wrong,
-      caught only once the owner could interact with a real running build —
-      exactly the kind of thing preview-first is for.
-      **CARD_SPEC.md updated in the same commit, traceably** (owner
-      instruction): the "Collapsed vs expanded" bullet (~line 188) rewritten
-      — toggle now governs row COUNT only (N rows collapsed vs. all rows
-      expanded), every rendered row always shows its full 2x2 including slot
-      4, superseded text preserved inline for the record; the "Overflow"
-      bullet reconciled to match (the `/needs-review` "View all N →" link is
-      now a parallel shortcut from the COLLAPSED state only — once expanded,
-      the bucket already shows everything inline, so there's nothing left
-      for that link to add); new **Q10 (correction, added 2026-08-21)** in
-      Part 5 recording the full before/after and why, following the existing
-      Q-extra precedent for post-hoc additions.
-      **Code:** `app/NeedsReviewBucket.tsx` — `visibleRows` now
-      `expanded ? rows : rows.slice(0, 5)` (was always `rows.slice(0, 5)`
-      regardless of toggle state); "View all N" link gated on
-      `!expanded && hasOverflow` (was `expanded && hasOverflow`).
-      `app/NeedsReviewRow.tsx` — the `expanded` prop removed entirely (no
-      longer has any effect to gate); slot 4's action div now always
-      renders unconditionally. Both call sites
-      (`app/NeedsReviewBucket.tsx`, `app/(app)/needs-review/page.tsx`)
-      updated to match the new signature — `tsc --noEmit` confirmed this
-      left no dangling references anywhere in the tree.
-      **Verification:** `tsc --noEmit` clean; test suite 600/601 (same
-      pre-existing, unrelated, owner-deferred failure); `npm run build`
-      clean (same pre-existing `actionToken.ts` Edge warning). No test
-      additions, same rationale as the second pass (presentational
-      components, no existing unit coverage convention to extend).
-      0 billed Anthropic API calls this pass. 0 database writes.
-
+      & VERIFIED 2026-08-21.** Reason detection, container/row layout, and the
+      order detail page's resolution control now match spec; owner-verified
+      live on `app.myreturnwindow.com`. Full detail → HISTORY.md 2026-08-21.
 - [x] **Write-once `orderDate` in `mergeEmailIntoOrder` + Suzie #99500 backfill —
       SHIPPED & VERIFIED 2026-08-19.** Committed `25cd981` on branch
       `writeonce-orderdate-coverage-gate` (cut clean from `origin/main`, 3

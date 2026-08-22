@@ -5,6 +5,122 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-21 — Needs-review bucket (Build B) rebuilt to match CARD_SPEC.md Part 3, shipped and owner-verified live
+
+**Three build passes on one branch, one push, 0 billed Anthropic API calls across the
+entire arc — every reason check is a DB-inspectable lookup, no model calls involved.**
+
+**Root cause.** The bucket was originally built 2026-08-11 (`cd6d639`) against
+`CARD_SPEC.md` Part 3 as it stood at that moment. The spec's reason → action mapping
+table — the piece that actually says which detected reason renders which action — was
+added to Part 3 the very next day (`ea939b1`, 2026-08-12), and that commit's own message
+flagged the gap and logged a follow-up to reconcile the shipped bucket against it. That
+follow-up sat unexecuted for over a week until this session, during which the live
+bucket rendered a banned generic fallback string ("This order needs a quick check") on
+every unmapped row and offered no differentiated action — exactly the two things Part 3
+explicitly said not to do.
+
+**Pass 1 (`8de835b`) — real reason detection.** New `lib/needsReviewReasons.ts` as the
+single source of truth for the reason vocabulary and CARD_SPEC's exact sentences,
+shared by both order-kind and email-kind rows and by the action router. Cheap-version
+scope, owner-locked: only two reasons are DB-detected —
+`belongs_to_existing_order` (an orphaned email's, or a linked email's mismatched,
+orderNumber exactly matching a *different* existing Order — strengthened from the
+pre-rebuild code's weaker "any mismatch counts" check) and `duplicate` (order-kind only,
+via the existing `[auto]` retailer-prefix-merge audit trail already recorded in
+`userNote`). Everything else degrades to one generic reason per population — email-kind
+defaults to "real purchase, no order record" (true by construction, since every row here
+is unlinked); order-kind keeps `missing_order_date`/`missing_order_total` distinct
+(trivial null checks with exact-fit spec sentences, not classifier-adjacent) and
+collapses the rest (return-portal-untrusted, unconfirmed-forward-date, low-confidence,
+true fallback) into one `uncertain_details` reason reusing existing in-app copy
+verbatim, since Part 3 has no canonical sentence for that residual tail. Order-kind rows
+always degrade to `view_detail` regardless of reason — the existing Link-to-order picker
+only attaches an unlinked `emailId` to an Order, no order-to-order merge capability
+exists, so building real differentiated actions for already-merged Orders was
+deliberately deferred (see TASKS.md 🟡 Next, "Order-to-order merge action"). Same pass
+added the order detail page's first-ever resolution control (`approveOrderAction`,
+"Looks correct," reusing the existing human-override function in `lib/orderReview.ts`)
+— previously a needsReview order's badge explained nothing and offered no way to clear
+itself. Also shipped: `lib/uspsCarrierPingExclusion.ts`, an ingestion-time sender-domain
+pre-junk for `tracking.usps.com` (same layer/cost-win as the existing food-grocery
+gate — 6 live rows at census time, all a content-free "USPS® Expected Delivery on
+{date}" template). Promo gating was proposed and *not* built — census found the 3
+visible "promo" rows were outage-cluster residue from the already-documented
+2026-07-31/08-01 credit outage, not a live gating gap, and a domain-based gate would
+have been unsafe regardless (unlike food-grocery's spam-only senders, the promo
+senders were dual-purpose retailer domains that also send real transactional mail).
+
+**Pass 2 (`fd6ad84`) — container/row layout.** A second look, prompted by the owner
+finding the shipped bucket still read as "the exact same garbage as before" despite
+Pass 1's real logic change — traced to three real layout bugs found by reading Part 3
+and the Amazon bundle's actual reference implementation directly against the shipped
+code, not by assumption: (1) the bucket header's expand/collapse toggle was the entire
+header wrapped in one `<button>`, not a discrete slot-4 control like Amazon's small
+corner icon button; (2) the row was a single stacked left-hand column (retailer/
+date·amount/why all stacked, buttons to the right) instead of Part 3's left-column/
+right-column 2×2 skeleton; (3) the most consequential one — `NeedsReviewRowActions.tsx`
+silently no-ops on `link_to_order`, and the row unconditionally rendered the
+Link-to-order "Merge" picker for every email row regardless of its actual computed
+action, so a `create_new_order` row showed "Start a new order" and "Merge with existing
+order" together and **View detail never rendered on any mapped row at all** — a direct
+violation of Part 3's "always-present secondary" rule. All three fixed; two other
+suspected issues (5-row overflow enforcement, row-level collapse/expand) were checked
+directly against the code and confirmed already correct, left untouched.
+
+**Pass 3 (`561a95d`) — CARD_SPEC.md Part 3 Q10 correction.** Owner reviewed the running
+local preview after Pass 2 and found the spec itself was wrong, not the build: gating
+slot 4 (the action) behind the bucket-level expand toggle — literally what Part 3's
+"Collapsed vs expanded" bullet said to do, and what both prior passes correctly
+built — produced two-tap friction (expand, then act) instead of the one-tap access the
+bucket exists to provide. Corrected in the same commit as the code fix, traceably: the
+"Collapsed vs expanded" bullet rewritten (the toggle now governs row count only — N
+rows collapsed vs. all rows expanded — every rendered row always shows its full 2×2
+including the action; superseded text preserved inline for the record), the "Overflow"
+bullet reconciled to match (the `/needs-review` "View all N →" link now shows only when
+collapsed, since expanding the bucket already reveals everything inline), and a new
+**Q10** entry added to Part 5 recording the full before/after and why, following the
+existing Q-extra precedent for post-hoc spec additions.
+
+**Push.** Two further docs-only commits landed on the same branch before the push —
+`921c981` (Zara retailer-extraction-miss diagnosis, needs-review default-action
+heuristic finding, both logged not fixed) and `198932b` (needs-review bucket desktop
+styling issue, logged not fixed, not blocking ship). Preview-first per owner
+instruction throughout — nothing touched `origin/main` until explicit approval.
+Fast-forward merged local `main` onto `needs-review-bucket-rebuild`'s tip and pushed
+clean: `daedda6..198932b`. Vercel deploy `dpl_8hJxiabe3PA6KomDEnDgwN38joRx` reached Ready
+in ~50 seconds; `app.myreturnwindow.com` (plus the `www.` and `.vercel.app` aliases)
+confirmed serving it. Owner live-verified against an 8-point checklist afterward.
+
+**Verification, every pass:** `tsc --noEmit` clean (aside from 6 pre-existing, unrelated
+failures in `__tests__/anthropicUsage.test.ts`); full test suite 600/601 (the one
+failure is the already-logged, owner-deferred timezone off-by-one in `orderCardChip`,
+present before this work and untouched by it); `npm run build` clean (the Edge-runtime
+`crypto` warning in `lib/actionToken.ts` is likewise pre-existing and unrelated). New/
+updated tests: `orderReview.test.ts`, `needsReviewActions.test.ts`,
+`needsReviewRows.test.ts` (new), `uspsCarrierPingExclusion.test.ts` (new),
+`junk.test.ts`. No component-level tests added for the two presentational-layout
+files (`NeedsReviewBucket.tsx`, `NeedsReviewRow.tsx`) — matches this codebase's
+existing convention of testing `lib/*.ts` logic directly rather than JSX components
+(`AmazonBundleCard.tsx`/`OrderCard.tsx` have neither).
+
+**Known, deliberate behavior change:** the ~27 live email-kind rows that previously
+rendered "Archive" (via the old `hasRetailer` proxy standing in for "probably not
+commerce") now render "Start a new order" instead — not-e-commerce detection was
+explicitly out of this pass's cheap-detection scope, so every unlinked email without a
+DB-detected match defaults to "real purchase, no record." Logged, not a bug.
+
+**Deferred, tracked in TASKS.md 🟡 Next:** full-detection reason mapping (real
+not-e-commerce detection, richer email-kind duplicate detection, re-differentiating the
+collapsed `uncertain_details` tail); order-to-order merge action (real machinery for
+`belongs_to_existing_order`/`duplicate` on already-merged order-kind rows); a one-time
+bucket residue cleanup (pre-gate USPS/promo/grocery rows still sitting in the bucket
+from before their respective gates shipped); the H&M-orphan-driven question of whether
+the default action for a no-match orphan should flip from Create to Merge, gated behind
+two separate linking-gap fixes landing first so the eventual census isn't measuring bugs
+about to be fixed anyway. Desktop styling (excess column gap, uneven row density) also
+logged in 🐛 Bugs → Cosmetic, not blocking ship, mobile unverified.
+
 ## 2026-08-19 — Two trust bugs shipped and verified: write-once orderDate + coverage-check establishing-email gate
 
 **Multi-session arc closed out: diagnosis → gated build → shipped → backfilled → live-verified.
