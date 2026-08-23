@@ -2348,6 +2348,34 @@
       skip-the-lookup rule stands as scoped.
 
 ## 🟡 Next
+- [ ] **Third-party returns platform emails (Happy Returns, Loop, Returnly)
+      don't carry the retailer's original order number — NEW 2026-08-23,
+      observed on Chan Luu return-approval email
+      (`notify.happyreturns.com`, return ID `HRYTSJRJ`). Extractor
+      correctly identifies retailer from the body but has nothing better
+      than the returns-platform ID to use as `orderNumber`, so the email
+      links to a synthetic "order" HRYTSJRJ rather than the customer's
+      actual Chan Luu order. Not a bug in extraction — a structural gap.
+      Bridging options (customer-email + timing correlation, retailer
+      order lookup via customer account, etc.) all have real complexity
+      and cost implications. Log for pattern-tracking; will recur across
+      any retailer using Happy Returns / Loop / Returnly.**
+- [ ] **Some retailers' transactional emails never carry the customer's
+      order number in any email — NEW 2026-08-23, observed on Laundry
+      Sauce (shipping_confirmation and delivery emails checked; no
+      order_confirmation email exists on this account for the retailer).**
+      The only identifying number in the emails is a shipping carrier
+      tracking number, appearing inside a URL parameter deceptively named
+      `orderNumberOrTrackingNumber` with the tracking value plugged in.
+      H&M retry fix correctly returned null rather than mis-extracting the
+      tracking number. Not a fix bug; a structural data gap.
+      **Pattern to track:** retailers whose transactional email templates
+      omit order numbers entirely — will produce permanently-orphaned
+      email rows regardless of extraction fixes. Bridging options
+      (customer-email correlation, order lookup via retailer account,
+      manual owner input) all have real complexity/cost implications.
+      Log for pattern-tracking; cousin to the Happy Returns / third-party
+      returns platform finding above.
 - [ ] **Needs-review flag should evaluate at order level, not per-email —
       NEW 2026-08-23.** Surfaced during H&M return_label hand-verify: the
       return_label email (`Email.id: cmt090ioq0001l404crsih7w9`) shows
@@ -3600,6 +3628,62 @@
       `orderCardState.test.ts` timezone flake (pre-existing, logged under
       Known issues).
       Full detail → HISTORY.md 2026-08-23.
+
+      **FOLLOW-UP SWEEP 2026-08-24 (separate session, applying the fix to
+      the remaining cousin population — not re-testing it).** Re-ran
+      yesterday's cousin census: 5 rows remained (one dropped out already,
+      via a manual UI re-extract on order `68468087873`'s return_label
+      row). Split the 5 by actual linking state — the task's "4 H&M
+      return_label" framing didn't match reality; real breakdown was 0
+      return_label rows, 4 already-linked refund emails (3 H&M + 1 Chan
+      Luu, linked to their parent order via a signal other than
+      `orderNumber`), and 1 genuinely orphaned row (Laundry Sauce,
+      shipping_confirmation, `orderNumber`/`orderId` both null — the same
+      shape as the original H&M target).
+      **Swept the 1 orphan** (`cmt0uxvz70001ic0468kxgkjp`) — 3 billed
+      calls, retry fired correctly, **did not recover an orderNumber, and
+      shouldn't have:** neither body contains one anywhere; the only
+      identifying number in either is a UPS tracking number, appearing
+      inside a URL parameter deceptively named
+      `orderNumberOrTrackingNumber`. Confirmed no sibling email (checked
+      the account's other Laundry Sauce email, a delivery confirmation —
+      also no order number, no order_confirmation email exists on this
+      account for this retailer at all). Fix worked correctly; the data
+      simply isn't there. New finding logged, 🟡 Next, cousin to the
+      Happy Returns finding below.
+      **The 4 already-linked rows: deferred, not run.** A free, read-only
+      check confirmed the retry would fire on all 4 (2 calls each
+      minimum), and — separately — that a fresh extraction pass has no
+      way to know these emails' `returnWindowDays` is already stored from
+      a prior run, so a policy web-search lookup would very likely fire
+      again on all 4 too (3 calls each, ~12 total), exactly the waste
+      already logged in 🐛 Bugs → Infra/reliability
+      ("`return_label`/refund extraction shouldn't trigger
+      `lookupReturnPolicy` when linking to an order that already has a
+      resolved policy"). Rather than spend ~12 calls whose lookup portion
+      gets thrown away regardless (no write was going to happen this
+      pass), deferring these 4 until that bug is fixed — then a real
+      sweep (with a write) can run once, cheaply, instead of twice.
+      **Session cost: 3 billed Sonnet calls, one call site** (targeted
+      re-extraction: primary extraction, retry, policy lookup — the
+      orphan sweep only). Everything else (re-run census, linking-state
+      breakdown, retry-gate check, body-shape diagnostic, sibling-email
+      check) was read-only, 0 billed calls.
+      **Zara deferred to a fresh session** — this one turned into an
+      investigation (census mismatch, two new structural findings) rather
+      than a clean sweep; starting Zara on top of it risked mixing paper
+      trails.
+      Scripts added this session (paper trail, same pattern as
+      `pm-verify-resolvebodytext-hm.ts`):
+      `scripts/pm-precheck-hm-cousin-sweep.ts`,
+      `scripts/pm-precheck-hm-cousin-detail.ts`,
+      `scripts/pm-precheck-orderid.ts`,
+      `scripts/pm-precheck-linked-rows-shape.ts`,
+      `scripts/pm-sweep-hm-cousin-rows-20260823.ts`,
+      `scripts/pm-precheck-linked-rows-ordernumber.ts` (written, not run —
+      the 4-row pre-check deferred above),
+      `scripts/pm-diag-laundrysauce-no-recovery.ts`,
+      `scripts/pm-diag-laundrysauce-siblings.ts`.
 - [x] **Needs-review bucket rebuild (CARD_SPEC.md Part 3 compliance) — SHIPPED
       & VERIFIED 2026-08-21.** Reason detection, container/row layout, and the
       order detail page's resolution control now match spec; owner-verified

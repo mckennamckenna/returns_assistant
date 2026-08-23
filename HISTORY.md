@@ -233,6 +233,32 @@ and missing-price display (the four 🟡 Next findings from the
 2026-08-22 H&M screenshot review — explicitly out of scope for this
 item from the start).
 
+**Addendum, 2026-08-24 — follow-up sweep session, applying the fix to
+the remaining cousin population.** Re-ran the cousin census: 5 rows, not
+6 (one dropped out via a manual UI re-extract on order `68468087873`'s
+return_label row in between sessions). The task brief assumed "4 H&M
+return_label rows" remained; actual breakdown was 0 return_label rows,
+4 already-linked refund emails (3 H&M, 1 Chan Luu — linked to their
+parent order via a signal other than `orderNumber`, so not orphaned,
+just missing that one field), and 1 genuinely orphaned row (Laundry
+Sauce shipping_confirmation — same shape as the original H&M target).
+Swept the 1 orphan (3 billed calls) — retry fired correctly but did not
+recover an orderNumber, correctly: neither body contains one anywhere,
+only a UPS tracking number sitting inside a URL parameter deceptively
+named `orderNumberOrTrackingNumber`. No sibling email on the account
+carries one either. Not a fix bug — logged as its own TASKS.md finding
+(🟡 Next, cousin to the Happy Returns finding). The 4 already-linked rows
+were deferred, not run: a free read-only check confirmed a fresh
+extraction pass would very likely re-trigger a billed policy web-search
+lookup on all 4 (the stored `returnWindowDays` doesn't prevent a fresh
+lookup), the exact waste already logged in 🐛 Bugs → Infra/reliability —
+deferring until that's fixed means one cheap sweep later instead of a
+wasted dry-run now plus a real sweep after. Session cost: 3 billed
+Sonnet calls total, one call site (targeted re-extraction). Zara
+deferred to a fresh session — this one became an investigation, not a
+clean sweep. See TASKS.md ✅ Done entry's "FOLLOW-UP SWEEP 2026-08-24"
+addendum for the full script list.
+
 ---
 
 ## 2026-08-21 — Needs-review bucket (Build B) rebuilt to match CARD_SPEC.md Part 3, shipped and owner-verified live
