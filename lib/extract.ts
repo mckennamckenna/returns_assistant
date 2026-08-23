@@ -621,10 +621,18 @@ export async function extractEmail(
   // while textBody (the chosen default) only had it buried in an S3 URL.
   // Deliberately narrow, and deliberately does NOT fire on the Zara shape
   // (retailer null) — that's a different mechanism with its own fix, and
-  // this retry must not collide with it. Only orderNumber is taken from the
-  // retry result; every other field stays from the primary pass, so the
-  // existing "textBody wins when substantial" default is preserved for
-  // everything except this one targeted gap.
+  // this retry must not collide with it. Only orderNumber and needsReview
+  // are taken from the retry result; every other field stays from the
+  // primary pass, so the existing "textBody wins when substantial" default
+  // is preserved for everything except this one targeted gap. needsReview
+  // has to come from the retry too, not just orderNumber: the primary
+  // pass's own self-reported needsReview was set true BECAUSE it couldn't
+  // determine orderNumber (see the NEEDS REVIEW prompt rule) — carrying
+  // that stale flag forward would leave a successfully-recovered row stuck
+  // in the needs-review bucket forever. The retry ran against the body
+  // that actually had the order number, so its own needsReview reflects
+  // the corrected picture (still true if IT also found something else
+  // genuinely ambiguous, false if not).
   const trimmedAlternate = alternateBodyText?.trim() ?? "";
   const alternateDiffersFromPrimary = trimmedAlternate.length > 0 && trimmedAlternate !== textBody.trim();
   if (
@@ -638,6 +646,7 @@ export async function extractEmail(
       parsed = {
         ...parsed,
         orderNumber: retry.orderNumber,
+        needsReview: retry.needsReview,
         notes: `${parsed.notes} Order number recovered from alternate body source on retry.`,
       };
     }

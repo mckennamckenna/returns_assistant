@@ -75,6 +75,30 @@ describe("extractEmail — two-pass retry", () => {
     expect(result.notes).toContain("recovered from alternate body source on retry");
   });
 
+  it("takes needsReview from the retry, not the primary pass's stale self-report — a row whose primary pass flagged needsReview solely because orderNumber was missing must leave the needs-review bucket once the retry recovers it", async () => {
+    // Primary pass: needsReview true (it couldn't find orderNumber).
+    // Retry pass: saw the order number directly, needsReview false.
+    mockCreate.mockResolvedValueOnce(apiResponse({ ...BASE, needsReview: true }));
+    mockCreate.mockResolvedValueOnce(apiResponse({ ...BASE, orderNumber: "68462778273", needsReview: false }));
+
+    const result = await extractEmail(PRIMARY_BODY, SUBJECT, "email_hm_needsreview", ALTERNATE_BODY);
+
+    expect(result.orderNumber).toBe("68462778273");
+    expect(result.needsReview).toBe(false);
+  });
+
+  it("keeps needsReview true when the retry recovers orderNumber but still finds something else genuinely ambiguous", async () => {
+    mockCreate.mockResolvedValueOnce(apiResponse({ ...BASE, needsReview: true }));
+    mockCreate.mockResolvedValueOnce(
+      apiResponse({ ...BASE, orderNumber: "68462778273", needsReview: true, confidence: "low" }),
+    );
+
+    const result = await extractEmail(PRIMARY_BODY, SUBJECT, "email_hm_still_ambiguous", ALTERNATE_BODY);
+
+    expect(result.orderNumber).toBe("68462778273");
+    expect(result.needsReview).toBe(true);
+  });
+
   it("does not retry when no alternate body is offered", async () => {
     mockCreate.mockResolvedValueOnce(apiResponse(BASE));
 
