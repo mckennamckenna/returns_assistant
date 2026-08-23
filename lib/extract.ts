@@ -576,21 +576,22 @@ export function computeNeedsReview(params: {
   );
 }
 
-export async function extractEmail(
+async function runRawExtraction(
   textBody: string,
-  subject: string | null,
-  emailId?: string | null,
-): Promise<ExtractionResult> {
+  subject: string,
+  emailId: string | null | undefined,
+  callSite: "email_extraction" | "email_extraction_retry",
+): Promise<RawExtraction> {
   const message = await anthropic.messages.create({
     model: MODEL,
     // Orders with many line items can produce long responses — 1024 was
     // truncating mid-JSON for orders with a dozen+ items.
     max_tokens: 4096,
-    messages: [{ role: "user", content: buildPrompt(subject ?? "(no subject)", textBody) }],
+    messages: [{ role: "user", content: buildPrompt(subject, textBody) }],
   });
 
   logAnthropicUsage({
-    callSite: "email_extraction",
+    callSite,
     model: MODEL,
     usage: message.usage,
     bodyCharacterCount: textBody.length,
@@ -598,7 +599,49 @@ export async function extractEmail(
   });
 
   const text = lastTextBlock(message.content as { type: string; text?: string }[]);
-  const parsed: RawExtraction = JSON.parse(stripCodeFence(text));
+  return JSON.parse(stripCodeFence(text));
+}
+
+export async function extractEmail(
+  textBody: string,
+  subject: string | null,
+  emailId?: string | null,
+  // The un-chosen body source (resolveBodyTextWithAlternate's `alternate`),
+  // offered for the two-pass retry below. Optional and unused by every
+  // caller except lib/runExtraction.ts.
+  alternateBodyText?: string | null,
+): Promise<ExtractionResult> {
+  const resolvedSubject = subject ?? "(no subject)";
+  let parsed: RawExtraction = await runRawExtraction(textBody, resolvedSubject, emailId, "email_extraction");
+
+  // Two-pass retry (TASKS.md 2026-08-22, H&M return_label case): a commerce
+  // email where the retailer resolved but orderNumber didn't sometimes means
+  // resolveBodyText hands the model the wrong body, not that the number is
+  // genuinely absent — H&M's row had it as plain labeled text in htmlBody
+  // while textBody (the chosen default) only had it buried in an S3 URL.
+  // Deliberately narrow, and deliberately does NOT fire on the Zara shape
+  // (retailer null) — that's a different mechanism with its own fix, and
+  // this retry must not collide with it. Only orderNumber is taken from the
+  // retry result; every other field stays from the primary pass, so the
+  // existing "textBody wins when substantial" default is preserved for
+  // everything except this one targeted gap.
+  const trimmedAlternate = alternateBodyText?.trim() ?? "";
+  const alternateDiffersFromPrimary = trimmedAlternate.length > 0 && trimmedAlternate !== textBody.trim();
+  if (
+    parsed.orderNumber == null &&
+    parsed.retailer != null &&
+    parsed.emailType !== "other" &&
+    alternateDiffersFromPrimary
+  ) {
+    const retry = await runRawExtraction(trimmedAlternate, resolvedSubject, emailId, "email_extraction_retry");
+    if (retry.orderNumber != null) {
+      parsed = {
+        ...parsed,
+        orderNumber: retry.orderNumber,
+        notes: `${parsed.notes} Order number recovered from alternate body source on retry.`,
+      };
+    }
+  }
 
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;

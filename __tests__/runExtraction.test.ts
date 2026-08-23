@@ -26,7 +26,9 @@ const mockLinkEmailToOrder = vi.fn();
 vi.mock("@/lib/linkOrder", () => ({ linkEmailToOrder: mockLinkEmailToOrder }));
 
 vi.mock("@/lib/crypto", () => ({ decrypt: (x: string) => x }));
-vi.mock("@/lib/emailBodyText", () => ({ resolveBodyText: (t: string | null) => t }));
+vi.mock("@/lib/emailBodyText", () => ({
+  resolveBodyTextWithAlternate: (t: string | null) => ({ primary: t, alternate: null }),
+}));
 
 const { runExtraction } = await import("../lib/runExtraction");
 
@@ -89,7 +91,7 @@ describe("runExtraction", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockEmailFindUnique).toHaveBeenCalledWith({ where: { id: BASE_ROW.id } });
-    expect(mockExtractEmail).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id);
+    expect(mockExtractEmail).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null);
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BASE_ROW.id }, data: expect.objectContaining({ retailer: "Acme" }) }),
     );
@@ -100,7 +102,7 @@ describe("runExtraction", () => {
     await runExtraction(BASE_ROW as never);
 
     expect(mockEmailFindUnique).not.toHaveBeenCalled();
-    expect(mockExtractEmail).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id);
+    expect(mockExtractEmail).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null);
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BASE_ROW.id }, data: expect.objectContaining({ retailer: "Acme" }) }),
     );

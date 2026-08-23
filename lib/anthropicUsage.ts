@@ -1,12 +1,16 @@
 import type { Usage } from "@anthropic-ai/sdk/resources/messages";
 
-export type AnthropicCallSite = "commerce_classifier" | "email_extraction" | "policy_lookup";
+export type AnthropicCallSite =
+  | "commerce_classifier"
+  | "email_extraction"
+  | "email_extraction_retry"
+  | "policy_lookup";
 
 interface LogAnthropicUsageParams {
   callSite: AnthropicCallSite;
   model: string;
   usage: Usage;
-  // Only meaningful for commerce_classifier / email_extraction.
+  // Only meaningful for commerce_classifier / email_extraction / email_extraction_retry.
   bodyCharacterCount?: number;
   // Only meaningful for policy_lookup.
   retailer?: string | null;

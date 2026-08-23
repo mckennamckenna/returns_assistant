@@ -107,6 +107,8 @@
       (3) Cousin census, read-only, 0 billed calls: count `Email` rows where `retailer IS NOT NULL AND orderNumber IS NULL AND emailType IN ('return_label', 'refund', 'shipping_confirmation') AND textBody IS NOT NULL AND htmlBody IS NOT NULL AND LENGTH(textBody) > 100`. Sizes the "same failure shape as H&M" population. Report count only — no auto-re-extract, that's a separate owner decision once the number is known.
 
       No ✅ until owner hand-verifies (1)+(2) in production.
+
+      **BUILD 2026-08-23 — option (a), two-pass retry, chosen (owner-confirmed):** `lib/emailBodyText.ts` gets a new export `resolveBodyTextWithAlternate()` returning `{ primary, alternate }` — `primary` is byte-for-byte what `resolveBodyText()` already returned (zero behavior change for its other callers: `classify.ts`, `linkOrder.ts`, the inbound route, `backfill-refund-status.ts`), `alternate` is the un-chosen body source, only set when it independently clears the same substantiality bar. `lib/extract.ts`'s `extractEmail()` takes an optional 4th param `alternateBodyText`; after the primary pass, retries ONLY when `orderNumber` is null AND `retailer` is already resolved AND `emailType !== "other"` AND a substantial, different alternate exists — i.e. exactly the H&M shape, never the Zara shape (`retailer` null), so it can't collide with Zara's eventual fix. Only `orderNumber` is taken from the retry result; every other field stays from the primary pass. The raw model call was split out of `extractEmail` into `runRawExtraction()` so a retry costs exactly one extra Sonnet call (`email_extraction_retry`, new `AnthropicCallSite` value in `lib/anthropicUsage.ts` for cost-visibility) and never a duplicate web-search policy lookup. `lib/runExtraction.ts` now calls `resolveBodyTextWithAlternate` and passes both bodies through. Tests: 3 new/updated files (`__tests__/emailBodyText.test.ts`, `__tests__/extractRetry.test.ts`, `__tests__/runExtraction.test.ts` updated for the new call signature) — full suite 617/617 (excluding one pre-existing, unrelated `orderCardState.test.ts` timezone flake, confirmed present on `main` before this session via `git stash`, logged below under Known issues). `npm run build` typecheck clean. Not yet merged/pushed/deployed.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
@@ -4676,6 +4678,14 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`__tests__/orderCardState.test.ts` — timezone-dependent date-formatting
+  flake, NEW 2026-08-23, unrelated to the H&M session's changes.** "awaiting_delivery
+  with an estimated delivery date" expects `"Arrives Aug 15"` for
+  `new Date("2026-08-15T00:00:00Z")` but gets `"Arrives Aug 14"` — the chip
+  label appears to format in the local (non-UTC) timezone, so a UTC midnight
+  boundary rolls back a day. Confirmed pre-existing via `git stash` (fails
+  identically on `main` before this session's commits). Not fixed — out of
+  scope for the H&M task.
 - **13 real users, not 10 as previously assumed (2026-07-23, ingestion-path
   investigation).** All 13 have a non-null `inboundToken`, but that's a
   schema default set at row creation for every user — presence is not

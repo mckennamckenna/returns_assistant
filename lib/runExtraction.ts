@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { extractEmail } from "@/lib/extract";
 import { linkEmailToOrder } from "@/lib/linkOrder";
 import { decrypt } from "@/lib/crypto";
-import { resolveBodyText } from "@/lib/emailBodyText";
+import { resolveBodyTextWithAlternate } from "@/lib/emailBodyText";
 
 // Accepts either an id (scripts and the manual re-extract action only ever
 // hold an id) or the row itself (the inbound route, which already has the
@@ -28,13 +28,13 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
 
     const decryptedTextBody = email.textBody ? decrypt(email.textBody) : null;
     const decryptedHtmlBody = email.htmlBody ? decrypt(email.htmlBody) : null;
-    const body = resolveBodyText(decryptedTextBody, decryptedHtmlBody);
+    const { primary: body, alternate: alternateBody } = resolveBodyTextWithAlternate(decryptedTextBody, decryptedHtmlBody);
 
     if (!body) {
       throw new Error("no textBody or htmlBody to extract from");
     }
 
-    const result = await extractEmail(body, email.subject ?? null, emailId);
+    const result = await extractEmail(body, email.subject ?? null, emailId, alternateBody);
 
     await prisma.email.update({
       where: { id: emailId },
