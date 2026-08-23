@@ -40,81 +40,6 @@
       retailer identification failure despite visible signal" — not
       duplicated here, see that entry for the reasoning pass needed before
       touching `lib/extract.ts`.
-- [ ] **H&M `return_label` order-number extraction gap — NEW 2026-08-22,
-      root-caused read-only per session brief; BUILD BEGINS 2026-08-22,
-      paired with the Zara From-header display fallback (above) as today's
-      two-item push.** Row identified: `Email.id: cmt090ioq0001l404crsih7w9`,
-      `subject: "We've received your return request"`, `fromEmail:
-      us@delivery.hm.com`, received 2026-08-19. `Email.orderNumber: NULL`,
-      `Email.retailer: "H&M"` (populated correctly), `Email.orderId: NULL`
-      (orphaned). Order number `68462778273` is present in `htmlBody` as
-      ordinary labeled running text near the top ("Order number 68462778273
-      Return registered date 08/19/2026") — clean, unambiguous. In
-      `textBody` the same number appears only inside label-download S3 URLs
-      (`.../labels/2026-08-19/1613594/68462778273/...`), never as labeled
-      text.
-      **Classification: (b) — extraction gap, not linking bug.** Signal
-      never reached `lib/linkOrder.ts` because `Email.orderNumber` was
-      NULL; the matcher can't route what isn't there. Fix belongs in
-      `lib/extract.ts` and/or `lib/emailBodyText.ts`'s `resolveBodyText`,
-      not the linking layer. **Cousin failure to the Zara item (also in
-      🔴 Now this session):** both are "body-text pipeline chose the wrong
-      source, model never saw the signal that was there" — Zara: `textBody`
-      empty and htmlBody stripped by html-to-text; H&M: both bodies
-      populated, leading hypothesis is that `resolveBodyText` preferred
-      `textBody` and never converted `htmlBody`. Design the two fixes with
-      awareness of each other — do NOT ship independent bespoke patches
-      that fight later.
-      **Verify hypothesis BEFORE writing any fix — one Prisma read + one
-      grep, ~5 min, 0 billed calls, mandatory pre-code step:** call
-      `resolveBodyText` directly against this row, snapshot the returned
-      string, grep for the literal `Order number 68462778273`. If absent →
-      hypothesis holds, fix belongs in body-resolution (either merge/dedupe
-      both sources, or "if key fields NULL after extraction and other body
-      has content, retry against it"). If present → hypothesis wrong, model
-      was handed the clean sentence and missed it; fix belongs in the
-      extraction prompt or its examples. Report which before writing any
-      fix. This is a hard gate — one wrong root-cause framing already this
-      session ("orphan-relinking matcher"), no second one.
-      **Design constraint, do not solve past:** whatever body-source rule
-      changes here also has to be sane for retailer-identification cases
-      where rendered plain text is legitimately cleaner than tag-soup HTML.
-      Don't invert the default globally.
-      **Scope reduction, no expansion mid-session:** this fix is this one
-      row's failure mode. Explicitly NOT in scope: (a) cross-retailer
-      census of similar (b) failures — separate 🟡 Next follow-on if
-      worthwhile; (b) H&M attachment parsing — the separate 🔴 Now item
-      (line 799) is unchanged by this; (c) the 15-orphans fallback-matcher
-      item (also 🔴 Now) — different failure population, stays untouched;
-      (d) the 🟡 Next default-action heuristic (line 2189) — that item
-      stays open on its own census merits.
-      **Verify by (production):** post-deploy, re-extract this specific row
-      and confirm `Email.orderNumber` populates to `68462778273` and the
-      row auto-links to order `68462778273` with no user action.
-      Spot-check the other two H&M orders (`66993117803`, `68468087873`,
-      both fully linked today) don't regress. No ✅ until owner
-      hand-verifies in production.
-
-      **Root cause confirmed 2026-08-22 (pre-code verification, read-only, 0 billed calls).** Hypothesis held: `resolveBodyText` returned `textBody` verbatim; `htmlBody` was never converted. Both bodies substantial (`textBody` 7,005 non-whitespace chars, `htmlBody` 107,496 raw); `textBody` clears `MIN_TEXT_BODY_CHARS` (20) by orders of magnitude, so the helper returns it immediately and the htmlBody branch is unreachable for this row. The literal `Order number 68462778273` sentence exists only in `htmlBody`; in `textBody` the digits appear only inside S3 label URLs (correctly ignored as URL noise). Fix belongs in `lib/emailBodyText.ts`'s `resolveBodyText` (or a two-pass extraction wrapper), NOT in the extraction prompt — the model was handed a body that objectively did not contain a labeled order number and correctly answered NULL.
-
-      **Distinguished from Zara (also in 🔴 Now this session):** Zara = `textBody` empty → `htmlBody` used → html-to-text conversion stripped the signal (images/hrefs dropped). H&M = both bodies populated → `textBody` chosen → `htmlBody` (which has the clean signal) never reached. Same family ("wrong body source given to model"), different mechanisms, different files. Do not conflate the two fixes.
-
-      **Fix scope (CC's design call, constrained):** either (a) two-pass retry — if extraction returns NULL on key fields (`orderNumber` primarily) and the un-chosen body has substantial content, re-run extraction against it, or (b) merge/dedupe both sources into one input, or (c) a body-completeness heuristic. Hard constraint: do NOT invert the default globally to prefer `htmlBody` — the existing "prefer textBody when substantial" rule is correct for the majority case where rendered plain text is cleaner than tag-soup. Fix must preserve that default and only override when there's real evidence the chosen source is missing signal that the other has.
-
-      **Post-deploy verification (expanded from initial entry — mandatory, all three):**
-      (1) Targeted re-extract of `Email.id: cmt090ioq0001l404crsih7w9` as final step of the deploy — the existing broken row does NOT self-heal from the code fix alone (fix helps future inbound; this row stays orphaned until re-extracted). One row, ~1 billed call, stated up front per the header's cost-disclosure rule.
-      (2) Confirm post-re-extract: `Email.orderNumber = "68462778273"`, `Email.orderId` populated to order `68462778273`, row leaves the needs-review bucket. Spot-check the two other H&M orders (`66993117803`, `68468087873`, both fully linked today) unchanged.
-      (3) Cousin census, read-only, 0 billed calls: count `Email` rows where `retailer IS NOT NULL AND orderNumber IS NULL AND emailType IN ('return_label', 'refund', 'shipping_confirmation') AND textBody IS NOT NULL AND htmlBody IS NOT NULL AND LENGTH(textBody) > 100`. Sizes the "same failure shape as H&M" population. Report count only — no auto-re-extract, that's a separate owner decision once the number is known.
-
-      No ✅ until owner hand-verifies (1)+(2) in production.
-
-      **BUILD 2026-08-23 — option (a), two-pass retry, chosen (owner-confirmed):** `lib/emailBodyText.ts` gets a new export `resolveBodyTextWithAlternate()` returning `{ primary, alternate }` — `primary` is byte-for-byte what `resolveBodyText()` already returned (zero behavior change for its other callers: `classify.ts`, `linkOrder.ts`, the inbound route, `backfill-refund-status.ts`), `alternate` is the un-chosen body source, only set when it independently clears the same substantiality bar. `lib/extract.ts`'s `extractEmail()` takes an optional 4th param `alternateBodyText`; after the primary pass, retries ONLY when `orderNumber` is null AND `retailer` is already resolved AND `emailType !== "other"` AND a substantial, different alternate exists — i.e. exactly the H&M shape, never the Zara shape (`retailer` null), so it can't collide with Zara's eventual fix. Only `orderNumber` is taken from the retry result; every other field stays from the primary pass. The raw model call was split out of `extractEmail` into `runRawExtraction()` so a retry costs exactly one extra Sonnet call (`email_extraction_retry`, new `AnthropicCallSite` value in `lib/anthropicUsage.ts` for cost-visibility) and never a duplicate web-search policy lookup. `lib/runExtraction.ts` now calls `resolveBodyTextWithAlternate` and passes both bodies through. Tests: 3 new/updated files (`__tests__/emailBodyText.test.ts`, `__tests__/extractRetry.test.ts`, `__tests__/runExtraction.test.ts` updated for the new call signature) — full suite 617/617 (excluding one pre-existing, unrelated `orderCardState.test.ts` timezone flake, confirmed present on `main` before this session via `git stash`, logged below under Known issues). `npm run build` typecheck clean.
-
-      **DEPLOYED 2026-08-23 (commit `efd4f43`, confirmed live via `vercel ls`/`vercel inspect` — new Production deployment built and aliased to `app.myreturnwindow.com`).** Deploy step (3), targeted re-extract of the target row: first pass surfaced a real bug in the fix itself, caught live before declaring success — `orderNumber` recovered correctly (`68462778273`) but `needsReview` stayed `true` because the merge only took `orderNumber`/`notes` from the retry, leaving the PRIMARY pass's stale self-reported `needsReview: true` (set specifically because it couldn't find `orderNumber`) stuck forever. Fixed same session (commit `c8c51e4`, deployed, confirmed live): retry's own `needsReview` is now taken alongside `orderNumber`. Re-ran the target row after redeploy — **3 billed Anthropic calls both times** (not the originally-estimated ~1): primary extraction, the retry (fired exactly as designed), and a policy web-search lookup (H&M's window isn't stated in-body, same as its original 2026-08-19 extraction). Total this session: **6 billed calls** across the two re-extract runs, plus 0 for every read-only step.
-      **Result:** `Email.orderNumber = "68462778273"` ✅, `Email.orderId` populated and linked to order `68462778273` ✅ (both deploy-step (2) criteria met). `needsReview` is still `true` — NOT a regression of the order-number bug: the second run's web policy lookup independently detected a tiered H&M window (a "Rabanne x H&M collaboration, 7 days" exception vs. standard 30 days) and set `returnWindowDays: 7`, which correctly trips the pre-existing, unrelated `notesIndicateTieredWindow` gate. Model non-determinism on the web-search step (the first run's lookup mentioned the same collaboration but didn't resolve it into the shortest-window rule) — touching tiered-window logic is out of scope for this item, not overridden.
-      Spot-check (deploy step (4), read-only, `scripts/pm-spotcheck-hm-other-orders.ts`): both `66993117803` and `68468087873` unchanged — still linked, still `status: "completed"`, same `orderId`. No regression.
-      Cousin census (deploy step (5), read-only, `scripts/pm-census-hm-cousin-shape.ts`, exact query from this entry's spec): **6** other `Email` rows share the same failure shape. Small population — no batch-re-extract case today; that decision stays with the owner per this item's scope, not auto-triggered.
-      **No ✅ yet — awaiting owner hand-verification in production** (per header rule) of: (1) the two recovered fields on the target row, (2) that `needsReview: true` here is legitimately the tiered-window signal and not a reversion of the order-number bug.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
@@ -2353,8 +2278,100 @@
       design decision, would need its own reasoning); real image OCR
       (meaningfully bigger scope, billed-cost implications). None
       evaluated in depth here — diagnostic only.
+- [ ] **`return_label` extraction shouldn't trigger `lookupReturnPolicy`
+      when linking to an order that already has a resolved return policy
+      — NEW 2026-08-23, surfaced during H&M step-3 re-extract.** Deploy
+      step 3 for the H&M fix (session 2026-08-23) cost 3 billed Sonnet
+      calls where the estimate was ~1: primary extraction, retry (expected,
+      from the fix), AND a policy lookup for a return_label email that was
+      linking to an existing order (`68462778273`) already backed by an
+      order_confirmation (7/21), shipping_confirmation (7/22), and delivery
+      (7/25) email chain. A return_label is a status update ("we received
+      your return"), not a policy source — the parent order's
+      `returnDeadline` is already anchored to the order date via the
+      order_confirmation.
+      **Proposed rule:** if `linkOrder` is about to attach a `return_label`
+      email to an existing Order with a non-null `returnDeadline` (or
+      non-null `returnWindow`), skip the policy lookup for that email
+      entirely.
+      **Verify pre-code (hard gate):** confirm the third call in the H&M
+      step-3 re-extract was actually `lookupReturnPolicy` (check
+      `AnthropicCallSite` value in logs) and not a different call site
+      (e.g., a return-label content parse). If it wasn't a policy lookup,
+      this entry is misframed — reopen root cause before scoping. Also
+      cross-check: "Policy Source" field on the target return_label email
+      is empty in production UI, which is inconsistent with a policy
+      lookup having stored its result on that row. Reconcile before
+      building.
+      **Edge case for design pass:** the skip assumes the parent order's
+      `returnDeadline` is correct for this return_label. If a return_label
+      ever legitimately overrides the order-level policy (partial returns
+      with different terms, retailer changed policy mid-window), the skip
+      would hide that. Probably rare, worth a five-minute think before
+      shipping.
+      **Cost sizing:** every `return_label` re-extract on a pre-existing
+      order currently costs +1 web-search Sonnet call. Scale = (return_label
+      inbound rate) × (fraction linking to existing orders, which will be
+      most of them). Cousin census from the H&M session (6 rows) is the
+      immediately re-extractable population if this ships alongside a
+      backfill sweep.
+      **Distinguished from retailer-policy caching (PHASE 1a/1b elsewhere):**
+      caching = "remember an answer across lookups"; this = "skip the
+      lookup entirely when we already have the answer for this specific
+      order." Different lever, likely much simpler implementation — a
+      null-check on `existingOrder.returnDeadline` at the top of the
+      return_label extraction path, no cache infrastructure. Ship both for
+      compounding effect.
+      **Both hard-gate checks VERIFIED 2026-08-23, read-only, 0 billed
+      calls (`scripts/pm-check-hm-policysource.ts`) — entry not
+      misframed, safe to scope from as written:**
+      (1) confirmed the third call really was `policy_lookup` — this
+      session's own captured usage-log lines show
+      `{"event":"anthropic_usage","callSite":"policy_lookup",...}` as the
+      third call on both re-extract runs.
+      (2) the "Policy Source empty in prod UI" observation is real but
+      has a clean, non-bug explanation, NOT a separate reconciliation
+      issue: `Email.policySource` and `Email.returnWindowDays` are both
+      `null` on the target row because THIS specific lookup came back
+      ambiguous (the tiered/collaboration-window language triggered
+      `extract.ts`'s existing "unclear" branch —
+      `policyLookupWasUnclear = true`), which by design never writes
+      `policySource`/`returnWindowDays` onto the row. `Order.policySource
+      = "web_lookup"`, `Order.returnWindowDays = 30`,
+      `Order.returnDeadline = 2026-08-25` are all real and correct —
+      inherited from an earlier, cleaner extraction on one of the other
+      three linked H&M emails, untouched by this one. Both facts hold at
+      once: the call was still wasteful/redundant (the order already had
+      a resolved policy before this email was even linked — the core
+      point of this entry), it just also happened to return an
+      inconclusive answer that correctly wasn't persisted. The proposed
+      skip-the-lookup rule stands as scoped.
 
 ## 🟡 Next
+- [ ] **Needs-review flag should evaluate at order level, not per-email —
+      NEW 2026-08-23.** Surfaced during H&M return_label hand-verify: the
+      return_label email (`Email.id: cmt090ioq0001l404crsih7w9`) shows
+      "Needs Review" because its own extracted fields are empty (order
+      date, delivery date, return window, return deadline, policy source,
+      order total all `—`), but every one of those fields is populated at
+      the parent order level from the linked order_confirmation /
+      shipping_confirmation / delivery emails. A return_label email doesn't
+      restate order metadata by nature — flagging it individually because
+      it lacks fields the order already has creates review noise the owner
+      has to clear one row at a time for no data-quality reason.
+      **Proposed rule:** an individual email is "needs review" only if
+      (a) fields it *should* carry per its emailType are missing or
+      low-confidence, or (b) the parent order still has gaps. If the
+      parent order is complete, don't surface constituent emails in the
+      review bucket just for empty fields they were never expected to
+      carry.
+      **Read first before scoping:** HISTORY.md entry for the 2026-08-21
+      needs-review bucket rebuild — this change interacts with that work
+      and must not re-break what was just fixed.
+      **Distinguished from tiered-policy needs-review:** if the review
+      reason is the tiered H&M window (or any other genuine policy
+      ambiguity), that stays — this entry is only about the "empty fields
+      on a status email" case.
 - [ ] **Historical pm-diag script PII retrofit — NEW 2026-08-22, not started.**
       New pm-diag scripts landing 2026-08-22 and forward use
       `process.env.PM_DIAG_*` for user emails, order IDs, and order totals
@@ -3547,6 +3564,42 @@
 
 ## ✅ Done
 
+- [x] **H&M `return_label` order-number extraction gap — SHIPPED & VERIFIED
+      2026-08-23.** Two-pass retry (option a from the scope block) in
+      `lib/emailBodyText.ts` + `lib/extract.ts`; narrow gate (retailer
+      resolved AND orderNumber null AND emailType != "other" AND
+      substantial alternate body exists) — H&M shape only, cannot collide
+      with Zara's future fix. 5 commits on `origin/main`, deployed to
+      `app.myreturnwindow.com` (commit `3d6530e`, confirmed via `vercel
+      ls`/`inspect`). Target row `cmt090ioq0001l404crsih7w9`:
+      `Email.orderNumber` = `68462778273` ✓, `Email.orderId` linked to
+      order `68462778273` ✓, appears in "Linked emails (4)" on the order
+      detail page alongside order_confirmation (7/21),
+      shipping_confirmation (7/22), delivery (7/25). Owner-verified in
+      production 2026-08-23. Spot-check: other two H&M orders
+      (`66993117803`, `68468087873`) unchanged, no regression. Cousin
+      census: 6 other rows share the failure shape — no batch re-extract
+      triggered (deferred, owner call).
+      **Mid-session bug caught and fixed same session:** first deploy left
+      `needsReview = true` even after `orderNumber` recovered because the
+      merge preserved the primary pass's stale self-report. Fixed,
+      redeployed, reverified.
+      **Billed Anthropic calls this session: 6, all Sonnet, one call site
+      (targeted re-extraction, 2 rows × 3 calls each: primary extraction,
+      retry, policy lookup).** Everything else (baseline reads, spot-check,
+      cousin census, pre-code verification) was read-only, 0 billed calls.
+      Pre-code verification script `scripts/pm-verify-resolvebodytext-hm.ts`
+      committed as part of the paper trail.
+      **Two follow-ups spawned, both logged separately (not blocking ✅):**
+      (1) needs-review flag should evaluate at order level, not per-email
+      — see 🟡 Next; (2) `return_label` extraction shouldn't trigger
+      `lookupReturnPolicy` when linking to an existing order with a
+      resolved return policy — see 🐛 Bugs → Infra/reliability.
+      **Not in this session, unchanged:** Zara fix (separate 🔴 Now item),
+      batch re-extract of the 6 cousin rows (owner decision, deferred),
+      `orderCardState.test.ts` timezone flake (pre-existing, logged under
+      Known issues).
+      Full detail → HISTORY.md 2026-08-23.
 - [x] **Needs-review bucket rebuild (CARD_SPEC.md Part 3 compliance) — SHIPPED
       & VERIFIED 2026-08-21.** Reason detection, container/row layout, and the
       order detail page's resolution control now match spec; owner-verified
