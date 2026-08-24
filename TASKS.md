@@ -37,6 +37,44 @@
       2026-08-24 from 🐛 Bugs → Infra/reliability, scope WIDENED same day
       per owner directive from the original `return_label`-only framing
       to any email type.**
+      **SHIPPED 2026-08-24, AWAITING OWNER HAND-VERIFICATION IN PRODUCTION
+      — not ✅ yet.** Committed `31525f5`, pushed, deployed
+      (`dpl_HZ8vJyjueadR4UMsmrQxmauajRpN`, confirmed READY and created 6
+      seconds after the push — matches, not a stale/unrelated deploy).
+      Live verification (read-only target selection, then one real
+      re-extraction each):
+      (1) `cmt69aqxe0001jr0427kevu9o` (NET-A-PORTER `shipping_confirmation`,
+      linking to an order with `returnWindowDays=14` already resolved) —
+      re-extracted, usage log shows exactly one call
+      (`callSite=email_extraction`), **no `policy_lookup` fired.** Order's
+      `returnWindowDays`/`policySource` correctly preserved via the
+      existing sticky-merge logic; `orderNumber` intact; `needsReview`
+      false. Cost: 1 billed Sonnet call, exactly as disclosed upfront.
+      (2) Regression spot-check, `cmt7ntzb60001ky040edd7owe` (American
+      Girl `shipping_confirmation`, linking to an order with
+      `returnWindowDays=null`, unresolved) — re-extracted, usage log shows
+      **`policy_lookup` DID fire** as expected (guard doesn't over-skip);
+      order's policy correctly resolved (`returnWindowDays=30`,
+      `policySource=web_lookup`). Cost: 2 billed Sonnet calls, exactly as
+      disclosed upfront.
+      Both targets deliberately excluded H&M/Chan Luu (the 4 deferred
+      cousin rows stay untouched this session, per instruction) and the
+      just-restored SKIMS order.
+      **Census-count, how much this saves (read-only,
+      `scripts/census-redundant-policy-lookup.ts`, re-run 2026-08-24):**
+      of 349 historical `web_lookup` calls system-wide, 163 (46.7%) were
+      redundant — fired after their order already had a resolved window.
+      120 of those are non-Amazon (the population this fix actually
+      targets going forward — the other 43 are Amazon rows, already free
+      via the pre-existing `amazon_default` short-circuit, unaffected by
+      and unrelated to this fix).
+      Scripts added this session (paper trail):
+      `scripts/pm-census-order-query-volume-20260824.ts`,
+      `scripts/pm-find-verify-target-20260824.ts`,
+      `scripts/pm-verify-policylookup-skip-20260824.ts`,
+      `scripts/pm-find-regression-target-20260824.ts`.
+      **Next:** owner hand-verifies live in production UI, then this
+      moves to ✅ Done.
       **Locked skip condition:** if the parent order's `returnWindowDays`
       is already non-null, skip the billed web-search lookup for the
       incoming email entirely, regardless of its `emailType`. Only the
