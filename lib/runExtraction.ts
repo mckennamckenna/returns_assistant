@@ -1,9 +1,11 @@
 import type { Email } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { extractEmail } from "@/lib/extract";
-import { linkEmailToOrder } from "@/lib/linkOrder";
+import { extractEmailIdentity, finalizeExtraction, type ExistingOrderContext } from "@/lib/extract";
+import { linkEmailToOrder, findMatchingOrder } from "@/lib/linkOrder";
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyTextWithAlternate } from "@/lib/emailBodyText";
+import { isAmazonOrder } from "@/lib/amazonBundle";
+import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
 
 // Accepts either an id (scripts and the manual re-extract action only ever
 // hold an id) or the row itself (the inbound route, which already has the
@@ -34,7 +36,33 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
       throw new Error("no textBody or htmlBody to extract from");
     }
 
-    const result = await extractEmail(body, email.subject ?? null, emailId, alternateBody);
+    const parsed = await extractEmailIdentity(body, email.subject ?? null, emailId, alternateBody);
+
+    // Deterministic-match pre-check only (TASKS.md 2026-08-24) — finds
+    // whether this email is about to link to an existing order that
+    // already has a resolved return policy, so finalizeExtraction can skip
+    // the billed web-search lookup. Skipped entirely for retailers that
+    // never reach the billed branch regardless — Amazon default and
+    // food/grocery exclusion, the same checks finalizeExtraction itself
+    // uses (isAmazonOrder/isFoodGroceryRetailer, reused not
+    // reimplemented) — so the extra DB read only happens where it could
+    // actually save a billed call. RX/prescription emails never reach
+    // this function at all: isCommerceEmail (lib/classify.ts) discards
+    // them at ingestion, before any Email row exists.
+    let existingOrder: ExistingOrderContext | null = null;
+    const mayTriggerPolicyLookup =
+      parsed.returnWindowDays == null &&
+      !(isAmazonOrder(parsed.retailer) && parsed.emailType !== "other") &&
+      !isFoodGroceryRetailer(parsed.retailer);
+
+    if (mayTriggerPolicyLookup && parsed.retailer && parsed.orderNumber) {
+      const match = await findMatchingOrder(email.userId, parsed.retailer, parsed.orderNumber);
+      if (match) {
+        existingOrder = { returnWindowDays: match.order.returnWindowDays };
+      }
+    }
+
+    const result = await finalizeExtraction(parsed, emailId, existingOrder);
 
     await prisma.email.update({
       where: { id: emailId },

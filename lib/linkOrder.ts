@@ -443,6 +443,45 @@ async function findRetailerPrefixMatchOrder(
   return candidates.find((c) => c.retailer != null && isRetailerPrefixMatch(c.retailer, retailer)) ?? null;
 }
 
+export type OrderMatchType = "exact" | "prefix" | "retailer_prefix";
+
+export interface OrderMatch {
+  order: Order;
+  matchType: OrderMatchType;
+}
+
+// Deterministic orderNumber-based matching only — exact, then order-number
+// prefix, then retailer-prefix. Does NOT cover the orphaned-refund
+// (line-item/amount) fallback below — deliberately out of scope for the
+// new caller (runExtraction.ts's policy-lookup pre-check, TASKS.md
+// 2026-08-24): that fuzzy-match logic is under active investigation
+// elsewhere (Caroline's RealReal item, 🔴 Now) and this fix shouldn't
+// silently ride on it while it's under scrutiny.
+// userId scoping on every query is load-bearing — see the same note on
+// the exact-match query below, previously inlined in linkEmailToOrder.
+export async function findMatchingOrder(
+  userId: string,
+  retailer: string,
+  orderNumber: string,
+): Promise<OrderMatch | null> {
+  const exact = await prisma.order.findFirst({
+    where: {
+      userId,
+      retailer: { equals: retailer, mode: "insensitive" },
+      orderNumber: { equals: orderNumber, mode: "insensitive" },
+    },
+  });
+  if (exact) return { order: exact, matchType: "exact" };
+
+  const prefixMatch = await findPrefixMatchOrder(userId, retailer, orderNumber);
+  if (prefixMatch) return { order: prefixMatch, matchType: "prefix" };
+
+  const retailerPrefixMatch = await findRetailerPrefixMatchOrder(userId, retailer, orderNumber);
+  if (retailerPrefixMatch) return { order: retailerPrefixMatch, matchType: "retailer_prefix" };
+
+  return null;
+}
+
 export type RefundFallbackTier = "line_item_overlap" | "total_match" | "recency";
 
 export interface RefundFallbackMatch {
@@ -805,40 +844,21 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
     // userId scoping here is load-bearing, not optional: without it, two
     // different users who both happen to shop at the same retailer with a
     // matching order-number format could have their orders merged together,
-    // leaking one user's purchase data onto another's dashboard.
-    const existing = await prisma.order.findFirst({
-      where: {
-        userId: email.userId,
-        retailer: { equals: email.retailer, mode: "insensitive" },
-        orderNumber: { equals: email.orderNumber!, mode: "insensitive" },
-      },
-    });
+    // leaking one user's purchase data onto another's dashboard. Enforced
+    // inside findMatchingOrder (lib/linkOrder.ts) on every query.
+    const match = await findMatchingOrder(email.userId, email.retailer, email.orderNumber!);
 
-    if (existing) {
-      matchedOrderDisplayStatus = existing.displayStatus;
-      orderId = await mergeEmailIntoOrder(existing, email, returnPortalUrl);
-    } else {
-      const prefixMatch = await findPrefixMatchOrder(email.userId, email.retailer, email.orderNumber!);
-
-      if (prefixMatch) {
-        matchedOrderDisplayStatus = prefixMatch.displayStatus;
-        orderId = await mergeEmailIntoOrder(prefixMatch, email, returnPortalUrl);
+    if (match) {
+      matchedOrderDisplayStatus = match.order.displayStatus;
+      orderId = await mergeEmailIntoOrder(match.order, email, returnPortalUrl);
+      if (match.matchType === "prefix") {
         isPrefixMatchedOrder = true;
-      } else {
-        const retailerPrefixMatch = await findRetailerPrefixMatchOrder(
-          email.userId,
-          email.retailer,
-          email.orderNumber!,
-        );
-        if (retailerPrefixMatch) {
-          matchedOrderDisplayStatus = retailerPrefixMatch.displayStatus;
-          orderId = await mergeEmailIntoOrder(retailerPrefixMatch, email, returnPortalUrl);
-          isPrefixMatchedOrder = true;
-          retailerPrefixNote = `[auto] retailer prefix match: "${retailerPrefixMatch.retailer}" ← "${email.retailer}"`;
-        } else {
-          orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
-        }
+      } else if (match.matchType === "retailer_prefix") {
+        isPrefixMatchedOrder = true;
+        retailerPrefixNote = `[auto] retailer prefix match: "${match.order.retailer}" ← "${email.retailer}"`;
       }
+    } else {
+      orderId = await createOrderFromEmail(email.userId, email, returnPortalUrl);
     }
   }
 

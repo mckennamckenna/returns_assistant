@@ -42,7 +42,7 @@ export interface LineItem {
   quantity: number | null;
 }
 
-interface RawExtraction {
+export interface RawExtraction {
   emailType: EmailType;
   retailer: string | null;
   orderNumber: string | null;
@@ -104,6 +104,16 @@ export interface ExtractionResult extends RawExtraction {
   deadlineIsEstimated: boolean;
   policySource: PolicySource | null;
   returnPortalUrl: string | null;
+}
+
+// Just the fields extraction currently needs from a candidate parent
+// Order — deliberately narrow (see TASKS.md 2026-08-24: Neon
+// bandwidth-quota incident precedent for select-scoping DB reads), not
+// Prisma's full Order type. runExtraction.ts shapes a full Order row into
+// this before calling finalizeExtraction. A 🟡 Next item tracks widening
+// this as other extraction decisions gain order-context awareness.
+export interface ExistingOrderContext {
+  returnWindowDays: number | null;
 }
 
 interface PolicyLookupResult {
@@ -602,7 +612,7 @@ async function runRawExtraction(
   return JSON.parse(stripCodeFence(text));
 }
 
-export async function extractEmail(
+export async function extractEmailIdentity(
   textBody: string,
   subject: string | null,
   emailId?: string | null,
@@ -610,7 +620,7 @@ export async function extractEmail(
   // offered for the two-pass retry below. Optional and unused by every
   // caller except lib/runExtraction.ts.
   alternateBodyText?: string | null,
-): Promise<ExtractionResult> {
+): Promise<RawExtraction> {
   const resolvedSubject = subject ?? "(no subject)";
   let parsed: RawExtraction = await runRawExtraction(textBody, resolvedSubject, emailId, "email_extraction");
 
@@ -652,6 +662,20 @@ export async function extractEmail(
     }
   }
 
+  return parsed;
+}
+
+export async function finalizeExtraction(
+  parsed: RawExtraction,
+  emailId: string | null | undefined,
+  // Non-null only when the caller (runExtraction.ts) already found a
+  // parent order this email is about to link to. Read here so a billed
+  // web-search policy lookup never re-fires for an order that already has
+  // a resolved policy — TASKS.md 2026-08-23/24 (widened 2026-08-24 from
+  // return_label-only to any email type). null for extractEmail below —
+  // behavior for that caller is unchanged.
+  existingOrder: ExistingOrderContext | null,
+): Promise<ExtractionResult> {
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
   let lookupNeedsReview = false;
@@ -683,7 +707,17 @@ export async function extractEmail(
     // lookup would find, so skip the billed call entirely. policySource
     // stays null; returnWindowDays stays whatever extraction returned
     // (typically null) since neither is ever read once the email is junked.
-  } else if (parsed.retailer && parsed.emailType !== "other") {
+  } else if (
+    parsed.retailer &&
+    parsed.emailType !== "other" &&
+    // TASKS.md 2026-08-23/24: an order that already has a resolved
+    // returnWindowDays doesn't need a fresh billed lookup just because
+    // another email linked to it. Checks returnWindowDays specifically,
+    // not returnDeadline — returnDeadline can still be null even when the
+    // policy itself is known (e.g. no anchor date yet), so gating on it
+    // would wrongly keep the lookup firing in that real case.
+    existingOrder?.returnWindowDays == null
+  ) {
     try {
       const lookup = await lookupReturnPolicy(parsed.retailer, emailId);
       returnPortalUrlFromLookup = lookup.returnPortalUrl;
@@ -742,4 +776,19 @@ export async function extractEmail(
     returnPortalUrl,
     needsReview,
   };
+}
+
+// Convenience wrapper preserving the original one-call signature/behavior
+// for callers with no order context (scripts/backfill-refund-status.ts,
+// scripts/pm-precheck-linked-rows-ordernumber.ts) — existingOrder is
+// always null here, so the policy-lookup skip never applies to these
+// callers; behavior is unchanged from before the 2026-08-24 split.
+export async function extractEmail(
+  textBody: string,
+  subject: string | null,
+  emailId?: string | null,
+  alternateBodyText?: string | null,
+): Promise<ExtractionResult> {
+  const parsed = await extractEmailIdentity(textBody, subject, emailId, alternateBodyText);
+  return finalizeExtraction(parsed, emailId, null);
 }
