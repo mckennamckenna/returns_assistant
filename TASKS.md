@@ -32,159 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Any email linking to an order that already has a resolved return
-      policy shouldn't re-trigger `lookupReturnPolicy` — PROMOTED here
-      2026-08-24 from 🐛 Bugs → Infra/reliability, scope WIDENED same day
-      per owner directive from the original `return_label`-only framing
-      to any email type.**
-      **SHIPPED 2026-08-24, AWAITING OWNER HAND-VERIFICATION IN PRODUCTION
-      — not ✅ yet.** Committed `31525f5`, pushed, deployed
-      (`dpl_HZ8vJyjueadR4UMsmrQxmauajRpN`, confirmed READY and created 6
-      seconds after the push — matches, not a stale/unrelated deploy).
-      Live verification (read-only target selection, then one real
-      re-extraction each):
-      (1) `cmt69aqxe0001jr0427kevu9o` (NET-A-PORTER `shipping_confirmation`,
-      linking to an order with `returnWindowDays=14` already resolved) —
-      re-extracted, usage log shows exactly one call
-      (`callSite=email_extraction`), **no `policy_lookup` fired.** Order's
-      `returnWindowDays`/`policySource` correctly preserved via the
-      existing sticky-merge logic; `orderNumber` intact; `needsReview`
-      false. Cost: 1 billed Sonnet call, exactly as disclosed upfront.
-      (2) Regression spot-check, `cmt7ntzb60001ky040edd7owe` (American
-      Girl `shipping_confirmation`, linking to an order with
-      `returnWindowDays=null`, unresolved) — re-extracted, usage log shows
-      **`policy_lookup` DID fire** as expected (guard doesn't over-skip);
-      order's policy correctly resolved (`returnWindowDays=30`,
-      `policySource=web_lookup`). Cost: 2 billed Sonnet calls, exactly as
-      disclosed upfront.
-      Both targets deliberately excluded H&M/Chan Luu (the 4 deferred
-      cousin rows stay untouched this session, per instruction) and the
-      just-restored SKIMS order.
-      **Census-count, how much this saves (read-only,
-      `scripts/census-redundant-policy-lookup.ts`, re-run 2026-08-24):**
-      of 349 historical `web_lookup` calls system-wide, 163 (46.7%) were
-      redundant — fired after their order already had a resolved window.
-      120 of those are non-Amazon (the population this fix actually
-      targets going forward — the other 43 are Amazon rows, already free
-      via the pre-existing `amazon_default` short-circuit, unaffected by
-      and unrelated to this fix).
-      Scripts added this session (paper trail):
-      `scripts/pm-census-order-query-volume-20260824.ts`,
-      `scripts/pm-find-verify-target-20260824.ts`,
-      `scripts/pm-verify-policylookup-skip-20260824.ts`,
-      `scripts/pm-find-regression-target-20260824.ts`.
-      **Next:** owner hand-verifies live in production UI, then this
-      moves to ✅ Done.
-      **Locked skip condition:** if the parent order's `returnWindowDays`
-      is already non-null, skip the billed web-search lookup for the
-      incoming email entirely, regardless of its `emailType`. Only the
-      billed web-search lookup skips — free in-body policy extraction (an
-      email that literally states its own return policy) is untouched and
-      continues to work exactly as before.
-      **Scope boundary, conscious choice not oversight:** deterministic
-      order-matching only this session (exact match, order-number prefix
-      match, retailer-prefix match). The orphaned-refund fallback
-      (line-item/amount-based matching, `findRefundFallbackOrder`) is
-      deliberately NOT covered by the skip — that fuzzy-match logic is
-      under active investigation elsewhere in this same 🔴 Now section
-      (Caroline's The RealReal order-total item), and this fix shouldn't
-      silently ride on logic whose correctness isn't yet settled. Revisit
-      widening after that item resolves.
-      **Design (A/B/C investigation, then diff, both owner-approved before
-      code):** `lookupReturnPolicy` fires inside `extractEmail()`
-      (`lib/extract.ts`), before linking — `extractEmail` had no DB access
-      and no knowledge of any candidate parent order. Fix splits it into
-      `extractEmailIdentity` (primary extraction + retry, unchanged AI
-      calls) and `finalizeExtraction` (policy/deadline/needsReview,
-      now takes an `existingOrder: ExistingOrderContext | null` argument
-      — a local interface with just the fields extraction needs, not
-      Prisma's full `Order` type, matching this codebase's existing
-      select-scoping convention). `lib/runExtraction.ts` now runs identity
-      extraction, then a DB pre-check for a matching existing order (via a
-      new shared `findMatchingOrder` in `lib/linkOrder.ts`, extracted out
-      of `linkEmailToOrder`'s previously-inline exact/prefix/retailer-prefix
-      matching so there's one implementation, not two), then
-      `finalizeExtraction` with the result. Pre-check itself is skipped
-      for Amazon and food/grocery retailers (reusing `isAmazonOrder`/
-      `isFoodGroceryRetailer`, not reimplementing) since those never reach
-      the billed branch regardless — avoids wasted DB reads on the
-      highest-volume retailer categories. RX/prescription emails need no
-      special handling: `isCommerceEmail` (`lib/classify.ts`) discards
-      them at ingestion, before any `Email` row exists, so they never
-      reach this code at all.
-      **Known pre-existing condition, not fixed by or blocking this
-      change:** the `Order` table has no indexes at all — see 🟡 Next,
-      "`Order` table has zero indexes."
-      **Original entry (NEW 2026-08-23, `return_label`-only framing) —
-      preserved in full below as paper trail, not re-litigated:**
-      Deploy step 3 for the H&M fix (session 2026-08-23) cost 3 billed
-      Sonnet calls where the estimate was ~1: primary extraction, retry
-      (expected, from the fix), AND a policy lookup for a return_label
-      email that was linking to an existing order (`68462778273`) already
-      backed by an order_confirmation (7/21), shipping_confirmation
-      (7/22), and delivery (7/25) email chain. A return_label is a status
-      update ("we received your return"), not a policy source — the
-      parent order's `returnDeadline` is already anchored to the order
-      date via the order_confirmation.
-      **Original proposed rule:** if `linkOrder` is about to attach a
-      `return_label` email to an existing Order with a non-null
-      `returnDeadline` (or non-null `returnWindow`), skip the policy
-      lookup for that email entirely. (Superseded above: final skip
-      condition checks `returnWindowDays`, not `returnDeadline` — see B in
-      the A/B/C investigation for why: `returnDeadline` can be null even
-      when the policy itself is known, e.g. no anchor date yet.)
-      **Verify pre-code (hard gate):** confirm the third call in the H&M
-      step-3 re-extract was actually `lookupReturnPolicy` (check
-      `AnthropicCallSite` value in logs) and not a different call site
-      (e.g., a return-label content parse). If it wasn't a policy lookup,
-      this entry is misframed — reopen root cause before scoping. Also
-      cross-check: "Policy Source" field on the target return_label email
-      is empty in production UI, which is inconsistent with a policy
-      lookup having stored its result on that row. Reconcile before
-      building.
-      **Edge case for design pass:** the skip assumes the parent order's
-      `returnDeadline` is correct for this return_label. If a return_label
-      ever legitimately overrides the order-level policy (partial returns
-      with different terms, retailer changed policy mid-window), the skip
-      would hide that. Probably rare, worth a five-minute think before
-      shipping. (Accepted as rare-miss, see 👀 Watching.)
-      **Cost sizing:** every `return_label` re-extract on a pre-existing
-      order currently costs +1 web-search Sonnet call. Scale =
-      (return_label inbound rate) × (fraction linking to existing orders,
-      which will be most of them). Cousin census from the H&M session (6
-      rows) is the immediately re-extractable population if this ships
-      alongside a backfill sweep.
-      **Distinguished from retailer-policy caching (PHASE 1a/1b
-      elsewhere):** caching = "remember an answer across lookups"; this =
-      "skip the lookup entirely when we already have the answer for this
-      specific order." Different lever, likely much simpler
-      implementation — a null-check on `existingOrder.returnDeadline` at
-      the top of the return_label extraction path, no cache
-      infrastructure. Ship both for compounding effect.
-      **Both hard-gate checks VERIFIED 2026-08-23, read-only, 0 billed
-      calls (`scripts/pm-check-hm-policysource.ts`) — entry not
-      misframed, safe to scope from as written:**
-      (1) confirmed the third call really was `policy_lookup` — this
-      session's own captured usage-log lines show
-      `{"event":"anthropic_usage","callSite":"policy_lookup",...}` as the
-      third call on both re-extract runs.
-      (2) the "Policy Source empty in prod UI" observation is real but
-      has a clean, non-bug explanation, NOT a separate reconciliation
-      issue: `Email.policySource` and `Email.returnWindowDays` are both
-      `null` on the target row because THIS specific lookup came back
-      ambiguous (the tiered/collaboration-window language triggered
-      `extract.ts`'s existing "unclear" branch —
-      `policyLookupWasUnclear = true`), which by design never writes
-      `policySource`/`returnWindowDays` onto the row. `Order.policySource
-      = "web_lookup"`, `Order.returnWindowDays = 30`,
-      `Order.returnDeadline = 2026-08-25` are all real and correct —
-      inherited from an earlier, cleaner extraction on one of the other
-      three linked H&M emails, untouched by this one. Both facts hold at
-      once: the call was still wasteful/redundant (the order already had
-      a resolved policy before this email was even linked — the core
-      point of this entry), it just also happened to return an
-      inconclusive answer that correctly wasn't persisted. The proposed
-      skip-the-lookup rule stands as scoped.
 - [ ] **Zara "unknown retailer" digest line — PROMOTED here 2026-08-22, owner
       directive: zero tolerance for "unknown retailer" lines going forward.**
       Full diagnosis, root cause, and recommended fix direction (sender-
@@ -2214,11 +2061,47 @@
       "the parameter is never read" is NOT confirmed as the cause; this
       logic looked correct on a code read alone. Actual cause unconfirmed
       — candidates not yet checked: stale client-side navigation cache on
-      a same-route search-param change, a test-data condition where the
-      visible set already equaled the closing-soon set, or something
-      client-observable only (network tab / actual RSC payload), not a
-      static-code-read bug. Low priority — button just doesn't do what
-      the user expects, no wrong data shown.
+      a same-route search-param change, or something client-observable
+      only (network tab / actual RSC payload), not a static-code-read bug.
+      Low priority — button just doesn't do what the user expects, no
+      wrong data shown.
+      **STRUCK, 2026-08-24 (owner): the "visible set already equaled the
+      closing-soon set" theory above is not viable and should have been
+      ruled out at logging time, not carried as a hedge.** Owner's account
+      is deliberately populated with orders across a range of states
+      specifically so different use cases surface in testing — there is no
+      plausible moment where every order is simultaneously closing soon.
+      Do not re-raise this theory without new evidence.
+      **SECOND OBSERVATION, 2026-08-24 ~15:00 PT (owner):** SKIMS and other
+      orders appeared missing from the dashboard; resolved on search +
+      refresh. Root cause of this specific observation not yet
+      investigated — logged here as a data point, not diagnosed.
+      **Code + deploy trace, 2026-08-24, read-only, 0 billed calls:**
+      every commit touching `app/`/`lib/` between 2026-08-21 and
+      2026-08-24 (including the 19 commits absorbed into `main` for the
+      first time via the 2026-08-21 11:26 reconciliation merge, `23462d5`,
+      authored 2026-08-10 through 2026-08-20) cross-referenced against
+      `meta.githubCommitSha` on each production deployment (exact SHA
+      match, not inferred from timing) — **zero commits in that window
+      touch `searchParams`/`statusFilter`/`closing_soon`, and no deploy
+      activated new filter behavior.** The filter branch itself
+      (`page.tsx:148`, `if (statusFilter === "closing_soon") return
+      isClosingSoon(order, now);`) is unchanged since `7fa8c80`
+      (2026-07-20) — over a month before this entry was even filed. This
+      is definitive on "nothing shipped to fix this" — it is NOT evidence
+      for any specific root cause; it only eliminates "a code fix
+      happened."
+      **Root cause remains OPEN — not closed, not misdiagnosed.**
+      Remaining candidates: stale client-side navigation cache on a
+      same-route search-param change; a Next.js hydration or router-state
+      issue; some URL state at the moment of observation that wasn't
+      captured. The browser-cache theory is a candidate, not established
+      — it's what's left once the code-bug theory is eliminated, which is
+      not the same as evidence for it.
+      **Key missing data point, for whoever reproduces this next: capture
+      the address bar URL immediately** at the moment the filter appears
+      not to apply (or orders appear missing) — neither observation to
+      date captured this.
 - [ ] **[Medium] `/alerts` nav link greyed out and unclickable — NEW
       2026-08-21, owner-reported during click-through, verified in both
       preview and production, pre-existing/unrelated to the same-day
@@ -2244,6 +2127,28 @@
       (`app/(app)/alerts/page.tsx`) was not touched by tonight's fix and
       renders fine when reached directly by URL — this is a nav-wiring
       gap, not a page bug.
+- [ ] **[Low] No visible indicator when a `?status=` filter is applied to
+      the dashboard — NEW 2026-08-24, found while investigating the
+      closing-soon "View all" entry above. Independent finding: real
+      regardless of what's causing that entry's observations.** Landing
+      on `/?status=closing_soon` (or any other `status` value reachable
+      via deep link — `archived`, `needs_review`, etc.) correctly filters
+      the order list server-side (`page.tsx:144-150`), but nothing in the
+      rendered page communicates that a filter is active — no chip, no
+      heading change, no highlighted/active button state. Confirmed by
+      checking every render site of `statusFilter` in `page.tsx` (two:
+      the filter predicate itself, and an unrelated visibility gate for
+      the Amazon bundle card — neither renders text) and confirming
+      `SearchFilterBar` (`app/SearchFilterBar.tsx`) doesn't receive or
+      render `status` at all. This is a deliberate product decision, not
+      an oversight — `SearchFilterBar.tsx:9-12`'s own comment cites
+      `return-window-design-tokens.md §6` Commit 2: "No tabs... sort-by-
+      urgency as default is sufficient at alpha volume," meaning status
+      tabs/dropdown were intentionally dropped from the UI, with `?status=`
+      kept only as an internal deep-link mechanism (View all / Archived
+      links), not a user-facing filter state. Whoever picks this up:
+      confirm with owner whether that alpha-era product call still holds
+      before adding any indicator — this may be working as designed.
 - [ ] **[Low] Timezone off-by-one in `orderCardChip`'s Arrives-date label —
       NEW 2026-08-21, found while verifying the main/origin-main
       reconciliation merge. Pre-existing on local `main`'s own prior
@@ -2431,13 +2336,12 @@
       design decision, would need its own reasoning); real image OCR
       (meaningfully bigger scope, billed-cost implications). None
       evaluated in depth here — diagnostic only.
-- [ ] **`return_label` extraction shouldn't trigger `lookupReturnPolicy`
+- [x] **`return_label` extraction shouldn't trigger `lookupReturnPolicy`
       when linking to an order that already has a resolved return policy
       — PROMOTED to 🔴 Now 2026-08-24, scope widened there to any email
-      type linking to an order that already has a resolved policy, not
-      just `return_label`. Full paper trail (verify gate, cost sizing,
-      edge-case reasoning) preserved under the 🔴 Now entry, not
-      duplicated here.**
+      type, SHIPPED & OWNER-VERIFIED 2026-08-24 → moved to ✅ Done. Full
+      paper trail (verify gate, cost sizing, edge-case reasoning, A/B/C
+      investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
 - [ ] **`Order` table has zero indexes — not even on `userId` — NEW 2026-08-24,
@@ -3735,6 +3639,20 @@
 
 ## ✅ Done
 
+- [x] **Widened `lookupReturnPolicy` skip — any email linking to an order
+      with an already-resolved return policy, not just `return_label` —
+      SHIPPED & OWNER-VERIFIED 2026-08-24.** `lib/extract.ts` split into
+      `extractEmailIdentity`/`finalizeExtraction`; `lib/runExtraction.ts`
+      pre-checks for a matching existing order via a new shared
+      `findMatchingOrder` (`lib/linkOrder.ts`) before deciding whether to
+      skip the billed web-search lookup. Deterministic order-matching only
+      (orphaned-refund fallback excluded, pending Caroline's RealReal
+      item). Committed `31525f5`, deployed
+      (`dpl_HZ8vJyjueadR4UMsmrQxmauajRpN`), live-verified via one targeted
+      re-extract (skip confirmed, 1 billed call) and one regression
+      spot-check (lookup still fires normally, 2 billed calls). Census:
+      120 of 349 historical non-Amazon `web_lookup` calls were exactly
+      this waste. Full detail → HISTORY.md 2026-08-24.
 - [x] **Manual data restore: order `cmsfaw3u00001w9q4vxsjeqqe` (SKIMS,
       `SB33487073`) — 2026-08-23.** Manual data restore, not a code change —
       no deploy needed. Owner confirmed a legitimate order was soft-deleted

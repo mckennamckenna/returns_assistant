@@ -5,6 +5,113 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-24 — Widened `lookupReturnPolicy` skip: any email linking to an order with a resolved policy, not just `return_label`; shipped, verified live, owner-confirmed
+
+**Origin.** Started as a narrow `return_label`-only entry filed 2026-08-23 during the H&M
+deploy-step-3 re-extract (see 2026-08-23 entry below) — a `return_label` email cost a
+redundant billed `policy_lookup` call linking to an order that already had a resolved
+policy. Owner widened the scope 2026-08-24: skip the lookup for *any* email type linking to
+an order whose policy is already resolved, not just `return_label`.
+
+**Investigation (A/B/C, owner-approved before any code).**
+- **A — where the call fires:** `lookupReturnPolicy` fired inside `extractEmail()`
+  (`lib/extract.ts`), *before* linking — `extractEmail` had no DB access and no knowledge of
+  any candidate parent order (confirmed: no Prisma import in `extract.ts`). Real orderNumber
+  isn't known until partway through the same function (after the H&M two-pass retry block),
+  so the fix requires a genuine pipeline reorder, not a one-line guard.
+- **B — correct trigger field:** `Order.returnWindowDays`, not `returnDeadline`. Confirmed
+  via `computeDeadline()` (`lib/extract.ts`) that `returnDeadline` can be null even when
+  `returnWindowDays` is resolved (no anchor date yet — e.g. a `shipping_confirmation`
+  establishes policy before any `order_confirmation` arrives). Gating on `returnDeadline`
+  would have wrongly kept the lookup firing in that real case. `policySource` moves in
+  lockstep with `returnWindowDays` in every extraction/merge branch, so it's redundant as a
+  second check.
+- **C — no deliberate refresh path exists:** every caller of `runExtraction`/`extractEmail`
+  (inbound webhook, manual re-extract action, all scripts, all three cron jobs) routes
+  through the identical unconditional path — confirmed via grep, no special "refresh"
+  branch anywhere. A pre-existing read-only census script
+  (`scripts/census-redundant-policy-lookup.ts`) independently corroborated this as a real
+  systemwide pattern, not an H&M-only quirk.
+
+**Design decision — type shape.** `ExistingOrderContext` is a local interface in
+`extract.ts` (just `{ returnWindowDays: number | null }`), not a type-only import of
+Prisma's full `Order`. Reasoning: this codebase has a deliberate `select`-scoping
+convention — the 2026-08-21 missing-`select` fix's own commit message cites it as "the
+single largest ingestion-path contributor to the Neon bandwidth-quota incident." A local,
+narrow interface lets `runExtraction.ts` do a `select`-scoped query and satisfy the
+interface structurally, no casting.
+
+**Fix, three files:**
+- `lib/extract.ts`: split `extractEmail()` into `extractEmailIdentity()` (primary
+  extraction + retry — unchanged AI calls) and `finalizeExtraction()` (policy/deadline/
+  needsReview), the latter now taking `existingOrder: ExistingOrderContext | null`.
+  `extractEmail()` kept as a thin wrapper (`existingOrder: null`) preserving exact behavior
+  for existing script callers. New guard on the web-lookup branch only:
+  `existingOrder?.returnWindowDays == null`. Free branches (email-stated, Amazon default,
+  food/grocery exclusion) untouched.
+- `lib/linkOrder.ts`: extracted `linkEmailToOrder`'s previously-inline exact/prefix/
+  retailer-prefix matching into a new shared `findMatchingOrder()`, so there's one
+  implementation instead of two. Deterministic order-matching only — the orphaned-refund
+  (line-item/amount) fallback deliberately excluded, since that matching logic was under
+  separate active investigation (Caroline's RealReal order-total item) and shouldn't
+  silently ride on a fix riding on logic not yet settled.
+- `lib/runExtraction.ts`: now runs identity extraction, then a pre-check via
+  `findMatchingOrder` for a matching existing order, then `finalizeExtraction`. Pre-check
+  itself skipped for Amazon/food-grocery retailers (reusing `isAmazonOrder`/
+  `isFoodGroceryRetailer`) since those never reach the billed branch regardless — avoids
+  wasted DB reads on the highest-volume retailer categories. RX/prescription emails need no
+  handling: `isCommerceEmail` (`lib/classify.ts`) discards them at ingestion, before any
+  `Email` row exists.
+
+**Tests.** `__tests__/runExtraction.test.ts` rewritten for the new function signatures plus
+5 new cases covering the pre-check wiring itself (shapes a match into `ExistingOrderContext`;
+passes null when no match; skips the query for Amazon/food-grocery/email-stated-policy/
+null-orderNumber). `finalizeExtraction`'s own branch logic has no direct unit coverage —
+pre-existing gap (the Amazon-default and food-grocery branches aren't unit-tested either;
+would require mocking the Anthropic SDK, which no test in this codebase does). 624/625 tests
+passing; the 1 failure is `orderCardState.test.ts`'s pre-existing timezone flake, unrelated.
+`npm run build` clean.
+
+**Deploy.** Committed `31525f5`, pushed, deployed `dpl_HZ8vJyjueadR4UMsmrQxmauajRpN`
+(confirmed READY, confirmed created 6 seconds after the push via `meta.githubCommitSha`
+cross-reference — not a stale/unrelated deploy; an earlier polling pass initially matched
+the wrong deployment, corrected before trusting it).
+
+**Live verification (real re-extractions, cost disclosed upfront each time):**
+1. `cmt69aqxe0001jr0427kevu9o` (NET-A-PORTER `shipping_confirmation`, order already had
+   `returnWindowDays=14`) — re-extracted, usage log shows exactly one call
+   (`email_extraction`), no `policy_lookup`. Order's `returnWindowDays`/`policySource`
+   correctly preserved via the existing sticky-merge logic; `orderNumber` intact;
+   `needsReview` false. Cost: 1 billed Sonnet call.
+2. Regression spot-check, `cmt7ntzb60001ky040edd7owe` (American Girl
+   `shipping_confirmation`, order had `returnWindowDays=null`) — `policy_lookup` correctly
+   DID fire; order's policy correctly resolved (`returnWindowDays=30`,
+   `policySource=web_lookup`). Cost: 2 billed Sonnet calls.
+Both targets deliberately excluded H&M/Chan Luu (the 4 deferred cousin rows from the
+2026-08-24 sweep stayed untouched) and the same-day-restored SKIMS order.
+
+**Census — how much this saves** (`scripts/census-redundant-policy-lookup.ts`, read-only):
+of 349 historical `web_lookup` calls system-wide, 163 (46.7%) were redundant — fired after
+their order already had a resolved window. 120 of those non-Amazon (the population this fix
+targets going forward; the other 43 Amazon rows were already free via the pre-existing
+`amazon_default` short-circuit, unrelated to this fix).
+
+**Owner-verified in production 2026-08-24.**
+
+**Known pre-existing condition, not fixed by or blocking this change:** the `Order` table
+has zero indexes — see TASKS.md 🟡 Next for the full reasoning and rough sizing (~8.3
+eligible emails/day).
+
+**Scripts added this session (paper trail):** `scripts/pm-census-order-query-volume-20260824.ts`,
+`scripts/pm-find-verify-target-20260824.ts`, `scripts/pm-verify-policylookup-skip-20260824.ts`,
+`scripts/pm-find-regression-target-20260824.ts`.
+
+**Billed Anthropic calls this session: 3 total** — 2× `email_extraction`, 1× `policy_lookup`
+(the regression spot-check only, correctly). Everything else (investigation, census, target
+selection) was read-only, 0 billed calls.
+
+---
+
 ## 2026-08-23 — H&M `return_label` order-number extraction gap: root-caused, fixed, shipped, verified live (with a bug caught and fixed mid-session)
 
 **Symptom.** `Email.id: cmt090ioq0001l404crsih7w9` (H&M `return_label`,
