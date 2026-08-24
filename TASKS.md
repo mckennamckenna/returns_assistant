@@ -3592,6 +3592,14 @@
 
 ## ✅ Done
 
+- [x] **Manual data restore: order `cmsfaw3u00001w9q4vxsjeqqe` (SKIMS,
+      `SB33487073`) — 2026-08-23.** Manual data restore, not a code change —
+      no deploy needed. Owner confirmed a legitimate order was soft-deleted
+      2026-08-06 via Archive→Delete; cleared `Order.deletedAt` (only that
+      field, only that row, scoped to userId `cmqtng57q0000w9y3bzaeax0n`)
+      from `2026-08-06T12:46:21.987Z` to `null` via
+      `scripts/pm-restore-skims-order-20260823.ts` (read-verify gate before
+      write). Linked Email rows untouched (never soft-deleted).
 - [x] **H&M `return_label` order-number extraction gap — SHIPPED & VERIFIED
       2026-08-23.** Two-pass retry (option a from the scope block) in
       `lib/emailBodyText.ts` + `lib/extract.ts`; narrow gate (retailer
