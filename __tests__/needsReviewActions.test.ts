@@ -29,6 +29,13 @@ describe("needsReviewAction", () => {
     });
   });
 
+  it("an email-kind row detected as return_or_refund_no_link also offers link_to_order (NEW, NEEDS_REVIEW_ROUTING_DESIGN.md branch 2 — a return/refund implies a prior order exists, so it's Link, never Create)", () => {
+    expect(needsReviewAction({ kind: "email", reasonId: "return_or_refund_no_link" })).toEqual({
+      id: "link_to_order",
+      label: "Merge with existing order",
+    });
+  });
+
   it("an email-kind row with the default 'real purchase, no record' reason offers create_new_order", () => {
     expect(needsReviewAction({ kind: "email", reasonId: "real_purchase_no_record" })).toEqual({
       id: "create_new_order",
@@ -40,6 +47,13 @@ describe("needsReviewAction", () => {
     for (const reasonId of ["missing_order_date", "missing_order_total", "uncertain_details"] as const) {
       expect(needsReviewAction({ kind: "email", reasonId })).toEqual({ id: "view_detail", label: "More info" });
     }
+  });
+
+  it("an email-kind row detected as no_extraction_signal falls back to view_detail via the existing unmapped-reason degrade (NEW reasonId, registered ADDITIVELY — no new branch needed, per NEEDS_REVIEW_ROUTING_DESIGN.md branch 4)", () => {
+    expect(needsReviewAction({ kind: "email", reasonId: "no_extraction_signal" })).toEqual({
+      id: "view_detail",
+      label: "More info",
+    });
   });
 
   it("every action id has UI copy (Q9: registry stays safely extensible)", () => {

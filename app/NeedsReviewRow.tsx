@@ -25,6 +25,17 @@ const linkButtonClass = "text-xs font-medium text-secondary underline hover:text
 // whether an individual rendered row's action shows — gating it behind a
 // second tap was the two-tap-friction bug the correction fixed. This
 // component no longer takes an `expanded` prop at all as a result.
+//
+// [2026-08-24 amendment D] Slot 4's control set is {presumed primary
+// action, Archive, optional More info} for email-kind rows — Archive is
+// now a standing control alongside the primary action, not something a
+// row only gets via its resolved reasonId. More info renders only when
+// the primary action isn't already view_detail (rendering it again would
+// duplicate the primary). Order-kind rows are unchanged (still degrade to
+// View detail alone) — amendment D's "primary action from the routing
+// tree" ties to NEEDS_REVIEW_ROUTING_DESIGN.md §2, which is scoped to
+// email-kind rows only; order-kind routing is a separate, deferred
+// decision (lib/needsReviewActions.ts:43-44, untouched this session).
 export function NeedsReviewRow({
   row,
   linkablePickerOrders,
@@ -59,20 +70,26 @@ export function NeedsReviewRow({
       </Link>
 
       <div className="flex items-center justify-end gap-2 mt-2">
-        {/* CARD_SPEC.md Part 3's View-detail rule, precisely: a mapped row
-            (primary action exists) renders [primary + View detail], two
-            controls. A degrade row (no mapped primary — action is already
-            view_detail) renders View detail alone. Never neither, never
-            both a stray extra control (the prior build always rendered
-            the Merge picker for every email row regardless of its actual
-            action, so a create_new_order row showed two unrelated
-            buttons and no View detail at all — fixed here). */}
+        {/* CARD_SPEC.md Part 3 amendment D: {primary, Archive, optional
+            More info}. A mapped row (primary exists) renders [primary +
+            Archive + More info], three controls. A degrade row (primary is
+            already view_detail) renders [Archive + View detail], two
+            controls — More info is omitted rather than duplicating the
+            primary. Archive is email-kind only (see comment above). */}
         {!isDegrade &&
           (action.id === "link_to_order" && row.kind === "email" ? (
             <LinkToOrderPicker emailId={row.id} orders={linkablePickerOrders} className={linkButtonClass} />
           ) : (
             <NeedsReviewRowActions emailId={row.id} actionId={action.id} label={action.label} className={actionButtonClass} />
           ))}
+        {row.kind === "email" && (
+          <NeedsReviewRowActions
+            emailId={row.id}
+            actionId="not_a_purchase"
+            label={NEEDS_REVIEW_ACTION_LABELS.not_a_purchase}
+            className={linkButtonClass}
+          />
+        )}
         <Link href={detailHref} className={isDegrade ? actionButtonClass : linkButtonClass}>
           {NEEDS_REVIEW_ACTION_LABELS.view_detail}
         </Link>

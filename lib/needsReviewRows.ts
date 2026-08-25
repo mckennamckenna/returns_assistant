@@ -53,24 +53,32 @@ interface EmailReviewInput {
   orderTotal: number | null;
   orderCurrency: string | null;
   orderNumber: string | null;
+  emailType: string | null;
 }
 
-// Cheap-version scope (owner-locked 2026-08-21): the only DB-detected
-// email-kind reason is an exact orderNumber match against an existing
-// Order — everything else defaults to "real purchase, no order record,"
-// which is definitionally true for this population (every row here is an
-// unlinked email by construction: orderId is null). No "duplicate"
-// detection for email-kind rows this pass — there's no canonical dedup key
-// to check an orphaned email against another orphaned email (as opposed to
-// an established Order), and inventing one wasn't part of the owner-locked
-// scope; see TASKS.md 🟡 Next for the full-detection follow-up.
+const RETURN_SIDE_EMAIL_TYPES = new Set(["return_label", "refund"]);
+const PURCHASE_SIDE_EMAIL_TYPES = new Set(["order_confirmation", "shipping_confirmation", "delivery"]);
+
+// Four-branch tree, checked in priority order — NEEDS_REVIEW_ROUTING_DESIGN.md
+// §2, built 2026-08-25 after owner review. Supersedes the 2026-08-21
+// single-branch version (exact orderNumber match, else unconditionally
+// "real_purchase_no_record") — that fallback conflated "genuinely looks
+// like a purchase, no exact number match" with "we have no idea what this
+// is." No "duplicate" detection for email-kind rows this pass — still no
+// canonical dedup key; see TASKS.md 🟡 Next for the full-detection follow-up.
 function detectEmailReviewReason(email: EmailReviewInput, candidateOrders: CandidateOrder[]): NeedsReviewReasonId {
   if (email.orderNumber) {
     const normalized = email.orderNumber.toLowerCase();
     const matches = candidateOrders.some((order) => order.orderNumber && order.orderNumber.toLowerCase() === normalized);
     if (matches) return "belongs_to_existing_order";
   }
-  return "real_purchase_no_record";
+  if (email.emailType && RETURN_SIDE_EMAIL_TYPES.has(email.emailType)) {
+    return "return_or_refund_no_link";
+  }
+  if (email.emailType && PURCHASE_SIDE_EMAIL_TYPES.has(email.emailType) && (email.retailer || email.orderNumber)) {
+    return "real_purchase_no_record";
+  }
+  return "no_extraction_signal";
 }
 
 // "orphaned genuine-commerce emails" population (CARD_SPEC.md Part 3) —

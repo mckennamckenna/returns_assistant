@@ -94,6 +94,54 @@
       header's scope-control rule, this move should have happened before
       the design session began — flagged, not re-litigated. **Next
       session starts the build (Session 2).**
+      **[2026-08-25 Session 2 — build complete, awaiting owner
+      verification, NOT ✅.]** All four branches + two new reasonIds +
+      collapsed-row control set implemented per
+      `NEEDS_REVIEW_ROUTING_DESIGN.md` §2 and `CARD_SPEC.md` Part 3
+      amendment D. `lib/needsReviewRows.ts:49-81` (`EmailReviewInput`
+      gains `emailType`; `detectEmailReviewReason` rewritten to the
+      four-branch tree). `lib/needsReviewReasons.ts:11-20,29-38` (two new
+      reasonIds + their exact spec sentences). `lib/needsReviewActions.ts:
+      45-50` (`return_or_refund_no_link` added additively to the
+      `link_to_order` branch; `no_extraction_signal` needs no new branch —
+      falls through the existing degrade `else`, untouched). Prisma
+      selects: `app/(app)/page.tsx:86`, `app/(app)/needs-review/page.tsx:
+      36` both add `emailType: true` — grep confirmed no third
+      `EmailReviewInput`-building call site exists. Collapsed-row control
+      set: `app/NeedsReviewRow.tsx:72-96` — email-kind rows now render
+      `{primary action, Archive (NEW standing control, `not_a_purchase` →
+      `archiveOrphanedEmailAction`, already-wired), optional More info}`;
+      order-kind rows unchanged (amendment D's "primary action from the
+      routing tree" ties to the design doc's email-kind-only scope — see
+      code comment at `app/NeedsReviewRow.tsx:29-38` for the reasoning,
+      flagged here as an interpretation call, not an owner-confirmed
+      literal instruction, since order-kind rows have no archive
+      mechanism to wire to). Order-kind routing (`needsReviewActions.ts:
+      43-44`) and the existing degrade path (`:49-51`, now the tail of an
+      unchanged if/else chain) both confirmed untouched. Pre/post-code
+      `pm-design-needsreview-routing-tree-20260824.ts` snapshots are
+      byte-identical (0 DB drift) and match the design doc's exact
+      prediction: 8/18 email-kind rows move Start-a-new-order → More
+      info, 0 move to Merge (no live return/refund orphan exists yet —
+      branch 2 verified instead via a seeded unit-test row, not prod
+      data, per the session brief). 20/20 tests pass in
+      `__tests__/needsReviewRows.test.ts` +
+      `__tests__/needsReviewActions.test.ts` (both extended with explicit
+      per-branch cases, including a seeded `emailType: "refund"` row
+      confirming `return_or_refund_no_link` → "Merge with existing
+      order"). `npx tsc --noEmit` and `npm run build` both clean (two
+      pre-existing, unrelated failures noted and left alone:
+      `anthropicUsage.test.ts` type errors, one timezone-sensitive date
+      assertion in `orderCardState.test.ts` — both confirmed via
+      `git stash` to predate this session). 0 billed Anthropic API calls
+      (diagnostic script is read-only + non-model; no code change adds a
+      model call). **Status: awaiting owner hand-verification in
+      production before ✅** (dev-server smoke test only — no browser
+      auth session available in this session; both `/` and
+      `/needs-review` returned 307 redirect-to-login with no server
+      error, confirming no runtime crash, but the actual three-control
+      row rendering has not been eyeballed live). Commit/push/deploy
+      status: see this session's close-out report.
 - [x] **Read-only diagnosis of needs-review bucket action-routing — NEW
       2026-08-24, owner-directed, SCOPE-CAPPED (0 billed Anthropic calls, 0
       writes, no re-extraction) — COMPLETE, reported to owner 2026-08-24.**

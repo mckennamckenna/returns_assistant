@@ -42,7 +42,11 @@ export function needsReviewAction(row: NeedsReviewRowInput): NeedsReviewActionSp
   let id: NeedsReviewActionId;
   if (row.kind === "order") {
     id = "view_detail";
-  } else if (row.reasonId === "belongs_to_existing_order" || row.reasonId === "duplicate") {
+  } else if (
+    row.reasonId === "belongs_to_existing_order" ||
+    row.reasonId === "duplicate" ||
+    row.reasonId === "return_or_refund_no_link"
+  ) {
     id = "link_to_order";
   } else if (row.reasonId === "real_purchase_no_record") {
     id = "create_new_order";
