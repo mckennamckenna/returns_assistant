@@ -32,6 +32,68 @@
 
 ## 🔴 Now
 
+- [ ] **Routing tree design for needs-review bucket action selection — NEW
+      2026-08-24, SUPERSEDES the "default-action heuristic" entry
+      (🟡 Next).** That entry implicitly assumed a decision tree existed
+      and needed better defaults. This session's read-only diagnostic
+      (`scripts/pm-diag-needsreview-action-routing-20260824.ts`, deleted
+      2026-08-24 close-out, superseded) confirmed: no tree exists.
+      `lib/needsReviewRows.ts:67-74` has one branch (exact orderNumber
+      match) and one fallback (`real_purchase_no_record`), which
+      `lib/needsReviewActions.ts:47-48` maps to "Start a new order."
+      `emailType` is not even fetched by either call site's Prisma select
+      (`app/(app)/page.tsx:86`, `app/(app)/needs-review/page.tsx:36`).
+      **SCOPE: design pass first, not build.** Session 1 = enumerate
+      branches needed + correct action per branch + which fields the Prisma
+      selects have to start fetching. Branch shapes to work out at minimum:
+      return-side (return_label/refund with recoverable parent link),
+      purchase-side no match (real orphan → Create), noise (non-e-commerce
+      → Archive), residue (pre-gating carrier/promo → Archive), duplicate
+      (same-order already present → Merge or dedupe). Session 2 = build,
+      after owner reviews the design.
+      **PRE-CODE VERIFICATION:** the 2026-08-24 diagnostic's 19-row table is
+      90% of the baseline. Extend it to include an "expected action under
+      proposed tree" column and commit alongside the design doc
+      (paper-trail pattern from the 2026-08-23 H&M fix,
+      `scripts/pm-verify-resolvebodytext-hm.ts`).
+      **DEPENDENCIES: none blocking.** H&M attachment dependency from the
+      old entry is discharged (2026-08-23 fix). Chan Luu dependency
+      reframed as a data-integrity issue re: the synthetic `HRYTSJRJ` order
+      (tracked separately, not blocking this).
+      **NOT IN SCOPE:** the residue-cleanup sweep (separate 🟡 Next task,
+      can run in parallel or after); the 4 deferred H&M/Chan Luu refund
+      rows (still waiting on the `lookupReturnPolicy` bug); the Chan Luu
+      new-order-number-on-return pattern (separate future entry).
+      **SESSION 1 COMPLETE 2026-08-24 — design doc ready for owner review,
+      not built.** Full design → `NEEDS_REVIEW_ROUTING_DESIGN.md` (repo
+      root, follows `CARD_SPEC.md`/`return-window-design-tokens.md`
+      precedent for design-doc location). Four-branch tree proposed
+      (exact-match → Link; return_label/refund → Link, NEW; purchase-side
+      with signal → Create; everything else → View detail, NEW
+      `no_extraction_signal` reasonId). Verified against the live 19-row
+      population: 8/18 email-kind rows change action (all
+      Start-a-new-order → More-info; zero move to Merge in today's snapshot
+      — the Link-on-return-type branch exists for the next H&M-shaped
+      recurrence, not because it changes anything visible today).
+      Pre-code verification committed: `scripts/pm-design-needsreview-
+      routing-tree-20260824.ts`. Only `emailType` needs adding to the two
+      Prisma selects — `extractedAt` turned out not to be a routing input.
+      Three CARD_SPEC.md Part 3 amendments proposed for owner sign-off
+      (design doc §5), not applied. Spawned one 🐛 Bugs entry (Infra/
+      reliability, cross-referencing the 2026-08-21 Done entry above).
+      **[2026-08-24 close-out]** Design pass complete —
+      `NEEDS_REVIEW_ROUTING_DESIGN.md` committed with pre-code verification
+      script. Owner review complete. Spec amendments A+B applied to
+      `CARD_SPEC.md` Part 3; C deferred (see spec note). Build session
+      ready to schedule. Owner UX call about collapsed bucket rows
+      formalized as `CARD_SPEC.md` Part 3 amendment D in this commit — no
+      separate build-session reconciliation needed.
+      **MOVED HERE FROM 🟡 Next, 2026-08-24 close-out follow-up** — design
+      pass complete, spec amendments applied, next session is the build
+      session; belongs in Now for that session to start clean. Per the
+      header's scope-control rule, this move should have happened before
+      the design session began — flagged, not re-litigated. **Next
+      session starts the build (Session 2).**
 - [x] **Read-only diagnosis of needs-review bucket action-routing — NEW
       2026-08-24, owner-directed, SCOPE-CAPPED (0 billed Anthropic calls, 0
       writes, no re-extraction) — COMPLETE, reported to owner 2026-08-24.**
@@ -1239,14 +1301,14 @@
   6 preserved sub-entries, and the resolved four-slot-inventory
   contradiction now live in 🔴 Now.
 
-- [ ] **Needs-review routing-tree design — Session 1 complete 2026-08-24,
-  awaiting owner review before Session 2 (build).** Full design doc:
-  `NEEDS_REVIEW_ROUTING_DESIGN.md`. Needs sign-off on: the four-branch
-  tree itself (§2), the two new reasonIds/copy (`return_or_refund_no_link`,
-  `no_extraction_signal`), and the three proposed `CARD_SPEC.md` Part 3
-  amendments (§5 — population list, missing-total-extraction-failure
-  sentence, return/refund Create-vs-Link guidance). Full item lives in
-  🟡 Next ("Routing tree design for needs-review bucket action selection").
+- [x] **RESOLVED 2026-08-24 — Needs-review routing-tree design, owner review
+  complete.** Full design doc: `NEEDS_REVIEW_ROUTING_DESIGN.md`. Sign-off
+  given on: the four-branch tree (§2), the two new reasonIds/copy
+  (`return_or_refund_no_link`, `no_extraction_signal`), and the proposed
+  `CARD_SPEC.md` Part 3 amendments — A and B applied, C deferred (spec
+  note added), D (collapsed bucket-row controls) applied. Full item MOVED
+  to 🔴 Now ("Routing tree design for needs-review bucket action
+  selection") — build session (Session 2) ready to start.
 
 ## ⏳ Verifying
 
@@ -2303,7 +2365,8 @@
       residue (see bucket-residue-cleanup, 🟡 Next). Fix design (four-branch
       routing tree, new `no_extraction_signal` reasonId) is scoped, not
       built, in "Routing tree design for needs-review bucket action
-      selection" (🟡 Next) — this bug entry exists so the false-confidence
+      selection" (🔴 Now — build session ready to start) — this bug entry
+      exists so the false-confidence
       copy shown to the user is tracked as a real defect, not folded silently
       into the design task's optional scope.
 - [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
@@ -2603,8 +2666,9 @@
       goes away."
 - [ ] **Needs-review default-action heuristic may be backwards at the edges
       — NEW 2026-08-21, SUPERSEDED 2026-08-24 by "Routing tree design for
-      needs-review bucket action selection" below.** This entry implicitly
-      assumed a decision tree existed and just needed better defaults;
+      needs-review bucket action selection" (🔴 Now — moved there
+      2026-08-24 close-out, build session ready to start).** This entry
+      implicitly assumed a decision tree existed and just needed better defaults;
       2026-08-24's read-only diagnostic confirmed no tree exists at all —
       one branch (exact orderNumber match) and one fallback, full stop. Left
       here for the H&M-case reasoning trail; superseding entry is where
@@ -2636,70 +2700,6 @@
       before those land would bake in counts that are still artificially
       inflated by known, separate linking bugs — the default-action
       decision needs a census taken *after* those are fixed, not before.
-- [ ] **Routing tree design for needs-review bucket action selection — NEW
-      2026-08-24, SUPERSEDES the "default-action heuristic" entry above.**
-      That entry implicitly assumed a decision tree existed and needed
-      better defaults. This session's read-only diagnostic
-      (`scripts/pm-diag-needsreview-action-routing-20260824.ts`,
-      uncommitted) confirmed: no tree exists. `lib/needsReviewRows.ts:67-74`
-      has one branch (exact orderNumber match) and one fallback
-      (`real_purchase_no_record`), which `lib/needsReviewActions.ts:47-48`
-      maps to "Start a new order." `emailType` is not even fetched by
-      either call site's Prisma select (`app/(app)/page.tsx:86`,
-      `app/(app)/needs-review/page.tsx:36`).
-      **SCOPE: design pass first, not build.** Session 1 = enumerate
-      branches needed + correct action per branch + which fields the Prisma
-      selects have to start fetching. Branch shapes to work out at minimum:
-      return-side (return_label/refund with recoverable parent link),
-      purchase-side no match (real orphan → Create), noise (non-e-commerce
-      → Archive), residue (pre-gating carrier/promo → Archive), duplicate
-      (same-order already present → Merge or dedupe). Session 2 = build,
-      after owner reviews the design.
-      **PRE-CODE VERIFICATION:** the 2026-08-24 diagnostic's 19-row table is
-      90% of the baseline. Extend it to include an "expected action under
-      proposed tree" column and commit alongside the design doc
-      (paper-trail pattern from the 2026-08-23 H&M fix,
-      `scripts/pm-verify-resolvebodytext-hm.ts`).
-      **DEPENDENCIES: none blocking.** H&M attachment dependency from the
-      old entry is discharged (2026-08-23 fix). Chan Luu dependency
-      reframed as a data-integrity issue re: the synthetic `HRYTSJRJ` order
-      (tracked separately, not blocking this).
-      **NOT IN SCOPE:** the residue-cleanup sweep (separate 🟡 Next task,
-      can run in parallel or after); the 4 deferred H&M/Chan Luu refund
-      rows (still waiting on the `lookupReturnPolicy` bug); the Chan Luu
-      new-order-number-on-return pattern (separate future entry).
-      **SESSION 1 COMPLETE 2026-08-24 — design doc ready for owner review,
-      not built. See 🙋 Waiting on Owner.** Full design →
-      `NEEDS_REVIEW_ROUTING_DESIGN.md` (repo root, follows `CARD_SPEC.md`/
-      `return-window-design-tokens.md` precedent for design-doc location).
-      Four-branch tree proposed (exact-match → Link; return_label/refund →
-      Link, NEW; purchase-side with signal → Create; everything else → View
-      detail, NEW `no_extraction_signal` reasonId). Verified against the
-      live 19-row population: 8/18 email-kind rows change action (all
-      Start-a-new-order → More-info; zero move to Merge in today's snapshot
-      — the Link-on-return-type branch exists for the next H&M-shaped
-      recurrence, not because it changes anything visible today).
-      Pre-code verification committed: `scripts/pm-design-needsreview-
-      routing-tree-20260824.ts`. Only `emailType` needs adding to the two
-      Prisma selects — `extractedAt` turned out not to be a routing input.
-      Three CARD_SPEC.md Part 3 amendments proposed for owner sign-off
-      (design doc §5), not applied. Spawned one 🐛 Bugs entry (Infra/
-      reliability, cross-referencing the 2026-08-21 Done entry above).
-      Original diagnostic script (`pm-diag-needsreview-action-routing-
-      20260824.ts`) left uncommitted, disposition proposed in the design
-      doc §6 (safe to delete, superseded by the committed verification
-      script) — owner call.
-      **[2026-08-24 close-out]** Design pass complete —
-      `NEEDS_REVIEW_ROUTING_DESIGN.md` committed with pre-code verification
-      script. Owner review complete. Spec amendments A+B applied to
-      `CARD_SPEC.md` Part 3; C deferred (see spec note). Build session
-      ready to schedule. Additional build-session input from owner:
-      collapsed rows must expose two actions (archive + the row's presumed
-      action) plus optionally "more info" without requiring expand — this
-      is a departure from current spec/CC design and needs to be
-      reconciled into either `CARD_SPEC.md` Part 3 or
-      `NEEDS_REVIEW_ROUTING_DESIGN.md` at build-session start so CC isn't
-      reasoning from two conflicting sources.
 - [ ] **Full-detection reason mapping for the needs-review bucket. NEW
       2026-08-21 — not started.** Deferred from the same day's needs-review
       bucket rebuild (see 🔴 Now), which shipped a deliberately cheap version:
@@ -3961,7 +3961,7 @@
       reason branch — see 🐛 Bugs → Infra/reliability, "Extraction-failure
       email rows get a false-confidence 'real purchase' reason." "Not a
       purchase" was already a known, documented scope cut at rebuild time
-      (not new drift). See 🟡 Next "Routing tree design" for the fix design.
+      (not new drift). See 🔴 Now "Routing tree design" for the fix design.
 - [x] **Write-once `orderDate` in `mergeEmailIntoOrder` + Suzie #99500 backfill —
       SHIPPED & VERIFIED 2026-08-19.** Committed `25cd981` on branch
       `writeonce-orderdate-coverage-gate` (cut clean from `origin/main`, 3

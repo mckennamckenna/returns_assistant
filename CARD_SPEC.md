@@ -197,6 +197,15 @@ new one.
   each row reveals its slot-4 action." — this gated the action behind the
   toggle, which owner review of the running build found created two-tap
   friction: expand, then act, instead of one tap straight from the dashboard.)
+- **[2026-08-24 amendment] Collapsed bucket rows expose the row's presumed
+  primary action (per the routing tree in NEEDS_REVIEW_ROUTING_DESIGN.md)
+  plus Archive, with More info as an optional third control — not "slots
+  1–3 only, no buttons" as originally specified. Rationale: the mockup
+  shows two actions per row without requiring expand; the "slots 1–3 only"
+  text drifted from mockup intent during Part 3 authoring. Owner
+  reconfirmed mockup intent 2026-08-24. Expand still reveals per-row
+  detail; the change is which controls are visible before expand, not what
+  expand does.**
 
 **Slot 3 (why) is open-ended. Slot 4 (action) is a v1 registry of FIVE** (Q9 — treat as
 an open registry, not a closed set; owner wants room to add actions over time, and the

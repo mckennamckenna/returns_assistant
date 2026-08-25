@@ -249,15 +249,7 @@ when no exact match is found — these should default to Link to order
   and deferred, so a future session doesn't re-propose it from scratch.
   Revisit once a real `return_label`/`refund` orphan actually reaches the
   bucket and exercises branch 2 in practice.
-- **Owner UX amendment, captured for build-session reconciliation:**
-  collapsed rows must expose **archive + the row's presumed action**, plus
-  optionally "more info," without requiring expand. This is a departure
-  from the current design: `CARD_SPEC.md` Part 3's "Collapsed vs expanded"
-  section (Q10, corrected 2026-08-21) already establishes that slot 4's
-  action is always visible regardless of collapse state — but it describes
-  **one** primary action + the always-present View-detail secondary, not a
-  fixed archive-plus-presumed-action pairing. This new input needs to be
-  reconciled into either `CARD_SPEC.md` Part 3 or this design doc **at
-  build-session start**, before Session 2 begins — not decided here, and
-  not yet reflected in the four-branch tree above (§2) or the verification
-  script's action labels.
+- **Owner UX call formalized as `CARD_SPEC.md` Part 3 amendment D**, same
+  commit as this update (see `git log --oneline -- CARD_SPEC.md` for the
+  hash). Build session inherits the spec-current rule — no reconciliation
+  needed at build-session start.
