@@ -2563,7 +2563,13 @@
       the needs-review bucket exists. Do not defer on "the immediate row
       goes away."
 - [ ] **Needs-review default-action heuristic may be backwards at the edges
-      — NEW 2026-08-21, not started, ORDER MATTERS (see below).** Current
+      — NEW 2026-08-21, SUPERSEDED 2026-08-24 by "Routing tree design for
+      needs-review bucket action selection" below.** This entry implicitly
+      assumed a decision tree existed and just needed better defaults;
+      2026-08-24's read-only diagnostic confirmed no tree exists at all —
+      one branch (exact orderNumber match) and one fallback, full stop. Left
+      here for the H&M-case reasoning trail; superseding entry is where
+      active work happens. Original text follows, unedited. Current
       logic (`lib/needsReviewRows.ts`'s `detectEmailReviewReason`,
       `real_purchase_no_record` → "Start a new order" as the default when no
       DB-detected match exists): defaults toward creating a new order
@@ -2591,6 +2597,38 @@
       before those land would bake in counts that are still artificially
       inflated by known, separate linking bugs — the default-action
       decision needs a census taken *after* those are fixed, not before.
+- [ ] **Routing tree design for needs-review bucket action selection — NEW
+      2026-08-24, SUPERSEDES the "default-action heuristic" entry above.**
+      That entry implicitly assumed a decision tree existed and needed
+      better defaults. This session's read-only diagnostic
+      (`scripts/pm-diag-needsreview-action-routing-20260824.ts`,
+      uncommitted) confirmed: no tree exists. `lib/needsReviewRows.ts:67-74`
+      has one branch (exact orderNumber match) and one fallback
+      (`real_purchase_no_record`), which `lib/needsReviewActions.ts:47-48`
+      maps to "Start a new order." `emailType` is not even fetched by
+      either call site's Prisma select (`app/(app)/page.tsx:86`,
+      `app/(app)/needs-review/page.tsx:36`).
+      **SCOPE: design pass first, not build.** Session 1 = enumerate
+      branches needed + correct action per branch + which fields the Prisma
+      selects have to start fetching. Branch shapes to work out at minimum:
+      return-side (return_label/refund with recoverable parent link),
+      purchase-side no match (real orphan → Create), noise (non-e-commerce
+      → Archive), residue (pre-gating carrier/promo → Archive), duplicate
+      (same-order already present → Merge or dedupe). Session 2 = build,
+      after owner reviews the design.
+      **PRE-CODE VERIFICATION:** the 2026-08-24 diagnostic's 19-row table is
+      90% of the baseline. Extend it to include an "expected action under
+      proposed tree" column and commit alongside the design doc
+      (paper-trail pattern from the 2026-08-23 H&M fix,
+      `scripts/pm-verify-resolvebodytext-hm.ts`).
+      **DEPENDENCIES: none blocking.** H&M attachment dependency from the
+      old entry is discharged (2026-08-23 fix). Chan Luu dependency
+      reframed as a data-integrity issue re: the synthetic `HRYTSJRJ` order
+      (tracked separately, not blocking this).
+      **NOT IN SCOPE:** the residue-cleanup sweep (separate 🟡 Next task,
+      can run in parallel or after); the 4 deferred H&M/Chan Luu refund
+      rows (still waiting on the `lookupReturnPolicy` bug); the Chan Luu
+      new-order-number-on-return pattern (separate future entry).
 - [ ] **Full-detection reason mapping for the needs-review bucket. NEW
       2026-08-21 — not started.** Deferred from the same day's needs-review
       bucket rebuild (see 🔴 Now), which shipped a deliberately cheap version:
