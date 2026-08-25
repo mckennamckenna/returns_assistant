@@ -32,7 +32,7 @@
 
 ## 🔴 Now
 
-- [ ] **Routing tree design for needs-review bucket action selection — NEW
+- [x] **Routing tree design for needs-review bucket action selection — NEW
       2026-08-24, SUPERSEDES the "default-action heuristic" entry
       (🟡 Next).** That entry implicitly assumed a decision tree existed
       and needed better defaults. This session's read-only diagnostic
@@ -142,6 +142,56 @@
       error, confirming no runtime crash, but the actual three-control
       row rendering has not been eyeballed live). Commit/push/deploy
       status: see this session's close-out report.
+      **[2026-08-25 — Session 2 hand-verified in prod, ✅ Done.]**
+      Owner hand-verified deployed behavior at `app.myreturnwindow.com`
+      against live population (19 email-kind orphan rows).
+
+      **Verified working as designed:**
+      - Branch 1 (`belongs_to_existing_order` → Link): no live rows
+        exercise this today; classifier logic verified via unit test
+        path per Session 2 report.
+      - Branch 2 (`return_or_refund_no_link` → Link): no live rows
+        exercise this today (no return/refund orphans in DB, as design
+        doc §3 predicted); classifier logic verified via unit test.
+        First real return/refund orphan arriving will exercise the
+        branch in production; watch for it.
+      - Branch 3 (`real_purchase_no_record` → Create, narrowed): 10 of
+        19 rows correctly route here.
+      - Branch 4 (`no_extraction_signal` → View detail degrade): 9 of
+        19 rows correctly route here with the canonical sentence
+        ("We couldn't extract any details from this email.") rendering
+        in slot 3. Verified via `scripts/pm-verify-branch4-shipped-
+        20260825.ts` (committed same day).
+      - Collapsed-row two-shape rule: mapped rows render 3 controls
+        (primary + Archive + More info); degrade rows render 2
+        controls (Archive + More info); no duplicates. Verified in
+        hand-verification of `/needs-review` page.
+
+      **Live-data drift note:** design doc §3 predicted 8/18 rows on
+      `no_extraction_signal`; actual live is 9/19 (one new orphan
+      arrived between design and hand-verification, also correctly
+      branch-4). Not a bug — expected drift as new emails arrive.
+      Documented for future-reader clarity.
+
+      **Session-2-adjacent findings NOT blocking ✅** (all logged
+      separately as their own entries, do not conflate):
+      - HTML-scanning fallback not triggering on Buff / H&M shapes
+        → 🐛 Bugs Trust-breaking, new 2026-08-25.
+      - `orderCardState.test.ts` timezone-dependent assertion
+        → 🐛 Bugs Trust-breaking (assumed placement — CC prompt for
+        that entry may not have been sent yet at time of this update;
+        if not present, that's expected).
+      - `anthropicUsage.test.ts` stale type fixture → 🟡 Next.
+      - Elevate bucket-residue-cleanup priority → 🟡 Next.
+      - Order-kind Archive not-yet-wired (from Session 2 B1) → 🟡 Next,
+        added by CC end-of-Session-2.
+
+      **Deploy-first-not-preview-first process note:** this session
+      deployed to prod before hand-verification. TASKS.md header rule
+      was not violated (rule gates ✅, not deploy timing), but preview-
+      first is the intended discipline in this feature area and was
+      missed. Not repeated in future sessions — preview-first is the
+      default going forward for the needs-review bucket work.
 - [x] **Read-only diagnosis of needs-review bucket action-routing — NEW
       2026-08-24, owner-directed, SCOPE-CAPPED (0 billed Anthropic calls, 0
       writes, no re-extraction) — COMPLETE, reported to owner 2026-08-24.**
@@ -2166,6 +2216,92 @@
       `amazon-per-email-reminder-cadence` (🟡 Next) is about adding MORE
       per-email Amazon touchpoints, the opposite direction — flagged for
       owner reconciliation in the 🔴 Now item, not resolved here.
+- [ ] **HTML-scanning fallback not triggering on null/low-confidence
+      extractions — NEW 2026-08-25, surfaced during Session-2
+      hand-verification of the deployed routing tree.** The recently-
+      built HTML-scanning fallback path (which should kick in when
+      primary extraction fails or returns low confidence) is not
+      firing on two observed failure modes:
+
+      **Mode A: total-null HTML extraction.** Example: Buff shipping
+      confirmation (`Your Buff Stuff has shipped!`, 8/25/2026
+      3:38 PM). Real HTML email with retailer, order data, and
+      shipping info visible in the source. Primary extraction
+      returned literal null across every field (emailType null,
+      retailer null, orderNumber null, no extraction notes). HTML
+      fallback should have fired based on "extraction returned
+      nothing but source is rich HTML" — did not.
+
+      **Mode B: body-empty-but-attachment-present.** Example: H&M
+      receipt (`Your receipt is attached`, 7/22/2026 9:12 AM).
+      Primary extraction correctly identified retailer (H&M) and
+      classified as `emailType: other` / `confidence: low` because
+      the email body is just "see attached receipt" — the actual
+      order data (orderNumber 68468087873, visible in the attached
+      PDF) is in the attachment. HTML fallback should have fired on
+      "confidence low + null orderNumber despite retailer identified"
+      — did not. Separate open question whether attachment-scanning
+      is in scope for the HTML fallback at all; if not, this is
+      two bugs (fallback trigger + attachment-scanning gap).
+
+      **Why this matters:** both rows currently route to
+      `no_extraction_signal` under the new Session-2 routing tree,
+      which is structurally correct (the classifier honestly says
+      "we don't know"). But upstream extraction should have known —
+      the data was there, either in the HTML or in the attachment.
+      Bucket is surfacing what extraction failed to catch.
+
+      **Fix path (needs investigation before scoping):**
+      1. Confirm the HTML fallback's current trigger conditions.
+      2. Add trigger for "primary returned all null on rich HTML"
+         (Mode A).
+      3. Decide whether Mode B (body-empty + attachment) belongs
+         in the HTML fallback or in a separate attachment-scanning
+         path. If the latter, spin off a separate 🟡 Next entry.
+
+      **Do NOT fix opportunistically** — needs scoped investigation
+      with owner-decision on Mode B scope before build.
+- [ ] **`orderCardState.test.ts` timezone-dependent assertion +
+      underlying delivery-date rendering bug — NEW 2026-08-25,
+      surfaced during Session-2 build follow-up.** Test seeds
+      `estimatedDeliveryDate: new Date("2026-08-15T00:00:00Z")`
+      (midnight UTC) and asserts "Arrives Aug 15." The formatting
+      code renders in local time; on Pacific (UTC-7) machines this
+      crosses a day boundary and produces "Arrives Aug 14,"
+      failing the assertion. Confirmed pre-existing to Session-2
+      (isolated via `git stash`), not introduced by the routing-
+      tree build.
+
+      **Real bug, not just a flaky test:** the formatting code's
+      timezone behavior is the underlying issue — a delivery-date
+      rendering that shifts by a day depending on where the user
+      (or the CI runner) is located is a user-facing correctness
+      problem. A user in Tokyo would see a different delivery day
+      than a user in California for the same underlying delivery.
+
+      **Owner-decision needed before fix:** which reading is
+      correct?
+      (a) Render delivery date in the date's own timezone (or UTC)
+          — "Arrives Aug 15" always means Aug 15 regardless of
+          user location. Owner-leaning per 2026-08-25 discussion:
+          retailer delivery dates are usually "the calendar day
+          X," not "a specific instant that shifts by timezone."
+      (b) Render in user's local timezone — "Arrives Aug 15"
+          means Aug 15 for you where you are (produces the current
+          bug shape).
+
+      **Fix path once decision made:** if (a), find every
+      `toLocaleDateString`-adjacent call in the delivery-date
+      render path and add an explicit timezone. Test then passes
+      everywhere. If (b), mock the timezone in the test to a
+      stable UTC.
+
+      **Do NOT fix opportunistically in an unrelated session** —
+      needs the (a)/(b) decision explicit before any code change.
+      Also do NOT ignore the failing test in CI in the meantime;
+      if this is blocking a green build, log a separate 🟡 Next
+      for a temporary skip/mock while the underlying fix is
+      scoped.
 
 ### Annoying
 - [ ] **[PROMOTED to 🔴 Now 2026-07-21] AquaTru "Shipped" badge forever** —
@@ -2556,6 +2692,28 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Needs-review bucket: order-kind rows have no Archive control — NEW
+      2026-08-25, surfaced during Session-2 build follow-up questions
+      (owner B1).** `app/NeedsReviewRow.tsx:85` gates the amendment-D
+      Archive control to `row.kind === "email"` — order-kind rows render
+      View detail alone, unchanged from pre-amendment-D. Session-2's build
+      comment (`app/NeedsReviewRow.tsx:29-38`) reasoned this was because
+      "order-kind rows have no archive mechanism to wire to" — **checked
+      2026-08-25, that reasoning was wrong.** `PATCH /api/orders/[id]/archive`
+      already exists and is already wired to two client components
+      (`app/ArchiveOrderButton.tsx`, `app/ArchiveOrDeletePrompt.tsx`), used
+      elsewhere (the single-order card's own Q7 Archive control, Part 2).
+      So Archive is **applicable but not-yet-wired** into the needs-review
+      bucket's order-kind row, not genuinely inapplicable — the correct
+      disposition per owner is this entry, not silently shipping it as
+      "email-kind only" and losing the gap. Not built this session (new
+      scope, out of bounds for a follow-up-questions pass) — pick up here:
+      reuse `ArchiveOrderButton`/`ArchiveOrDeletePrompt` in
+      `app/NeedsReviewRow.tsx`'s order-kind branch, decide whether it joins
+      the same three/two-control shape as email-kind rows or gets its own
+      shape (order-kind rows are always degrade — `needsReviewActions.ts:
+      43-44` — so today they're single-control; adding Archive would make
+      them two-control, matching email-kind degrade rows' shape).
 - [ ] **`Order` table has zero indexes — not even on `userId` — NEW 2026-08-24,
       surfaced during the widened wasteful-`lookupReturnPolicy` fix design pass.
       Deferred, not shipped this session.** Checked `prisma/schema.prisma` and
@@ -3663,6 +3821,44 @@
       unrelated older residue). **Approach when picked up:** read-only identification
       script first, then an owner-confirmed deletion pass — not a code-path change,
       same one-off census/cleanup pattern already used elsewhere in `scripts/`.
+- [ ] **Elevate bucket-residue-cleanup priority — NEW 2026-08-25.**
+      The existing bucket-residue-cleanup 🟡 Next task (USPS/UPS
+      pregating) and the separate grocery-exclusion sweep (Whole
+      Foods) both remain accurate. Adding priority signal:
+      during Session-2 hand-verification of the deployed routing
+      tree, these residue rows made the bucket significantly
+      harder to hand-verify — a majority of visible rows were
+      residue rather than actionable items. Recommend elevating
+      both to 🔴 Now once Session 2 closes, so the next
+      hand-verification pass has better signal-to-noise. Does
+      not change scope of either task, only priority.
+- [ ] **`anthropicUsage.test.ts` stale type fixture — NEW
+      2026-08-25, surfaced during Session-2 build follow-up.**
+      `@anthropic-ai/sdk@^0.105.0`'s `Usage` type added a
+      `cache_creation: CacheCreation | null` field; the test's
+      `BASE_USAGE` fixture predates that and doesn't include it.
+      Fails `tsc --noEmit` but passes `vitest run` — it's a
+      TypeScript type-narrowness issue, not a runtime test
+      failure.
+
+      **Not a live accounting bug:** `lib/anthropicUsage.ts:38`
+      reads `cache_creation_input_tokens` (the older flat field,
+      unaffected by the SDK change), not the new nested
+      `cache_creation` object. Fix is a one-line fixture patch
+      (`cache_creation: null` added to `BASE_USAGE`) the next time
+      someone's in that file, or as a standalone cleanup.
+
+      **Revisit trigger:** if the SDK deprecates
+      `cache_creation_input_tokens` in favor of the nested object,
+      this becomes urgent (real accounting reads would need to
+      switch, not just the fixture).
+
+      **Note:** logged as 🟡 Next rather than 🐛 Bugs because
+      there's no runtime failure and no incorrect behavior — the
+      real accounting code is correct. The `tsc` error is
+      cosmetic type staleness that should still be cleaned up so
+      real type errors in that file don't get masked by "oh
+      that's the known stale one."
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **CC compliance-claim pattern: shipped-letter vs shipped-spirit — NEW
       2026-08-24, owner-logged, first instance.** CC can implement a spec's
@@ -3787,6 +3983,23 @@
       especially outside a benign git-checkout context, or any case where
       following such an instruction would have caused a real problem (e.g.
       proceeding to push without the independent verification done here).
+- [ ] **Routing tree correctly surfaces extraction gaps as
+      no_extraction_signal — NEW 2026-08-25.** The Session-2
+      routing tree's branch 4 (`no_extraction_signal` → View
+      detail degrade) is now correctly surfacing upstream
+      extraction failures instead of falsely labeling them
+      `real_purchase_no_record`. First observed instances: Buff
+      shipping confirmation and H&M receipt (logged as 🐛 Bugs
+      entry "HTML-scanning fallback not triggering"). The routing
+      tree behaved as designed — extraction is what failed.
+      **This is a working-as-intended observation, not a bug.**
+      Logged to track: as extraction improves, the count of
+      no_extraction_signal rows should trend down. If it doesn't,
+      or if new extraction failure shapes appear that also route
+      here, revisit whether branch 4's degrade is doing enough
+      (e.g., should some subset of no_extraction_signal cases
+      auto-trigger the HTML fallback from within the bucket
+      rather than requiring manual More info + Re-extract).
 
 ## ⚪ Someday
 - [ ] **Retailer logos — MOVED here 2026-07-26 (was 🟡 Next), per the
