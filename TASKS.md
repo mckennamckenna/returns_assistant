@@ -1239,6 +1239,15 @@
   6 preserved sub-entries, and the resolved four-slot-inventory
   contradiction now live in 🔴 Now.
 
+- [ ] **Needs-review routing-tree design — Session 1 complete 2026-08-24,
+  awaiting owner review before Session 2 (build).** Full design doc:
+  `NEEDS_REVIEW_ROUTING_DESIGN.md`. Needs sign-off on: the four-branch
+  tree itself (§2), the two new reasonIds/copy (`return_or_refund_no_link`,
+  `no_extraction_signal`), and the three proposed `CARD_SPEC.md` Part 3
+  amendments (§5 — population list, missing-total-extraction-failure
+  sentence, return/refund Create-vs-Link guidance). Full item lives in
+  🟡 Next ("Routing tree design for needs-review bucket action selection").
+
 ## ⏳ Verifying
 
 - **VERIFY BY: owner glance in the app — forward a real email through Gmail auto-forward and manual-forward, confirm the "Forwarded automatically"/"Forwarded by you" label is correct on each, and that a real order's deadline still computes correctly.**
@@ -2267,6 +2276,36 @@
       owner instruction; don't assume the desktop diagnosis carries over.
 
 ### Infra / reliability
+- [ ] **Extraction-failure email rows get a false-confidence "real purchase"
+      reason in the needs-review bucket — NEW 2026-08-24, found during the
+      routing-tree design pass (`NEEDS_REVIEW_ROUTING_DESIGN.md` §1, §3),
+      not fixed here.** `lib/needsReviewRows.ts:67-74`'s
+      `detectEmailReviewReason` has exactly one non-match fallback,
+      `real_purchase_no_record` — "This looks like a real purchase with no
+      order record" — and it fires for **every** orphaned email that isn't
+      an exact `orderNumber` match, including rows with zero extracted
+      signal at all (no retailer, no orderNumber, sometimes no emailType).
+      Cross-references the 2026-08-21 rebuild's ✅ Done entry (above): the
+      spec names "extraction failures" as one of four populations feeding
+      the bucket (`CARD_SPEC.md:248-251`) but no email-kind reason branch
+      represents it — this population is silently absorbed into a reason
+      sentence that asserts confidence it doesn't have. **Concrete
+      evidence, 2026-08-24 snapshot:** 8 of 18 currently-orphaned email
+      rows get this false-confidence reason and route to "Start a new
+      order" when they should degrade to "More info" per spec's own
+      unmapped-reason rule (`CARD_SPEC.md:244-247`) — 3 of the 8
+      (`extractedAt IS NULL`) are the Whole Foods triplet already
+      explained by the 7/21/2026 ingestion incident above (this entry
+      doesn't re-explain *why* those 3 never extracted, only that the UI
+      currently lies about what it knows regardless of why); the other 5
+      have `extractedAt` populated and `emailType` resolved but zero
+      retailer/orderNumber signal, consistent with generic carrier-ping
+      residue (see bucket-residue-cleanup, 🟡 Next). Fix design (four-branch
+      routing tree, new `no_extraction_signal` reasonId) is scoped, not
+      built, in "Routing tree design for needs-review bucket action
+      selection" (🟡 Next) — this bug entry exists so the false-confidence
+      copy shown to the user is tracked as a real defect, not folded silently
+      into the design task's optional scope.
 - [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
       2025-07-09, a year before stored 2026-07-09; found 2026-08-16 sizing
       the write-once `orderDate` backfill.** Wrong-year-extraction shape.
@@ -2629,6 +2668,27 @@
       can run in parallel or after); the 4 deferred H&M/Chan Luu refund
       rows (still waiting on the `lookupReturnPolicy` bug); the Chan Luu
       new-order-number-on-return pattern (separate future entry).
+      **SESSION 1 COMPLETE 2026-08-24 — design doc ready for owner review,
+      not built. See 🙋 Waiting on Owner.** Full design →
+      `NEEDS_REVIEW_ROUTING_DESIGN.md` (repo root, follows `CARD_SPEC.md`/
+      `return-window-design-tokens.md` precedent for design-doc location).
+      Four-branch tree proposed (exact-match → Link; return_label/refund →
+      Link, NEW; purchase-side with signal → Create; everything else → View
+      detail, NEW `no_extraction_signal` reasonId). Verified against the
+      live 19-row population: 8/18 email-kind rows change action (all
+      Start-a-new-order → More-info; zero move to Merge in today's snapshot
+      — the Link-on-return-type branch exists for the next H&M-shaped
+      recurrence, not because it changes anything visible today).
+      Pre-code verification committed: `scripts/pm-design-needsreview-
+      routing-tree-20260824.ts`. Only `emailType` needs adding to the two
+      Prisma selects — `extractedAt` turned out not to be a routing input.
+      Three CARD_SPEC.md Part 3 amendments proposed for owner sign-off
+      (design doc §5), not applied. Spawned one 🐛 Bugs entry (Infra/
+      reliability, cross-referencing the 2026-08-21 Done entry above).
+      Original diagnostic script (`pm-diag-needsreview-action-routing-
+      20260824.ts`) left uncommitted, disposition proposed in the design
+      doc §6 (safe to delete, superseded by the committed verification
+      script) — owner call.
 - [ ] **Full-detection reason mapping for the needs-review bucket. NEW
       2026-08-21 — not started.** Deferred from the same day's needs-review
       bucket rebuild (see 🔴 Now), which shipped a deliberately cheap version:
@@ -3857,6 +3917,13 @@
       & VERIFIED 2026-08-21.** Reason detection, container/row layout, and the
       order detail page's resolution control now match spec; owner-verified
       live on `app.myreturnwindow.com`. Full detail → HISTORY.md 2026-08-21.
+      **Compliance drift found 2026-08-24** (design pass,
+      `NEEDS_REVIEW_ROUTING_DESIGN.md` §1): the "extraction failures"
+      population spec names (`CARD_SPEC.md:248-251`) has no email-kind
+      reason branch — see 🐛 Bugs → Infra/reliability, "Extraction-failure
+      email rows get a false-confidence 'real purchase' reason." "Not a
+      purchase" was already a known, documented scope cut at rebuild time
+      (not new drift). See 🟡 Next "Routing tree design" for the fix design.
 - [x] **Write-once `orderDate` in `mergeEmailIntoOrder` + Suzie #99500 backfill —
       SHIPPED & VERIFIED 2026-08-19.** Committed `25cd981` on branch
       `writeonce-orderdate-coverage-gate` (cut clean from `origin/main`, 3
