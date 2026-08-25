@@ -223,12 +223,17 @@ renders as, not a suggestion:
 | "This looks like a real purchase with no order record." | Start a new order (Create new order) | View detail |
 | "We couldn't find a purchase date — the deadline may be estimated." | View detail (degrade — only action) | — |
 | "We couldn't find the order total." | View detail (degrade — only action) | — |
+| "We couldn't extract any details from this email." | View detail (degrade — only action) | — |
 | any unmapped reason | View detail (degrade) | — |
 
 - **Why "Create new order" is not redundant with "Link to order":** *Link* assumes a
   target order already exists. An orphaned email is often a real purchase with **no
   order record at all** — nothing to link to — so it must be able to *create* the order,
   not just attach to one.
+  **[2026-08-24] Considered adding explicit return/refund → Link-not-Create guidance;
+  deferred pending real observed return/refund orphan rows to validate. Branch 2 in
+  NEEDS_REVIEW_ROUTING_DESIGN.md implements the behavior in code; spec stays silent
+  for now.**
 - **"Link to order" is a manual picker in v1.** The user chooses the target from the
   full list themselves. This is deliberately dumb: it sidesteps the "squirrelly sender"
   problem (e.g. a FedEx delivery notification sent by the holding company, not the brand
@@ -245,10 +250,17 @@ renders as, not a suggestion:
   This is what lets the bucket ship before every possible reason is mapped, and what
   makes the registry safely extensible: a new reason string can be added at any time
   without a matching action existing yet, and the row still works.
+- **[2026-08-24] "We couldn't extract any details from this email" is deliberately
+  distinct from a generic "some details are uncertain" sentence** — it covers the
+  zero-extraction case (no retailer, no order number, nothing to go on), not a
+  partial-extraction case where specific fields are identifiably missing. Don't
+  collapse the two; they're different claims about how much the system actually knows.
 - Populations that feed this bucket (from the four-slot inventory): orphaned
   genuine-commerce emails, linked-but-flagged emails, duplicates, extraction
-  failures. Each just needs a slot-3 reason string (full sentence, per the table
-  above) and inherits its slot-4 action from the mapping; unknown → View detail.
+  failures, and possible non-commerce (no detector yet, reason/action pair
+  reserved — not yet built). Each just needs a slot-3 reason string (full sentence,
+  per the table above) and inherits its slot-4 action from the mapping; unknown →
+  View detail.
 
 **Overflow:** the bucket can hold 3 today and 15 after a bad extraction week. The
 bucket's own collapse/expand toggle (see "Collapsed vs expanded" above, corrected

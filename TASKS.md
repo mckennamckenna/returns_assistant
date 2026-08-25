@@ -2689,6 +2689,17 @@
       20260824.ts`) left uncommitted, disposition proposed in the design
       doc §6 (safe to delete, superseded by the committed verification
       script) — owner call.
+      **[2026-08-24 close-out]** Design pass complete —
+      `NEEDS_REVIEW_ROUTING_DESIGN.md` committed with pre-code verification
+      script. Owner review complete. Spec amendments A+B applied to
+      `CARD_SPEC.md` Part 3; C deferred (see spec note). Build session
+      ready to schedule. Additional build-session input from owner:
+      collapsed rows must expose two actions (archive + the row's presumed
+      action) plus optionally "more info" without requiring expand — this
+      is a departure from current spec/CC design and needs to be
+      reconciled into either `CARD_SPEC.md` Part 3 or
+      `NEEDS_REVIEW_ROUTING_DESIGN.md` at build-session start so CC isn't
+      reasoning from two conflicting sources.
 - [ ] **Full-detection reason mapping for the needs-review bucket. NEW
       2026-08-21 — not started.** Deferred from the same day's needs-review
       bucket rebuild (see 🔴 Now), which shipped a deliberately cheap version:

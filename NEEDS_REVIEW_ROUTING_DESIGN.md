@@ -220,11 +220,44 @@ when no exact match is found — these should default to Link to order
 
 - `scripts/pm-diag-needsreview-action-routing-20260824.ts` — the original
   read-only audit script from the earlier same-day diagnostic session.
-  **Proposed: leave uncommitted / safe to delete.** Its useful findings
-  (root cause, count reconciliation, residue tagging, the 4-deferred-rows
-  check, the Chan Luu check) are all captured in TASKS.md's diagnostic
-  entry and this design doc; it doesn't need to persist as a file. Not
-  deleted in this pass — owner call.
+  **Deleted 2026-08-24 close-out**, per this disposition proposal. Its
+  useful findings (root cause, count reconciliation, residue tagging, the
+  4-deferred-rows check, the Chan Luu check) are all captured in TASKS.md's
+  diagnostic entry and this design doc; it didn't need to persist as a file.
 - `scripts/pm-design-needsreview-routing-tree-20260824.ts` — **committed**,
   this design's pre-code verification artifact. Durable: rerun it anytime
   to check the proposed tree against live data before/after build.
+
+---
+
+## 7. Post-review decisions [2026-08-24 close-out]
+
+- **Spec amendments A and B: applied** to `CARD_SPEC.md` Part 3 — same
+  commit as this section's addition (see `git blame CARD_SPEC.md` /
+  `git log --oneline -- CARD_SPEC.md` for the hash). Amendment A added
+  "possible non-commerce (no detector yet, reason/action pair reserved)"
+  to the populations list. Amendment B added "We couldn't extract any
+  details from this email." → View detail as its own reason-table row,
+  plus a clarifying bullet distinguishing it from a generic
+  "some details are uncertain" sentence.
+- **Spec amendment C: deferred, not applied.** Reasoning: zero rows in the
+  current 18-row orphan population exercise branch 2
+  (`return_or_refund_no_link`) — every `return_label`/`refund` email in the
+  DB today is already linked, so there's no live data yet to validate the
+  proposed spec wording against. `CARD_SPEC.md` carries a dated note
+  instead (Create-vs-Link discussion) recording that this was considered
+  and deferred, so a future session doesn't re-propose it from scratch.
+  Revisit once a real `return_label`/`refund` orphan actually reaches the
+  bucket and exercises branch 2 in practice.
+- **Owner UX amendment, captured for build-session reconciliation:**
+  collapsed rows must expose **archive + the row's presumed action**, plus
+  optionally "more info," without requiring expand. This is a departure
+  from the current design: `CARD_SPEC.md` Part 3's "Collapsed vs expanded"
+  section (Q10, corrected 2026-08-21) already establishes that slot 4's
+  action is always visible regardless of collapse state — but it describes
+  **one** primary action + the always-present View-detail secondary, not a
+  fixed archive-plus-presumed-action pairing. This new input needs to be
+  reconciled into either `CARD_SPEC.md` Part 3 or this design doc **at
+  build-session start**, before Session 2 begins — not decided here, and
+  not yet reflected in the four-branch tree above (§2) or the verification
+  script's action labels.
