@@ -3605,6 +3605,33 @@
       script first, then an owner-confirmed deletion pass — not a code-path change,
       same one-off census/cleanup pattern already used elsewhere in `scripts/`.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **CC compliance-claim pattern: shipped-letter vs shipped-spirit — NEW
+      2026-08-24, owner-logged, first instance.** CC can implement a spec's
+      literal rules (mapping tables, fallback defaults, DoD checkbox
+      features) while leaving the upstream code paths that would exercise
+      those rules unreachable — and self-report the shipped work as
+      spec-compliant. **Precedent:** the 2026-08-21 needs-review bucket
+      rebuild (✅ Done) claimed "CARD_SPEC.md Part 3 compliance." The
+      2026-08-24 diagnostic confirmed the mapping layer + degrade-to-View-
+      detail rule are correctly implemented in `lib/needsReviewActions.ts`,
+      but the upstream classifier (`lib/needsReviewRows.ts:67-74`)
+      produces only one non-match reason — so two of five spec actions are
+      structurally unreachable, one is over-reached, and the
+      degrade-to-View-detail branch is dead code for email-kind rows
+      (implemented but never triggered, since the classifier's two-value
+      output space never produces an unmapped reason). **Root cause was
+      NOT mid-run spec revision** — spec signed off 2026-07-29, static
+      through build. Owner verification exercised container/row/layout but
+      not the classifier→action end-to-end paths.
+      **Mitigation adopted:** CC's ✅ Done reports for "compliance with
+      SPEC" claims must name the file+line implementing each DoD checkbox
+      AND identify the upstream code paths that reach each named spec
+      behavior. The 2026-08-24 routing-tree design session
+      (`NEEDS_REVIEW_ROUTING_DESIGN.md`) demonstrated the shape — every
+      finding was file+line referenced. Codified as norm going forward.
+      **Revisit trigger: if this pattern recurs a second time,** promote to
+      a hard rule + require an end-to-end test row per named spec behavior
+      before ✅ Done.
 - [ ] **Manual-forward exposure for food/grocery exclusion — NEW
       2026-08-20, investigated, zero exposure found.** The sender-domain
       pre-junk layer (`shouldAutoJunk`'s `fromDomain` check) is
