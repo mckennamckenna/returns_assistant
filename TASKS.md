@@ -32,6 +32,68 @@
 
 ## 🔴 Now
 
+- [x] **Read-only diagnosis of needs-review bucket action-routing — NEW
+      2026-08-24, owner-directed, SCOPE-CAPPED (0 billed Anthropic calls, 0
+      writes, no re-extraction) — COMPLETE, reported to owner 2026-08-24.**
+      Diagnostic script (uncommitted, same pattern as the Caroline RealReal
+      script — paper trail only, not shipped code):
+      `scripts/pm-diag-needsreview-action-routing-20260824.ts`.
+      **Count correction:** bucket is 19 rows live (18 email-kind orphans + 1
+      order-kind), not 21 — flagging the discrepancy, not resolving it.
+      **Root cause, exact lines:** `lib/needsReviewRows.ts`'s
+      `detectEmailReviewReason` (L67-74) has exactly one branch — exact
+      `orderNumber` match against existing orders (L68-72); every other case
+      unconditionally falls through to L73 `return "real_purchase_no_record"`.
+      `emailType` is never consulted — it isn't part of `EmailReviewInput`
+      (L49-56) and isn't even fetched by either call site's Prisma `select`
+      (`app/(app)/page.tsx:86`, `app/(app)/needs-review/page.tsx:36`).
+      `lib/needsReviewActions.ts:47-48` then routes `real_purchase_no_record`
+      → `create_new_order` ("Start a new order"). No short-circuit beyond
+      this single branch; `hasRetailer` isn't consulted in routing at all
+      (dropped 2026-08-21, confirmed via this session's read).
+      **Whole Foods row: CONFIRMED** renders "Start a new order" — but it's 3
+      duplicate rows, not 1, and `extractedAt` is null on all three
+      (extraction never ran, not just "no retailer found"). Matches the
+      expected pre-08-19-grocery residue sub-population.
+      **"Every row except Anthropic … including `return_label` emails":
+      partially confirmed, partially not supported by data.** The
+      except-Anthropic part is right (that's the one order-kind row, always
+      routes to "More info"). The `return_label` part isn't observable
+      today: 0 of the 18 current orphans have `emailType` return_label or
+      refund — every return_label/refund email in the DB is already linked
+      (`orderId` not null) and structurally excluded from this query
+      entirely. **The 4 deferred H&M/Chan Luu refund rows: checked
+      directly — none appear in the bucket at all right now** (2 of the 4
+      parent orders have `needsReview=false`, so no bucket row at all; the
+      other 2 have `needsReview=true` but that only ever renders "More
+      info," never "Start a new order," for order-kind rows under current
+      code). The "if they render Start a new order that's the misfire"
+      framing doesn't apply — that scenario can't happen under current code.
+      **Residue-cleanup ballpark (🟡 Next entry):** of the 18 current
+      orphans, 6 tag as USPS-pregating residue, 3 as pre-08-19-grocery
+      residue (the Whole Foods triplet), 0 currently match the promo-outage
+      domains (`em.target.com`/`email.bloomingdales.com` — that
+      sub-population's ~3 rows from the 2026-08-21 census are no longer in
+      the orphan set). Read-only ID script effectively exists already (this
+      session's diagnostic script); an owner-confirmed deletion pass would
+      be a short follow-up, well under an hour. Risk: domain/date tagging is
+      a heuristic — confirm subject/content shape, not just sender domain,
+      before any deletion.
+      **Default-action heuristic (🟡 Next, line ~2503) NARROW/BROAD
+      framing:** NARROW (emailType gate on return_label/refund) would fix
+      **zero** of the 18 current orphans — none have that emailType. The
+      actual, currently-visible bug is broader: every orphan of any
+      emailType (delivery, shipping_confirmation, or never-extracted) falls
+      through the same single fallback branch. Evidence does not support
+      promoting NARROW as currently scoped — the framing doesn't match
+      what's actually broken today; re-scoping (or scoping the broader
+      fallback-branch problem) would need owner input before promotion.
+      BROAD's parking: checked the Chan Luu return-approval orphan directly
+      — it is not an orphan (linked to a synthetic `HRYTSJRJ` order, the
+      already-tracked Happy Returns/third-party order-number gap, 🟡 Next).
+      Doesn't clear the dependency (structural gap unchanged) but confirms
+      rather than assumes its shape — no new information changes BROAD's
+      parking.
 - [ ] **Zara "unknown retailer" digest line — PROMOTED here 2026-08-22, owner
       directive: zero tolerance for "unknown retailer" lines going forward.**
       Full diagnosis, root cause, and recommended fix direction (sender-
