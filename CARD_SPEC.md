@@ -197,15 +197,33 @@ new one.
   each row reveals its slot-4 action." — this gated the action behind the
   toggle, which owner review of the running build found created two-tap
   friction: expand, then act, instead of one tap straight from the dashboard.)
-- **[2026-08-24 amendment] Collapsed bucket rows expose the row's presumed
-  primary action (per the routing tree in NEEDS_REVIEW_ROUTING_DESIGN.md)
-  plus Archive, with More info as an optional third control — not "slots
-  1–3 only, no buttons" as originally specified. Rationale: the mockup
-  shows two actions per row without requiring expand; the "slots 1–3 only"
-  text drifted from mockup intent during Part 3 authoring. Owner
-  reconfirmed mockup intent 2026-08-24. Expand still reveals per-row
-  detail; the change is which controls are visible before expand, not what
-  expand does.**
+- **[2026-08-24 amendment, clarified 2026-08-25] Collapsed bucket rows
+  expose the row's action controls per the shape below, replacing the
+  original "slots 1–3 only, no buttons" text. Rationale: the mockup
+  shows the full control set per row without requiring expand; the
+  "slots 1–3 only" text drifted from mockup intent during Part 3
+  authoring. Owner reconfirmed mockup intent 2026-08-24. Expand still
+  reveals per-row detail; the change is which controls are visible
+  before expand, not what expand does.**
+
+  **Two shapes, per the existing mapped-vs-degrade distinction in the
+  View-detail rule below:**
+  - **Mapped row** (top four reasons in the reason → action table —
+    primary action is not View detail): render three controls —
+    `{primary action, Archive, View detail}`.
+  - **Degrade row** (bottom three reasons — primary action IS View
+    detail): render two controls — `{Archive, View detail}`. No
+    duplicate.
+
+  **(2026-08-25 clarification: the earlier amendment text called More
+  info "optional third control," and a same-day patch draft
+  over-corrected to "always three controls." Both were wrong —
+  "optional" hid the mapped-vs-degrade distinction; "always three"
+  would produce duplicate View detail buttons on degrade rows. The
+  correct rule is two shapes, both consistent with the always-present
+  View-detail invariant in the View-detail rule below. CC's
+  degrade-row-UI question during the Session-2 build surfaced the
+  bug.)**
 
 **Slot 3 (why) is open-ended. Slot 4 (action) is a v1 registry of FIVE** (Q9 — treat as
 an open registry, not a closed set; owner wants room to add actions over time, and the
