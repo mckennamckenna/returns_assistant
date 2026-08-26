@@ -6,6 +6,7 @@ import { decrypt } from "@/lib/crypto";
 import { resolveBodyTextWithAlternate } from "@/lib/emailBodyText";
 import { isAmazonOrder } from "@/lib/amazonBundle";
 import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
+import { RETAILER_FALLBACK_GATE_EMAIL_TYPES, resolveRetailerFallback } from "@/lib/retailerFallback";
 
 // Accepts either an id (scripts and the manual re-extract action only ever
 // hold an id) or the row itself (the inbound route, which already has the
@@ -64,11 +65,34 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
 
     const result = await finalizeExtraction(parsed, emailId, existingOrder);
 
+    // Sender-derived retailer fallback (ZARA_RETAILER_FALLBACK, 2026-08-25,
+    // Decision 1/2/3 — see lib/retailerFallback.ts and
+    // ZARA_DIAGNOSTIC_FINDINGS_20260825.md / ZARA_DIAGNOSTIC_FINDINGS_
+    // BACKFILL_RADIUS_20260825.md). Body extraction always "ran" by this
+    // point in this function — extractedAt is set on the same write below —
+    // so Decision 2 condition (i) is satisfied by construction here; only
+    // (ii) the emailType gate and (iii) whether the fallback resolves
+    // anything still need checking. buildPrompt() (lib/extract.ts:207)
+    // still never reads the From header for the body-extraction pass
+    // itself — this only fires AFTER that pass has already returned null.
+    let finalRetailer = result.retailer;
+    let retailerSource: "body_extraction" | "sender_fallback" | "carrier_deferred" | null =
+      result.retailer != null ? "body_extraction" : null;
+
+    if (result.retailer == null && result.emailType != null && RETAILER_FALLBACK_GATE_EMAIL_TYPES.has(result.emailType)) {
+      const decryptedFromEmail = decrypt(email.fromEmail);
+      const decryptedFromName = email.fromName ? decrypt(email.fromName) : null;
+      const fallback = resolveRetailerFallback(decryptedFromEmail, decryptedFromName);
+      finalRetailer = fallback.retailer;
+      retailerSource = fallback.retailerSource;
+    }
+
     await prisma.email.update({
       where: { id: emailId },
       data: {
         emailType: result.emailType,
-        retailer: result.retailer,
+        retailer: finalRetailer,
+        retailerSource,
         orderNumber: result.orderNumber,
         orderDate: result.orderDate ? new Date(result.orderDate) : null,
         deliveryDate: result.deliveryDate ? new Date(result.deliveryDate) : null,
