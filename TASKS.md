@@ -263,19 +263,31 @@
       duplicated here, see that entry for the reasoning pass needed before
       touching `lib/extract.ts`.
       **[2026-08-25 update]** Design pass deferred pending a read-only Claude
-      Code diagnostic to answer six open questions the design would otherwise
-      guess at (fromEmail/fromName population on forwarded mail; whether the
-      C2 unverifiable-sender flag exists in code today; where the user's own
-      forwarding address is stored; null-retailer row count and shape by domain
-      category; whether `retailer` is Email-only or also on Order; what actually
-      renders "Unknown retailer" and where). Diagnostic scope brief written this
-      session; committed to `ZARA_DIAGNOSTIC_SCOPE.md` at repo root for the CC
-      session to reference. Read-only, 0 estimated billed calls (DB reads +
-      file reads only), one diagnostic script + findings summary as
-      deliverables. Design note (`ZARA_RETAILER_FALLBACK_DESIGN.md`) will be
-      rewritten against real findings, not against the initial draft that
-      made those assumptions. Pre-code verification and build session both
-      still gated behind design-note approval.
+      Code diagnostic to answer six open questions the initial design draft
+      would otherwise have guessed at. Scope was verbal (not committed as a
+      file). **Diagnostic complete same session, 0 billed calls, DB + code
+      reads only, committed as `0f8a94f`:**
+      `scripts/pm-diag-zara-retailer-fallback-20260825.ts` +
+      `ZARA_DIAGNOSTIC_FINDINGS_20260825.md`. Headline findings that reshape
+      the design: (a) no forwarding-envelope parsing exists — `fromEmail`/
+      `fromName` resolve directly to the retailer on the Zara rows, and the
+      current miss is `lib/extract.ts:207` doing exactly what its prompt is
+      told (never read From); (b) the C2 unverifiable-sender flag was never
+      built (planned, LOW severity, noted "not yet built" in
+      `SECURITY_AUDIT.md`) — nothing to reuse; (c) no schema field stores a
+      user's forwarding-source address(es), so any "forwarding guard" is a
+      net-new prerequisite, not a wire-up; (d) the real null-retailer
+      fallback surface is 8 commerce-typed rows, not the raw 640 (605 are
+      `emailType: "other"`, fallback moot); (e) `retailer` lives on both
+      `Email` and `Order`, with `Order.retailer` a one-time denormalized copy
+      from the linking Email at `lib/linkOrder.ts:652` — any fix has to
+      decide the backfill/recompute question for already-linked orders; (f)
+      "Unknown retailer" renders from 12 independent sites, no shared helper
+      — either the fix lands in the field itself or a shared helper is a
+      prerequisite. Design note (`ZARA_RETAILER_FALLBACK_DESIGN.md`) to be
+      written against these findings, not the earlier draft's assumptions.
+      Pre-code verification and build session both still gated behind
+      design-note approval.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
