@@ -288,6 +288,33 @@
       written against these findings, not the earlier draft's assumptions.
       Pre-code verification and build session both still gated behind
       design-note approval.
+      **[2026-08-25 follow-up, COMPLETE]** Backfill blast-radius diagnostic
+      done, 0 billed calls, DB + code reads only, no write. Committed:
+      `scripts/pm-diag-zara-backfill-radius-20260825.ts` +
+      `ZARA_DIAGNOSTIC_FINDINGS_BACKFILL_RADIUS_20260825.md`.
+      **Headline finding — reshapes the design materially:** only 3 of the
+      8 commerce-typed null-retailer rows are actual retailer emails (the
+      Zara triplet); the other 5 are FedEx/USPS carrier tracking
+      notifications with no retailer in the sender at all. A naive
+      fromName/domain fallback would mislabel those 5 as sold by "FedEx"/
+      "USPS" — a carrier/logistics exclusion gate (mirroring
+      `FOOD_GROCERY_SENDER_DOMAINS`) is now a likely prerequisite, not a
+      later refinement. Second finding: `retailer` is a **routing input**,
+      not just display — `lib/needsReviewRows.ts:78`'s
+      `(email.retailer || email.orderNumber)` check means backfilling
+      retailer on the 5 carrier rows (which have no orderNumber) would flip
+      them from the branch-4 degrade row to branch-3 "Start a new order,"
+      actively prompting an order record for a non-order email. Third: 0
+      live `Order` rows have `retailer IS NULL` — the whole bug is
+      currently confined to unlinked Email orphans (needs-review bucket +
+      weekly-coverage digest), nothing on any dashboard Order card today.
+      Fourth: a plain field UPDATE has zero side effects (`linkEmailToOrder`
+      and its recompute/relink chain only run at ingestion, never
+      retriggered by a later write) — but there's no rollback mechanism
+      (no `policySource`-style provenance column for retailer), so a
+      provenance/rollback column is now a probable co-requisite of any
+      backfill, not follow-up hygiene. Feeds the same pending
+      `ZARA_RETAILER_FALLBACK_DESIGN.md`.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
