@@ -46,6 +46,8 @@ const BASE_ROW = {
   textBody: "some body text",
   htmlBody: null,
   subject: "Your order shipped",
+  fromEmail: "noreply@acme.com",
+  fromName: "Acme",
 };
 
 // Shape returned by extractEmailIdentity — the pre-finalize identity pass.
@@ -241,5 +243,102 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     expect(mockFindMatchingOrder).not.toHaveBeenCalled();
     expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ orderNumber: null }), BASE_ROW.id, null);
+  });
+});
+
+// ZARA_RETAILER_FALLBACK (2026-08-25) — the sender-derived fallback wired
+// into runExtraction.ts right before the DB write. Uses the REAL
+// lib/retailerFallback.ts (not mocked) — it's pure, deterministic logic,
+// so exercising it for real here is more useful than re-asserting a mock
+// call. decrypt() is mocked as identity (see top of file), so BASE_ROW's
+// fromEmail/fromName pass straight through unchanged.
+describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALLBACK)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEmailFindUnique.mockResolvedValue(BASE_ROW);
+    mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
+    mockFindMatchingOrder.mockResolvedValue(null);
+  });
+
+  it("body extraction returned a retailer -- fallback does not fire, retailerSource = 'body_extraction'", async () => {
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: "Acme" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: "Acme", retailerSource: "body_extraction" }) }),
+    );
+  });
+
+  it("Zara case: retailer null, commerce emailType, fromName 'Zara' -- resolves to 'Zara' via sender_fallback", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "noreply@zara.com", fromName: "Zara" });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: "Zara", retailerSource: "sender_fallback" }) }),
+    );
+  });
+
+  it("carrier case (FedEx): retailer stays null, retailerSource = 'carrier_deferred', NOT mislabeled 'FedEx Delivery Manager'", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "TrackingUpdates@fedex.com", fromName: "FedEx Delivery Manager" });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: null, retailerSource: "carrier_deferred" }) }),
+    );
+  });
+
+  it("carrier case (USPS): retailer stays null, retailerSource = 'carrier_deferred', NOT mislabeled 'USPS Tracking'", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "auto-reply@tracking.usps.com", fromName: "USPS Tracking" });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "delivery" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: null, retailerSource: "carrier_deferred" }) }),
+    );
+  });
+
+  it("carrier-sender email typed 'other' (non-commerce): gate condition (ii) fails -- fallback never runs, retailerSource stays null, not 'carrier_deferred'", async () => {
+    // This is the gate the design's own Decision 2(ii) documents as
+    // load-bearing: the carrier check only ever runs once emailType has
+    // already passed the commerce-type gate. A carrier email typed "other"
+    // (e.g. a promotional/marketing send from a carrier domain) must not
+    // be tagged carrier_deferred either -- it should look exactly like any
+    // other non-commerce null-retailer row.
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "TrackingUpdates@fedex.com", fromName: "FedEx Delivery Manager" });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "other" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: null, retailerSource: null }) }),
+    );
+  });
+
+  it("ESP subdomain case: orders@email.bloomingdales.com, generic fromName -- resolves to 'Bloomingdales' via domain, stripping the email. prefix", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "orders@email.bloomingdales.com", fromName: "noreply" });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: "Bloomingdales", retailerSource: "sender_fallback" }) }),
+    );
+  });
+
+  it("fromName and fromEmail both empty/unresolvable: retailer stays null, retailerSource stays null (never invents a value)", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "", fromName: null });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: null, retailerSource: null }) }),
+    );
   });
 });
