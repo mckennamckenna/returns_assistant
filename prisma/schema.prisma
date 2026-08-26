@@ -117,6 +117,14 @@ model Email {
 
   // --- Milestone 2 additions ---
   retailer            String?
+  // Provenance for `retailer` — mirrors the policySource pattern below.
+  // "body_extraction" (AI read it from the email body, the normal case) |
+  // "sender_fallback" (body extraction returned null; resolved from
+  // fromName/fromEmail domain instead — ZARA_RETAILER_FALLBACK, 2026-08-25) |
+  // "carrier_deferred" (sender is a known carrier/logistics domain, e.g.
+  // FedEx/USPS — retailer deliberately left null, not sold-by-carrier) |
+  // null (never extracted, or extracted before this column existed).
+  retailerSource      String?
   orderNumber         String?
   orderDate           DateTime?
   deliveryDate        DateTime? // legacy — superseded by estimatedDeliveryDate/deliveredAt below; kept for display fallback on rows predating that split
