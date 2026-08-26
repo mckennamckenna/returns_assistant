@@ -262,6 +262,20 @@
       retailer identification failure despite visible signal" — not
       duplicated here, see that entry for the reasoning pass needed before
       touching `lib/extract.ts`.
+      **[2026-08-25 update]** Design pass deferred pending a read-only Claude
+      Code diagnostic to answer six open questions the design would otherwise
+      guess at (fromEmail/fromName population on forwarded mail; whether the
+      C2 unverifiable-sender flag exists in code today; where the user's own
+      forwarding address is stored; null-retailer row count and shape by domain
+      category; whether `retailer` is Email-only or also on Order; what actually
+      renders "Unknown retailer" and where). Diagnostic scope brief written this
+      session; committed to `ZARA_DIAGNOSTIC_SCOPE.md` at repo root for the CC
+      session to reference. Read-only, 0 estimated billed calls (DB reads +
+      file reads only), one diagnostic script + findings summary as
+      deliverables. Design note (`ZARA_RETAILER_FALLBACK_DESIGN.md`) will be
+      rewritten against real findings, not against the initial draft that
+      made those assumptions. Pre-code verification and build session both
+      still gated behind design-note approval.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
@@ -973,6 +987,26 @@
       itself rather than `estimatedDeliveryDate`. Not currently governing
       the order's deadline (the Order-level value is correct), so no live
       impact. Not investigated further, per instruction.
+      **5th instance surfaced 2026-08-25 (owner-reported from live UI, Target
+      order `912003624619619`, $108.39) — NEW ANGLE: this is the first
+      pickup-order instance in the pattern.** Order date 2026-08-25 (correct,
+      today), estimated delivery date 2026-08-25 → shown in UI as 8/25/2025
+      (wrong year, 358 days in the past — matches the Good Eggs / Emme Parsons
+      shape exactly). Return deadline mechanically derived (9/8/2025), status
+      correctly "Expired" against the bad deadline. Three linked emails: order
+      confirmation, "ready for in-store pickup at Redwood City," and "picked
+      up" — no shipping/delivery notification, because there was no shipment.
+      Semantically "delivery date" here means "picked up on." Could be another
+      instance of the same wrong-year mechanism (strengthens the escalation
+      case, doesn't change the root-cause lead), OR the pickup fulfillment
+      path is hitting a different code path in the estimator that hasn't been
+      looked at. Not distinguishable without a DB read on the row — not
+      investigated further this session, logged only per owner instruction.
+      Root-cause lead unchanged: still `routeDeliveryDate` /
+      `resolveEstimatedDeliveryDate` in `lib/extract.ts` as the first place
+      to look. Escalation weight now: 5 instances, 4 retailers (Good Eggs,
+      Emme Parsons, Waitrose, Fitness Superstore, Target), first pickup-order
+      case.
 - [ ] **ACE VISALIA RSC — duplicate Email rows CONFIRMED genuine (content
       check, not timing), status path still unexplained. NEW 2026-07-23.**
       Content check run, not a timing assumption: within each same-second
