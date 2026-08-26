@@ -2774,6 +2774,19 @@
       (unchanged); OCR or img-alt-text extraction (separate deferred
       candidates in the Zara Bugs entry). **Dependency: none blocking** —
       Zara ship unblocks this by providing the tagged set.
+      **2026-08-26 session update:** Digest-suppression fix (option d,
+      "crawl" step) scoped and diagnosed per plan, held without ship. Step 1
+      diagnostic (`scripts/pm-diag-carrier-digest-suppression-20260826.ts`)
+      revealed the 5 currently-tagged carrier_deferred rows (receivedAt
+      2026-07-23 → 2026-08-04) are already outside the digest's rolling
+      7-day window and will not appear in the 2026-08-28 Friday send. Fix
+      still correct for future carrier emails landing in-window, but zero
+      observable effect on current cycle; deferred pending a broader
+      in-app disposition decision. New Next: in-app rendering fix (return
+      window ± other render sites reading email.retailer) needs its own
+      scoping session. Walk/run still open. Suppression can be dropped in
+      as ~1-line filter if a carrier email lands in-window before in-app
+      fix ships.
 - [ ] **Needs-review bucket: order-kind rows have no Archive control — NEW
       2026-08-25, surfaced during Session-2 build follow-up questions
       (owner B1).** `app/NeedsReviewRow.tsx:85` gates the amendment-D

@@ -5,6 +5,39 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-26 — Carrier-row digest suppression: scoped, diagnosed, held
+
+Session opened to execute the "crawl" step from the carrier-row disposition
+Next entry: filter carrier_deferred rows out of the Friday coverage-check
+digest. Step 1 diagnostic gate revealed the 5 currently-tagged rows have
+receivedAt between 2026-07-23 and 2026-08-04 — entirely outside the digest's
+rolling 7-day window as of the 2026-08-28 send. Suppression fix would be
+correct in principle but zero observable effect on the current or next
+digest cycle.
+
+Held without ship. Rationale: (a) motivating goal (Friday zero-unknowns)
+already met by aging-out; (b) owner electing to pivot toward in-app
+rendering fix, which will need to decide carrier-row handling anyway; (c)
+two overlapping approaches when one design pass could cover both.
+
+Diagnostic script committed (`scripts/pm-diag-carrier-digest-suppression-
+20260826.ts`, 0 Anthropic calls) — paper trail and input to the in-app
+scoping session.
+
+Risk noted: if a new carrier email arrives in a Friday 7-day window before
+the in-app fix ships, "Unknown retailer" reappears in the digest for that
+send. Mitigation: 1-line filter is designed and ready to drop in.
+
+Next: separate session to scope in-app rendering. Open questions: suppress
+vs relabel; return window only vs all 12 render sites. Walk (grow corpus,
+characterize bodies) and run (order matching) still open, still
+data-volume bound.
+
+Gate discipline note: mandatory Step 1 diagnostic caught a real thing
+before code shipped. Worth its cost.
+
+---
+
 ## 2026-08-25 — Zara / sender-derived retailer fallback shipped
 
 Commerce-typed emails whose body extraction can't find a retailer now fall back to
