@@ -5,6 +5,33 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-25 — Zara / sender-derived retailer fallback shipped
+
+Commerce-typed emails whose body extraction can't find a retailer now fall back to
+sender-derived identification (fromName, then sender domain), gated to exclude
+carrier/logistics senders (FedEx, USPS, UPS, DHL, OnTrac, LaserShip) via a dedicated
+pre-check — a naive fallback would have mislabeled 5 of the first 8 affected rows as
+"sold by FedEx"/"USPS." New `Email.retailerSource` column tracks provenance
+(`body_extraction` / `sender_fallback` / `carrier_deferred` / null), mirroring the
+existing `policySource` pattern; unblocks rollback if a resolved value is ever wrong.
+Historical rows backfilled via companion scripts (not raw SQL — `fromEmail` is
+encrypted at rest) at zero Anthropic cost. Table 3 note: the design predicted the 3
+live Zara rows would flip needs-review branches; they didn't, because those rows
+already carried an extracted `orderNumber`, which alone was already enough to satisfy
+the routing branch's OR condition. The fix still shipped as intended — display/labeling
+correctness today, routing correctness preserved for the next Zara-shaped row that
+arrives without an order number. Carrier-tracking-email routing (the 5 deferred rows)
+is tracked separately, not addressed here.
+
+Commits: `0f8a94f`, `3bef1bc` (diagnostics); `4849051`, `5fbc968` (enumeration +
+amendment); `2d067bd` (shared fallback logic + carrier-deferred backfill); `5ba63ee`
+(migration); `a5a88d8` (code + sender_fallback companion); `016cac0` (tests);
+`e754318` (ship). Zero billed Anthropic calls across the full workstream. Rollback:
+`UPDATE Email SET retailer = NULL WHERE retailerSource = 'sender_fallback'`. Provenance
+column remains in place after rollback (harmless, useful for next attempt).
+
+---
+
 ## 2026-08-24 — Widened `lookupReturnPolicy` skip: any email linking to an order with a resolved policy, not just `return_label`; shipped, verified live, owner-confirmed
 
 **Origin.** Started as a narrow `return_label`-only entry filed 2026-08-23 during the H&M

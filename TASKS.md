@@ -254,67 +254,6 @@
       Doesn't clear the dependency (structural gap unchanged) but confirms
       rather than assumes its shape — no new information changes BROAD's
       parking.
-- [ ] **Zara "unknown retailer" digest line — PROMOTED here 2026-08-22, owner
-      directive: zero tolerance for "unknown retailer" lines going forward.**
-      Full diagnosis, root cause, and recommended fix direction (sender-
-      domain/`fromName` fallback for retailer display only, when body
-      extraction returns null) live in 🐛 Bugs → Infra / reliability, "Zara
-      retailer identification failure despite visible signal" — not
-      duplicated here, see that entry for the reasoning pass needed before
-      touching `lib/extract.ts`.
-      **[2026-08-25 update]** Design pass deferred pending a read-only Claude
-      Code diagnostic to answer six open questions the initial design draft
-      would otherwise have guessed at. Scope was verbal (not committed as a
-      file). **Diagnostic complete same session, 0 billed calls, DB + code
-      reads only, committed as `0f8a94f`:**
-      `scripts/pm-diag-zara-retailer-fallback-20260825.ts` +
-      `ZARA_DIAGNOSTIC_FINDINGS_20260825.md`. Headline findings that reshape
-      the design: (a) no forwarding-envelope parsing exists — `fromEmail`/
-      `fromName` resolve directly to the retailer on the Zara rows, and the
-      current miss is `lib/extract.ts:207` doing exactly what its prompt is
-      told (never read From); (b) the C2 unverifiable-sender flag was never
-      built (planned, LOW severity, noted "not yet built" in
-      `SECURITY_AUDIT.md`) — nothing to reuse; (c) no schema field stores a
-      user's forwarding-source address(es), so any "forwarding guard" is a
-      net-new prerequisite, not a wire-up; (d) the real null-retailer
-      fallback surface is 8 commerce-typed rows, not the raw 640 (605 are
-      `emailType: "other"`, fallback moot); (e) `retailer` lives on both
-      `Email` and `Order`, with `Order.retailer` a one-time denormalized copy
-      from the linking Email at `lib/linkOrder.ts:652` — any fix has to
-      decide the backfill/recompute question for already-linked orders; (f)
-      "Unknown retailer" renders from 12 independent sites, no shared helper
-      — either the fix lands in the field itself or a shared helper is a
-      prerequisite. Design note (`ZARA_RETAILER_FALLBACK_DESIGN.md`) to be
-      written against these findings, not the earlier draft's assumptions.
-      Pre-code verification and build session both still gated behind
-      design-note approval.
-      **[2026-08-25 follow-up, COMPLETE]** Backfill blast-radius diagnostic
-      done, 0 billed calls, DB + code reads only, no write. Committed:
-      `scripts/pm-diag-zara-backfill-radius-20260825.ts` +
-      `ZARA_DIAGNOSTIC_FINDINGS_BACKFILL_RADIUS_20260825.md`.
-      **Headline finding — reshapes the design materially:** only 3 of the
-      8 commerce-typed null-retailer rows are actual retailer emails (the
-      Zara triplet); the other 5 are FedEx/USPS carrier tracking
-      notifications with no retailer in the sender at all. A naive
-      fromName/domain fallback would mislabel those 5 as sold by "FedEx"/
-      "USPS" — a carrier/logistics exclusion gate (mirroring
-      `FOOD_GROCERY_SENDER_DOMAINS`) is now a likely prerequisite, not a
-      later refinement. Second finding: `retailer` is a **routing input**,
-      not just display — `lib/needsReviewRows.ts:78`'s
-      `(email.retailer || email.orderNumber)` check means backfilling
-      retailer on the 5 carrier rows (which have no orderNumber) would flip
-      them from the branch-4 degrade row to branch-3 "Start a new order,"
-      actively prompting an order record for a non-order email. Third: 0
-      live `Order` rows have `retailer IS NULL` — the whole bug is
-      currently confined to unlinked Email orphans (needs-review bucket +
-      weekly-coverage digest), nothing on any dashboard Order card today.
-      Fourth: a plain field UPDATE has zero side effects (`linkEmailToOrder`
-      and its recompute/relink chain only run at ingestion, never
-      retriggered by a later write) — but there's no rollback mechanism
-      (no `policySource`-style provenance column for retailer), so a
-      provenance/rollback column is now a probable co-requisite of any
-      backfill, not follow-up hygiene. Feeds the same pending
-      `ZARA_RETAILER_FALLBACK_DESIGN.md`.
 - [ ] **Caroline's The RealReal order #R268770184, $7,921.75 — owner reports
       it's the sum of OTHER items in the order, not the item she actually
       purchased/received in this shipment. NEW 2026-08-22, READ-ONLY
@@ -2638,22 +2577,27 @@
       with `retailer: null` (correct — they don't have a retailer) and no
       `orderNumber` (usually — carrier tracking numbers aren't order
       numbers), which sends them through the degrade fallback branch in
-      `lib/needsReviewRows.ts`. **Real product question underneath, not
-      just a routing bug:** carrier emails are almost always linkable to a
-      real order — the user knows what they ordered, and the tracking
-      number can often be manually associated — but automatic linking has
-      no signal to work with (no order number, no retailer, sometimes
-      useful body info like a delivery date but just as often not). Today
-      they sit as orphans indefinitely. Deliberately excluded from the
-      Zara fallback fix (which gates on commerce-type emails specifically;
-      carrier tracking is a distinct routing case). Options space (not
-      evaluated): a manual-link affordance in the needs-review UI; a
-      heuristic that matches tracking numbers against recent orders'
+      `lib/needsReviewRows.ts`. **As of the 2026-08-25 Zara ship (commit
+      `e754318`), these rows are now tagged `retailerSource =
+      'carrier_deferred'` and are retrievable as a set via that column.**
+      **Real product question underneath, not just a routing bug:** carrier
+      emails are almost always linkable to a real order — the user knows
+      what they ordered, and the tracking number can often be manually
+      associated — but automatic linking has no signal to work with (no
+      order number, no retailer, sometimes useful body info like a delivery
+      date but just as often not). Today they sit as orphans indefinitely.
+      Deliberately excluded from the Zara fallback fix (which gates on
+      commerce-type retailer emails specifically via a carrier-sender
+      exclusion list; carrier tracking is a distinct routing case). Options
+      space (not evaluated): a manual-link affordance in the needs-review
+      UI; a heuristic that matches tracking numbers against recent orders'
       shipping-confirmation content; a carrier-specific routing branch that
-      surfaces these differently from real retailer orphans; do nothing
-      (accept them as orphans). Not scoped, no fix direction yet — logged
-      so the pattern doesn't get forgotten between now and whenever it
-      becomes visible enough to prioritize.
+      surfaces these differently from real retailer orphans; digest-
+      suppression only, no routing change; do nothing (accept them as
+      orphans). Not scoped, no fix direction yet — logged so the pattern
+      doesn't get forgotten between now and whenever it becomes visible
+      enough to prioritize. See related 🟡 Next entry "Carrier-row
+      disposition."
 - [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
       2025-07-09, a year before stored 2026-07-09; found 2026-08-16 sizing
       the write-once `orderDate` backfill.** Wrong-year-extraction shape.
@@ -2793,6 +2737,43 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Carrier-row disposition (FedEx/USPS/UPS/etc.) — design pass, not
+      build — NEW 2026-08-25, unblocked by the Zara fallback ship (same
+      session, commit e754318).** The Zara fix labels carrier-tracking
+      Email rows with `retailerSource = 'carrier_deferred'` at extraction
+      time (starting carrier-sender list: fedex.com, usps.com, ups.com,
+      dhl.com, ontrac.com, lasership.com). Historical backfill in the
+      companion script tagged the 5 currently-in-DB carrier rows in the
+      same session, so the queryable set is immediately populated, not
+      empty-until-re-extraction. That gives us a queryable set (`WHERE
+      retailerSource = 'carrier_deferred'`) but no user-visible change —
+      carrier rows still render "Unknown retailer" and still route through
+      the needs-review bucket's degrade branch. Full context on why this
+      is a real product question (not just a routing bug) → 🐛 Bugs →
+      Infra / reliability, "Carrier-tracking emails route as null-retailer
+      orphans in the needs-review bucket" (filed 2026-08-25). **Scope for
+      the design pass:** how carrier rows should behave in the needs-review
+      bucket, the Friday coverage-check digest, and the dashboard — three
+      surfaces, may want different treatment on each. Options space (not
+      evaluated, listed to constrain scope): (a) manual-link affordance in
+      needs-review UI; (b) heuristic auto-link via tracking-number match
+      against recent orders' shipping-confirmation content; (c) carrier-
+      specific routing branch that surfaces carriers distinctly from real
+      retailer orphans; (d) digest-suppression only, no routing change
+      (fastest, most conservative); (e) accept as orphans, no fix. Owner's
+      stated goal context (2026-08-25): Friday digest with zero "Unknown
+      retailer" lines — option (d) alone meets that bar this week if
+      promoted; other options are more work but also solve the underlying
+      "carrier emails should be linkable" product question. **Pre-code
+      inputs already in place:** carrier row set is queryable via
+      `retailerSource = 'carrier_deferred'`; count today is 5 (from
+      Zara-fix Step 1b enumeration + backfill); no Order links exist on any
+      of them (all orderId: null). **NOT IN SCOPE for this entry:** any
+      change to the Zara fallback itself (shipped, separate); any change to
+      the "never trust From for authoritative body extraction" rule
+      (unchanged); OCR or img-alt-text extraction (separate deferred
+      candidates in the Zara Bugs entry). **Dependency: none blocking** —
+      Zara ship unblocks this by providing the tagged set.
 - [ ] **Needs-review bucket: order-kind rows have no Archive control — NEW
       2026-08-25, surfaced during Session-2 build follow-up questions
       (owner B1).** `app/NeedsReviewRow.tsx:85` gates the amendment-D
@@ -4199,6 +4180,10 @@
 
 ## ✅ Done
 
+- [x] Zara "unknown retailer" digest lines fixed — commerce-typed
+      emails now fall back to sender-derived retailer when body
+      extraction returns null, gated to exclude carrier senders.
+      Shipped and owner-verified in prod 2026-08-25.
 - [x] **Widened `lookupReturnPolicy` skip — any email linking to an order
       with an already-resolved return policy, not just `return_label` —
       SHIPPED & OWNER-VERIFIED 2026-08-24.** `lib/extract.ts` split into

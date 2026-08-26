@@ -7,6 +7,22 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-25 — API billing split into two Console workspaces
+
+Created new Console workspace `return-window-alpha` and minted a dedicated key for the
+app. Replaced `ANTHROPIC_API_KEY` in Vercel across prod, preview, and dev environments;
+redeploys triggered same-session. Claude Code usage stays in its own auto-managed
+"Claude Code" workspace — separate billing bucket, per-user key minted by Anthropic on
+CC sign-in, cannot be consolidated with the app's workspace (Anthropic-side constraint,
+not a config choice). Net effect from 2026-08-26 onward: cost views cleanly separate
+app spend from CC spend, which makes "billed calls per session" reporting in future
+session close-outs meaningfully more accurate. Future sessions reasoning about spend
+should look at BOTH workspaces to get total cost, not just the app workspace. Rollback:
+consolidating the two workspaces is not possible per Anthropic's CC architecture — this
+split is one-way.
+
+---
+
 ## 2026-08-10 — Amazon split across the two weekly emails
 
 Sunday returns digest (`weekly-digest`) EXCLUDES Amazon outright; Friday
