@@ -2626,6 +2626,34 @@
       exists so the false-confidence
       copy shown to the user is tracked as a real defect, not folded silently
       into the design task's optional scope.
+- [ ] **Carrier-tracking emails (FedEx/USPS/UPS/etc.) route as null-retailer
+      orphans in the needs-review bucket — NEW 2026-08-25, surfaced during
+      Zara fallback diagnostic (`ZARA_DIAGNOSTIC_FINDINGS_BACKFILL_RADIUS_
+      20260825.md`, commit `3bef1bc`). Not investigated further, logged
+      only.** Of the 8 commerce-typed null-retailer Email rows the
+      diagnostic enumerated, 5 are carrier tracking notifications —
+      `fromName` values like "FedEx Delivery Manager" and "USPS Tracking,"
+      `extractionNotes` explicitly say no retailer is identifiable from
+      body content. They currently route through the needs-review bucket
+      with `retailer: null` (correct — they don't have a retailer) and no
+      `orderNumber` (usually — carrier tracking numbers aren't order
+      numbers), which sends them through the degrade fallback branch in
+      `lib/needsReviewRows.ts`. **Real product question underneath, not
+      just a routing bug:** carrier emails are almost always linkable to a
+      real order — the user knows what they ordered, and the tracking
+      number can often be manually associated — but automatic linking has
+      no signal to work with (no order number, no retailer, sometimes
+      useful body info like a delivery date but just as often not). Today
+      they sit as orphans indefinitely. Deliberately excluded from the
+      Zara fallback fix (which gates on commerce-type emails specifically;
+      carrier tracking is a distinct routing case). Options space (not
+      evaluated): a manual-link affordance in the needs-review UI; a
+      heuristic that matches tracking numbers against recent orders'
+      shipping-confirmation content; a carrier-specific routing branch that
+      surfaces these differently from real retailer orphans; do nothing
+      (accept them as orphans). Not scoped, no fix direction yet — logged
+      so the pattern doesn't get forgotten between now and whenever it
+      becomes visible enough to prioritize.
 - [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
       2025-07-09, a year before stored 2026-07-09; found 2026-08-16 sizing
       the write-once `orderDate` backfill.** Wrong-year-extraction shape.
