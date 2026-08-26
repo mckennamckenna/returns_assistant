@@ -75,6 +75,21 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
     // anything still need checking. buildPrompt() (lib/extract.ts:207)
     // still never reads the From header for the body-extraction pass
     // itself — this only fires AFTER that pass has already returned null.
+    //
+    // Table 3 reconciliation (see commit 5fbc968's preview): the design's
+    // "Zara rows flip from degrade branch to retailer-populated branch"
+    // language did not play out for the 3 Zara rows live at build time,
+    // because those rows already carried orderNumber = "54421192781" and
+    // needsReviewRows.ts:78's routing predicate is (email.retailer ||
+    // email.orderNumber) — the OR was already satisfied via orderNumber,
+    // so the branch was already correct pre-fix. The write-to-field
+    // decision (over UI-only, see lib/retailerFallback.ts) is still
+    // correct on its own merits — the routing branch WILL matter for a
+    // future Zara-shaped row arriving without an extracted orderNumber,
+    // where UI-only would route incorrectly and this fix routes
+    // correctly. For those 3 rows specifically, this fix shipped as a
+    // display/labeling improvement; forward-looking routing correctness
+    // is preserved for rows this population didn't happen to exercise.
     let finalRetailer = result.retailer;
     let retailerSource: "body_extraction" | "sender_fallback" | "carrier_deferred" | null =
       result.retailer != null ? "body_extraction" : null;
