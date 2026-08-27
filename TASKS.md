@@ -32,52 +32,74 @@
 
 ## 🔴 Now
 
-- [ ] **[PROMOTED from 🐛 Bugs / Trust-breaking 2026-08-26, DIAGNOSED
-      2026-08-26, awaiting owner decision] Zara #54421192781 —
-      displayStatus='delivered' but card state machine reads deliveredAt,
-      which is null → card badge stuck on "Arrives."** Root cause is
-      NEITHER original hypothesis cleanly — it's a conflict between two
-      independently-deliberate, documented invariants in two different
-      files:
-      - `lib/displayStatus.ts` `deriveDisplayStatus` (2026-07-23, the
-        AquaTru fix) intentionally sets `displayStatus = "delivered"` when
-        ANY linked email has `emailType === "delivery"`, even with no
-        extractable date — specifically so a delivery email with no stated
-        date isn't stuck reading "Shipped" forever.
-      - `lib/orderCardState.ts` `computeOrderCardState` (card-geometry
-        build, comment "O7") deliberately does the opposite: the
-        awaiting_delivery/returnable rung ignores `displayStatus` entirely
-        and requires `deliveredAt !== null` — specifically to prevent two
-        facts about the same order disagreeing at runtime (the "Kept +
-        countdown" bug class).
-      Zara order cmt9hs6yw0001l604vj8v8395: its `delivery`-type email
-      (id cmt4ufiua0001jr04p564ts47, "Your order was delivered") extracted
-      `deliveryDate: null` — no date in the body — so `routeDeliveryDate`
-      correctly left `deliveredAt` null. `deriveDisplayStatus` then still
-      advanced `displayStatus` to `"delivered"` (by design). Card badge
-      falls to `computeOrderCardState`'s `deliveredAt`-only check → still
-      "awaiting_delivery" → shows `estimatedDeliveryDate` ("Arrives Aug
-      24") despite `displayStatus` already saying delivered. The Aug
-      23/Aug 24 one-day drift the owner saw was real but transient — a
-      same-day order-confirmation forward re-merged and both fields now
-      read Aug 24; not a caching bug, just two merges landing minutes
-      apart.
-      **Peer query (read-only, 0 billed calls): 20 other Orders share this
-      exact signature** (`deliveredAt IS NULL` + `estimatedDeliveryDate` in
-      the past) — this is a systemic gap, not a one-off. Diagnostic script:
-      `scripts/pm-diag-zara-arrives-stuck-20260826.ts` (kept, read-only).
-      **Scope call: NOT a narrow fix.** Reconciling the two invariants
-      needs a design decision (e.g., backfill `deliveredAt` from the
-      delivery email's `receivedAt` when no extracted date exists — but
-      that changes a documented, deliberate AquaTru-era design and touches
-      `lib/displayStatus.ts` + `lib/linkOrder.ts`'s `recomputeDisplayStatus`
-      call site) PLUS a bulk backfill UPDATE across the 20 existing
-      affected Order rows, which is a production data write needing
-      explicit owner sign-off per CLAUDE.md's data-write rule. Per session
-      shape instructions: stopping here, no code fix applied. Re-scope in
-      a follow-up session once the owner picks a direction. See full
-      original detail in 🐛 Bugs / Trust-breaking (kept, not removed, per
-      Done-log convention).
+- [ ] **[DESIGN PASS COMPLETE 2026-08-27, awaiting owner decision — build
+      not started] Delivered badge stuck on "Arrives" — `deliveredAt` never
+      backfilled for an auto-forwarded delivery email with no body date.**
+      Full design doc: `DELIVERED_BADGE_DESIGN_20260827.md`. Supersedes the
+      2026-08-26 framing below — root cause confirmed the same
+      (`deriveDisplayStatus` advances `displayStatus` to `"delivered"` on
+      any linked `delivery`-type email per the 2026-07-23 AquaTru fix;
+      `computeOrderCardState`'s O7 invariant only trusts `deliveredAt`,
+      which stays null when the email's body has no date), but the
+      **20-peer-orders "systemic" claim is retracted — corrected count is
+      3 visibly-bugged orders** (Nordstrom 1055864196, Chewy 5199902752,
+      Zara 54421192781 — all `displayStatus: "delivered"`, `deliveredAt:
+      null`), **2 latent-but-invisible** (Shopbop 142770152, Proenza
+      Schouler 86864 — `deliveredAt` also null, but `displayStatus:
+      "kept"` shows the "Kept" chip instead, so not actually bugged today),
+      and **15 unrelated** (no delivery-typed email linked at all — a
+      different situation, not this bug). Corrected via
+      `scripts/pm-diag-zara-delivered-redesign-20260827.ts` (read-only, 0
+      billed calls).
+      **New finding: the forward auto/manual classifier this bug's original
+      framing assumed was missing already shipped 2026-07-26**
+      (`lib/forwardResolver.ts`, `Email.forwardType`/`anchorDate`/
+      `anchorSource`, commit `13521ca`, per `ANCHOR_DATE_RESOLVER.md` Part
+      2) — 782/1230 Email rows already classified (the gap is exactly rows
+      that predate the deploy). Re-measuring its header-Date extraction
+      across all 95 delivery-typed emails: **0% success for auto-forwards
+      (0/84)**, 100% success for manual forwards (11/11 that had one) — so
+      "parse the forwarded header" is not a usable primary path for
+      auto-forwards at all, it always degrades to `receivedAt` (which the
+      resolver already computes and stores as `anchorSource:
+      "received_at"`). All 3 currently-bugged orders are auto-forwards
+      already sitting on this exact fallback value.
+      **Recommended fix (Option A in the design doc, not yet built):**
+      when `recomputeDisplayStatus` (`lib/linkOrder.ts`) advances
+      `displayStatus` to `"delivered"` via a `delivery`-type email with no
+      body date, and that email's `forwardType === "auto"`, backfill
+      `deliveredAt = anchorDate` (reuses the already-deployed resolver
+      output — no new parsing, no schema change). Manual/unclassified
+      forwards are explicitly NOT backfilled this way (0 current orders
+      need that branch — flagged as a future decision, not urgent).
+      Rejected: relaxing `computeOrderCardState` to trust `displayStatus`
+      directly — reopens exactly the "two facts about the same order
+      disagreeing" bug class the O7 invariant was built to close, and
+      doesn't fix the return-deadline countdown's separate dependency on
+      `deliveredAt`.
+      **Also flagged, separate from this fix:** owner reported the Aug
+      23/Aug 24 dashboard-vs-detail drift as still visible; the DB now
+      shows both fields at the same value (Aug 24), so if still visible
+      live it's a stale render (cache), not a data bug — needs a
+      screen-share/hard-refresh check, not another script. See design
+      doc §1 and §7.
+      **Not built this session (design + read-only diagnostic only, per
+      session scope).** Next session: owner picks Option A vs. holding,
+      then build + the 3-row backfill (SQL shown for sign-off first, per
+      CLAUDE.md's data-write rule).
+      ~~Original 2026-08-26 framing, superseded above, kept for the paper
+      trail:~~ displayStatus='delivered' but card state machine reads
+      deliveredAt, which is null → card badge stuck on "Arrives." Root
+      cause: `lib/displayStatus.ts` `deriveDisplayStatus` (2026-07-23, the
+      AquaTru fix) sets `displayStatus = "delivered"` on any linked
+      `delivery`-type email even with no extractable date;
+      `lib/orderCardState.ts` `computeOrderCardState`'s O7 invariant
+      ignores `displayStatus` and requires `deliveredAt !== null`. Zara
+      order cmt9hs6yw0001l604vj8v8395's delivery email (id
+      cmt4ufiua0001jr04p564ts47) extracted `deliveryDate: null`.
+      Diagnostic script: `scripts/pm-diag-zara-arrives-stuck-20260826.ts`
+      (kept, read-only). See full original detail in 🐛 Bugs /
+      Trust-breaking (kept, not removed, per Done-log convention).
 
 - [x] **Verify item 315 (card-geometry + order state machine) deploy state —
       NEW 2026-08-26, READ-ONLY diagnostic, 0 billed Anthropic calls.**
