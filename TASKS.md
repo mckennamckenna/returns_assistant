@@ -32,9 +32,33 @@
 
 ## 🔴 Now
 
-- [ ] **[DESIGN PASS COMPLETE 2026-08-27, awaiting owner decision — build
-      not started] Delivered badge stuck on "Arrives" — `deliveredAt` never
-      backfilled for an auto-forwarded delivery email with no body date.**
+- [ ] **[OPTION A APPROVED 2026-08-27, build not started] Delivered badge
+      stuck on "Arrives" — `deliveredAt` never backfilled for an
+      auto-forwarded delivery email with no body date.**
+      **Owner sign-off 2026-08-27:** Option A approved, unconditionally.
+      Approval was pending one clarifying question — why forward-header
+      parse success is 0/84 for auto-forwards vs. 11/11 for manual-forwards
+      (asked because the answer determines whether that split is
+      structural/stable or accidental/fragile). Answered this session,
+      read-only, 0 billed calls
+      (`scripts/pm-diag-forward-mechanism-and-drift-20260827.ts`):
+      **structural, not accidental.** Sampled raw bodies + raw Postmark
+      headers for both groups. Auto-forwards (Gmail's server-side
+      "Forwarding" filter) have neither a `"---------- Forwarded
+      message ---------"` body block NOR a `Date` entry in the raw Postmark
+      Headers array at all — confirmed 5/5 sampled, consistent with 0/84
+      dataset-wide — because Gmail's forwarding-filter mechanism redirects
+      the original message rather than composing a new one, so there is no
+      quoted-header block for a Date line to live in. Manual forwards
+      (Gmail's client-side "Forward" button) always compose a new message
+      with that exact block and a parseable `Date:` line — confirmed in
+      the sampled example (Zappos, `Date: Mon, Jul 27, 2026 at 6:54 PM`),
+      consistent with 11/11 dataset-wide. This reflects two genuinely
+      different Gmail mechanisms, not noise — will hold for all future
+      Gmail auto-forwards/manual-forwards. **Not conditional.** What
+      *would* change the picture: a non-Gmail client's auto-forward or
+      manual-forward mechanism working differently — tracked as its own
+      🟡 Watch entry below, not a caveat on this approval.
       Full design doc: `DELIVERED_BADGE_DESIGN_20260827.md`. Supersedes the
       2026-08-26 framing below — root cause confirmed the same
       (`deriveDisplayStatus` advances `displayStatus` to `"delivered"` on
@@ -77,12 +101,12 @@
       disagreeing" bug class the O7 invariant was built to close, and
       doesn't fix the return-deadline countdown's separate dependency on
       `deliveredAt`.
-      **Also flagged, separate from this fix:** owner reported the Aug
-      23/Aug 24 dashboard-vs-detail drift as still visible; the DB now
-      shows both fields at the same value (Aug 24), so if still visible
-      live it's a stale render (cache), not a data bug — needs a
-      screen-share/hard-refresh check, not another script. See design
-      doc §1 and §7.
+      **CORRECTION 2026-08-27: the "stale render" call above was wrong.**
+      Owner verified in Safari AND Chrome, cache-refreshed — dashboard
+      still reads Aug 23, detail still reads Aug 24. Not caching. Root
+      cause diagnosed this session, own 🔴 Now entry below ("Dashboard/
+      detail date drift on #54421192781") — independent of this
+      deliveredAt fix, can be built in parallel.
       **Not built this session (design + read-only diagnostic only, per
       session scope).** Next session: owner picks Option A vs. holding,
       then build + the 3-row backfill (SQL shown for sign-off first, per
@@ -100,6 +124,56 @@
       Diagnostic script: `scripts/pm-diag-zara-arrives-stuck-20260826.ts`
       (kept, read-only). See full original detail in 🐛 Bugs /
       Trust-breaking (kept, not removed, per Done-log convention).
+
+- [ ] **Dashboard/detail date drift on #54421192781 — live, reproduced in
+      Safari + Chrome, not a stale render. NEW 2026-08-27, DIAGNOSED
+      2026-08-27, read-only, 0 billed calls
+      (`scripts/pm-diag-forward-mechanism-and-drift-20260827.ts`).**
+      **This is the same known, already-logged, already-deferred bug as
+      the two existing 🐛 Bugs entries "`orderCardState.test.ts`
+      timezone-dependent assertion..." (Annoying, NEW 2026-08-25) and
+      "[Low] Timezone off-by-one in `orderCardChip`'s Arrives-date label"
+      (Cosmetic, NEW 2026-08-21) — not a new mechanism, a concrete
+      real-order manifestation of that one.** Re-queried the DB live (not
+      cached, not last session's snapshot): `order.estimatedDeliveryDate`
+      and `order.deliveryDate` are BOTH `2026-08-24T00:00:00.000Z` —
+      identical, UTC-midnight. The DB does not disagree with itself. Both
+      surfaces read fields that resolve to this same instant; the drift is
+      a render-time transform, not a data bug:
+      - **Dashboard card** (`app/OrderCard.tsx`, `"use client"` — runs in
+        the user's browser) → `computeOrderCardState`/`orderCardChip`
+        (`lib/orderCardState.ts:93`) → `estimatedDeliveryDate.toLocaleDateString(undefined,
+        ...)` with no explicit timezone → renders in the **browser's
+        local timezone** (Pacific, UTC-7 in August) → `2026-08-24T00:00Z`
+        = `2026-08-23T17:00 PDT` → **"Arrives Aug 23."**
+      - **Detail page** (`app/(app)/orders/[id]/page.tsx` — a Server
+        Component, no `"use client"`) → its own `formatDate()` helper on
+        `deliveredAt ?? estimatedDeliveryDate ?? deliveryDate` → same
+        `toLocaleDateString(undefined, ...)` pattern, but this one runs in
+        **Vercel's server process (UTC)** → `2026-08-24T00:00Z` stays
+        Aug 24 in UTC → **"Delivery Date Aug 24."**
+      Same field, same value, two different execution timezones (client
+      browser vs. server process) for the same unqualified
+      `toLocaleDateString` call. This is exactly the mechanism the two
+      existing timezone entries already diagnosed in the abstract
+      (`__tests__/orderCardState.test.ts`'s `Aug 15` seed rendering as
+      `Aug 14` on Pacific machines) — this session confirms it live,
+      end-to-end, on a real production order, with two real users-visible
+      surfaces disagreeing as a direct result.
+      **Fix scope (not applied, flagged for the build session):** same
+      owner (a)/(b) decision already blocking the existing entries —
+      render in the date's own calendar day (UTC) always, or render in
+      the user's local timezone consistently everywhere. Once decided,
+      the fix is mechanical and narrow: every `toLocaleDateString`-adjacent
+      call in the delivery-date render path
+      (`lib/orderCardState.ts:93`, `app/OrderCard.tsx`'s and
+      `app/(app)/orders/[id]/page.tsx`'s local `formatDate` helpers) needs
+      the same explicit timezone handling, applied consistently across
+      both the client and server render paths — a partial fix (e.g. only
+      the card) would just move the disagreement rather than close it.
+      **Independent of the deliveredAt backfill (Option A) above — can be
+      built in parallel, does not block or get blocked by it.** Not fixed
+      this session (diagnosis only, per session scope).
 
 - [x] **Verify item 315 (card-geometry + order state machine) deploy state —
       NEW 2026-08-26, READ-ONLY diagnostic, 0 billed Anthropic calls.**
@@ -4120,6 +4194,36 @@
       taken a per-session Amazon patch its whole life). No action;
       re-flag as a real bug if Amazon orders visibly stop extracting
       or start extracting wrong.
+- [ ] **Non-Gmail forward-header parseability — NEW 2026-08-27, from the
+      delivered-badge Option A sign-off session.** Current
+      `lib/forwardResolver.ts` logic is validated on a Gmail-dominant
+      corpus: auto-forward (Gmail's server-side "Forwarding" filter)
+      structurally degrades to `receivedAt` (0/84 header-Date successes,
+      confirmed structural not accidental — no forwarded-message block and
+      no separate Date header exist in these messages at all), and manual
+      forward (Gmail's client "Forward" button) parses cleanly (11/11).
+      Outlook, Apple Mail, and Yahoo compose forwarded blocks differently
+      (`parseForwardedHeaderDate` in `lib/linkOrder.ts` only handles
+      Gmail's quoted `Date:` format at launch, per the 2026-07-25 design
+      decision) — a non-Gmail user's manual forwards may land in the
+      currently-empty "manual forward + unparseable header" bucket,
+      activating Fallback B (`DELIVERED_BADGE_DESIGN_20260827.md`'s
+      Fallback B section — B1 "show Delivered with no date" vs. B2
+      "prompt user to confirm" — currently unresolved, no urgency since 0
+      real orders need it today). **Revisit trigger: first non-Gmail alpha
+      user onboarded, OR first observed Email row with `forwardType:
+      "manual"` and `anchorSource` not a parsed-header value
+      (`"unresolved"` or `"received_at"` on a manual row).** Promote to
+      🔴 Now at that point — decide B1 vs. B2 and extend
+      `parseForwardedHeaderDate` for that client's format.
+- [ ] **Alpha user recruitment — prioritize at least one Outlook and one
+      Apple Mail user. NEW 2026-08-27, nice-to-have, not a blocker.**
+      Stress-tests forward-header extraction (see the non-Gmail
+      parseability watch item above) against real non-Gmail formats
+      before the current Gmail-only assumption becomes a data-migration
+      problem across a larger user base. Owner's call whether this lives
+      here or in a separate recruiting doc — logged here for now since no
+      such doc exists yet.
 ## ⚪ Someday
 - [ ] **Retailer logos — MOVED here 2026-07-26 (was 🟡 Next), per the
       2026-07-13 investigation (`LOGO_COVERAGE.md`, untracked — not yet
