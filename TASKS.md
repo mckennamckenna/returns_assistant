@@ -32,6 +32,53 @@
 
 ## 🔴 Now
 
+- [ ] **[PROMOTED from 🐛 Bugs / Trust-breaking 2026-08-26, DIAGNOSED
+      2026-08-26, awaiting owner decision] Zara #54421192781 —
+      displayStatus='delivered' but card state machine reads deliveredAt,
+      which is null → card badge stuck on "Arrives."** Root cause is
+      NEITHER original hypothesis cleanly — it's a conflict between two
+      independently-deliberate, documented invariants in two different
+      files:
+      - `lib/displayStatus.ts` `deriveDisplayStatus` (2026-07-23, the
+        AquaTru fix) intentionally sets `displayStatus = "delivered"` when
+        ANY linked email has `emailType === "delivery"`, even with no
+        extractable date — specifically so a delivery email with no stated
+        date isn't stuck reading "Shipped" forever.
+      - `lib/orderCardState.ts` `computeOrderCardState` (card-geometry
+        build, comment "O7") deliberately does the opposite: the
+        awaiting_delivery/returnable rung ignores `displayStatus` entirely
+        and requires `deliveredAt !== null` — specifically to prevent two
+        facts about the same order disagreeing at runtime (the "Kept +
+        countdown" bug class).
+      Zara order cmt9hs6yw0001l604vj8v8395: its `delivery`-type email
+      (id cmt4ufiua0001jr04p564ts47, "Your order was delivered") extracted
+      `deliveryDate: null` — no date in the body — so `routeDeliveryDate`
+      correctly left `deliveredAt` null. `deriveDisplayStatus` then still
+      advanced `displayStatus` to `"delivered"` (by design). Card badge
+      falls to `computeOrderCardState`'s `deliveredAt`-only check → still
+      "awaiting_delivery" → shows `estimatedDeliveryDate` ("Arrives Aug
+      24") despite `displayStatus` already saying delivered. The Aug
+      23/Aug 24 one-day drift the owner saw was real but transient — a
+      same-day order-confirmation forward re-merged and both fields now
+      read Aug 24; not a caching bug, just two merges landing minutes
+      apart.
+      **Peer query (read-only, 0 billed calls): 20 other Orders share this
+      exact signature** (`deliveredAt IS NULL` + `estimatedDeliveryDate` in
+      the past) — this is a systemic gap, not a one-off. Diagnostic script:
+      `scripts/pm-diag-zara-arrives-stuck-20260826.ts` (kept, read-only).
+      **Scope call: NOT a narrow fix.** Reconciling the two invariants
+      needs a design decision (e.g., backfill `deliveredAt` from the
+      delivery email's `receivedAt` when no extracted date exists — but
+      that changes a documented, deliberate AquaTru-era design and touches
+      `lib/displayStatus.ts` + `lib/linkOrder.ts`'s `recomputeDisplayStatus`
+      call site) PLUS a bulk backfill UPDATE across the 20 existing
+      affected Order rows, which is a production data write needing
+      explicit owner sign-off per CLAUDE.md's data-write rule. Per session
+      shape instructions: stopping here, no code fix applied. Re-scope in
+      a follow-up session once the owner picks a direction. See full
+      original detail in 🐛 Bugs / Trust-breaking (kept, not removed, per
+      Done-log convention).
+
 - [x] **Verify item 315 (card-geometry + order state machine) deploy state —
       NEW 2026-08-26, READ-ONLY diagnostic, 0 billed Anthropic calls.**
       Board said "Not yet deployed"; owner says it's live. Resolved via
