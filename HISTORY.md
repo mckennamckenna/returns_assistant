@@ -5,6 +5,94 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-27 — Delivered badge stuck on "Arrives": diagnosed, designed, shipped, backfilled
+
+Owner-reported: Zara #54421192781's card badge read "Arrives Aug 23" days
+after real delivery, with a delivery email already received. Four-session
+arc, each gated on the prior session's findings:
+
+**Diagnosis (commit `42348b0`):** root cause was a conflict between two
+independently-deliberate invariants. `lib/displayStatus.ts`'s
+`deriveDisplayStatus` (the 2026-07-23 AquaTru fix) advances `displayStatus`
+to `"delivered"` off any linked `delivery`-type email alone, even with no
+extractable date. `lib/orderCardState.ts`'s `computeOrderCardState` (its
+"O7" invariant, from the card-geometry build) deliberately ignores
+`displayStatus` for the awaiting_delivery/returnable split and only trusts
+`deliveredAt` — which stayed null forever on exactly this shape of order.
+
+**Design pass (commit `e117e93`, then `cb51065`):** `DELIVERED_BADGE_DESIGN_
+20260827.md` corrected an initial "20 systemic peer orders" overclaim (real
+count depended on the exact query filter) and discovered the forward
+auto/manual classifier this bug's framing assumed was missing had actually
+already shipped 2026-07-26 (`lib/forwardResolver.ts`, `Email.forwardType`/
+`anchorDate`/`anchorSource`, commit `13521ca`). Measured its header-Date
+extraction success rate across all 95 delivery-typed emails in the DB: 0%
+for auto-forwards (0/84), 100% for manual forwards (11/11) — confirmed
+structural (Gmail's server-side "Forwarding" filter redirects the original
+message with no forwarded-block or separate Date header at all; Gmail's
+client "Forward" button always composes one), not accidental, via raw body
++ header inspection. Approved "Option A": backfill `deliveredAt` from the
+already-computed `anchorDate` for auto-forwarded delivery emails with no
+body date. Rejected relaxing `computeOrderCardState` to trust
+`displayStatus` directly (reopens the exact disagreeing-derivations bug
+class O7 was built to close). Separately diagnosed the Aug 23/24
+dashboard-vs-detail drift the owner kept seeing after the DB values
+converged: not caching, but the same already-logged `toLocaleDateString`
+timezone bug (client browser render vs. server UTC render on a UTC-midnight
+date) — linked to the pre-existing entries rather than treated as new,
+left for its own session.
+
+**Build (commit `6a4ab76`):** `lib/linkOrder.ts` — new pure
+`resolveDeliveredAtBackfill()`, unit tested (8 cases), wired into
+`recomputeDisplayStatus` so it writes `deliveredAt` in the same
+`prisma.order.update()` call as the `displayStatus` transition, or on its
+own when `displayStatus` was already `"delivered"` from an earlier pass.
+Never overwrites an existing `deliveredAt`; never fires for manual or
+unclassified forwards (0 current orders needed that branch). 4 integration
+tests against the existing mocked-Prisma pattern
+(`__tests__/linkOrder.test.ts`). Re-verifying the backfill scope live at
+build time (rather than trusting the design doc's week-old count) found
+**10 orders, not 3** — the design doc's peer query had incidentally
+excluded orders with a null `estimatedDeliveryDate`, which have the
+identical bug but don't show the "Arrives <date>" text (the chip falls
+back to the plain "Delivered" label when there's no date to show, so they
+looked accidentally fine). Backfill SQL drafted as a separate,
+not-auto-run file for owner review:
+`scripts/option-a-deliveredat-backfill-20260827.sql`.
+
+**Backfill executed 2026-08-27, owner-directed, two-step:** STEP 1 (SELECT)
+run and reviewed live — 10 rows, Nordstrom/Chewy/Zara among them, every
+`will_backfill_to` value sanity-checked against `orderDate` and the current
+date (none before order date, none in the future). Owner asked a
+clarifying question about why SKIMS' `estimatedDeliveryDate` was null
+despite a visible "delivered" email — confirmed by reading the decrypted
+body that the email genuinely states no date at all (just "DELIVERED"),
+not an extraction bug. Owner also asked for a full audit of every
+`Order.estimatedDeliveryDate` write path before authorizing the run —
+confirmed all three write sites (`createOrderFromEmail`,
+`mergeEmailIntoOrder`, `rebuildOrderFromRemainingEmails`, all in
+`lib/linkOrder.ts`) trace back to a single upstream source
+(`lib/runExtraction.ts`'s AI extraction result) and that the one
+computed-estimate heuristic in the codebase (`STANDARD_SHIPPING_DAYS` in
+`lib/extract.ts`'s `computeDeadline`) never touches this field — it only
+affects `returnDeadline`. STEP 2 (UPDATE) then run: **10/10 rows updated.**
+Re-ran STEP 1's SELECT immediately after: **0 rows returned — idempotent,
+confirmed.** Nordstrom, Chewy, and Zara #54421192781 individually
+re-queried post-backfill: all three now carry the expected `deliveredAt`
+values.
+
+Not touched, per explicit scope lock across all four sessions:
+`lib/orderCardState.ts`, both `formatDate` helpers (the separate,
+still-open timezone bug), `lib/displayStatus.ts`, `lib/forwardResolver.ts`.
+Fallback B (manual-forward, unparseable header) also untouched — 0 orders
+needed it.
+
+Anthropic calls across the entire arc: 0. Every session was DB reads, code
+reads/writes, local test/build runs, and one owner-directed raw-SQL
+execution.
+
+---
+
 ## 2026-08-26 — Carrier-row digest suppression: scoped, diagnosed, held
 
 Session opened to execute the "crawl" step from the carrier-row disposition

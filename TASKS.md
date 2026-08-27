@@ -32,153 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **[CODE BUILT + TESTED 2026-08-27, DEPLOYED — backfill SQL pending
-      owner review/execution] Delivered badge stuck on "Arrives" —
-      `deliveredAt` never backfilled for an auto-forwarded delivery email
-      with no body date.**
-      **Build session 2026-08-27 close-out:** `lib/linkOrder.ts` — new
-      pure `resolveDeliveredAtBackfill()` (fully unit tested, 8 cases:
-      backfills / doesn't overwrite / doesn't fire for manual or
-      unclassified forwards / doesn't fire when a body date already
-      exists / doesn't invent a date when anchorDate is null / ignores
-      non-delivery email types / picks the earliest anchorDate when more
-      than one qualifies) wired into `recomputeDisplayStatus`, which now
-      writes `deliveredAt` in the same `prisma.order.update()` call as the
-      `displayStatus` transition when applicable, or on its own when
-      `displayStatus` was already `"delivered"` from an earlier pass. 4
-      integration-style tests against a mocked Prisma client, matching
-      this file's existing pattern (`__tests__/linkOrder.test.ts`). 662/663
-      tests passing — the one failure is the pre-existing, already-logged
-      timezone flake below, out of scope for this session, confirmed not a
-      regression (fails identically on `main` before this change).
-      `npm run build` clean. **Committed and pushed; deploy is automatic
-      on push to `main` per this repo's Vercel integration — code-only
-      change, so nothing to hand-verify beyond the deploy succeeding
-      (the actual user-facing fix doesn't take effect until the backfill
-      below runs).**
-      **SCOPE CORRECTION, re-verified live at build time (not the design
-      doc's week-old snapshot):** re-running the peer query found **10
-      orders match the backfill criteria today, not 3.** The design doc's
-      count came from a peer query that additionally filtered on
-      `estimatedDeliveryDate` being non-null and in the past — which
-      excluded 7 real orders whose `estimatedDeliveryDate` happens to be
-      null. Those 7 have the identical underlying bug (`deliveredAt` null,
-      `displayStatus: "delivered"`) but don't show the "Arrives &lt;date&gt;"
-      text specifically, because `orderCardChip`'s `awaiting_delivery`
-      branch falls back to the plain `"Delivered"` displayStatus label
-      when there's no date to show — so they look accidentally fine today
-      while still being wrong underneath (e.g. any return-deadline math
-      anchored on `deliveredAt` for these orders is still broken). Full
-      10-order list, spanning 4 different `userId`s (this is a multi-user
-      alpha-wide pattern, not isolated to the owner's own account):
-      Amazon 111-7785811-0169069, Amazon 114-8016931-7613859, Amazon
-      113-5215249-6165864, Shopbop 143793576, Nordstrom 1055864196, SKIMS
-      SB33893948, Mercari b42534995657, Charmspring 5015, Chewy
-      5199902752, Zara 54421192781. Re-verify script (read-only, kept):
-      `scripts/pm-diag-option-a-scope-verify-20260827.ts`.
-      **Backfill SQL drafted, NOT executed:**
-      `scripts/option-a-deliveredat-backfill-20260827.sql` — SELECT first
-      (eyeball the 10 rows), then an idempotent `UPDATE` scoped to the
-      exact same criteria the code now implements, with a commented-out
-      rollback. Per CLAUDE.md's data-write rule: **owner must review this
-      SQL and run it manually against production** before the fix is
-      user-visible for any of the 10 orders — the code change alone only
-      affects emails processed from now on, it does not touch existing
-      rows.
-      **Not this session, per lock:** `lib/orderCardState.ts`, either
-      `formatDate` helper, `lib/displayStatus.ts`, `lib/forwardResolver.ts`
-      — all untouched, confirmed via diff before commit. Fallback B
-      (manual-forward, unparseable header) also untouched — 0 orders need
-      it today (10/10 in-scope orders are auto-forwards).
-      **Owner sign-off 2026-08-27:** Option A approved, unconditionally.
-      Approval was pending one clarifying question — why forward-header
-      parse success is 0/84 for auto-forwards vs. 11/11 for manual-forwards
-      (asked because the answer determines whether that split is
-      structural/stable or accidental/fragile). Answered this session,
-      read-only, 0 billed calls
-      (`scripts/pm-diag-forward-mechanism-and-drift-20260827.ts`):
-      **structural, not accidental.** Sampled raw bodies + raw Postmark
-      headers for both groups. Auto-forwards (Gmail's server-side
-      "Forwarding" filter) have neither a `"---------- Forwarded
-      message ---------"` body block NOR a `Date` entry in the raw Postmark
-      Headers array at all — confirmed 5/5 sampled, consistent with 0/84
-      dataset-wide — because Gmail's forwarding-filter mechanism redirects
-      the original message rather than composing a new one, so there is no
-      quoted-header block for a Date line to live in. Manual forwards
-      (Gmail's client-side "Forward" button) always compose a new message
-      with that exact block and a parseable `Date:` line — confirmed in
-      the sampled example (Zappos, `Date: Mon, Jul 27, 2026 at 6:54 PM`),
-      consistent with 11/11 dataset-wide. This reflects two genuinely
-      different Gmail mechanisms, not noise — will hold for all future
-      Gmail auto-forwards/manual-forwards. **Not conditional.** What
-      *would* change the picture: a non-Gmail client's auto-forward or
-      manual-forward mechanism working differently — tracked as its own
-      🟡 Watch entry below, not a caveat on this approval.
-      Full design doc: `DELIVERED_BADGE_DESIGN_20260827.md`. Supersedes the
-      2026-08-26 framing below — root cause confirmed the same
-      (`deriveDisplayStatus` advances `displayStatus` to `"delivered"` on
-      any linked `delivery`-type email per the 2026-07-23 AquaTru fix;
-      `computeOrderCardState`'s O7 invariant only trusts `deliveredAt`,
-      which stays null when the email's body has no date), but the
-      **20-peer-orders "systemic" claim is retracted — corrected count is
-      3 visibly-bugged orders** (Nordstrom 1055864196, Chewy 5199902752,
-      Zara 54421192781 — all `displayStatus: "delivered"`, `deliveredAt:
-      null`), **2 latent-but-invisible** (Shopbop 142770152, Proenza
-      Schouler 86864 — `deliveredAt` also null, but `displayStatus:
-      "kept"` shows the "Kept" chip instead, so not actually bugged today),
-      and **15 unrelated** (no delivery-typed email linked at all — a
-      different situation, not this bug). Corrected via
-      `scripts/pm-diag-zara-delivered-redesign-20260827.ts` (read-only, 0
-      billed calls).
-      **New finding: the forward auto/manual classifier this bug's original
-      framing assumed was missing already shipped 2026-07-26**
-      (`lib/forwardResolver.ts`, `Email.forwardType`/`anchorDate`/
-      `anchorSource`, commit `13521ca`, per `ANCHOR_DATE_RESOLVER.md` Part
-      2) — 782/1230 Email rows already classified (the gap is exactly rows
-      that predate the deploy). Re-measuring its header-Date extraction
-      across all 95 delivery-typed emails: **0% success for auto-forwards
-      (0/84)**, 100% success for manual forwards (11/11 that had one) — so
-      "parse the forwarded header" is not a usable primary path for
-      auto-forwards at all, it always degrades to `receivedAt` (which the
-      resolver already computes and stores as `anchorSource:
-      "received_at"`). All 3 currently-bugged orders are auto-forwards
-      already sitting on this exact fallback value.
-      **Recommended fix (Option A in the design doc, not yet built):**
-      when `recomputeDisplayStatus` (`lib/linkOrder.ts`) advances
-      `displayStatus` to `"delivered"` via a `delivery`-type email with no
-      body date, and that email's `forwardType === "auto"`, backfill
-      `deliveredAt = anchorDate` (reuses the already-deployed resolver
-      output — no new parsing, no schema change). Manual/unclassified
-      forwards are explicitly NOT backfilled this way (0 current orders
-      need that branch — flagged as a future decision, not urgent).
-      Rejected: relaxing `computeOrderCardState` to trust `displayStatus`
-      directly — reopens exactly the "two facts about the same order
-      disagreeing" bug class the O7 invariant was built to close, and
-      doesn't fix the return-deadline countdown's separate dependency on
-      `deliveredAt`.
-      **CORRECTION 2026-08-27: the "stale render" call above was wrong.**
-      Owner verified in Safari AND Chrome, cache-refreshed — dashboard
-      still reads Aug 23, detail still reads Aug 24. Not caching. Root
-      cause diagnosed this session, own 🔴 Now entry below ("Dashboard/
-      detail date drift on #54421192781") — independent of this
-      deliveredAt fix, can be built in parallel.
-      **Built 2026-08-27 (see build-session summary at the top of this
-      entry) — superseded, this paragraph describes the prior session's
-      stopping point, not current state.**
-      ~~Original 2026-08-26 framing, superseded above, kept for the paper
-      trail:~~ displayStatus='delivered' but card state machine reads
-      deliveredAt, which is null → card badge stuck on "Arrives." Root
-      cause: `lib/displayStatus.ts` `deriveDisplayStatus` (2026-07-23, the
-      AquaTru fix) sets `displayStatus = "delivered"` on any linked
-      `delivery`-type email even with no extractable date;
-      `lib/orderCardState.ts` `computeOrderCardState`'s O7 invariant
-      ignores `displayStatus` and requires `deliveredAt !== null`. Zara
-      order cmt9hs6yw0001l604vj8v8395's delivery email (id
-      cmt4ufiua0001jr04p564ts47) extracted `deliveryDate: null`.
-      Diagnostic script: `scripts/pm-diag-zara-arrives-stuck-20260826.ts`
-      (kept, read-only). See full original detail in 🐛 Bugs /
-      Trust-breaking (kept, not removed, per Done-log convention).
-
 - [ ] **Dashboard/detail date drift on #54421192781 — live, reproduced in
       Safari + Chrome, not a stale render. NEW 2026-08-27, DIAGNOSED
       2026-08-27, read-only, 0 billed calls
@@ -2238,6 +2091,10 @@
       for a temporary skip/mock while the underlying fix is
       scoped.
 
+- [x] **CLOSED 2026-08-27 — see ✅ Done ("Delivered badge stuck on
+      'Arrives'") and `HISTORY.md` 2026-08-27 for the full arc. Original
+      report preserved below, not edited, per this board's own
+      Done-log convention.**
 - [ ] **Zara #54421192781 — displayStatus stuck at "Arrives" past
       delivery date, delivery email received. NEW 2026-08-26,
       owner-reported via dashboard + detail-page screenshots
@@ -4385,6 +4242,16 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Delivered badge stuck on "Arrives" (Zara #54421192781 + 9 other
+      orders) — CLOSED 2026-08-27, owner-verified.** `deliveredAt` now
+      backfills from the forward resolver's `anchorDate` for auto-forwarded
+      delivery emails with no body date. Code shipped and deployed
+      (`lib/linkOrder.ts`), 10-row production backfill run and confirmed
+      idempotent. Full diagnosis, design, build, and backfill detail:
+      `HISTORY.md` 2026-08-27. The separate dashboard/detail timezone-drift
+      bug on the same order stays open, tracked on its own 🔴 Now entry —
+      not part of this fix and not closed by it.
 
 - [x] **Unified card geometry + order state machine (2x2 four-slot) —
       CONFIRMED DEPLOYED 2026-08-26.** Verified via git ancestry
