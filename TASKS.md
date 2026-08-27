@@ -32,9 +32,64 @@
 
 ## 🔴 Now
 
-- [ ] **[OPTION A APPROVED 2026-08-27, build not started] Delivered badge
-      stuck on "Arrives" — `deliveredAt` never backfilled for an
-      auto-forwarded delivery email with no body date.**
+- [ ] **[CODE BUILT + TESTED 2026-08-27, DEPLOYED — backfill SQL pending
+      owner review/execution] Delivered badge stuck on "Arrives" —
+      `deliveredAt` never backfilled for an auto-forwarded delivery email
+      with no body date.**
+      **Build session 2026-08-27 close-out:** `lib/linkOrder.ts` — new
+      pure `resolveDeliveredAtBackfill()` (fully unit tested, 8 cases:
+      backfills / doesn't overwrite / doesn't fire for manual or
+      unclassified forwards / doesn't fire when a body date already
+      exists / doesn't invent a date when anchorDate is null / ignores
+      non-delivery email types / picks the earliest anchorDate when more
+      than one qualifies) wired into `recomputeDisplayStatus`, which now
+      writes `deliveredAt` in the same `prisma.order.update()` call as the
+      `displayStatus` transition when applicable, or on its own when
+      `displayStatus` was already `"delivered"` from an earlier pass. 4
+      integration-style tests against a mocked Prisma client, matching
+      this file's existing pattern (`__tests__/linkOrder.test.ts`). 662/663
+      tests passing — the one failure is the pre-existing, already-logged
+      timezone flake below, out of scope for this session, confirmed not a
+      regression (fails identically on `main` before this change).
+      `npm run build` clean. **Committed and pushed; deploy is automatic
+      on push to `main` per this repo's Vercel integration — code-only
+      change, so nothing to hand-verify beyond the deploy succeeding
+      (the actual user-facing fix doesn't take effect until the backfill
+      below runs).**
+      **SCOPE CORRECTION, re-verified live at build time (not the design
+      doc's week-old snapshot):** re-running the peer query found **10
+      orders match the backfill criteria today, not 3.** The design doc's
+      count came from a peer query that additionally filtered on
+      `estimatedDeliveryDate` being non-null and in the past — which
+      excluded 7 real orders whose `estimatedDeliveryDate` happens to be
+      null. Those 7 have the identical underlying bug (`deliveredAt` null,
+      `displayStatus: "delivered"`) but don't show the "Arrives &lt;date&gt;"
+      text specifically, because `orderCardChip`'s `awaiting_delivery`
+      branch falls back to the plain `"Delivered"` displayStatus label
+      when there's no date to show — so they look accidentally fine today
+      while still being wrong underneath (e.g. any return-deadline math
+      anchored on `deliveredAt` for these orders is still broken). Full
+      10-order list, spanning 4 different `userId`s (this is a multi-user
+      alpha-wide pattern, not isolated to the owner's own account):
+      Amazon 111-7785811-0169069, Amazon 114-8016931-7613859, Amazon
+      113-5215249-6165864, Shopbop 143793576, Nordstrom 1055864196, SKIMS
+      SB33893948, Mercari b42534995657, Charmspring 5015, Chewy
+      5199902752, Zara 54421192781. Re-verify script (read-only, kept):
+      `scripts/pm-diag-option-a-scope-verify-20260827.ts`.
+      **Backfill SQL drafted, NOT executed:**
+      `scripts/option-a-deliveredat-backfill-20260827.sql` — SELECT first
+      (eyeball the 10 rows), then an idempotent `UPDATE` scoped to the
+      exact same criteria the code now implements, with a commented-out
+      rollback. Per CLAUDE.md's data-write rule: **owner must review this
+      SQL and run it manually against production** before the fix is
+      user-visible for any of the 10 orders — the code change alone only
+      affects emails processed from now on, it does not touch existing
+      rows.
+      **Not this session, per lock:** `lib/orderCardState.ts`, either
+      `formatDate` helper, `lib/displayStatus.ts`, `lib/forwardResolver.ts`
+      — all untouched, confirmed via diff before commit. Fallback B
+      (manual-forward, unparseable header) also untouched — 0 orders need
+      it today (10/10 in-scope orders are auto-forwards).
       **Owner sign-off 2026-08-27:** Option A approved, unconditionally.
       Approval was pending one clarifying question — why forward-header
       parse success is 0/84 for auto-forwards vs. 11/11 for manual-forwards
@@ -107,10 +162,9 @@
       cause diagnosed this session, own 🔴 Now entry below ("Dashboard/
       detail date drift on #54421192781") — independent of this
       deliveredAt fix, can be built in parallel.
-      **Not built this session (design + read-only diagnostic only, per
-      session scope).** Next session: owner picks Option A vs. holding,
-      then build + the 3-row backfill (SQL shown for sign-off first, per
-      CLAUDE.md's data-write rule).
+      **Built 2026-08-27 (see build-session summary at the top of this
+      entry) — superseded, this paragraph describes the prior session's
+      stopping point, not current state.**
       ~~Original 2026-08-26 framing, superseded above, kept for the paper
       trail:~~ displayStatus='delivered' but card state machine reads
       deliveredAt, which is null → card badge stuck on "Arrives." Root

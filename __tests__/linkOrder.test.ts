@@ -7,11 +7,13 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 const mockPrisma = {
   order: {
     findUnique: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
     update: vi.fn(),
   },
   email: {
     findFirst: vi.fn(),
     findUnique: vi.fn(),
+    findMany: vi.fn(),
     update: vi.fn(),
   },
 };
@@ -37,6 +39,8 @@ const {
   computeKeptStatusConflict,
   mergeEmailIntoOrder,
   linkEmailToOrder,
+  resolveDeliveredAtBackfill,
+  recomputeDisplayStatus,
 } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
@@ -281,6 +285,154 @@ describe("applyFallbackOrderDate", () => {
       expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
       expect(mockPrisma.order.update.mock.calls[0][0].data.orderDate).toEqual(receivedAt);
     });
+  });
+});
+
+// ── DELIVERED_BADGE_DESIGN_20260827.md Option A ────────────────────────────
+// deriveDisplayStatus's 2026-07-23 AquaTru fix advances displayStatus to
+// "delivered" off a linked "delivery"-type email alone, even with no
+// extractable date — but lib/orderCardState.ts's card state machine only
+// trusts deliveredAt (its "O7" invariant), so that order stays visually
+// stuck on the "Arrives" chip forever. resolveDeliveredAtBackfill closes
+// that gap for the one case the design doc found safe: a Gmail
+// auto-forwarded delivery email, where the forward-resolver's anchorDate
+// (lib/forwardResolver.ts) already equals receivedAt in every observed
+// case, so it's a trustworthy same-day delivery-date proxy.
+describe("resolveDeliveredAtBackfill", () => {
+  const anchorDate = new Date("2026-08-22T20:41:07.000Z");
+
+  it("backfills from an auto-forward delivery email with no body date", () => {
+    const emails = [{ emailType: "delivery", forwardType: "auto", deliveryDate: null, anchorDate }];
+    expect(resolveDeliveredAtBackfill(emails, null)).toEqual(anchorDate);
+  });
+
+  it("does NOT backfill when the delivery email's body already has a date (extractor already handled it)", () => {
+    const emails = [
+      { emailType: "delivery", forwardType: "auto", deliveryDate: new Date("2026-08-22T00:00:00.000Z"), anchorDate },
+    ];
+    expect(resolveDeliveredAtBackfill(emails, null)).toBeNull();
+  });
+
+  it("does NOT backfill for a manually-forwarded delivery email — fallback B territory, not this fix", () => {
+    const emails = [{ emailType: "delivery", forwardType: "manual", deliveryDate: null, anchorDate }];
+    expect(resolveDeliveredAtBackfill(emails, null)).toBeNull();
+  });
+
+  it("does NOT backfill for an unclassified (pre-resolver) delivery email — forwardType null is not 'auto'", () => {
+    const emails = [{ emailType: "delivery", forwardType: null, deliveryDate: null, anchorDate }];
+    expect(resolveDeliveredAtBackfill(emails, null)).toBeNull();
+  });
+
+  it("does NOT overwrite an already-set deliveredAt", () => {
+    const emails = [{ emailType: "delivery", forwardType: "auto", deliveryDate: null, anchorDate }];
+    expect(resolveDeliveredAtBackfill(emails, new Date("2026-08-20T00:00:00.000Z"))).toBeNull();
+  });
+
+  it("does NOT backfill when anchorDate itself is null (genuinely unresolved, never invent a date)", () => {
+    const emails = [{ emailType: "delivery", forwardType: "auto", deliveryDate: null, anchorDate: null }];
+    expect(resolveDeliveredAtBackfill(emails, null)).toBeNull();
+  });
+
+  it("ignores non-delivery-typed emails entirely, even if auto-forwarded with a null date", () => {
+    const emails = [{ emailType: "shipping_confirmation", forwardType: "auto", deliveryDate: null, anchorDate }];
+    expect(resolveDeliveredAtBackfill(emails, null)).toBeNull();
+  });
+
+  it("picks the earliest anchorDate when more than one qualifying delivery email exists", () => {
+    const earlier = new Date("2026-08-20T00:00:00.000Z");
+    const later = new Date("2026-08-22T20:41:07.000Z");
+    const emails = [
+      { emailType: "delivery", forwardType: "auto", deliveryDate: null, anchorDate: later },
+      { emailType: "delivery", forwardType: "auto", deliveryDate: null, anchorDate: earlier },
+    ];
+    expect(resolveDeliveredAtBackfill(emails, null)).toEqual(earlier);
+  });
+});
+
+describe("recomputeDisplayStatus — deliveredAt backfill integration", () => {
+  beforeEach(() => {
+    mockPrisma.order.findUniqueOrThrow.mockReset();
+    mockPrisma.email.findMany.mockReset();
+    mockPrisma.order.update.mockReset();
+  });
+
+  const anchorDate = new Date("2026-08-22T20:41:07.000Z");
+
+  it("the Zara #54421192781 shape: writes deliveredAt alongside the displayStatus advance in one update", async () => {
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValueOnce({
+      displayStatus: "shipped",
+      returnedAt: null,
+      archivedAt: null,
+      deliveredAt: null,
+    });
+    mockPrisma.email.findMany.mockResolvedValueOnce([
+      { emailType: "delivery", refundAmount: null, refundAmountConfidence: null, forwardType: "auto", deliveryDate: null, anchorDate },
+    ]);
+
+    await recomputeDisplayStatus("order1");
+
+    expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.displayStatus).toBe("delivered");
+    expect(data.deliveredAt).toEqual(anchorDate);
+  });
+
+  it("backfills deliveredAt even when displayStatus was already 'delivered' from an earlier pass", async () => {
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValueOnce({
+      displayStatus: "delivered",
+      returnedAt: null,
+      archivedAt: null,
+      deliveredAt: null,
+    });
+    mockPrisma.email.findMany.mockResolvedValueOnce([
+      { emailType: "delivery", refundAmount: null, refundAmountConfidence: null, forwardType: "auto", deliveryDate: null, anchorDate },
+    ]);
+
+    await recomputeDisplayStatus("order1");
+
+    expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.deliveredAt).toEqual(anchorDate);
+    expect(data.displayStatus).toBeUndefined(); // no status transition, so buildStatusTransitionData wasn't invoked
+  });
+
+  it("does not write at all for a manual-forward delivery email with no body date (fallback B territory)", async () => {
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValueOnce({
+      displayStatus: "shipped",
+      returnedAt: null,
+      archivedAt: null,
+      deliveredAt: null,
+    });
+    mockPrisma.email.findMany.mockResolvedValueOnce([
+      { emailType: "delivery", refundAmount: null, refundAmountConfidence: null, forwardType: "manual", deliveryDate: null, anchorDate },
+    ]);
+
+    await recomputeDisplayStatus("order1");
+
+    // displayStatus still advances to "delivered" (deriveDisplayStatus's
+    // existing AquaTru-fix behavior, unchanged) but deliveredAt is NOT
+    // backfilled — this write happens for the status transition alone.
+    expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.displayStatus).toBe("delivered");
+    expect(data.deliveredAt).toBeUndefined();
+  });
+
+  it("does not overwrite an already-set deliveredAt, even if a later auto-forward delivery email is linked", async () => {
+    const existingDeliveredAt = new Date("2026-08-20T00:00:00.000Z");
+    mockPrisma.order.findUniqueOrThrow.mockResolvedValueOnce({
+      displayStatus: "delivered",
+      returnedAt: null,
+      archivedAt: null,
+      deliveredAt: existingDeliveredAt,
+    });
+    mockPrisma.email.findMany.mockResolvedValueOnce([
+      { emailType: "delivery", refundAmount: null, refundAmountConfidence: null, forwardType: "auto", deliveryDate: null, anchorDate },
+    ]);
+
+    await recomputeDisplayStatus("order1");
+
+    expect(mockPrisma.order.update).not.toHaveBeenCalled();
   });
 });
 

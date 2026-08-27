@@ -285,6 +285,54 @@ export async function recomputeOrderStatus(orderId: string): Promise<void> {
   await prisma.order.update({ where: { id: orderId }, data: { status, needsReview } });
 }
 
+// DELIVERED_BADGE_DESIGN_20260827.md Option A. deriveDisplayStatus advances
+// displayStatus to "delivered" off emailTypes.includes("delivery") alone
+// (2026-07-23 AquaTru fix) even when no date was extractable from the
+// email body — but lib/orderCardState.ts's computeOrderCardState
+// deliberately does NOT trust displayStatus for the awaiting_delivery/
+// returnable split, only deliveredAt (comment "O7" — the two are meant to
+// stay independently-computed so they can never disagree at runtime). That
+// leaves deliveredAt permanently null on exactly the AquaTru-shaped order,
+// so the card badge stays stuck on "Arrives" forever even after
+// displayStatus already says delivered. This backfills deliveredAt from
+// the delivery email's forward-resolver anchorDate (lib/forwardResolver.ts,
+// shipped 2026-07-26) — but ONLY when that email is a Gmail auto-forward
+// (forwardType === "auto"). Design doc confirmed this is safe because (a)
+// auto-forward anchorDate IS receivedAt in every observed case (Gmail's
+// auto-forward mechanism exposes no separate original-send header to
+// prefer instead), and (b) the owner's stated assumption that a retailer's
+// "delivered" notification goes out same-day, so receivedAt is a
+// trustworthy proxy for the actual delivery date. Deliberately excluded:
+// manual forwards (forwardType === "manual" or null/unclassified) — a
+// manual forward's receivedAt/anchorDate can lag real delivery by hours to
+// weeks (whenever the user got around to clicking Forward), so it is NOT a
+// safe deliveredAt proxy. That's fallback B territory (design doc), not
+// handled here — a manual-forward delivery email with no body date leaves
+// deliveredAt null, same as today. Do not widen this to non-auto forwards
+// without a fresh design pass.
+// Pure — no DB. Picks the deliveredAt value recomputeDisplayStatus should
+// backfill, or null to leave deliveredAt untouched. Extracted from the
+// caller's DB fetch so this decision (the actual Option A logic) is
+// testable without mocking Prisma, same pattern as deriveDisplayStatus.
+// If an order somehow has more than one qualifying auto-forward delivery
+// email (re-delivery, multiple packages), the earliest anchorDate wins —
+// the first confirmed delivery event, not the most recently processed one.
+export function resolveDeliveredAtBackfill(
+  emails: { emailType: string | null; forwardType: string | null; deliveryDate: Date | null; anchorDate: Date | null }[],
+  currentDeliveredAt: Date | null,
+): Date | null {
+  if (currentDeliveredAt !== null) return null; // never overwrite an existing value
+
+  const candidates = emails
+    .filter(
+      (e) => e.emailType === "delivery" && e.forwardType === "auto" && e.deliveryDate === null && e.anchorDate !== null,
+    )
+    .map((e) => e.anchorDate as Date)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  return candidates[0] ?? null;
+}
+
 // Derives and persists the user-facing displayStatus from the email types
 // linked to this order. Never auto-downgrades a status that was manually
 // advanced (return_requested or higher) — those can only move forward via
@@ -305,15 +353,28 @@ export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   });
   const emails = await prisma.email.findMany({
     where: { orderId },
-    select: { emailType: true, refundAmount: true, refundAmountConfidence: true },
+    select: {
+      emailType: true,
+      refundAmount: true,
+      refundAmountConfidence: true,
+      forwardType: true,
+      deliveryDate: true,
+      anchorDate: true,
+    },
   });
   const emailTypes = emails.map((e) => e.emailType).filter((t): t is string => t != null);
   const hasConfirmedRefundAmount = emails.some(
     (e) => e.emailType === "refund" && e.refundAmount != null && e.refundAmountConfidence !== "low",
   );
   const next = deriveDisplayStatus(emailTypes, order.displayStatus, hasConfirmedRefundAmount, order.deliveredAt);
-  if (next !== order.displayStatus) {
-    const data = buildStatusTransitionData(next, { returnedAt: order.returnedAt, archivedAt: order.archivedAt });
+  const deliveredAtBackfill = resolveDeliveredAtBackfill(emails, order.deliveredAt);
+
+  if (next !== order.displayStatus || deliveredAtBackfill !== null) {
+    const data: Record<string, unknown> =
+      next !== order.displayStatus
+        ? buildStatusTransitionData(next, { returnedAt: order.returnedAt, archivedAt: order.archivedAt })
+        : {};
+    if (deliveredAtBackfill !== null) data.deliveredAt = deliveredAtBackfill;
     await prisma.order.update({ where: { id: orderId }, data });
   }
 }
