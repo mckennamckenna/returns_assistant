@@ -1477,6 +1477,134 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **orderDate write-once locks in the wrong email's date when
+      extraction/linking happens out of receivedAt order — NEW 2026-08-27,
+      READ-ONLY diagnostic, 0 billed Anthropic calls
+      (`scripts/pm-diag-orderdate-mismatch-v2-20260827.ts` and 4
+      companion scripts, same date). Owner-reported via Zara
+      #54421192781: orderDate showed Aug 22, matched no linked email's
+      date at all, and the real order-confirmation (manually forwarded
+      later) stated Aug 16. NOT FIXED — diagnosis only, per session
+      scope. Fix scope noted below for a future build session.**
+
+      **Root cause, confirmed via Zara's own data:** `applyFallbackOrderDate`
+      (`lib/linkOrder.ts`) fires once, the moment an Order's `orderDate` is
+      first null, and treats "the earliest-received email currently linked
+      to this order" as a proxy for "the earliest email overall." That
+      assumption breaks whenever an order is created from an email that
+      ISN'T actually the earliest-received one — because a genuinely
+      earlier email was orphaned (unlinked) at the time and only gets
+      matched into the order LATER. `orderDate` is then write-once
+      (2026-08-16 fix, `mergeEmailIntoOrder`) and is never revisited even
+      after the true-earliest email retroactively links in. Zara's case:
+      Order.createdAt (`2026-08-26T02:46:02`) matches the DELIVERY email's
+      extraction time almost to the millisecond — the order was created
+      FROM the delivery email (received Aug 22), not from either
+      shipping_confirmation (received Aug 18 and Aug 21, both carrying
+      `retailerSource: "sender_fallback"` — orphaned pre-2026-08-25 Zara
+      retailer-identification fix, reconciled into this order only once
+      the delivery email created it on Aug 26). `orderDate` was set to the
+      delivery email's own `anchorDate`/`receivedAt` (Aug 22) by
+      `applyFallbackOrderDate` at that exact creation moment, then frozen.
+      The manually-forwarded order_confirmation (Aug 26, real send date
+      Aug 16 per its forwarded header) later merged in but could not
+      correct it — write-once, and separately, its own AI-extracted
+      `orderDate` field was null anyway (only the anchor resolver's
+      regex-parsed `anchorDate` had Aug 16; `mergeEmailIntoOrder`'s
+      establishing-write condition only ever checks the AI-extracted
+      `orderDate` field, never `anchorDate` — a second, related gap: even
+      on a fresh order with no write-once lock yet, a manually-forwarded
+      confirmation whose only date signal is the forwarded-header
+      `anchorDate` can never establish `orderDate` via the merge path,
+      only via the separate `applyFallbackOrderDate` path, and only if
+      it happens to be the earliest-linked email when that runs).
+
+      **Not Zara-only — confirmed systemic, not an artifact of this week's
+      heavy Zara debugging.** Two independent checks across all 185 orders
+      with a non-null `orderDate`:
+      - **2/185 orders have a strictly IMPOSSIBLE orderDate** (the order's
+        `orderDate` falls AFTER the earliest linked shipping_confirmation
+        or delivery email's `receivedAt` — order placed after it shipped).
+        Zara is one. **The other is a clean, non-Zara confirmation:**
+        Shopbop order `143429832` — same exact mechanism, no Zara retailer
+        fallback involved at all: its delivery email (received/extracted
+        Aug 4) created the order and set `orderDate`, while its
+        shipping_confirmation (received a day earlier, Aug 3) wasn't
+        extracted until ~2 hours after the order already existed — pure
+        extraction-processing-order variance, nothing forward-type or
+        retailer-fallback specific. This confirms the bug is general
+        (any out-of-order extraction/linking), not tied to Zara's
+        particular orphan history.
+      - **6/185 additional orders have an orderDate matching none of their
+        linked emails' `receivedAt`, `anchorDate`, or own extracted
+        `orderDate`** — a weaker, noisier signal (could reflect a
+        re-extracted/changed email since orderDate was set, not
+        necessarily this same bug), listed for completeness, not claimed
+        as confirmed instances of this mechanism.
+      - **Caveat, likely undercount:** the "impossible" check only catches
+        cases where the wrong-earliest-email's date is late enough to be
+        logically impossible. An order where extraction happened out of
+        order but the wrong email's date still looks plausible (e.g., two
+        emails received hours apart) would show a subtly-wrong `orderDate`
+        that this check cannot detect. The true affected population is
+        probably larger than 2.
+
+      **Fix scope (not built): would touch `lib/linkOrder.ts`** —
+      `applyFallbackOrderDate`/`resolveFallbackOrderDate` (make the
+      earliest-email determination revisitable rather than one-time, or
+      recompute whenever a new email links in with an earlier `receivedAt`
+      than what was previously used) and possibly `mergeEmailIntoOrder`'s
+      establishing condition (whether to also accept `anchorDate` as an
+      establishing source, not just the AI's own `orderDate` field). Real
+      design tradeoff: revisiting a "write-once" value on a genuinely
+      earlier-linked email needs its own reasoning about what should
+      still count as write-once (a user's own later edits? a
+      manually-confirmed date?) vs. what's fair game to correct
+      automatically — not a one-line fix, needs a design pass.
+
+      **Related, separate finding — return-deadline disagreement, same
+      order, different mechanism:** Zara's order detail page shows Sep 21;
+      its email detail page (the order_confirmation email specifically)
+      shows Sep 23. Not two different implementations of the deadline math
+      — the SAME function (`computeDeadline`, `lib/extract.ts`) called at
+      two different times with different inputs, never reconciled.
+      `lib/extract.ts`'s extraction pipeline calls it once per email, at
+      that email's own extraction time, using only that email's own
+      extracted fields, and persists the result on the `Email` row
+      permanently (`Email.returnDeadline`) — a frozen snapshot, never
+      revisited. `lib/linkOrder.ts` calls the same function twice more
+      (`applyFallbackOrderDate`, `mergeEmailIntoOrder`), against the
+      order-level merged fields, and keeps it live on every merge. The
+      order_confirmation email's own extraction had `orderDate: null` (its
+      AI extraction didn't find one) so its snapshot fell through to
+      `computeDeadline`'s `estimatedDeliveryDate`-based branch
+      (`Aug 24 + 30 days = Sep 23`); the order-level computation has
+      `orderDate` non-null (Aug 22, the wrong value from the bug above) so
+      it uses the `orderDate`-based branch (`Aug 22 + 30 days = Sep 21`).
+      The email detail page (`app/(app)/emails/[id]/page.tsx`) renders the
+      frozen per-email snapshot as if it were current truth, with no
+      indication it can diverge from the order's own live value. **All 3
+      production call sites of `computeDeadline` enumerated:**
+      `lib/extract.ts` (per-email, frozen at extraction), `lib/linkOrder.ts`
+      ×2 (`applyFallbackOrderDate`, `mergeEmailIntoOrder`, both order-level
+      and live). Fix scope (not built): likely either stop persisting/
+      displaying the per-email snapshot as a user-facing "deadline" at all
+      (it's an artifact of extraction-time state, not a fact about the
+      order), or recompute it whenever the order-level deadline changes —
+      needs an owner call on which.
+
+      **Manual-forward late-arrival, checked as its own hypothesis and
+      narrower than feared:** orders where an `order_confirmation` was
+      received AFTER a `shipping_confirmation`/`delivery` email on the
+      same order: **2/198**, not systemic on its own — Zara (4.3-day gap,
+      the real "late manual forward" shape) and Freda Salvador `234403`
+      (2-minute gap, not meaningfully "late," likely back-to-back
+      forwards). This confirms the design doc's "0 orders need fallback B"
+      finding still holds for the manual-forward-lateness framing
+      specifically — but the broader out-of-order-extraction bug above is
+      NOT limited to manual forwards (Shopbop had none involved) and is
+      the real, larger-scoped issue.
+
 - [ ] **7/21/2026 ingestion incident — 12 orphaned rows. Investigated
       2026-08-20, confirmed as a genuine incident window, not an
       isolated glitch. Not fixed — cleanup is a separate, owner-approved
