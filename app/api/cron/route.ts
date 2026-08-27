@@ -17,6 +17,7 @@ import { autoArchiveOrderWhere } from "@/lib/autoArchive";
 import { rateLimitSweepWhere } from "@/lib/rateLimit";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 import { isAmazonOrder } from "@/lib/amazonBundle";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,11 @@ function formatCurrency(total: number | null, currency: string | null): string |
   }
 }
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
+// lib/dateDisplay.ts — reads the UTC calendar-date components explicitly,
+// so a returnDeadline reminder email states the same calendar day the app
+// itself shows, independent of the cron function's runtime timezone
+// (TASKS.md 2026-08-27).
+const formatDate = formatCalendarDate;
 
 export function buildSubject(reminderType: ReminderType, retailer: string | null, orderTotal: number | null, orderCurrency: string | null): string {
   const label = DAYS_LEFT_LABEL[reminderType];

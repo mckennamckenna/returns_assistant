@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { linkEmailToOrderAction } from "./actions";
+import { formatCalendarDateShort } from "@/lib/dateDisplay";
 
 export interface LinkablePickerOrder {
   id: string;
@@ -69,7 +70,11 @@ export function LinkToOrderPicker({
                 <span className="block text-xs text-muted truncate">
                   {order.orderNumber ? `#${order.orderNumber}` : ""}
                   {order.orderNumber && order.orderDate ? " · " : ""}
-                  {order.orderDate ? order.orderDate.toLocaleDateString() : ""}
+                  {/* lib/dateDisplay.ts — reads the UTC calendar-date
+                      components (TASKS.md 2026-08-27); also normalizes this
+                      from the locale-numeric "8/22/2026" it used to render
+                      to match every other calendar-date site in the app. */}
+                  {order.orderDate ? formatCalendarDateShort(order.orderDate) : ""}
                 </span>
               </button>
             ))}

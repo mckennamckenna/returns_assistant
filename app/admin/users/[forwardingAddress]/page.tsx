@@ -3,13 +3,14 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
 import { getInboundAddress, resolveInboundTokenFromAddress } from "@/lib/inboundAddress";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
-function formatDate(date: Date | null): string {
-  if (!date) return "—";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
+// lib/dateDisplay.ts — reads the UTC calendar-date components, matching
+// every other calendar-date render site in the app (TASKS.md 2026-08-27) —
+// this admin table renders returnDeadline/estimatedDeliveryDate/deliveredAt.
+const formatDate = formatCalendarDate;
 
 export default async function AdminUserDetailPage({
   params,

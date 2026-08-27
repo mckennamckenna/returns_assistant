@@ -8,6 +8,7 @@ import { buildActionLink } from "@/lib/actionLinks";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 import { scheduledRunWeekStart } from "@/lib/weeklyDigestDedup";
 import { isAmazonOrder } from "@/lib/amazonBundle";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,12 @@ const APP_URL = "https://app.myreturnwindow.com";
 
 const EXCLUDED_STATUSES = ["returned", "refunded", "kept"];
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+// lib/dateDisplay.ts — reads the UTC calendar-date components, matching
+// every other calendar-date render site in the app (TASKS.md 2026-08-27). Note:
+// daysFromNow below does its own separate local-midnight day-count math —
+// untouched here, out of this session's render-only scope; flagged in the
+// close-out as a related but distinct question.
+const formatDate = formatCalendarDate;
 
 function daysFromNow(date: Date, now: Date): number {
   const ms = date.getTime() - now.setHours(0, 0, 0, 0);

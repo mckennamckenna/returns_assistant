@@ -4,14 +4,15 @@ import { verifyToken, signCsrfToken } from "@/lib/actionToken";
 import { decideReturnedPageState, type ReturnedOrderDetails } from "@/lib/returnedPageState";
 import { DisplayStatusBadge } from "@/app/DisplayStatusBadge";
 import { daysUntil } from "@/lib/reminders";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
 const APP_URL = "https://app.myreturnwindow.com";
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+// lib/dateDisplay.ts — reads the UTC calendar-date components, matching
+// every other calendar-date render site in the app (TASKS.md 2026-08-27).
+const formatDate = formatCalendarDate;
 
 function formatCurrency(total: number | null, currency: string | null): string | null {
   if (total == null) return null;

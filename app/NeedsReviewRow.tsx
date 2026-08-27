@@ -3,6 +3,7 @@ import { needsReviewAction, NEEDS_REVIEW_ACTION_LABELS } from "@/lib/needsReview
 import type { NeedsReviewRowData } from "@/lib/needsReviewRows";
 import { NeedsReviewRowActions } from "./NeedsReviewRowActions";
 import { LinkToOrderPicker, type LinkablePickerOrder } from "./LinkToOrderPicker";
+import { formatCalendarDateShort } from "@/lib/dateDisplay";
 
 function formatCurrency(total: number | null, currency: string | null): string | null {
   if (total == null) return null;
@@ -48,7 +49,11 @@ export function NeedsReviewRow({
   const isDegrade = action.id === "view_detail";
   const amountText = formatCurrency(row.amount, row.currency);
   const dateAmount = [
-    row.date ? row.date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" }) : null,
+    // lib/dateDisplay.ts — reads the UTC calendar-date components
+    // (TASKS.md 2026-08-27). row.date is orderDate for order-kind rows, a
+    // calendar date subject to the same rollback bug the rest of the app
+    // was fixed for.
+    row.date ? formatCalendarDateShort(row.date) : null,
     amountText,
   ]
     .filter(Boolean)

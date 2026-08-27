@@ -5,6 +5,104 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-27 — Timezone drift across calendar-date rendering: fixed, three entries closed
+
+Follow-on to the same day's delivered-badge session — the dashboard (Aug
+23) vs. detail page (Aug 24) drift the owner kept seeing on Zara
+#54421192781 after the delivered-badge backfill made the underlying data
+agree. Diagnosed as: `deliveredAt`/`deliveryDate`/`estimatedDeliveryDate`/
+`orderDate`/`returnDeadline` are stored as `DateTime` at UTC midnight as a
+legacy stand-in for a calendar date, and every render site formatted them
+with `toLocaleDateString(undefined, ...)` — no explicit timezone, so the
+output depends on whatever timezone the *reading code* happens to run in.
+The dashboard card is a client component (browser-local timezone); the
+detail page is a server component (UTC on Vercel). Same stored value, two
+different timezones, two different calendar days shown for the same order.
+Two older, independently-logged "off by one day" entries (2026-08-21,
+2026-08-25) turned out to be the same mechanism, caught in the abstract via
+a timezone-dependent test assertion rather than a real order.
+
+**A genuine contradiction in the brief, caught before shipping.** The
+session's brief said two things that can't both be true: (1) "make
+everything match the dashboard" (the dashboard's pre-fix behavior converts
+to the browser's *real* local timezone), and (2) the explicit test spec
+"`2026-08-22T00:00:00Z` must render as Aug 22, not Aug 21." Checked the
+actual math: that UTC-midnight instant converted to genuine
+America/Los_Angeles (UTC-7 in August) is `2026-08-21T17:00:00-07:00` — Aug
+21. Genuine local-timezone conversion of a UTC-midnight "calendar date
+stand-in" *is* the rollback bug, not a fix for it; implementing "true
+Pacific conversion" would have made every surface consistently show the
+wrong (rolled-back) day instead of inconsistently right/wrong. Stopped
+mid-build, presented the concrete numbers, and asked rather than picking a
+side. Owner confirmed: the intended fix is a timezone-independent read of
+the stored UTC calendar-date components (`Intl` with `timeZone: "UTC"`),
+not a conversion to any viewer's real local timezone — this resolves the
+open "(a) the date's own timezone (or UTC)" vs. "(b) the user's local
+timezone" framing from the original 2026-08-25 entry as (a), explicitly.
+
+**Shipped:** new `lib/dateDisplay.ts` (`formatCalendarDate`/
+`formatCalendarDateShort`), with an explanatory comment recording both the
+convention and the rejected America/Los_Angeles detour so a future reader
+doesn't re-derive and re-reject the same wrong turn. A full-codebase audit
+(grep for `toLocaleDateString`/`toDateString`/`Intl.DateTimeFormat`/etc.,
+cross-referenced against which sites render one of the five semantic
+calendar-date fields) found **12 call sites**, not the 2 the brief named up
+front — matching the same pattern the Option A build session hit earlier
+the same day (real blast radius wider than the initial framing assumed).
+Beyond the known dashboard/detail pair: `lib/orderCardState.ts`'s and
+`lib/amazonBundle.ts`'s duplicate "Arrives &lt;date&gt;" logic (the Amazon
+bundle card wasn't disagreeing with anything today since both it and the
+dashboard card are client components, but was drifting independently and
+is now routed through the same helper); the email detail page and both
+one-click action pages (`app/action/archive`, `app/action/returned`), all
+server components rendering orderDate/returnDeadline; the needs-review
+bucket row and the "link to order" picker, both rendering orderDate; both
+outbound cron emails (deadline reminders and the weekly digest), rendering
+returnDeadline to users with no client-side counterpart to disagree with
+but the identical rollback risk; and one internal admin table. Explicitly
+NOT touched, and why: three admin pages and one refund-checkin email
+render `createdAt`/`mostRecentOrderAt`/`returnedAt` — real instants, not
+calendar-date fields, out of scope by definition; one admin debug page
+intentionally dumps raw field values including time-of-day, which is
+correct for its diagnostic purpose. `app/api/cron/weekly-digest/route.ts`'s
+separate `daysFromNow` local-midnight day-count math was left untouched
+(date arithmetic, not rendering — flagged as a related but distinct
+question, not silently folded in).
+
+**Tests:** new `__tests__/dateDisplay.test.ts` — the UTC-midnight-renders-
+as-its-own-day case from the bug report, a `process.env.TZ` invariance
+sweep (America/New_York, America/Los_Angeles, Asia/Tokyo, Pacific/Kiritimati,
+unset, and explicit UTC all produce identical output), and a simulated
+client-vs-server parity check. The previously-known flaky test
+(`orderCardState.test.ts`'s "Arrives Aug 15" assertion, failing on Pacific
+machines) now passes deterministically with no TZ dependency — confirmed,
+not just hoped for. 671/671 tests passing, `npm run build` clean.
+
+**Verified locally** against real production data (post-backfill): Zara
+#54421192781 now shows "Aug 22" for `deliveredAt` and "Aug 24" for
+`estimatedDeliveryDate` from the exact same functions the dashboard and
+detail page call, both agreeing where they used to disagree. Nordstrom
+1055864196 spot-checked across orderDate/estimatedDeliveryDate/deliveredAt/
+returnDeadline (the last is null on this order — a separate, already-known
+gap, not this bug). Full interactive browser verification wasn't possible
+in this environment (dev server requires an authenticated session); the
+function-level verification exercises the identical code paths the pages
+call, but this is noted explicitly rather than claimed as equivalent to a
+browser check.
+
+Closes three TASKS.md entries with one fix: this session's "Dashboard/
+detail date drift on #54421192781," 2026-08-25's "`orderCardState.test.ts`
+timezone-dependent assertion...," and 2026-08-21's "[Low] Timezone
+off-by-one in `orderCardChip`'s Arrives-date label." All three cross-linked
+and closed together rather than left as duplicates.
+
+Anthropic calls: 0. Every step was code reads/writes, local test/build
+runs, and DB reads against production (read-only — no writes this
+session; the earlier Option A backfill was a separate, already-closed
+session).
+
+---
+
 ## 2026-08-27 — Delivered badge stuck on "Arrives": diagnosed, designed, shipped, backfilled
 
 Owner-reported: Zara #54421192781's card badge read "Arrives Aug 23" days

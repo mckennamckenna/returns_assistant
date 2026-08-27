@@ -32,6 +32,15 @@
 
 ## 🔴 Now
 
+- [x] **CLOSED 2026-08-27 — see ✅ Done ("Timezone drift across
+      calendar-date rendering") and `HISTORY.md` 2026-08-27 for the fix.
+      This entry, plus the two pre-existing timezone entries it turned out
+      to share a root cause with (🐛 Bugs / Annoying, "`orderCardState.test.ts`
+      timezone-dependent assertion..." NEW 2026-08-25; 🐛 Bugs / Cosmetic,
+      "[Low] Timezone off-by-one in `orderCardChip`'s Arrives-date label"
+      NEW 2026-08-21), are all resolved by the same commit — closed
+      together, not left as duplicates. Original diagnosis preserved
+      below, not edited, per this board's Done-log convention.**
 - [ ] **Dashboard/detail date drift on #54421192781 — live, reproduced in
       Safari + Chrome, not a stale render. NEW 2026-08-27, DIAGNOSED
       2026-08-27, read-only, 0 billed calls
@@ -2049,6 +2058,9 @@
 
       **Do NOT fix opportunistically** — needs scoped investigation
       with owner-decision on Mode B scope before build.
+- [x] **CLOSED 2026-08-27 — see ✅ Done ("Timezone drift across
+      calendar-date rendering") and `HISTORY.md` 2026-08-27. Original entry
+      preserved below, not edited.**
 - [ ] **`orderCardState.test.ts` timezone-dependent assertion +
       underlying delivery-date rendering bug — NEW 2026-08-25,
       surfaced during Session-2 build follow-up.** Test seeds
@@ -2288,6 +2300,9 @@
       links), not a user-facing filter state. Whoever picks this up:
       confirm with owner whether that alpha-era product call still holds
       before adding any indicator — this may be working as designed.
+- [x] **CLOSED 2026-08-27 — see ✅ Done ("Timezone drift across
+      calendar-date rendering") and `HISTORY.md` 2026-08-27. Original entry
+      preserved below, not edited.**
 - [ ] **[Low] Timezone off-by-one in `orderCardChip`'s Arrives-date label —
       NEW 2026-08-21, found while verifying the main/origin-main
       reconciliation merge. Pre-existing on local `main`'s own prior
@@ -4242,6 +4257,24 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Timezone drift across calendar-date rendering — CLOSED 2026-08-27.**
+      New shared `lib/dateDisplay.ts` (`formatCalendarDate`/
+      `formatCalendarDateShort`) reads a stored calendar-date field's UTC
+      year/month/day components directly — never converts to any runtime
+      or viewer local timezone — so the same value renders identically from
+      a client component, a server component, or a cron-sent email. Wired
+      into every render site found by a full-codebase audit: `app/OrderCard.tsx`,
+      `app/(app)/orders/[id]/page.tsx`, `lib/orderCardState.ts`,
+      `lib/amazonBundle.ts`, `app/(app)/emails/[id]/page.tsx`,
+      `app/action/archive/page.tsx`, `app/action/returned/page.tsx`,
+      `app/NeedsReviewRow.tsx`, `app/LinkToOrderPicker.tsx`,
+      `app/api/cron/route.ts`, `app/api/cron/weekly-digest/route.ts`,
+      `app/admin/users/[forwardingAddress]/page.tsx`. Closes this session's
+      surface-drift report plus two independently-logged, older "off by one
+      day" entries (2026-08-21, 2026-08-25) — same root cause, one fix.
+      Full session detail, including a mid-build correction to the owner's
+      own stated decision: `HISTORY.md` 2026-08-27.
 
 - [x] **Delivered badge stuck on "Arrives" (Zara #54421192781 + 9 other
       orders) — CLOSED 2026-08-27, owner-verified.** `deliveredAt` now

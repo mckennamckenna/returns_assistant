@@ -6,13 +6,13 @@ import { reExtract } from "./actions";
 import { ReExtractButton } from "./ReExtractButton";
 import { decryptEmailContent } from "@/lib/emailEncryption";
 import { forwardTypeLabel } from "@/lib/forwardResolver";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
-function formatDate(date: Date | null): string {
-  if (!date) return "—";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
+// lib/dateDisplay.ts — reads the UTC calendar-date components, matching
+// every other calendar-date render site in the app (TASKS.md 2026-08-27).
+const formatDate = formatCalendarDate;
 
 function formatCurrency(total: number | null, currency: string | null): string {
   if (total == null) return "—";

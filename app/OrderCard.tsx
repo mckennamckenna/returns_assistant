@@ -12,6 +12,7 @@ import { markReturnedAction, markKeptAction } from "./actions";
 import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
 import { computeOrderCardState, orderCardChip, orderCardActions, REFUND_AMOUNT_FOOTNOTE } from "@/lib/orderCardState";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 // CARD_SPEC.md Part 5 Q2 — reuse the Amazon bundle's inline-overflow limit
 // (app/AmazonBundleCard.tsx's `.slice(0, 5)`), don't invent a second number.
@@ -43,10 +44,11 @@ export type OrderCardOrder = Pick<
   | "returnTrackingUrl"
 >;
 
-function formatDate(date: Date | null): string {
-  if (!date) return "—";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
+// lib/dateDisplay.ts — reads the stored UTC calendar-date components
+// directly, rather than converting to the browser's local timezone (this
+// is a "use client" component), so it matches the order detail page's
+// (server-rendered) formatDate exactly.
+const formatDate = formatCalendarDate;
 
 function formatCurrency(total: number | null, currency: string | null): string {
   if (total == null) return "—";

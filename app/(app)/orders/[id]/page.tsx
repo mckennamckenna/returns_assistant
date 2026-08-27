@@ -13,13 +13,16 @@ import { KEPT_WARNING_CAPTION } from "@/lib/displayStatus";
 import { computeOrderCardState, orderCardChip, orderCardActions, REFUND_AMOUNT_FOOTNOTE } from "@/lib/orderCardState";
 import { returnWindowFromLabel } from "@/lib/returnWindowLabel";
 import { computeOrderReviewReason } from "@/lib/orderReview";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
-function formatDate(date: Date | null): string {
-  if (!date) return "—";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
+// lib/dateDisplay.ts — reads the stored UTC calendar-date components
+// explicitly, rather than relying on the server process's runtime timezone
+// (UTC on Vercel today, but not guaranteed and not the actual reason this
+// is correct), so this matches the dashboard card's (client-rendered)
+// formatDate exactly regardless of either side's runtime.
+const formatDate = formatCalendarDate;
 
 function formatCurrency(total: number | null, currency: string | null): string {
   if (total == null) return "—";

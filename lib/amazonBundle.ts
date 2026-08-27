@@ -1,5 +1,6 @@
 import { daysUntil } from "@/lib/reminders";
 import { DISPLAY_STATUS_LABELS } from "@/lib/displayStatus";
+import { formatCalendarDateShort } from "@/lib/dateDisplay";
 
 // Strict, case-insensitive match on the retailer field — same signal already
 // used in scripts/backfill-amazon-orderdate.ts. Deliberately narrow (per
@@ -39,7 +40,11 @@ export function amazonRowLabel(order: AmazonOrderLike, now: Date): string {
   }
 
   if (order.estimatedDeliveryDate) {
-    return `Arrives ${order.estimatedDeliveryDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+    // lib/dateDisplay.ts — same "Arrives <date>" logic as
+    // lib/orderCardState.ts's orderCardChip; reads the UTC calendar-date
+    // components explicitly rather than the caller's runtime timezone
+    // (TASKS.md 2026-08-27).
+    return `Arrives ${formatCalendarDateShort(order.estimatedDeliveryDate)}`;
   }
 
   return DISPLAY_STATUS_LABELS[order.displayStatus] ?? order.displayStatus;

@@ -1,5 +1,6 @@
 import { daysUntil } from "./reminders";
 import { DISPLAY_STATUS_LABELS } from "./displayStatus";
+import { formatCalendarDateShort } from "./dateDisplay";
 
 // CARD_SPEC.md Part 2 — the single order state machine. Slots 3 (chip) and
 // 4 (action) are a pure function of this state; no other code path may
@@ -90,7 +91,12 @@ export function orderCardChip(input: OrderCardChipInput): OrderCardChip {
     case "awaiting_delivery": {
       if (input.estimatedDeliveryDate) {
         return {
-          label: `Arrives ${input.estimatedDeliveryDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
+          // lib/dateDisplay.ts — reads the UTC calendar-date components,
+          // not the caller's runtime timezone, so this renders identically
+          // whether called from a client component (app/OrderCard.tsx) or
+          // a server component (the order detail page). See that file for
+          // why "the caller's local timezone" is the wrong target here.
+          label: `Arrives ${formatCalendarDateShort(input.estimatedDeliveryDate)}`,
           tone: "neutral",
         };
       }
