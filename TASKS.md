@@ -32,6 +32,12 @@
 
 ## 🔴 Now
 
+- [x] **Verify item 315 (card-geometry + order state machine) deploy state —
+      NEW 2026-08-26, READ-ONLY diagnostic, 0 billed Anthropic calls.**
+      Board said "Not yet deployed"; owner says it's live. Resolved via
+      git/Vercel cross-reference — **DEPLOYED**, confirmed live in
+      production. See session report; drafted update text for item 315
+      handed to owner, not applied directly (per instruction).
 - [x] **Routing tree design for needs-review bucket action selection — NEW
       2026-08-24, SUPERSEDES the "default-action heuristic" entry
       (🟡 Next).** That entry implicitly assumed a decision tree existed
@@ -312,212 +318,12 @@
       Postmark retention setting, (b) Messages API credentials still
       wired.
 
-- [ ] **Unified card geometry + order state machine (2x2 four-slot) —
-      MOVED TO 🔴 Now 2026-08-10: owner brief given this session, build
-      BEGINS.** `CARD_SPEC.md` is build-ready and the single source of
-      truth (Part 5 answered 2026-07-29; fifth needs-review action,
-      manual-link picker, and summary-tab set locked 2026-08-10) —
-      building on a branch, preview-first, not directly against `main`.
-      CONSOLIDATED 2026-07-25 from five previously-separate items (Needs
-      Review panel UI, mobile audit findings #3/#4/#5, and M2's UI half).
-      Each original item's full text is preserved verbatim as its own
-      sub-entry below — nothing dropped, only regrouped.
-      **Locked decisions (`CARD_SPEC.md` Part 5 has full rationale — not
-      restated here, recorded so they aren't re-litigated):** bucket name
-      is **"Needs review"** everywhere; slot-4 label is **`Keep`**
-      everywhere (detail page's `Keeping it` renamed to match); mobile #3
-      resolved as **NO glyph / NO `⋯` / NO swipe** — the expanded state
-      shows `more info` and a single **`Archive`** labeled control (row
-      stays four controls, not five); `Delete` is **not** a peer control —
-      tapping `Archive` opens an archive-or-delete prompt, `Delete` lives
-      inside it, junk-with-rescue, own confirm, never hard delete (**this
-      corrects sub-entry 2 below, whose text still carries the 2026-07-25
-      "trash-can icon" answer — `CARD_SPEC.md` Part 5 Q7 reverses that;
-      sub-entry 2 is kept verbatim as the historical record, not edited in
-      place. Note: as of 2026-08-10 this is also a correction to CARD_SPEC.md's
-      own "What changed" summary, which still read "Archive and Delete
-      become labeled text controls" before this session — fixed there
-      too, so the file no longer contradicts its own Part 5 answer**);
-      needs-review action registry is **FIVE** (Link to order [manual
-      picker, v1] / Create new order / Not a purchase / View detail /
-      Nothing), open/extensible, unknown → View detail; awaiting-refund
-      chip revised to **`Refund pending`** (from `Returned {date}`);
-      summary tabs are all four (Due this week / Needs review / Returns
-      in progress / Refunds pending) — **out of scope for this build**,
-      navigation not cards.
-      **BUILD PROGRESS 2026-08-11 (branch `card-geometry-state-machine`,
-      not pushed):** Step 0 reconciliation done and reviewed by owner
-      (Amazon bundle overflow limit confirmed as literal `5` in
-      `app/AmazonBundleCard.tsx`; O7 delivered-vs-displayStatus divergence
-      confirmed already fixed at the `deriveDisplayStatus` layer; `kept`
-      confirmed to have no internal `Order.status` value). Per this
-      session's owner brief, `kept` was promoted to a real `Order.status`
-      value — additive (String column, no schema migration), 33-row
-      backfill applied and verified (`status = displayStatus` wherever
-      `displayStatus === "kept"`, 0 mismatches against `keptAt`). **Build A**
-      (single-order card + state machine, `lib/orderCardState.ts`) and
-      **Build B** (needs-review bucket, `app/NeedsReviewBucket.tsx`) are
-      both built and committed locally — see `HISTORY.md` for the full
-      session detail once closed. Full test suite (541/541) and `next
-      build` pass; no new typecheck errors. **Not yet deployed** — awaiting
-      owner preview + explicit push instruction, per "Done means deployed."
-      One known capability trade-off from Build B, not a bug: the old
-      inline "Looks correct"/"Split into separate order" quick-actions on
-      needsReview orders are no longer reachable from the dashboard — an
-      already-linked order has no clean mapping onto the five-action
-      registry, so it degrades to `View detail` (Part 3 Q9's explicit
-      fallback design, not an oversight) — flagged here in case the owner
-      wants those two actions re-added to the order detail page later.
-      **Framing note (owner-confirmed 2026-07-25):** there is ONE four-slot
-      skeleton — (1) identity, (2) context, (3) state, (4) action — used at
-      two levels. A single order card is one 2x2. The needs-review bucket is
-      a CONTAINER (same pattern as the Amazon bundle card): its header is a
-      2x2 describing the group, and it holds N flagged orders, each rendered
-      as its own 2x2 row. Collapsed = compact stack (identity + why, no
-      action buttons); expanded = each row reveals its slot-4 action. Slots
-      3 and 4 on an order are driven by a single order state machine
-      (Awaiting delivery → Keep→archive; Returnable → Start return →
-      Awaiting drop-off → Awaiting refund → Complete→archive). Slot 4 is a
-      closed action set; an unregistered reason degrades to "view detail,"
-      never throws. The bucket needs an inline-row overflow limit before
-      "View all N →" opens a full page — reuse the Amazon bundle's
-      threshold, don't invent a second one.
-
-      ---
-      **Sub-entry 1 of 6 — Needs Review panel UI (original item; the
-      junk-mechanics backend piece that used to be embedded in this same
-      item was split out to ✅ Done 2026-07-25 since it already shipped —
-      the rest below is unbuilt UI, preserved verbatim):**
-- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
-      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
-      spec has landed.** Panel implementation of the quick-check surface
-      spec (mobile audit finding #5, below) — same underlying data
-      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
-      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
-      Decisions log entry, rewritten same commit) — the action model is now
-      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
-      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
-      unregistered type → Review-only, never throws. Still true and kept
-      from the old decision: delete stays behind a confirm; no inline
-      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
-      field/values, duplicate-target existence, explanation-string
-      accuracy) required and reported before any code, per this item's own
-      build instructions — see session detail in `HISTORY.md` once closed.
-      → see DECISIONS.md 2026-07-23 ("Needs Review panel registry rejected — not_ecommerce/duplicate aren't real flag types")
-
-      ---
-      **Sub-entry 2 of 6 — Mobile audit finding #3 ("..." overflow menu
-      replacement), original text below. DECIDED 2026-07-25 — see
-      DECISIONS.md 2026-07-25: replace ⋯ with a visible trash-can icon
-      (own confirm step) + always-visible Archive. No longer a standalone
-      open question; folded in here as resolved groundwork for the build.
-      SUPERSEDED 2026-08-10 by `CARD_SPEC.md` Part 5 Q7 (decided
-      2026-07-29, later than this note) — the live answer is the OPPOSITE:
-      NO glyph, NO trash icon, NO swipe. See "Locked decisions" above; this
-      sub-entry's text is preserved verbatim below as the historical
-      record, not the current answer.**
-      **3. "..." overflow menu replacement — spec, propose don't decide.**
-      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
-      tracking links when present) behind a "⋯" button. Two
-      always-available items don't justify a menu, and hiding
-      destructive-only actions (Delete) behind an ambiguous affordance is the
-      wrong pattern — a user has no visual cue that anything destructive
-      lives there. Proposed replacement, for owner decision, not decided
-      here: an explicit icon affordance (e.g. a trash-can icon with its own
-      confirm step, matching `handleDelete`'s existing
-      `window.confirm`) rather than a generic overflow glyph, with Archive
-      surfaced as its own always-visible action rather than tucked away
-      alongside a destructive one.
-
-      ---
-      **Sub-entry 3 of 6 — Mobile audit finding #4 (state-label
-      contradictions + button hierarchy), original text below:**
-      **4. State-label contradictions + button hierarchy — one workstream,
-      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
-      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
-      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
-      render independently of each other), and primary-CTA visual weight
-      shifts unpredictably between cards (two side-by-side buttons, two
-      buttons with different primary treatment, one full-width button, or
-      none, depending on `getVisibleActions()`'s combination for that order).
-      Underlying issue: the app has no consistent notion of "the user already
-      made a decision about this order" that other UI elements can defer to
-      — each label/badge/button is computed independently. Needs a spec pass
-      (what should suppress what, once a decision is made) before any design
-      or code change. The specific "Kept + at risk" combination observed
-      during this audit was a testing artifact (see note below), but the
-      broader label-fighting pattern is real independent of that instance.
-
-      ---
-      **Sub-entry 4 of 6 — Mobile audit finding #5 (quick-check /
-      review-disclosure surface), original text below:**
-      **5. Quick-check (needs-review) surface doesn't explain itself — spec
-      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
-      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
-      and "split into separate order" with no visible evidence supporting
-      either option and no explanation of why the system isn't confident in
-      the first place. Same root concern as the existing Next item about
-      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
-      it's not just a missing explanation string, it's that the whole
-      surface asks for a judgment call without giving the information
-      needed to make one. Needs a spec pass, not a copy tweak. **This is now
-      the hub for three distinct `needsReview` reasons that all need this
-      same disclosure surface to actually explain themselves:** #6a's
-      kept-status-conflict (`computeKeptStatusConflict()`), M2's
-      return-portal trust tier (`classifyReturnPortalTrust()`), and the
-      original missing-deadline case. Two more gaps in this space are
-      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
-      `reviewreasonlabel-missing-reasons`). Every session that adds a new
-      review-flagging mechanism makes this spec pass more overdue, not less
-      — it's gated on owner mockups, but it's the current highest-leverage
-      piece of unblocked work once those land.
-
-      ---
-      **Sub-entry 5 of 6 — M2 return-portal UI half (original item,
-      moved here in full from ⏳ Verifying 2026-07-25 — the shipped
-      review-signal half described within this same text is already live
-      and deployed; only the UI half is the reason this item is now
-      owner-blocked rather than passively verifying):**
-- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
-      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
-      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
-      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
-      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
-      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
-      `retailer-own-domain` — exact registrable-domain match only, never a
-      substring/contains check; `web-lookup-sourced` — measurement-only, not a
-      security boundary; `unknown-unverified`) and forces `Order.needsReview`
-      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
-      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
-      renders/opens exactly as before. Reason is re-derived live in
-      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
-      (it's a pure function of data already on the row). Tier distribution
-      logged count-only (no URL/retailer/order id). **What's still open:** no
-      domain display, no auto-open gating, no visible "unverified" mark — the
-      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
-      deferred to the pending review-disclosure spec (handles all
-      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
-      detail in `BUILD.md`'s Order-linking section + Decisions log.
-
-      ---
-      **Sub-entry 6 of 6 — four-slot panel build
-      (original text below, from the Task 1-4 tracker). RESOLVED
-      2026-08-10: the "not started until [owner brief]" blocker below is
-      removed — the owner brief is this session's greenlight, and
-      `CARD_SPEC.md` is the build-ready spec it was waiting on.**
-      **Needs Review four-slot inventory — REPORT ONLY, inventory
-      complete.** No longer blocked; build proceeds per `CARD_SPEC.md`.
-
-- **RESOLVED 2026-08-10 — owner brief given this session.** The
-  contradiction this note flagged (the four-slot panel build sub-entry
-  above said "not started until [owner brief]" while the four-slot
-  inventory was already marked COMPLETE) is resolved at the source — see
-  sub-entry 6 above, corrected in place.
 - → see DECISIONS.md 2026-07-23 ("STANDING CORRECTION: Needs Review panel registry superseded") — originally a standalone note here in 🔴 Now.
 > 1. ~~Manual link, Fitness Superstore `#48868`~~ — done, see ✅ Done.
 > 2. ~~Apply `scripts/backfill-junk-other-emails.ts`~~ — done, see above.
 > 3. → folded into the "Unified card geometry + order state machine"
->    item above, 2026-08-10 (moved from 🙋 Waiting on Owner to 🔴 Now).
+>    item, 2026-08-10 (moved from 🙋 Waiting on Owner to 🔴 Now; that item
+>    is now in ✅ Done, confirmed deployed 2026-08-26 — no longer "above").
 > 4. **Connect the email-level "Needs review" badge to the panel.** Must
 >    come AFTER Task 2 (now satisfied) — un-junked promotional email would
 >    have flooded a surface built for the real orphaned-genuine-commerce
@@ -1218,6 +1024,12 @@
       known accident on the *other* account and is explicitly OUT of
       scope here; it does not reopen or extend the 2026-07-28 P0
       cross-user item (unchanged, not touched by this pass).
+      **[2026-08-26 PARKED to 👀 Watching per owner]** Original count (15)
+      was owner's own dashboard only. Owner reports the current count is
+      much lower, exact figure unknown without cross-user dashboard
+      inspection. Portion of the original population is now covered by the
+      carrier-email routing work (item 2568). Not blocking; not urgent.
+      → see 👀 Watching: "Orphan-orders census across users"
 - [ ] **`refund_pending` → `SKIP_STATUSES` fix (`lib/reminders.ts`) shipped
       (`63b88e4`) — needs a follow-up code comment.** VERIFIED real,
       go-ahead given, fix deployed. Still needs a code comment explaining
@@ -1602,92 +1414,6 @@
       on deploy — owner should confirm on production, no cron wait needed.
 
 ## ❄️ Deferred
-
-- [ ] **Mobile audit finding #1 — Bell icon alignment on bottom nav.
-      DEFERRED 2026-07-25 (owner instruction) — moved out of active
-      🔴 Now/🙋 Waiting on Owner. STOP attempting further
-      remote-reasoning fixes: this is 0-for-4 (leading-none;
-      considered-and-rejected wrapper removal; min-h-dvh + vh fallback;
-      the 2026-07-17 checkpoint that confirmed it still isn't fixed).
-      Revisit only with an on-device Safari Web Inspector session
-      (remote-debug a real iPhone from a Mac), OR absorb into the
-      card-geometry rebuild (🙋 Waiting on Owner) if the bottom-nav
-      badge pattern gets touched incidentally by that work. Full
-      diagnostic history below, preserved verbatim, not re-summarized.**
-      **1. Bell icon alignment on bottom nav — FIXED 2026-07-17, awaiting
-      owner verification on a real device.** Root cause: the badge
-      (`app/BottomNav.tsx`) was correctly `position: absolute`, not a
-      normal-flow sibling — but its wrapping `<span className="relative">`
-      had no explicit `display`, defaulting to `inline`. An absolutely
-      positioned child of a plain `inline` container is inconsistently
-      handled across mobile browser layout engines, which is what surfaced
-      as the icon being pushed even though nothing was a true document-flow
-      sibling. Fix: wrapper changed to `className="relative inline-flex"`,
-      giving it an unambiguous, size-locked containing block. No other file
-      uses this badge pattern — `Sidebar.tsx`'s desktop "Alerts" badge is a
-      separate, non-overlay implementation (inline pill next to text, no
-      icon), unaffected by and unrelated to this fix. 359 tests still
-      passing (no test coverage for this — CSS/layout, no jsdom per
-      component testing philosophy), `npm run build` clean.
-      **Follow-up 2026-07-17:** owner found the fix correct in Safari iOS
-      but Bell still nudged relative to Home/Gear in Chrome iOS — a
-      cross-browser rendering difference, not a failed fix. Root cause:
-      Bell is the only icon wrapped in an extra `<span>` (Home/Gear are bare
-      `<svg>` flex items); that wrapper inherits line-height with no
-      explicit value, and Chrome/Safari disagree on how much of that leaks
-      into the computed box height of a nested inline-flex flex item.
-      Considered removing the wrapper entirely (anchor the badge to `Link`,
-      which already has `relative`) so Bell's DOM matches Home/Gear exactly
-      — rejected: the badge's `-top-1/-right-1.5` offsets are only valid
-      measured from the icon's own tight box; `Link` is a much wider
-      `flex-1` tap target with the icon centered inside it, so anchoring
-      there would put the badge tens of pixels from the actual bell, and
-      that distance isn't expressible as a fixed offset since it varies
-      with viewport width. Applied the smaller, correct fallback instead:
-      added `leading-none` to the wrapper to cancel the line-height
-      inheritance directly.
-      **Re-diagnosis 2026-07-17:** owner caught two Chrome-iOS screenshots,
-      same session, seconds apart — misaligned with the URL bar expanded,
-      correctly baselined with it collapsed. `leading-none` was the correct
-      class of fix (wrapper asymmetry) but the wrong mechanism — the real
-      driver is iOS's dynamic-toolbar viewport resize, not a static
-      line-height leak. No `vh`/`dvh` unit exists in `BottomNav.tsx` itself,
-      but its ancestor `app/(app)/layout.tsx` used `min-h-screen` (100vh,
-      the classic non-dynamic unit) one level up — `position:fixed;
-      bottom:0` nav bars are exactly the combination WebKit-based mobile
-      browsers handle inconsistently during that toolbar animation, and
-      Bell's extra nested-flex layer gives the browser more layout work to
-      redo mid-resize than Home/Gear's bare, fixed-size `<svg>`. Swapped to
-      `min-h-[100vh] min-h-[100dvh]` (dvh tracks the real visible viewport
-      through the toolbar animation; vh stays as a fallback for Safari
-      <15.4/Chrome <108) in `app/(app)/layout.tsx` — the only place inside
-      the `(app)` route group declaring `min-h-screen`. `leading-none` left
-      in place (harmless, avoids confounding the test). Sanity-checked
-      every other `min-h-screen`/`h-screen`/`100vh` usage in the app: all
-      are on separate, unrelated routes outside the `(app)` group
-      (`/login`, `/login/verify`, `/privacy`, `/admin/*`, `/action/*`,
-      `/marketing`) with their own independent declarations, untouched by
-      this change. One adjacent-but-unaffected note: `Sidebar.tsx`'s
-      desktop `<aside>` uses `h-screen` (its own direct `100vh`, not a
-      percentage of the layout div's height) — same unit class, but
-      desktop-only (`md:flex`) and not implicated in a mobile
-      toolbar-resize bug, left alone. `npm run build` clean, 359 tests
-      passing (no test coverage — CSS/layout).
-      **REMAINS OPEN 2026-07-17 — stop attempting further remote-reasoning
-      fixes.** Owner's on-device scroll test still shows misalignment. This
-      is the fourth diagnostic/fix round on this one finding (`leading-none`;
-      considered and rejected wrapper removal; `min-h-dvh` + vh fallback;
-      this checkpoint) with no confirmed fix landed — 0-for-4. Working
-      hypothesis, unconfirmed: Bell's wrapper span establishes an extra
-      formatting context Home/Gear don't have, making it sensitive to
-      viewport-reflow timing during iOS Chrome's URL-bar animation in a way
-      the `min-h-dvh` swap didn't fully address. Per this session's own
-      lesson (see Decisions log): when a class of bug goes 0-for-N on
-      remote reasoning, stop patching and start measuring. Needs an
-      on-device Safari Web Inspector (remote-debug a real iPhone from a
-      Mac) session to actually observe the computed box/line-height values
-      during the toolbar animation before another fix attempt — owner needs
-      a Mac + iPhone cable for this, not more diagnosis-by-code-reading.
 
 ## 🐛 Bugs
 
@@ -2315,6 +2041,27 @@
       for a temporary skip/mock while the underlying fix is
       scoped.
 
+- [ ] **Zara #54421192781 — displayStatus stuck at "Arrives" past
+      delivery date, delivery email received. NEW 2026-08-26,
+      owner-reported via dashboard + detail-page screenshots
+      (2026-08-26 session).** Card shows "Arrives Aug 23," detail page
+      shows Delivery Date Aug 24, today is Aug 26; owner confirms a
+      delivery email did arrive for this order. Two possible failure
+      modes, diagnosis-first — do NOT assume: (a) delivery email arrived
+      but did not advance `displayStatus` — extraction/merge bug in
+      `mergeEmailIntoOrder` (`lib/extract.ts`); (b) `displayStatus` did
+      advance to delivered but card badge logic still uses estimated
+      arrival date — UI bug in `deriveDisplayStatus` /
+      `lib/orderCardState.ts`. Additional flag worth checking in the
+      same session: card badge Aug 23 vs. detail Aug 24, one-day drift
+      on the same order — may share root cause, may not. Peer query:
+      how many other Orders show the same signature? Read-only
+      diagnostic first, then narrow fix if scope stays contained.
+      **Trust-breaking severity** — a past-arrival delivered order
+      still showing an anticipatory badge misrepresents state on the
+      primary dashboard surface, and is the exact class of thing an
+      alpha user notices.
+
 ### Annoying
 - [ ] **[PROMOTED to 🔴 Now 2026-07-21] AquaTru "Shipped" badge forever** —
       pointer only, not edited/removed. Full detail, design decisions, and
@@ -2326,6 +2073,13 @@
       status?] **Bucket unconfirmed** — owner flagged this could be
       trust-breaking instead of annoying; re-bucket once the actual failure
       mode is known.
+      **[2026-08-26]** Verification sequence: FIRST re-verify item 1234's
+      already-shipped preorder fix against the real Loeffler Randall
+      email (that verification has been blocked since 2026-07-20 credit
+      outage; credit long since restored, no re-attempt logged). If the
+      LR fix works end-to-end on the real email, this entry may be
+      fully discharged. If a residual bug remains, re-scope this entry
+      from what the live verification shows. → see item 1234.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
       e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
       to near-nothing after the (already-shortened) order number eats the
@@ -2358,8 +2112,10 @@
       contexts needs verification in the new context, not just fidelity to
       the source).
 - [ ] **[blocked: on-device] Bell-icon nav misalignment** — pointer only;
-      full diagnostic history stays in the mobile-ux-audit finding #1 item
-      (🔴 Now). That item is not moved or edited.
+      full diagnostic history stays in the mobile-ux-audit finding #1 item,
+      now in 🐛 Bugs → Cosmetic (moved from ❄️ Deferred 2026-08-26, bundled
+      with the mobile popover clip entry). That item is not moved or edited
+      further by this pointer.
 - [ ] **[Low] Same email extracted twice yields different order totals. NEW
       2026-07-28.** Zappos order `113-0629169-3085025`: the auto-forwarded
       delivery email read `$46.76` (Shipment Total = subtotal `$42.75` +
@@ -2533,6 +2289,112 @@
       not independently verified — verify before scoping a fix**, per
       owner instruction; don't assume the desktop diagnosis carries over.
 
+- [ ] **Mobile popover clip — Archive-or-Delete prompt overflows left
+      edge on mobile. NEW 2026-08-26, owner-reported via screenshot;
+      live in production.** On the expanded order card, tapping `Archive`
+      opens the archive-or-delete prompt (`ArchiveOrDeletePrompt.tsx`
+      per CARD_SPEC Part 5 Q7); on mobile the popover anchors correctly
+      to the button but its content extends off the left of the
+      viewport, cutting the copy ("… keeps this order. Delete … as not
+      a purchase"). **Same era + same class as item 1606 (bell-icon
+      alignment)** — both from the pre-315 UI pass that was paused for
+      other work; both remote-reasoning-resistant positioning bugs (bell
+      went 0-for-4 on remote attempts). **Bundle with item 1606 into a
+      single on-device Safari Web Inspector session** — owner picking
+      this era back up now. Possible shared root cause worth checking
+      in that session (both may inherit from a common CSS/component
+      pattern); don't assume, but don't investigate them in isolation
+      either.
+- [ ] **Mobile audit finding #1 — Bell icon alignment on bottom nav.
+      DEFERRED 2026-07-25 (owner instruction) — moved out of active
+      🔴 Now/🙋 Waiting on Owner. STOP attempting further
+      remote-reasoning fixes: this is 0-for-4 (leading-none;
+      considered-and-rejected wrapper removal; min-h-dvh + vh fallback;
+      the 2026-07-17 checkpoint that confirmed it still isn't fixed).
+      Revisit only with an on-device Safari Web Inspector session
+      (remote-debug a real iPhone from a Mac), OR absorb into the
+      card-geometry rebuild (🙋 Waiting on Owner) if the bottom-nav
+      badge pattern gets touched incidentally by that work. Full
+      diagnostic history below, preserved verbatim, not re-summarized.**
+      **1. Bell icon alignment on bottom nav — FIXED 2026-07-17, awaiting
+      owner verification on a real device.** Root cause: the badge
+      (`app/BottomNav.tsx`) was correctly `position: absolute`, not a
+      normal-flow sibling — but its wrapping `<span className="relative">`
+      had no explicit `display`, defaulting to `inline`. An absolutely
+      positioned child of a plain `inline` container is inconsistently
+      handled across mobile browser layout engines, which is what surfaced
+      as the icon being pushed even though nothing was a true document-flow
+      sibling. Fix: wrapper changed to `className="relative inline-flex"`,
+      giving it an unambiguous, size-locked containing block. No other file
+      uses this badge pattern — `Sidebar.tsx`'s desktop "Alerts" badge is a
+      separate, non-overlay implementation (inline pill next to text, no
+      icon), unaffected by and unrelated to this fix. 359 tests still
+      passing (no test coverage for this — CSS/layout, no jsdom per
+      component testing philosophy), `npm run build` clean.
+      **Follow-up 2026-07-17:** owner found the fix correct in Safari iOS
+      but Bell still nudged relative to Home/Gear in Chrome iOS — a
+      cross-browser rendering difference, not a failed fix. Root cause:
+      Bell is the only icon wrapped in an extra `<span>` (Home/Gear are bare
+      `<svg>` flex items); that wrapper inherits line-height with no
+      explicit value, and Chrome/Safari disagree on how much of that leaks
+      into the computed box height of a nested inline-flex flex item.
+      Considered removing the wrapper entirely (anchor the badge to `Link`,
+      which already has `relative`) so Bell's DOM matches Home/Gear exactly
+      — rejected: the badge's `-top-1/-right-1.5` offsets are only valid
+      measured from the icon's own tight box; `Link` is a much wider
+      `flex-1` tap target with the icon centered inside it, so anchoring
+      there would put the badge tens of pixels from the actual bell, and
+      that distance isn't expressible as a fixed offset since it varies
+      with viewport width. Applied the smaller, correct fallback instead:
+      added `leading-none` to the wrapper to cancel the line-height
+      inheritance directly.
+      **Re-diagnosis 2026-07-17:** owner caught two Chrome-iOS screenshots,
+      same session, seconds apart — misaligned with the URL bar expanded,
+      correctly baselined with it collapsed. `leading-none` was the correct
+      class of fix (wrapper asymmetry) but the wrong mechanism — the real
+      driver is iOS's dynamic-toolbar viewport resize, not a static
+      line-height leak. No `vh`/`dvh` unit exists in `BottomNav.tsx` itself,
+      but its ancestor `app/(app)/layout.tsx` used `min-h-screen` (100vh,
+      the classic non-dynamic unit) one level up — `position:fixed;
+      bottom:0` nav bars are exactly the combination WebKit-based mobile
+      browsers handle inconsistently during that toolbar animation, and
+      Bell's extra nested-flex layer gives the browser more layout work to
+      redo mid-resize than Home/Gear's bare, fixed-size `<svg>`. Swapped to
+      `min-h-[100vh] min-h-[100dvh]` (dvh tracks the real visible viewport
+      through the toolbar animation; vh stays as a fallback for Safari
+      <15.4/Chrome <108) in `app/(app)/layout.tsx` — the only place inside
+      the `(app)` route group declaring `min-h-screen`. `leading-none` left
+      in place (harmless, avoids confounding the test). Sanity-checked
+      every other `min-h-screen`/`h-screen`/`100vh` usage in the app: all
+      are on separate, unrelated routes outside the `(app)` group
+      (`/login`, `/login/verify`, `/privacy`, `/admin/*`, `/action/*`,
+      `/marketing`) with their own independent declarations, untouched by
+      this change. One adjacent-but-unaffected note: `Sidebar.tsx`'s
+      desktop `<aside>` uses `h-screen` (its own direct `100vh`, not a
+      percentage of the layout div's height) — same unit class, but
+      desktop-only (`md:flex`) and not implicated in a mobile
+      toolbar-resize bug, left alone. `npm run build` clean, 359 tests
+      passing (no test coverage — CSS/layout).
+      **REMAINS OPEN 2026-07-17 — stop attempting further remote-reasoning
+      fixes.** Owner's on-device scroll test still shows misalignment. This
+      is the fourth diagnostic/fix round on this one finding (`leading-none`;
+      considered and rejected wrapper removal; `min-h-dvh` + vh fallback;
+      this checkpoint) with no confirmed fix landed — 0-for-4. Working
+      hypothesis, unconfirmed: Bell's wrapper span establishes an extra
+      formatting context Home/Gear don't have, making it sensitive to
+      viewport-reflow timing during iOS Chrome's URL-bar animation in a way
+      the `min-h-dvh` swap didn't fully address. Per this session's own
+      lesson (see Decisions log): when a class of bug goes 0-for-N on
+      remote reasoning, stop patching and start measuring. Needs an
+      on-device Safari Web Inspector (remote-debug a real iPhone from a
+      Mac) session to actually observe the computed box/line-height values
+      during the toolbar animation before another fix attempt — owner needs
+      a Mac + iPhone cable for this, not more diagnosis-by-code-reading.
+      **[2026-08-26]** Deferral condition met — owner picking the pre-315 UI
+      work back up. Bundle with the new "Mobile popover clip" 🐛 Bugs entry
+      (same era, same class); one on-device session, both bugs. Moving from
+      ❄️ Deferred to 🐛 Bugs.
+
 ### Infra / reliability
 - [ ] **Extraction-failure email rows get a false-confidence "real purchase"
       reason in the needs-review bucket — NEW 2026-08-24, found during the
@@ -2598,6 +2460,18 @@
       doesn't get forgotten between now and whenever it becomes visible
       enough to prioritize. See related 🟡 Next entry "Carrier-row
       disposition."
+      **[2026-08-26 OWNER DECISION — direction chosen]** Surface these on
+      the dashboard as "Unlinked carrier email" rows with a dropdown to
+      manually link to an existing order; on link, persist the tracking
+      number on the linked order. Rejected options: digest-suppression
+      only (doesn't help user), paid multi-carrier tracking API (parked
+      per item 3159), automatic linking heuristics (deferred — needs the
+      manual UI first to see what signal patterns emerge).
+      Scope for build session: dashboard row UI + link-picker component +
+      write path to persist `trackingNumber` on the linked order.
+      Not scoped, flag if it comes up: what happens if the same tracking
+      number appears on multiple carrier emails (dedup question) — don't
+      invent an answer, surface to owner.
 - [ ] **Fitness Superstore #48868 — establishing email extracted orderDate
       2025-07-09, a year before stored 2026-07-09; found 2026-08-16 sizing
       the write-once `orderDate` backfill.** Wrong-year-extraction shape.
@@ -3102,6 +2976,16 @@
       users — fix the gate so it only shows on a verified return number.
       **Note: the live-correctness angle (a button that may point users at
       the wrong tracking number today) is reason not to let this sit.**
+      **[2026-08-26 OWNER DECISION — two-session gate approved]**
+      Session 1 = part (1) as written, read-only diagnostic, zero billed
+      calls, produces the distribution report ("how often is
+      `returnTrackingNumber` populated / equal to `trackingNumber` / a
+      real distinct return-carrier reference"). Session 2 = display fix,
+      shape decided from Session 1's data. Owner's default expectation
+      is a narrow gate on the `Track your return` button (only render if
+      `returnTrackingNumber` is distinct and looks like a real return
+      reference). Full return-in-transit feature is explicitly out of
+      scope this pass — parked as a separate future item.
 - [ ] **Ingestion observability + recovery. NEW 2026-08-20 — not scoped,
       waiting on owner priority.** Direct predecessor: the 2026-07-21
       ingestion incident (🐛 Bugs, Trust-breaking) could not be
@@ -3145,6 +3029,14 @@
       not a duplicate of the three already logged there (category-count
       item data, relative delivery dates, multi-shipment order numbers).
       Not diagnosed or fixed here.
+      **[2026-08-26 FOLDED into 👀 Watching per owner]** Owner reports
+      Amazon extraction currently working as expected. Not converted to
+      ✅ Done because Amazon template drift is a permanent watch (see
+      Decisions log entry "Amazon is committed work, not 'someday'"
+      2026-07-19). Superseded by the new 👀 Watching entry "Amazon
+      extraction health" — this item stays in place for historical
+      record but no longer requires action unless the Watching entry
+      re-flags it.
 - [ ] **Admin route auth (`?secret=` query param) — needs hardening before
       the admin view shows other users' email metadata.** Flagged
       2026-07-22 during the Needs Review panel work. `app/admin/page.tsx`
@@ -3954,6 +3846,52 @@
       cosmetic type staleness that should still be cleaned up so
       real type errors in that file don't get masked by "oh
       that's the known stale one."
+- [ ] **Sender display name change — reminder / digest / coverage-check
+      emails currently show the sender name as literally "reminders."
+      Owner wants "My Return Window." NEW 2026-08-26.** Change is the
+      Postmark `From` header display name ONLY — NOT a domain change,
+      NOT a sending-address change, NOT a DKIM/SPF change. Small.
+      Locations: grep for `"reminders"` (or similar sender-name string
+      literal) in mail-sending code — likely `lib/mail*.ts`, plus the
+      three cron routes (`app/api/cron/reminders/route.ts`,
+      `.../weekly-digest/route.ts`, `.../weekly-coverage/route.ts`).
+      Verify: send one of each of the three email types to owner's
+      inbox; confirm the sender name renders as "My Return Window" in
+      Gmail's inbox list, not just the message body.
+- [ ] **Order date on collapsed order card — display next to order
+      number. NEW 2026-08-26, owner-approved.** Owner: "for alpha i'd
+      rather be a bit ugly and functional." Already present on the
+      expanded card and the order detail page. Requires CARD_SPEC.md
+      Part 3 amendment (adds a field to the collapsed 2x2 identity
+      slot). Small. Watch: collapsed card is already tight on mobile
+      (Mobile UX audit finding 8, item 1310) — order number + item name
+      + now order date on one row risks overflow at narrow widths.
+      Owner has accepted this trade-off; note the acceptance in the
+      spec amendment so a future design pass knows it was a conscious
+      functional-over-clean call, not an oversight.
+- [ ] **Copy order number on collapsed dashboard card — extend the
+      order-detail-page copy affordance (item 5199, shipped) to the
+      card. NEW 2026-08-26.** Small. `lib/orderNumberDisplay.ts` +
+      clipboard call reusable as-is. Add the copy button/icon inline
+      with the order number on `app/OrderCard.tsx`. Watch: same
+      overflow risk as the order-date-on-card item above — if both
+      built in the same session, reconcile the collapsed layout once,
+      not twice.
+- [ ] **Refund check-in reminders — read-only diagnostic. NEW
+      2026-08-26, owner-flagged: "don't think I'm getting them for
+      everything."** Investigate whether `runRefundCheckinReminders()`
+      (`lib/refundCheckin.ts`) is firing when the rules say it should.
+      For each Order currently in status `return_started` or
+      `refund_pending` (plus any recently transitioned out), enumerate:
+      (a) per the reminder rules, on which dates should a check-in
+      reminder have fired; (b) does the `Reminder` table show it
+      actually did fire on those dates? Report the delta.
+      Related-but-separate: item 1221 (`refund_pending → SKIP_STATUSES`
+      guard) — confirm the diagnostic query doesn't misclassify orders
+      that were correctly skipped by that guard.
+      READ-ONLY (pure DB query, zero billed Anthropic calls — Claude
+      Code confirms this before running per header). Fix session gated
+      on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **CC compliance-claim pattern: shipped-letter vs shipped-spirit — NEW
       2026-08-24, owner-logged, first instance.** CC can implement a spec's
@@ -4096,6 +4034,23 @@
       auto-trigger the HTML fallback from within the bucket
       rather than requiring manual More info + Re-extract).
 
+- [ ] **Orphan-orders census across users. NEW 2026-08-26, replaces
+      owner-only view of item 1107.** Original count (15) was owner's
+      own dashboard only. Owner reports the count is much lower now,
+      exact figure unknown without cross-user dashboard inspection.
+      Portion of the original population now covered by the
+      carrier-email routing decision (item 2568). Logged as future
+      diagnostic session, not urgent. Revisit if: orphan symptoms
+      recur in the needs-review bucket, unexplained rows appear in the
+      Sunday digest, or new alpha users report missing orders.
+- [ ] **Amazon extraction health. NEW 2026-08-26, folded from item
+      3133.** Owner reports Amazon extraction working as expected
+      today. Item 3133 not converted to ✅ Done — Amazon template
+      drift is a permanent watch (see Decisions log entry "Amazon is
+      committed work, not 'someday'" 2026-07-19; this codebase has
+      taken a per-session Amazon patch its whole life). No action;
+      re-flag as a real bug if Amazon orders visibly stop extracting
+      or start extracting wrong.
 ## ⚪ Someday
 - [ ] **Retailer logos — MOVED here 2026-07-26 (was 🟡 Next), per the
       2026-07-13 investigation (`LOGO_COVERAGE.md`, untracked — not yet
@@ -4191,7 +4146,234 @@
       product need; the 78% confidently-correct number is the bar to clear
       against whatever alternative is being considered.
 
+- [ ] **Owner admin dashboard — surface TBD. NEW 2026-08-26, seed for
+      owner's own wishlist cluster.** Owner-facing (not user-facing)
+      internal dashboard for ops / PM visibility. No scope yet — this
+      entry exists to accumulate wishlist items over time as they come
+      up in conversation. Nearby existing items to fold in / link out
+      to when this is scoped: item 3762 (Admin notification dashboard
+      view), item 3670 (User notification policy for data corrections),
+      item 3105 (Ingestion observability). As additional wishlist
+      items arrive, append them as sub-bullets under this entry rather
+      than creating new Someday rows for each. Not scoped, not
+      started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Unified card geometry + order state machine (2x2 four-slot) —
+      CONFIRMED DEPLOYED 2026-08-26.** Verified via git ancestry
+      (`card-geometry-state-machine` commits are ancestors of production
+      HEAD `59ab91c`) and Vercel deploy-timestamp cross-reference
+      (`dpl_8tys2tPkS3yg7WtWDUt3YhDr27VJ`, created seconds after that
+      commit). All BUILD PROGRESS 2026-08-11 pieces confirmed live:
+      `lib/orderCardState.ts`, `app/NeedsReviewBucket.tsx`,
+      `Order.status = "kept"` (additive, no migration), 33-row backfill
+      (`scripts/backfill-kept-status.ts` committed as paper trail, 0
+      mismatches per prior verification). The board's "Not yet
+      deployed" note was stale — owner was right that it's live.
+      Read-only diagnostic, 0 billed Anthropic calls (git + Vercel CLI
+      only).
+      Original 🔴 Now entry, preserved verbatim below, not edited in place:
+- [ ] **Unified card geometry + order state machine (2x2 four-slot) —
+      MOVED TO 🔴 Now 2026-08-10: owner brief given this session, build
+      BEGINS.** `CARD_SPEC.md` is build-ready and the single source of
+      truth (Part 5 answered 2026-07-29; fifth needs-review action,
+      manual-link picker, and summary-tab set locked 2026-08-10) —
+      building on a branch, preview-first, not directly against `main`.
+      CONSOLIDATED 2026-07-25 from five previously-separate items (Needs
+      Review panel UI, mobile audit findings #3/#4/#5, and M2's UI half).
+      Each original item's full text is preserved verbatim as its own
+      sub-entry below — nothing dropped, only regrouped.
+      **Locked decisions (`CARD_SPEC.md` Part 5 has full rationale — not
+      restated here, recorded so they aren't re-litigated):** bucket name
+      is **"Needs review"** everywhere; slot-4 label is **`Keep`**
+      everywhere (detail page's `Keeping it` renamed to match); mobile #3
+      resolved as **NO glyph / NO `⋯` / NO swipe** — the expanded state
+      shows `more info` and a single **`Archive`** labeled control (row
+      stays four controls, not five); `Delete` is **not** a peer control —
+      tapping `Archive` opens an archive-or-delete prompt, `Delete` lives
+      inside it, junk-with-rescue, own confirm, never hard delete (**this
+      corrects sub-entry 2 below, whose text still carries the 2026-07-25
+      "trash-can icon" answer — `CARD_SPEC.md` Part 5 Q7 reverses that;
+      sub-entry 2 is kept verbatim as the historical record, not edited in
+      place. Note: as of 2026-08-10 this is also a correction to CARD_SPEC.md's
+      own "What changed" summary, which still read "Archive and Delete
+      become labeled text controls" before this session — fixed there
+      too, so the file no longer contradicts its own Part 5 answer**);
+      needs-review action registry is **FIVE** (Link to order [manual
+      picker, v1] / Create new order / Not a purchase / View detail /
+      Nothing), open/extensible, unknown → View detail; awaiting-refund
+      chip revised to **`Refund pending`** (from `Returned {date}`);
+      summary tabs are all four (Due this week / Needs review / Returns
+      in progress / Refunds pending) — **out of scope for this build**,
+      navigation not cards.
+      **BUILD PROGRESS 2026-08-11 (branch `card-geometry-state-machine`,
+      not pushed):** Step 0 reconciliation done and reviewed by owner
+      (Amazon bundle overflow limit confirmed as literal `5` in
+      `app/AmazonBundleCard.tsx`; O7 delivered-vs-displayStatus divergence
+      confirmed already fixed at the `deriveDisplayStatus` layer; `kept`
+      confirmed to have no internal `Order.status` value). Per this
+      session's owner brief, `kept` was promoted to a real `Order.status`
+      value — additive (String column, no schema migration), 33-row
+      backfill applied and verified (`status = displayStatus` wherever
+      `displayStatus === "kept"`, 0 mismatches against `keptAt`). **Build A**
+      (single-order card + state machine, `lib/orderCardState.ts`) and
+      **Build B** (needs-review bucket, `app/NeedsReviewBucket.tsx`) are
+      both built and committed locally — see `HISTORY.md` for the full
+      session detail once closed. Full test suite (541/541) and `next
+      build` pass; no new typecheck errors. **Not yet deployed** — awaiting
+      owner preview + explicit push instruction, per "Done means deployed."
+      One known capability trade-off from Build B, not a bug: the old
+      inline "Looks correct"/"Split into separate order" quick-actions on
+      needsReview orders are no longer reachable from the dashboard — an
+      already-linked order has no clean mapping onto the five-action
+      registry, so it degrades to `View detail` (Part 3 Q9's explicit
+      fallback design, not an oversight) — flagged here in case the owner
+      wants those two actions re-added to the order detail page later.
+      **Framing note (owner-confirmed 2026-07-25):** there is ONE four-slot
+      skeleton — (1) identity, (2) context, (3) state, (4) action — used at
+      two levels. A single order card is one 2x2. The needs-review bucket is
+      a CONTAINER (same pattern as the Amazon bundle card): its header is a
+      2x2 describing the group, and it holds N flagged orders, each rendered
+      as its own 2x2 row. Collapsed = compact stack (identity + why, no
+      action buttons); expanded = each row reveals its slot-4 action. Slots
+      3 and 4 on an order are driven by a single order state machine
+      (Awaiting delivery → Keep→archive; Returnable → Start return →
+      Awaiting drop-off → Awaiting refund → Complete→archive). Slot 4 is a
+      closed action set; an unregistered reason degrades to "view detail,"
+      never throws. The bucket needs an inline-row overflow limit before
+      "View all N →" opens a full page — reuse the Amazon bundle's
+      threshold, don't invent a second one.
+
+      ---
+      **Sub-entry 1 of 6 — Needs Review panel UI (original item; the
+      junk-mechanics backend piece that used to be embedded in this same
+      item was split out to ✅ Done 2026-07-25 since it already shipped —
+      the rest below is unbuilt UI, preserved verbatim):**
+- [ ] **Needs Review panel ("Need attention" disclosure surface) — BUILD
+      STARTED 2026-07-22, promoted from 🟡 Next now that the mock/layout
+      spec has landed.** Panel implementation of the quick-check surface
+      spec (mobile audit finding #5, below) — same underlying data
+      (`needsReview`/`userNote`/`reviewReasonLabel()`). **Supersedes the
+      2026-07-20 Decisions-log "confirm + fix in-panel" action model** (see
+      Decisions log entry, rewritten same commit) — the action model is now
+      per-flag-type, registry-driven: `duplicate` → Merge (no confirm) +
+      Review; `not_ecommerce` → Delete (behind confirm) + Review; any
+      unregistered type → Review-only, never throws. Still true and kept
+      from the old decision: delete stays behind a confirm; no inline
+      ignore/dismiss in v1. Diagnostic-first verify gate (actual stored
+      field/values, duplicate-target existence, explanation-string
+      accuracy) required and reported before any code, per this item's own
+      build instructions — see session detail in `HISTORY.md` once closed.
+      → see DECISIONS.md 2026-07-23 ("Needs Review panel registry rejected — not_ecommerce/duplicate aren't real flag types")
+
+      ---
+      **Sub-entry 2 of 6 — Mobile audit finding #3 ("..." overflow menu
+      replacement), original text below. DECIDED 2026-07-25 — see
+      DECISIONS.md 2026-07-25: replace ⋯ with a visible trash-can icon
+      (own confirm step) + always-visible Archive. No longer a standalone
+      open question; folded in here as resolved groundwork for the build.
+      SUPERSEDED 2026-08-10 by `CARD_SPEC.md` Part 5 Q7 (decided
+      2026-07-29, later than this note) — the live answer is the OPPOSITE:
+      NO glyph, NO trash icon, NO swipe. See "Locked decisions" above; this
+      sub-entry's text is preserved verbatim below as the historical
+      record, not the current answer.**
+      **3. "..." overflow menu replacement — spec, propose don't decide.**
+      `app/OrderActionsMenu.tsx` currently hides Archive and Delete (plus
+      tracking links when present) behind a "⋯" button. Two
+      always-available items don't justify a menu, and hiding
+      destructive-only actions (Delete) behind an ambiguous affordance is the
+      wrong pattern — a user has no visual cue that anything destructive
+      lives there. Proposed replacement, for owner decision, not decided
+      here: an explicit icon affordance (e.g. a trash-can icon with its own
+      confirm step, matching `handleDelete`'s existing
+      `window.confirm`) rather than a generic overflow glyph, with Archive
+      surfaced as its own always-visible action rather than tucked away
+      alongside a destructive one.
+
+      ---
+      **Sub-entry 3 of 6 — Mobile audit finding #4 (state-label
+      contradictions + button hierarchy), original text below:**
+      **4. State-label contradictions + button hierarchy — one workstream,
+      spec pass needed.** Cards can show combinations like "Kept" + "at risk"
+      + a return-by date simultaneously (`app/OrderCard.tsx`'s `atRisk`
+      via `isClosingSoon()`, `DisplayStatusBadge.tsx`, `DaysLeftChip.tsx` all
+      render independently of each other), and primary-CTA visual weight
+      shifts unpredictably between cards (two side-by-side buttons, two
+      buttons with different primary treatment, one full-width button, or
+      none, depending on `getVisibleActions()`'s combination for that order).
+      Underlying issue: the app has no consistent notion of "the user already
+      made a decision about this order" that other UI elements can defer to
+      — each label/badge/button is computed independently. Needs a spec pass
+      (what should suppress what, once a decision is made) before any design
+      or code change. The specific "Kept + at risk" combination observed
+      during this audit was a testing artifact (see note below), but the
+      broader label-fighting pattern is real independent of that instance.
+
+      ---
+      **Sub-entry 4 of 6 — Mobile audit finding #5 (quick-check /
+      review-disclosure surface), original text below:**
+      **5. Quick-check (needs-review) surface doesn't explain itself — spec
+      needed before design. NOW THE BOTTLENECK, HIGH-LEVERAGE (2026-07-19).**
+      `app/ReviewCard.tsx` asks users to arbitrate between "looks correct"
+      and "split into separate order" with no visible evidence supporting
+      either option and no explanation of why the system isn't confident in
+      the first place. Same root concern as the existing Next item about
+      this card's missing "why" line (`TRUST_AUDIT.md` row 6), but broader:
+      it's not just a missing explanation string, it's that the whole
+      surface asks for a judgment call without giving the information
+      needed to make one. Needs a spec pass, not a copy tweak. **This is now
+      the hub for three distinct `needsReview` reasons that all need this
+      same disclosure surface to actually explain themselves:** #6a's
+      kept-status-conflict (`computeKeptStatusConflict()`), M2's
+      return-portal trust tier (`classifyReturnPortalTrust()`), and the
+      original missing-deadline case. Two more gaps in this space are
+      tracked separately in 🟡 Next (`policysource-url-provenance-imprecision`,
+      `reviewreasonlabel-missing-reasons`). Every session that adds a new
+      review-flagging mechanism makes this spec pass more overdue, not less
+      — it's gated on owner mockups, but it's the current highest-leverage
+      piece of unblocked work once those land.
+
+      ---
+      **Sub-entry 5 of 6 — M2 return-portal UI half (original item,
+      moved here in full from ⏳ Verifying 2026-07-25 — the shipped
+      review-signal half described within this same text is already live
+      and deployed; only the UI half is the reason this item is now
+      owner-blocked rather than passively verifying):**
+- [ ] **M2 — return-portal URL phishing risk, primary open security finding —
+      review-signal half SHIPPED 2026-07-19 (`947edce`), deployed, awaiting
+      natural verification; UI half deliberately NOT built.** `classifyReturnPortalTrust()`
+      (`lib/extract.ts`) classifies every incoming `returnPortalUrl` into a
+      trust tier (`known-third-party-portal` — Loop/Narvar/parcelLab/Reveni/
+      Linc confirmed live in our data, Happy Returns/ReBOUND seeded unverified;
+      `retailer-own-domain` — exact registrable-domain match only, never a
+      substring/contains check; `web-lookup-sourced` — measurement-only, not a
+      security boundary; `unknown-unverified`) and forces `Order.needsReview`
+      on `unknown-unverified`, same gate `computeKeptStatusConflict` (#6a)
+      uses. A SIGNAL, never a hard block — `returnPortalUrl` still
+      renders/opens exactly as before. Reason is re-derived live in
+      `lib/orderReview.ts`'s `reviewReasonLabel()`, not stored in a new field
+      (it's a pure function of data already on the row). Tier distribution
+      logged count-only (no URL/retailer/order id). **What's still open:** no
+      domain display, no auto-open gating, no visible "unverified" mark — the
+      actual UI remediation direction in `SECURITY_AUDIT.md`'s M2 entry is
+      deferred to the pending review-disclosure spec (handles all
+      `needsReview` reasons uniformly, not a bespoke M2 treatment). Full
+      detail in `BUILD.md`'s Order-linking section + Decisions log.
+
+      ---
+      **Sub-entry 6 of 6 — four-slot panel build
+      (original text below, from the Task 1-4 tracker). RESOLVED
+      2026-08-10: the "not started until [owner brief]" blocker below is
+      removed — the owner brief is this session's greenlight, and
+      `CARD_SPEC.md` is the build-ready spec it was waiting on.**
+      **Needs Review four-slot inventory — REPORT ONLY, inventory
+      complete.** No longer blocked; build proceeds per `CARD_SPEC.md`.
+
+- **RESOLVED 2026-08-10 — owner brief given this session.** The
+  contradiction this note flagged (the four-slot panel build sub-entry
+  above said "not started until [owner brief]" while the four-slot
+  inventory was already marked COMPLETE) is resolved at the source — see
+  sub-entry 6 above, corrected in place.
 
 - [x] Zara "unknown retailer" digest lines fixed — commerce-typed
       emails now fall back to sender-derived retailer when body
