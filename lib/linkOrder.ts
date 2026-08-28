@@ -19,6 +19,7 @@ type MergeableEmail = Pick<
   | "lineItems"
   | "emailType"
   | "orderDate"
+  | "anchorDate"
   | "deliveryDate"
   | "estimatedDeliveryDate"
   | "deliveredAt"
@@ -32,7 +33,9 @@ type NewOrderEmail = Pick<
   Email,
   | "retailer"
   | "orderNumber"
+  | "emailType"
   | "orderDate"
+  | "anchorDate"
   | "deliveryDate"
   | "estimatedDeliveryDate"
   | "deliveredAt"
@@ -218,6 +221,11 @@ export async function applyFallbackOrderDate(orderId: string): Promise<void> {
     where: { id: orderId },
     data: {
       orderDate: fallbackOrderDate,
+      // TASKS.md 2026-08-27, diagnosis commit 179389e — marks this value
+      // as a heuristic guess (earliest-linked email's receivedAt/anchorDate),
+      // not a stated fact, so mergeEmailIntoOrder's provenance-aware rule
+      // knows it's still correctable by a later, genuinely-extracted date.
+      orderDateSource: "fallback",
       orderDateEstimated: true,
       returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
       deadlineIsEstimated: true,
@@ -632,28 +640,89 @@ async function resolveOrderTotal(existing: Order, email: Pick<Email, "emailType"
   return email.orderTotal ?? existing.orderTotal;
 }
 
+// TASKS.md 2026-08-27, diagnosis commit 179389e — the two-tier "extracted"
+// signal shared by every orderDate write site (createOrderFromEmail,
+// mergeEmailIntoOrder, rebuildOrderFromRemainingEmails's seed write).
+// Priority 1: the AI's own extracted orderDate field — a real, body-stated
+// date. Priority 2, order_confirmation ONLY: the forward resolver's
+// anchorDate (lib/forwardResolver.ts), when the AI found no explicit date
+// in the body but the email's own send/forward timestamp is available —
+// this is what actually fixes the Zara #54421192781 shape (a manually-
+// forwarded order_confirmation whose real date lived only in the
+// forwarded-header-parsed anchorDate, never in the AI's orderDate field).
+// Deliberately NOT extended to shipping_confirmation/delivery — read-only
+// investigation (same date) found priority 2 alone already covers roughly
+// as many orders as priority 1, while broadening to ship/deliver anchorDate
+// was only explored as an unvalidated hypothesis (would additionally fix
+// Shopbop #143429832, but wasn't decided on) — left for a future session,
+// not silently adopted here.
+function resolveExtractedOrderDate(email: Pick<MergeableEmail, "emailType" | "orderDate" | "anchorDate">): Date | null {
+  return email.orderDate ?? (email.emailType === "order_confirmation" ? email.anchorDate : null);
+}
+
 // Shared by the exact-match, order-number-prefix-match, and retailer-prefix-match
 // paths: an existing Order gets enriched with whatever the new email adds, never
 // blindly overwritten. Exported so the backfill script can call it directly,
 // bypassing the normal match step entirely.
 //
-// orderDate is write-once, not last-write-wins: once set, no later email of
-// any type — including another establishing one — may change it. A
-// same-type allowlist ("only order_confirmation/shipping_confirmation/
-// delivery may set orderDate") is NOT enough on its own: a shipping order's
-// own delivery email can arrive after its order_confirmation and carry a
-// later date, and both are establishing types, so an overwrite-permitted
-// allowlist would still silently replace a correct date with a wrong later
-// one (confirmed against a real production row, 2026-08-16 — see
-// TASKS.md). The establishing-type gate (ALLOWED_FALLBACK_EMAIL_TYPES,
-// above) still matters, but only for deciding what may set orderDate the
-// FIRST time; once set, it's frozen regardless of the type of any
-// subsequently-linked email.
+// orderDate is PROVENANCE-AWARE, not plain write-once (changed 2026-08-27,
+// TASKS.md "orderDate write-once locks in the wrong email's date",
+// diagnosis commit 179389e — see prisma/schema.prisma's orderDateSource
+// comment for the full field definition). Plain write-once ("once set,
+// never move again, regardless of type") was itself a deliberate fix for a
+// real bug (2026-08-16: a shipping order's own delivery email arriving
+// after its order_confirmation and silently replacing a correct date with
+// a wrong later one) — but it went too far the other direction: it also
+// permanently locked in a HEURISTIC guess (applyFallbackOrderDate's
+// earliest-linked-email fallback) with no way for a later, genuinely
+// AI-extracted date to ever correct it. Zara #54421192781 is the
+// concrete case: its delivery email happened to be the first one
+// successfully linked (the two earlier shipping_confirmations were
+// orphaned until a retailer-identification fix reconciled them days
+// later), so the fallback wrote the delivery email's own receivedAt as
+// orderDate — and the real order_confirmation, arriving over a week
+// later with the correct date actually stated in its body, could never
+// overwrite it.
+//
+// The fix distinguishes WHY the current value is what it is, not just
+// THAT it's set:
+//   - orderDateSource "extracted": a genuine per-email date signal — see
+//     resolveExtractedOrderDate above (the AI's own orderDate field, or,
+//     order_confirmation only, the forward resolver's anchorDate). Never
+//     overwritten by anything, regardless of the incoming email's type.
+//     This is what still protects the 2026-08-16 case (a later shipping/
+//     delivery email's extracted date, if it had one, could not replace
+//     an order_confirmation's).
+//   - orderDateSource "fallback" or "unknown" (row predates this field):
+//     just a heuristic guess or undetermined provenance — not actually
+//     confirmed correct, so a genuinely extracted date is allowed to
+//     replace it, ESTABLISHING or OVERWRITING alike.
+//
+// Both the establishing and overwriting cases still go through the SAME
+// ALLOWED_FALLBACK_EMAIL_TYPES type gate as before (order_confirmation,
+// shipping_confirmation, delivery only) — deliberately kept, not dropped,
+// despite lib/extract.ts's own extraction prompt looking for a stated
+// order date across every email type. This protects a second, separate,
+// already-fixed incident: J.Crew #2523415500, a lone REFUND email
+// creating an order whose orderDate got set to the refund's own
+// (irrelevant) extracted date, because nothing else had ever linked to
+// establish a real one first (see __tests__/linkOrder.test.ts, "a refund
+// email never establishes orderDate when nothing has set it yet"). That
+// protection predates and is independent of this session's fix — do not
+// remove it while working on the orderDate-provenance logic; a refund/
+// return_label/other-typed email's own extracted orderDate is real
+// extraction, per lib/extract.ts, but has no reliable relationship to
+// order-placement time (same reasoning that already excludes those types
+// from applyFallbackOrderDate's separate receivedAt-based fallback below).
 export async function mergeEmailIntoOrder(existing: Order, email: MergeableEmail, returnPortalUrl: string | null): Promise<string> {
   const emailLineItems = asLineItemArray(email.lineItems);
-  const isEstablishingEmail = ALLOWED_FALLBACK_EMAIL_TYPES.has(email.emailType ?? "");
-  const establishesOrderDateNow = existing.orderDate == null && isEstablishingEmail && email.orderDate != null;
-  const mergedOrderDate = existing.orderDate ?? (isEstablishingEmail ? email.orderDate : null);
+  const existingOrderDateSource = existing.orderDateSource ?? "unknown";
+  const isEstablishingEmailType = ALLOWED_FALLBACK_EMAIL_TYPES.has(email.emailType ?? "");
+  const canOverwriteOrderDate = existingOrderDateSource !== "extracted" && isEstablishingEmailType;
+  const extractedOrderDate = resolveExtractedOrderDate(email);
+  const orderDateWillChange = extractedOrderDate != null && canOverwriteOrderDate;
+  const mergedOrderDate = orderDateWillChange ? extractedOrderDate : existing.orderDate;
+  const mergedOrderDateSource = orderDateWillChange ? "extracted" : existingOrderDateSource;
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
   const mergedEstimatedDeliveryDate = email.estimatedDeliveryDate ?? existing.estimatedDeliveryDate;
   const mergedDeliveredAt = email.deliveredAt ?? existing.deliveredAt;
@@ -675,12 +744,15 @@ export async function mergeEmailIntoOrder(existing: Order, email: MergeableEmail
     where: { id: existing.id },
     data: {
       orderDate: mergedOrderDate,
-      // Clears only the first time orderDate is genuinely established from
-      // an establishing email (establishesOrderDateNow) — a real stated
+      orderDateSource: mergedOrderDateSource,
+      // Clears whenever orderDate actually changes to a genuinely
+      // extracted value this merge (orderDateWillChange) — a real stated
       // date, not inferred, so orderDateEstimated should read false from
-      // that point on. In every other case orderDate isn't moving this
-      // merge (write-once), so the existing flag is left exactly as it was.
-      orderDateEstimated: establishesOrderDateNow ? false : existing.orderDateEstimated,
+      // that point on, whether this is the FIRST time orderDate was ever
+      // set or a later correction of a fallback guess. Otherwise
+      // (orderDate isn't moving, or it's already "extracted" and staying
+      // put) the existing flag is left exactly as it was.
+      orderDateEstimated: orderDateWillChange ? false : existing.orderDateEstimated,
       deliveryDate: mergedDeliveryDate,
       estimatedDeliveryDate: mergedEstimatedDeliveryDate,
       deliveredAt: mergedDeliveredAt,
@@ -707,12 +779,27 @@ export async function createOrderFromEmail(
   email: NewOrderEmail,
   returnPortalUrl: string | null,
 ): Promise<string> {
+  const extractedOrderDate = resolveExtractedOrderDate(email);
   const created = await prisma.order.create({
     data: {
       userId,
       retailer: email.retailer,
       orderNumber: email.orderNumber,
-      orderDate: email.orderDate,
+      orderDate: extractedOrderDate,
+      // TASKS.md 2026-08-27 ("orderDate write-once locks in the wrong
+      // email's date"), diagnosis commit 179389e. The triggering email's
+      // own extracted signal (AI orderDate, or — for an order_confirmation
+      // only — the forward resolver's anchorDate, per
+      // resolveExtractedOrderDate above) is authoritative ("extracted") —
+      // leave orderDateSource unset (falls to the schema default,
+      // 'unknown') when there's no extracted value yet, since
+      // applyFallbackOrderDate (called immediately after this, in
+      // linkEmailToOrder) will set both orderDate and
+      // orderDateSource:"fallback" together if its heuristic fires. Never
+      // write "fallback" here directly — that would be a lie if
+      // applyFallbackOrderDate's own allowed-type gate then declines to
+      // fire for this email's type.
+      orderDateSource: extractedOrderDate ? "extracted" : undefined,
       deliveryDate: email.deliveryDate,
       estimatedDeliveryDate: email.estimatedDeliveryDate,
       deliveredAt: email.deliveredAt,
@@ -744,6 +831,7 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
     orderBy: { receivedAt: "asc" },
     select: {
       orderDate: true,
+      anchorDate: true,
       deliveryDate: true,
       estimatedDeliveryDate: true,
       deliveredAt: true,
@@ -761,10 +849,19 @@ export async function rebuildOrderFromRemainingEmails(orderId: string): Promise<
   if (emails.length === 0) return;
 
   const [first, ...rest] = emails;
+  const firstExtractedOrderDate = resolveExtractedOrderDate(first);
   await prisma.order.update({
     where: { id: orderId },
     data: {
-      orderDate: first.orderDate,
+      orderDate: firstExtractedOrderDate,
+      // Same reasoning as createOrderFromEmail (TASKS.md 2026-08-27,
+      // diagnosis commit 179389e) — this seed write must set
+      // orderDateSource too, or it would stay whatever it was before the
+      // rebuild while orderDate itself resets to `first`'s value, leaving
+      // the two permanently mismatched and mergeEmailIntoOrder's
+      // provenance-aware rule below (called for `rest`) working off a
+      // stale premise.
+      orderDateSource: firstExtractedOrderDate ? "extracted" : "unknown",
       orderDateEstimated: false, // rebuilding from scratch; re-derived below if still missing
       deliveryDate: first.deliveryDate,
       estimatedDeliveryDate: first.estimatedDeliveryDate,
@@ -814,6 +911,7 @@ export async function linkEmailToOrder(emailId: string, returnPortalUrl: string 
       orderCurrency: true,
       policySource: true,
       orderDate: true,
+      anchorDate: true,
       deliveryDate: true,
       estimatedDeliveryDate: true,
       deliveredAt: true,

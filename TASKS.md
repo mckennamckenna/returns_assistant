@@ -1477,15 +1477,78 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
-- [ ] **orderDate write-once locks in the wrong email's date when
-      extraction/linking happens out of receivedAt order — NEW 2026-08-27,
-      READ-ONLY diagnostic, 0 billed Anthropic calls
-      (`scripts/pm-diag-orderdate-mismatch-v2-20260827.ts` and 4
-      companion scripts, same date). Owner-reported via Zara
-      #54421192781: orderDate showed Aug 22, matched no linked email's
-      date at all, and the real order-confirmation (manually forwarded
-      later) stated Aug 16. NOT FIXED — diagnosis only, per session
-      scope. Fix scope noted below for a future build session.**
+- [ ] **[CODE BUILT + TESTED 2026-08-27, NOT DEPLOYED — backfill SQL
+      pending owner review/execution] orderDate write-once locks in the
+      wrong email's date when extraction/linking happens out of
+      receivedAt order.**
+      **Build session 2026-08-27 close-out:** `prisma/schema.prisma` — new
+      `Order.orderDateSource` field (`"extracted" | "fallback" | "unknown"`,
+      migration `20260827224554_add_order_date_source`, additive, all 198
+      existing rows default to `"unknown"`, applied to production — no
+      code deployed against it yet). `lib/linkOrder.ts` — new pure
+      `resolveExtractedOrderDate()` (an email's own AI-extracted
+      `orderDate`, or — order_confirmation only — the forward resolver's
+      `anchorDate` when the AI found none), wired into all three write
+      sites (`createOrderFromEmail`, `mergeEmailIntoOrder`,
+      `applyFallbackOrderDate`) plus a fourth site the original diagnosis
+      didn't name but needed the same fix (`rebuildOrderFromRemainingEmails`,
+      used by the order-review split action). `orderDate` is no longer
+      plain write-once — a value sourced from `"fallback"` or `"unknown"`
+      can be corrected by a later, genuinely-extracted date; a value
+      sourced from `"extracted"` never can, preserving two independent,
+      named historical protections that predate this fix (2026-08-16's
+      shipping-email-overwrites-order_confirmation case, and the J.Crew
+      #2523415500 lone-refund-email case — both still enforced via the
+      `ALLOWED_FALLBACK_EMAIL_TYPES` type gate, deliberately kept, not
+      dropped, despite this session's own draft algorithm initially
+      omitting it — caught via a clarifying question before implementing,
+      see the session transcript). 21 new/updated tests, 681/681 passing,
+      `npm run build` clean.
+      **Priority rule for what counts as "extracted," confirmed via a
+      dedicated read-only investigation before implementing (0 billed
+      calls) — not the original literal one-tier spec:**
+      Priority 1 = an order_confirmation's own AI-extracted `orderDate`
+      (50/198 orders). Priority 2 = no priority-1 signal, but that same
+      order_confirmation's `anchorDate` (48/198 orders — nearly as large
+      as priority 1, and specifically what corrects Zara, whose
+      order_confirmation had `orderDate: null` in its own extraction and
+      only carried the real Aug 16 date via `anchorDate`). Quality-checked
+      first: 10 spot-checked orders where both signals existed (on
+      different emails within the same order) showed deltas of 0.16–3.13
+      days — extraction and anchorDate agree closely, priority order is
+      not inverted. **Deliberately NOT extended to shipping_confirmation/
+      delivery emails' anchorDate** (a "priority 3") — would additionally
+      fix Shopbop #143429832 (36/100 otherwise-residual orders would
+      resolve) but was only explored as an unvalidated hypothesis, not
+      adopted this session. **Confirmed via a second, targeted check:
+      Shopbop and all 6 previously-flagged orders (MANGO F4VLSF, Ruti
+      424051, Bettervits USA 444466, H&M 66993117803, Sidekick SK213978,
+      Tuckernuck TNK6875105) remain uncorrected under the adopted rule** —
+      Shopbop has no order_confirmation at all; the other 6 either have
+      none or have one with no signal in either field. All 7 get labeled
+      `orderDateSource: "fallback"` by the backfill (documents provenance,
+      doesn't invent a date) and stay open as a residual, not silently
+      dropped — flagged explicitly for a future session to decide on the
+      broader gate.
+      **Backfill SQL drafted, NOT executed:**
+      `scripts/orderdate-source-backfill-20260827.sql` — SELECT-first
+      (verified live against production: 198 rows, 50 priority-1 / 48
+      priority-2 / 100 fallback-label-only, exactly matching the
+      investigation's predicted split), two idempotent UPDATEs (the
+      orderDate+returnDeadline correction, and the label-only pass for
+      residuals), commented rollback. **Also recomputes `returnDeadline`**
+      for corrected orders — a raw SQL `orderDate` change does NOT trigger
+      `computeDeadline()` the way a real ingested email would, so without
+      this the deadline would stay stale even after `orderDate` is fixed;
+      verified live that Zara's predicted values are exactly `orderDate:
+      2026-08-16 05:13`, `returnDeadline: 2026-09-15 05:13` (Aug 16 + 30
+      days), matching the original ask. Per CLAUDE.md's data-write rule:
+      **owner must review this SQL and run it manually against
+      production** — the code change alone only affects emails processed
+      from now on, it does not touch existing rows.
+      **Not deployed — code is written and tested locally but not
+      committed/pushed yet, pending this close-out and owner review of
+      the SQL.**
 
       **Root cause, confirmed via Zara's own data:** `applyFallbackOrderDate`
       (`lib/linkOrder.ts`) fires once, the moment an Order's `orderDate` is
@@ -1549,18 +1612,14 @@
         that this check cannot detect. The true affected population is
         probably larger than 2.
 
-      **Fix scope (not built): would touch `lib/linkOrder.ts`** —
-      `applyFallbackOrderDate`/`resolveFallbackOrderDate` (make the
-      earliest-email determination revisitable rather than one-time, or
-      recompute whenever a new email links in with an earlier `receivedAt`
-      than what was previously used) and possibly `mergeEmailIntoOrder`'s
-      establishing condition (whether to also accept `anchorDate` as an
-      establishing source, not just the AI's own `orderDate` field). Real
-      design tradeoff: revisiting a "write-once" value on a genuinely
-      earlier-linked email needs its own reasoning about what should
-      still count as write-once (a user's own later edits? a
-      manually-confirmed date?) vs. what's fair game to correct
-      automatically — not a one-line fix, needs a design pass.
+      **Fix scope above — BUILT 2026-08-27, see the build-session summary
+      at the top of this entry.** (This paragraph is what the design pass
+      predicted before building; kept verbatim as the paper trail. The
+      built solution took the "provenance, not write-once" direction
+      rather than "revisit the earliest-email determination," and DID end
+      up accepting `anchorDate` as an establishing source for
+      order_confirmation specifically, exactly as flagged as a possibility
+      here.)
 
       **Related, separate finding — return-deadline disagreement, same
       order, different mechanism:** Zara's order detail page shows Sep 21;
@@ -1592,6 +1651,25 @@
       (it's an artifact of extraction-time state, not a fact about the
       order), or recompute it whenever the order-level deadline changes —
       needs an owner call on which.
+      **UPDATE 2026-08-27, build session: confirmed this does NOT
+      self-correct automatically, and the backfill only fixes half of
+      it.** The order-level `returnDeadline` does NOT recompute just from
+      correcting `orderDate` — that only happens via application code at
+      real ingestion time, never from a raw SQL `UPDATE` — so the backfill
+      SQL (`scripts/orderdate-source-backfill-20260827.sql`) explicitly
+      recomputes it using `computeDeadline`'s own case-1 formula (verified
+      live: Zara's order page will show Sep 15 post-backfill, matching the
+      expected Aug 16 + 30 days). **The per-EMAIL frozen snapshot
+      (`Email.returnDeadline`, shown on the email detail page) is NOT
+      touched by this backfill** — the `Email` table is out of this
+      session's scope. Zara's order_confirmation email detail page will
+      keep showing Sep 23 even after the backfill runs, while the order
+      page correctly shows Sep 15 — the exact disagreement this finding
+      first surfaced, now confirmed to persist post-backfill rather than
+      resolved by it. **Verify this explicitly after the backfill runs**
+      (open item, not done here) and treat the per-email snapshot fix as
+      still fully unbuilt, needing its own session per the fix-scope note
+      above.
 
       **Manual-forward late-arrival, checked as its own hypothesis and
       narrower than feared:** orders where an `order_confirmation` was
@@ -4090,6 +4168,17 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Repeated xSource companion-field pattern — NEW 2026-08-27.**
+      `Order.orderDateSource` (this session) is the second field of this
+      exact shape on the schema — `Email.anchorSource` (2026-07-25,
+      `ANCHOR_DATE_RESOLVER.md`) was the first: a debug/provenance enum
+      living alongside the value field it describes. Two is a coincidence;
+      a third would be a pattern worth designing around instead of
+      repeating ad hoc. **Revisit trigger: if a third `xSource` companion
+      field gets proposed**, pause and consider a general provenance
+      abstraction first — a JSONB `fieldSources` column, or a dedicated
+      `FieldHistory` table — rather than adding a fourth/fifth bespoke
+      `String?` enum column one at a time.
 - [ ] **CC compliance-claim pattern: shipped-letter vs shipped-spirit — NEW
       2026-08-24, owner-logged, first instance.** CC can implement a spec's
       literal rules (mapping tables, fallback defaults, DoD checkbox

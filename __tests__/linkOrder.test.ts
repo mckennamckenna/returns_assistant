@@ -9,6 +9,7 @@ const mockPrisma = {
     findUnique: vi.fn(),
     findUniqueOrThrow: vi.fn(),
     update: vi.fn(),
+    create: vi.fn(),
   },
   email: {
     findFirst: vi.fn(),
@@ -41,6 +42,7 @@ const {
   linkEmailToOrder,
   resolveDeliveredAtBackfill,
   recomputeDisplayStatus,
+  createOrderFromEmail,
 } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
@@ -161,6 +163,69 @@ describe("parseForwardedHeaderDate", () => {
   });
 });
 
+// TASKS.md 2026-08-27, diagnosis commit 179389e — the third of three
+// orderDate write sites needing orderDateSource.
+describe("createOrderFromEmail — orderDateSource", () => {
+  const baseEmail = {
+    retailer: "Zara",
+    orderNumber: "54421192781",
+    emailType: "order_confirmation" as string | null,
+    orderDate: null as Date | null,
+    anchorDate: null as Date | null,
+    deliveryDate: null,
+    estimatedDeliveryDate: null,
+    deliveredAt: null,
+    returnWindowDays: null,
+    returnWindowStartsFrom: null,
+    returnDeadline: null,
+    deadlineIsEstimated: false,
+    policySource: null,
+    orderTotal: null,
+    orderCurrency: null,
+    lineItems: [],
+  };
+
+  beforeEach(() => {
+    mockPrisma.order.create.mockReset();
+    mockPrisma.order.create.mockResolvedValue({ id: "order1" });
+  });
+
+  it("sets orderDateSource 'extracted' when the triggering email has its own extracted orderDate", async () => {
+    const extractedDate = new Date("2026-07-23T00:00:00.000Z");
+    await createOrderFromEmail("user1", { ...baseEmail, orderDate: extractedDate } as any, null);
+
+    const data = mockPrisma.order.create.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(extractedDate);
+    expect(data.orderDateSource).toBe("extracted");
+  });
+
+  it("leaves orderDateSource unset (falls to the schema default 'unknown') when the triggering email has no extracted orderDate — applyFallbackOrderDate sets it afterward if its heuristic fires", async () => {
+    await createOrderFromEmail("user1", { ...baseEmail, orderDate: null } as any, null);
+
+    const data = mockPrisma.order.create.mock.calls[0][0].data;
+    expect(data.orderDate).toBeNull();
+    expect(data.orderDateSource).toBeUndefined();
+  });
+
+  it("priority 2: uses an order_confirmation's anchorDate when its own orderDate field is null", async () => {
+    const anchorDate = new Date("2026-08-16T05:13:00.000Z");
+    await createOrderFromEmail("user1", { ...baseEmail, emailType: "order_confirmation", orderDate: null, anchorDate } as any, null);
+
+    const data = mockPrisma.order.create.mock.calls[0][0].data;
+    expect(data.orderDate).toEqual(anchorDate);
+    expect(data.orderDateSource).toBe("extracted");
+  });
+
+  it("priority 2 does NOT apply when the triggering email is not an order_confirmation", async () => {
+    const anchorDate = new Date("2026-08-16T05:13:00.000Z");
+    await createOrderFromEmail("user1", { ...baseEmail, emailType: "shipping_confirmation", orderDate: null, anchorDate } as any, null);
+
+    const data = mockPrisma.order.create.mock.calls[0][0].data;
+    expect(data.orderDate).toBeNull();
+    expect(data.orderDateSource).toBeUndefined();
+  });
+});
+
 describe("applyFallbackOrderDate", () => {
   const baseOrder = {
     id: "order1",
@@ -192,6 +257,10 @@ describe("applyFallbackOrderDate", () => {
       expect(mockPrisma.order.update).toHaveBeenCalledTimes(1);
       const data = mockPrisma.order.update.mock.calls[0][0].data;
       expect(data.orderDate).toEqual(receivedAt);
+      // TASKS.md 2026-08-27, diagnosis commit 179389e — marks this as a
+      // heuristic guess so mergeEmailIntoOrder's provenance-aware rule
+      // knows a later extracted date is still allowed to correct it.
+      expect(data.orderDateSource).toBe("fallback");
       expect(data.orderDateEstimated).toBe(true);
     },
   );
@@ -464,6 +533,7 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
     return {
       emailType: null,
       orderDate: null,
+      anchorDate: null,
       deliveryDate: null,
       estimatedDeliveryDate: null,
       deliveredAt: null,
@@ -498,18 +568,25 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
 
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toEqual(shipDate);
+    expect(data.orderDateSource).toBe("extracted");
     expect(data.orderDateEstimated).toBe(false);
   });
 
   it("Amazon non-regression: a later delivery email does not move the orderDate a shipping_confirmation already set", async () => {
     const shipDate = new Date("2026-07-01T00:00:00.000Z");
-    const existingAfterShipping = { ...baseExisting, orderDate: shipDate, orderDateEstimated: false };
+    // orderDateSource: "extracted" — this is how the first merge (the test
+    // above) actually leaves it: an establishing email's own extracted
+    // orderDate. TASKS.md 2026-08-27 — provenance-aware orderDate no
+    // longer treats "already set" alone as enough to block an overwrite;
+    // it must specifically be "extracted" to stay locked.
+    const existingAfterShipping = { ...baseExisting, orderDate: shipDate, orderDateSource: "extracted", orderDateEstimated: false };
     const deliveryEmail = makeEmail({ emailType: "delivery", orderDate: new Date("2026-07-10T00:00:00.000Z") });
 
     await mergeEmailIntoOrder(existingAfterShipping as any, deliveryEmail as any, null);
 
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toEqual(shipDate); // unchanged, not the delivery date
+    expect(data.orderDateSource).toBe("extracted");
     expect(data.orderDateEstimated).toBe(false);
   });
 
@@ -518,13 +595,16 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
   // move it, even though delivery is itself an establishing type. ──
   it("Suzie delivery-email replay: does not move an orderDate order_confirmation already established", async () => {
     const confirmedDate = new Date("2026-07-23T00:00:00.000Z");
-    const existingAfterConfirmation = { ...baseExisting, orderDate: confirmedDate, orderDateEstimated: false };
+    // orderDateSource: "extracted" — see the shipping-confirmation case
+    // above for why this fixture needs it under the provenance-aware rule.
+    const existingAfterConfirmation = { ...baseExisting, orderDate: confirmedDate, orderDateSource: "extracted", orderDateEstimated: false };
     const deliveryEmail = makeEmail({ emailType: "delivery", orderDate: new Date("2026-07-31T00:00:00.000Z") });
 
     await mergeEmailIntoOrder(existingAfterConfirmation as any, deliveryEmail as any, null);
 
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toEqual(confirmedDate); // unchanged, not the delivery date
+    expect(data.orderDateSource).toBe("extracted");
     expect(data.orderDateEstimated).toBe(false);
   });
 
@@ -533,23 +613,30 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
   // orderDateEstimated — this is the exact production corruption. ──
   it("refund-after-confirmation replay: does not overwrite orderDate, orderDateEstimated left untouched", async () => {
     const confirmedDate = new Date("2026-07-23T00:00:00.000Z");
-    const existingAfterConfirmation = { ...baseExisting, orderDate: confirmedDate, orderDateEstimated: false };
+    const existingAfterConfirmation = { ...baseExisting, orderDate: confirmedDate, orderDateSource: "extracted", orderDateEstimated: false };
     // Mirrors the real Suzie Kondi refund email: emailType "refund", with
     // its own extracted orderDate equal to its own receivedAt (2026-08-12),
-    // not the true purchase date.
+    // not the true purchase date. Blocked TWO ways here — existing source
+    // is "extracted" (never overwritten regardless of type), AND "refund"
+    // isn't an establishing type either (J.Crew #2523415500 gate) — either
+    // alone would be enough, both apply.
     const refundEmail = makeEmail({ emailType: "refund", orderDate: new Date("2026-08-12T00:00:00.000Z") });
 
     await mergeEmailIntoOrder(existingAfterConfirmation as any, refundEmail as any, null);
 
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toEqual(confirmedDate); // NOT 2026-08-12
+    expect(data.orderDateSource).toBe("extracted");
     expect(data.orderDateEstimated).toBe(false); // untouched, not reset
   });
 
   // ── First-write gate: a non-establishing email as the FIRST-ever linked
   // email must not establish orderDate either (mirrors the J.Crew
   // #2523415500 orphan — a lone refund email creating an order with
-  // orderDate left null, not set to the refund's own date). ──
+  // orderDate left null, not set to the refund's own date). Confirmed
+  // 2026-08-27 (this session) to still hold under the provenance-aware
+  // rule — refund is blocked by the ALLOWED_FALLBACK_EMAIL_TYPES type
+  // gate regardless of source, deliberately kept for exactly this case.
   it("a refund email never establishes orderDate when nothing has set it yet", async () => {
     const refundEmail = makeEmail({ emailType: "refund", orderDate: new Date("2026-08-12T00:00:00.000Z") });
 
@@ -557,6 +644,7 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
 
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toBeNull();
+    expect(data.orderDateSource).toBe("unknown");
     expect(data.orderDateEstimated).toBe(false);
   });
 
@@ -568,7 +656,117 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
 
     const data = mockPrisma.order.update.mock.calls[0][0].data;
     expect(data.orderDate).toEqual(confirmedDate);
+    expect(data.orderDateSource).toBe("extracted");
     expect(data.orderDateEstimated).toBe(false);
+  });
+
+  // ── TASKS.md 2026-08-27, diagnosis commit 179389e — the actual bug fix,
+  // replaying the Zara #54421192781 shape end-to-end. ──
+  describe("provenance-aware overwrite (2026-08-27 fix)", () => {
+    it("an extracted orderDate overwrites a fallback-sourced one", async () => {
+      const fallbackDate = new Date("2026-08-22T20:41:07.000Z"); // the Zara delivery email's own receivedAt
+      const extractedDate = new Date("2026-08-16T05:13:00.000Z"); // the Zara order_confirmation's real forwarded-header date
+      const existingWithFallback = { ...baseExisting, orderDate: fallbackDate, orderDateSource: "fallback", orderDateEstimated: true };
+      const orderConfirmation = makeEmail({ emailType: "order_confirmation", orderDate: extractedDate });
+
+      await mergeEmailIntoOrder(existingWithFallback as any, orderConfirmation as any, null);
+
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(extractedDate);
+      expect(data.orderDateSource).toBe("extracted");
+      expect(data.orderDateEstimated).toBe(false);
+    });
+
+    it("an extracted orderDate overwrites an 'unknown'-sourced one (pre-migration row)", async () => {
+      const priorDate = new Date("2026-07-01T00:00:00.000Z");
+      const extractedDate = new Date("2026-06-28T00:00:00.000Z");
+      // No orderDateSource key at all — simulates a pre-migration row,
+      // same as this fixture's every other test until now; ?? "unknown"
+      // in the implementation treats it identically to an explicit "unknown".
+      const existingUnknownSource = { ...baseExisting, orderDate: priorDate };
+      const orderConfirmation = makeEmail({ emailType: "order_confirmation", orderDate: extractedDate });
+
+      await mergeEmailIntoOrder(existingUnknownSource as any, orderConfirmation as any, null);
+
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(extractedDate);
+      expect(data.orderDateSource).toBe("extracted");
+      expect(data.orderDateEstimated).toBe(false);
+    });
+
+    it("a fallback-typed incoming email never overwrites anything (fallback only ever comes from applyFallbackOrderDate, never from a merge)", async () => {
+      // mergeEmailIntoOrder only ever receives an email's own EXTRACTED
+      // orderDate — there is no "fallback" value an incoming email can
+      // carry, so an email with orderDate: null (nothing extracted) must
+      // never change an existing fallback-sourced value either.
+      const fallbackDate = new Date("2026-08-22T20:41:07.000Z");
+      const existingWithFallback = { ...baseExisting, orderDate: fallbackDate, orderDateSource: "fallback", orderDateEstimated: true };
+      const shippingEmailNoDate = makeEmail({ emailType: "shipping_confirmation", orderDate: null });
+
+      await mergeEmailIntoOrder(existingWithFallback as any, shippingEmailNoDate as any, null);
+
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(fallbackDate);
+      expect(data.orderDateSource).toBe("fallback");
+      expect(data.orderDateEstimated).toBe(true);
+    });
+
+    // ── Priority 2 (2026-08-27 investigation, read-only diagnosis before
+    // implementing): an order_confirmation with no AI-extracted orderDate
+    // but a real forward-resolver anchorDate still counts as "extracted" —
+    // this is specifically what fixes Zara #54421192781 (its
+    // order_confirmation's own orderDate field was null; the real date
+    // only existed as anchorDate, parsed from the forwarded header). ──
+    it("priority 2: an order_confirmation's anchorDate counts as extracted when its own orderDate field is null", async () => {
+      const fallbackDate = new Date("2026-08-22T20:41:07.000Z"); // Zara's delivery-email-sourced fallback
+      const zaraAnchorDate = new Date("2026-08-16T05:13:00.000Z"); // Zara's real forwarded-header date
+      const existingWithFallback = { ...baseExisting, orderDate: fallbackDate, orderDateSource: "fallback", orderDateEstimated: true };
+      const orderConfirmationNoExtractedDate = makeEmail({
+        emailType: "order_confirmation",
+        orderDate: null,
+        anchorDate: zaraAnchorDate,
+      });
+
+      await mergeEmailIntoOrder(existingWithFallback as any, orderConfirmationNoExtractedDate as any, null);
+
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(zaraAnchorDate);
+      expect(data.orderDateSource).toBe("extracted");
+      expect(data.orderDateEstimated).toBe(false);
+    });
+
+    it("priority 2 does NOT apply to shipping_confirmation/delivery — anchorDate is only trusted from order_confirmation", async () => {
+      // 2026-08-27 investigation deliberately did not adopt this broader
+      // gate (would additionally fix Shopbop #143429832, but wasn't
+      // validated) — a shipping/delivery email's anchorDate must NOT
+      // establish or overwrite orderDate, even with no AI-extracted date.
+      const fallbackDate = new Date("2026-08-22T20:41:07.000Z");
+      const existingWithFallback = { ...baseExisting, orderDate: fallbackDate, orderDateSource: "fallback", orderDateEstimated: true };
+      const shippingEmailAnchorOnly = makeEmail({
+        emailType: "shipping_confirmation",
+        orderDate: null,
+        anchorDate: new Date("2026-08-01T00:00:00.000Z"),
+      });
+
+      await mergeEmailIntoOrder(existingWithFallback as any, shippingEmailAnchorOnly as any, null);
+
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(fallbackDate); // unchanged
+      expect(data.orderDateSource).toBe("fallback");
+      expect(data.orderDateEstimated).toBe(true);
+    });
+
+    it("priority 1 (AI-extracted orderDate) wins over priority 2 (anchorDate) when both exist on the same order_confirmation", async () => {
+      const extractedDate = new Date("2026-07-23T00:00:00.000Z");
+      const anchorDate = new Date("2026-07-24T10:00:00.000Z");
+      const orderConfirmationBoth = makeEmail({ emailType: "order_confirmation", orderDate: extractedDate, anchorDate });
+
+      await mergeEmailIntoOrder(baseExisting as any, orderConfirmationBoth as any, null);
+
+      const data = mockPrisma.order.update.mock.calls[0][0].data;
+      expect(data.orderDate).toEqual(extractedDate); // not anchorDate
+      expect(data.orderDateSource).toBe("extracted");
+    });
   });
 });
 

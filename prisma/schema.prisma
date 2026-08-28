@@ -224,6 +224,21 @@ model Order {
 
   orderDate           DateTime?
   orderDateEstimated  Boolean   @default(false) // true when orderDate was inferred (forwarded-header parse or receivedAt fallback), not stated in the email
+  // TASKS.md 2026-08-27 ("orderDate write-once locks in the wrong email's
+  // date"), diagnosis commit 179389e. Tracks WHERE the current orderDate
+  // value came from, so a later, more-authoritative email can overwrite a
+  // heuristic guess — plain write-once couldn't distinguish "already
+  // correct, don't touch" from "just a fallback guess, still correctable."
+  // "extracted": an email's own AI-extracted orderDate field (an
+  //   order_confirmation stating its order date, most commonly).
+  // "fallback": lib/linkOrder.ts's applyFallbackOrderDate heuristic — the
+  //   earliest-linked email's receivedAt/anchorDate, not a stated date.
+  // "unknown": row predates this field (pre-migration) — provenance not
+  //   determinable without the 2026-08-27 backfill re-deriving it.
+  // Never reverse-engineered inline in the migration that added this
+  // column — every existing row starts "unknown"; the backfill script
+  // (scripts/orderdate-source-backfill-20260827.sql) re-derives it.
+  orderDateSource String? @default("unknown")
   deliveryDate        DateTime? // legacy — best available across all linked emails; superseded by estimatedDeliveryDate/deliveredAt below, kept for display fallback on rows predating that split
   // Merged (latest non-null wins) across linked emails — see estimatedDeliveryDate/
   // deliveredAt on Email above for what populates these.
