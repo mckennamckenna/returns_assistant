@@ -47,6 +47,28 @@ export async function linkEmailToOrderAction(emailId: string, targetOrderId: str
   revalidatePath("/");
 }
 
+// Phase 3 carrier-row-disposition (docs/design/carrier_row_disposition_20260828.md)
+// — mirror-image of linkEmailToOrderAction above: same ownership check, same
+// revalidatePath, single-field write in the opposite direction. Required in
+// the same phase as the new link picker wiring for carrier rows, not
+// deferred — a misclick in the picker has no other recovery path (owner,
+// 2026-08-28). needsReview: true mirrors linkEmailToExistingOrder setting it
+// false on link; the email re-enters the needs-review bucket and is
+// reclassified as carrier_tracking_unlinked by detectEmailReviewReason.
+export async function unlinkEmailFromOrderAction(emailId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) return;
+
+  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { userId: true, orderId: true } });
+  if (!email || email.userId !== session.user.id) return;
+
+  await prisma.email.update({ where: { id: emailId }, data: { orderId: null, needsReview: true } });
+  if (email.orderId) {
+    revalidatePath(`/orders/${email.orderId}`);
+  }
+  revalidatePath("/");
+}
+
 export async function createOrderFromEmailAction(emailId: string): Promise<void> {
   const session = await auth();
   if (!session?.user) return;
