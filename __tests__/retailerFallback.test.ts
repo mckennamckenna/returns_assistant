@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resolveRetailerFallback, registeredDomain, CARRIER_DOMAINS, GENERIC_FROM_NAMES } from "../lib/retailerFallback";
+import {
+  resolveRetailerFallback,
+  registeredDomain,
+  CARRIER_DOMAINS,
+  CARRIER_DOMAIN_NAMES,
+  GENERIC_FROM_NAMES,
+} from "../lib/retailerFallback";
 
 // ZARA_RETAILER_FALLBACK (2026-08-25). Pure-function coverage of Decision 3
 // (amended) — the same shape as extract.test.ts's coverage of extract.ts's
@@ -85,5 +91,28 @@ describe("resolveRetailerFallback", () => {
   it("GENERIC_FROM_NAMES is exact-match only -- 'FedEx Delivery Manager' is not itself in the set", () => {
     expect(GENERIC_FROM_NAMES.has("delivery manager")).toBe(true);
     expect(GENERIC_FROM_NAMES.has("fedex delivery manager")).toBe(false);
+  });
+
+  // Carrier-row-disposition Phase 1 (2026-08-28).
+  it.each(Object.entries(CARRIER_DOMAIN_NAMES))(
+    "carrier name mapping: a sender on %s resolves carrier %j",
+    (domain, name) => {
+      const result = resolveRetailerFallback(`tracking@${domain}`, null);
+      expect(result.carrier).toBe(name);
+    },
+  );
+
+  it("atomicity guarantee: carrier is non-null iff retailerSource is 'carrier_deferred', in both directions", () => {
+    const carrierInputs = Object.keys(CARRIER_DOMAIN_NAMES).map(
+      (domain) => resolveRetailerFallback(`tracking@${domain}`, null),
+    );
+    for (const result of carrierInputs) {
+      expect(result.retailerSource).toBe("carrier_deferred");
+      expect(result.carrier).not.toBeNull();
+    }
+
+    const nonCarrierResult = resolveRetailerFallback("noreply@zara.com", "Zara");
+    expect(nonCarrierResult.retailerSource).not.toBe("carrier_deferred");
+    expect(nonCarrierResult.carrier).toBeNull();
   });
 });
