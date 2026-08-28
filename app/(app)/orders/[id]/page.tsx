@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { auth } from "@/auth";
-import { deleteEmail, markReturnedAction, markKeptAction, approveOrderAction } from "@/app/actions";
+import { deleteEmail, markReturnedAction, markKeptAction, approveOrderAction, unlinkEmailFromOrderAction } from "@/app/actions";
 import { DeleteButton } from "@/app/DeleteButton";
+import { UnlinkEmailButton } from "@/app/UnlinkEmailButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
 import { MarkRefundedButton } from "@/app/MarkRefundedButton";
 import { StartReturnButton } from "@/app/StartReturnButton";
@@ -362,6 +363,9 @@ export default async function OrderDetail({
               </div>
               <span className="text-xs text-muted">{email.emailType ?? "unclassified"}</span>
             </Link>
+            <form action={unlinkEmailFromOrderAction.bind(null, email.id)} className="flex items-center">
+              <UnlinkEmailButton />
+            </form>
             <form action={deleteEmail.bind(null, email.id)} className="flex items-center pr-3">
               <DeleteButton label="Delete email" />
             </form>
