@@ -32,6 +32,47 @@
 
 ## 🔴 Now
 
+- [ ] **Sender display name change — reminder / digest / coverage-check
+      emails show the sender name as literally "reminders." PROMOTED
+      2026-08-27 (originally logged 🟡 Next, 2026-08-26). Owner wants
+      "My Return Window"; sending address stays `reminders@myreturnwindow.com`
+      unchanged.**
+      **Root cause found:** `REMINDER_FROM_EMAIL` (Vercel production env
+      var) is a bare address — `"reminders@myreturnwindow.com"`, no
+      display name at all. Postmark's `From` header is built directly from
+      this value with nothing added
+      (`app/api/cron/route.ts:156`, `.../weekly-digest/route.ts:128`,
+      `.../weekly-coverage/route.ts:100`, each: `const fromEmail =
+      process.env.REMINDER_FROM_EMAIL`, passed straight through to
+      `sendEmail({ from: fromEmail, ... })`, `lib/postmark.ts`). With no
+      display name in the header, Gmail (and most clients) fall back to
+      showing the address's local-part as a pseudo-name — literally
+      "reminders." Confirmed via `vercel env pull` against production,
+      read-only. `lib/refundCheckin.ts`'s check-in emails receive the same
+      `fromEmail` value passed through from `app/api/cron/route.ts`, so
+      they show the same symptom and get fixed for free by the same
+      change — not a 4th call site to edit separately.
+      **Proposed fix, NOT YET APPLIED — confirm before I write it:**
+      no env var change needed. Add a small formatter (e.g.
+      `lib/postmark.ts`: `export const REMINDER_SENDER_NAME = "My Return
+      Window";` + `formatSenderEmail(email) => \`${REMINDER_SENDER_NAME}
+      <${email}>\``) and use it at the 3 cron-route call sites instead of
+      passing the raw env var straight to `sendEmail`. Postmark accepts
+      `"Display Name <address>"` in the `From` field natively — this is a
+      pure code change, does not touch the sending address, DKIM, SPF, or
+      any Vercel env var.
+      **Not in this fix's scope, flagging rather than silently including:**
+      `lib/adminNotify.ts` reads the same `REMINDER_FROM_EMAIL` env var
+      directly for internal admin alerts (not part of "Friday digest /
+      return reminders") — leaving it as a bare address unless owner wants
+      it branded the same way too.
+      **Verify per the original task's own note:** send one of each of the
+      three email types to owner's inbox, confirm the sender renders as
+      "My Return Window" in Gmail's inbox list (not just the message
+      body) — per this repo's standing email-testing rule, confirm
+      recipient/timing before triggering any real send, including a
+      forced cron run.
+
 - [ ] **`Email.returnDeadline` frozen-snapshot drift — NEW 2026-08-27,
       end-of-day close-out on the orderDate write-once session.**
       Per-email `returnDeadline` is computed once, at extraction time
@@ -4269,18 +4310,6 @@
       cosmetic type staleness that should still be cleaned up so
       real type errors in that file don't get masked by "oh
       that's the known stale one."
-- [ ] **Sender display name change — reminder / digest / coverage-check
-      emails currently show the sender name as literally "reminders."
-      Owner wants "My Return Window." NEW 2026-08-26.** Change is the
-      Postmark `From` header display name ONLY — NOT a domain change,
-      NOT a sending-address change, NOT a DKIM/SPF change. Small.
-      Locations: grep for `"reminders"` (or similar sender-name string
-      literal) in mail-sending code — likely `lib/mail*.ts`, plus the
-      three cron routes (`app/api/cron/reminders/route.ts`,
-      `.../weekly-digest/route.ts`, `.../weekly-coverage/route.ts`).
-      Verify: send one of each of the three email types to owner's
-      inbox; confirm the sender name renders as "My Return Window" in
-      Gmail's inbox list, not just the message body.
 - [ ] **Order date on collapsed order card — display next to order
       number. NEW 2026-08-26, owner-approved.** Owner: "for alpha i'd
       rather be a bit ugly and functional." Already present on the
