@@ -30,7 +30,7 @@ const mockPrisma = {
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
 const mockSendEmail = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail }));
+vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail, formatSenderEmail: (email: string) => `My Return Window <${email}>` }));
 
 vi.mock("@/lib/adminNotify", () => ({ notifyAdmin: vi.fn() }));
 

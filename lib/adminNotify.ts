@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { sendEmail } from "@/lib/postmark";
+import { sendEmail, formatSenderEmail } from "@/lib/postmark";
 
 export type NotificationKind =
   | "beta_signup"
@@ -28,9 +28,9 @@ export async function notifyAdmin(
   relatedEmail: string | null = null,
 ): Promise<void> {
   const adminEmail = process.env.ADMIN_EMAIL;
-  const fromEmail = process.env.REMINDER_FROM_EMAIL;
+  const fromAddress = process.env.REMINDER_FROM_EMAIL;
 
-  if (!adminEmail || !fromEmail) {
+  if (!adminEmail || !fromAddress) {
     console.error("ADMIN_EMAIL or REMINDER_FROM_EMAIL not configured, skipping admin notification:", subject);
     await prisma.adminNotification.create({
       data: { kind, subject, body: textBody, relatedEmail, deliveryStatus: "skipped_not_configured" },
@@ -39,7 +39,7 @@ export async function notifyAdmin(
   }
 
   try {
-    await sendEmail({ to: adminEmail, from: fromEmail, subject, textBody });
+    await sendEmail({ to: adminEmail, from: formatSenderEmail(fromAddress), subject, textBody });
     await prisma.adminNotification.create({
       data: { kind, subject, body: textBody, relatedEmail, deliveryStatus: "sent" },
     });

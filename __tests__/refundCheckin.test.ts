@@ -1,7 +1,7 @@
 import { vi, describe, it, expect } from "vitest";
 
 vi.mock("@/lib/db", () => ({ prisma: {} }));
-vi.mock("@/lib/postmark", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/postmark", () => ({ sendEmail: vi.fn(), formatSenderEmail: (email: string) => `My Return Window <${email}>` }));
 vi.mock("@/lib/orderFilters", async () => {
   const real = await vi.importActual<typeof import("../lib/orderFilters")>("../lib/orderFilters");
   return real;

@@ -1,5 +1,18 @@
 const POSTMARK_SEND_URL = "https://api.postmarkapp.com/email";
 
+// TASKS.md 2026-08-27 ("Sender display name change") — REMINDER_FROM_EMAIL
+// is a bare address with no display name, so Gmail (and most clients) fall
+// back to showing the address's local-part as a pseudo-name: every
+// reminder/digest/coverage/admin email showed the sender as literally
+// "reminders." Postmark's From field accepts "Display Name <address>"
+// natively — wrap every outbound address with this before passing it to
+// sendEmail, rather than passing a raw env var straight through.
+export const SENDER_DISPLAY_NAME = "My Return Window";
+
+export function formatSenderEmail(email: string): string {
+  return `${SENDER_DISPLAY_NAME} <${email}>`;
+}
+
 interface SendEmailParams {
   to: string;
   from: string;

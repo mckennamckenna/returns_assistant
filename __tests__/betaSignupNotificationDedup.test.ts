@@ -84,7 +84,7 @@ const mockPrisma = {
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
 const mockSendEmail = vi.fn();
-vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail }));
+vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail, formatSenderEmail: (email: string) => `My Return Window <${email}>` }));
 
 const { POST } = await import("../app/api/beta-signup/route");
 

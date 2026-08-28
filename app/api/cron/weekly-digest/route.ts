@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { sendEmail } from "@/lib/postmark";
+import { sendEmail, formatSenderEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { DISPLAY_STATUS_LABELS } from "@/lib/displayStatus";
 import { activeOrderFilter } from "@/lib/orderFilters";
@@ -125,10 +125,11 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const force = url.searchParams.get("force") === "true";
 
-  const fromEmail = process.env.REMINDER_FROM_EMAIL;
-  if (!fromEmail) {
+  const fromAddress = process.env.REMINDER_FROM_EMAIL;
+  if (!fromAddress) {
     return NextResponse.json({ error: "REMINDER_FROM_EMAIL not configured" }, { status: 500 });
   }
+  const fromEmail = formatSenderEmail(fromAddress);
 
   const now = new Date();
   const sevenDaysOut = new Date(now.getTime() + LOOKBACK_DAYS * 24 * 60 * 60 * 1000);

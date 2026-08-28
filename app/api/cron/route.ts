@@ -8,7 +8,7 @@ import {
   type OrderForReminder,
   type ReminderType,
 } from "@/lib/reminders";
-import { sendEmail } from "@/lib/postmark";
+import { sendEmail, formatSenderEmail } from "@/lib/postmark";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { reminderOrderWhere, hardDeleteCutoff } from "@/lib/orderFilters";
 import { runRefundCheckinReminders } from "@/lib/refundCheckin";
@@ -153,10 +153,11 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const force = url.searchParams.get("force") === "true";
 
-  const fromEmail = process.env.REMINDER_FROM_EMAIL;
-  if (!fromEmail) {
+  const fromAddress = process.env.REMINDER_FROM_EMAIL;
+  if (!fromAddress) {
     return NextResponse.json({ error: "REMINDER_FROM_EMAIL not configured" }, { status: 500 });
   }
+  const fromEmail = formatSenderEmail(fromAddress);
 
   const today = new Date();
 

@@ -74,7 +74,7 @@ const mockPrisma = {
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
 const mockSendEmail = vi.fn();
-vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail }));
+vi.mock("@/lib/postmark", () => ({ sendEmail: mockSendEmail, formatSenderEmail: (email: string) => `My Return Window <${email}>` }));
 
 const { sendVerificationRequest, MagicLinkRateLimitError, buildSignInEmailPayload, buildSignInAdminNotification } = await import(
   "../lib/magicLinkRateLimit"
