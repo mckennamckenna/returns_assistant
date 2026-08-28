@@ -3079,6 +3079,27 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Set up a Postmark sandbox/test server for local email testing —
+      NEW 2026-08-27, from the sender-display-name fix session. Not this
+      session — a real small project of its own.** This app has one
+      Postmark server/token for the whole app (same "one database, not
+      separate dev/prod" pattern as the DB) — there's no dev-safe way to
+      test a real send today. Local `.env`'s `POSTMARK_SERVER_TOKEN` is
+      stale (401 on send), and the production token is marked Sensitive
+      in Vercel (same protection as `AUTH_SECRET`), so it can't be pulled
+      down to fix that locally. **Deliberately not restoring the real
+      token to local `.env` instead** — with one shared token, doing so
+      would let any local test script (including the one nearly run this
+      session) silently email real users, trading away the exact safety
+      net that just barely helped tonight for casual convenience. The
+      actual fix: create a genuine Postmark sandbox/test-mode server +
+      token (Postmark supports this — simulates delivery, never reaches
+      a real inbox) and wire it into local `.env`, so local scripts can
+      safely exercise the full send path without ever risking a real
+      user's inbox. Until this exists, the standing practice is what
+      happened tonight: verify email-adjacent changes by observing real
+      production traffic once it naturally occurs, not by local test
+      sends.
 - [ ] **Carrier-row disposition (FedEx/USPS/UPS/etc.) — design pass, not
       build — NEW 2026-08-25, unblocked by the Zara fallback ship (same
       session, commit e754318).** The Zara fix labels carrier-tracking
