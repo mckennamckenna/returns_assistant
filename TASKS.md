@@ -3192,6 +3192,24 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Migrate existing root-level design docs into `docs/design/` —
+      NEW 2026-08-28, from the carrier-row-disposition scoping session.**
+      That session introduced `docs/design/` as the first use of a
+      `docs/` directory in this repo, starting with
+      `carrier_row_disposition_20260828.md` — every prior design doc
+      (`NEEDS_REVIEW_ROUTING_DESIGN.md`, `ZARA_DIAGNOSTIC_FINDINGS_
+      20260825.md`, `ZARA_DIAGNOSTIC_FINDINGS_BACKFILL_RADIUS_20260825.md`,
+      `DELIVERED_BADGE_DESIGN_20260827.md`, `CARD_SPEC.md`, and others)
+      still lives at repo root in `UPPER_SNAKE_CASE`. Owner wants these
+      migrated to the new location/convention "soon" — not done here,
+      this entry exists so the two conventions don't sit split
+      indefinitely. Scope when picked up: confirm naming convention
+      (lowercase-with-underscores, matching the new file, vs. keeping
+      each doc's existing name) and whether `CARD_SPEC.md` — actively
+      linked from code comments across `lib/needsReviewRows.ts`,
+      `lib/needsReviewActions.ts`, etc. — moves too or is treated as a
+      different (spec, not design-doc) category.
+
 - [ ] **Set up a Postmark sandbox/test server for local email testing —
       NEW 2026-08-27, from the sender-display-name fix session. Not this
       session — a real small project of its own.** This app has one
