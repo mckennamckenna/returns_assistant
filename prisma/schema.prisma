@@ -198,6 +198,14 @@ model Email {
   // safe by construction: every pre-2026-07-26 row (messageId: null)
   // is invisible to this constraint, no migration-time enforcement needed.
   @@unique([userId, messageId])
+  // carrier-row-disposition Phase 3 (2026-08-28): orderId had no index at
+  // all before this — every existing query filtering/joining on it (order
+  // pages, dashboard, digests, the needs-review candidate-orders query)
+  // was an unindexed lookup. Additive, no data risk; row count checked at
+  // 1,262 before adding (well under the threshold where CREATE INDEX's
+  // table lock would be a live concern — see design doc for the
+  // CREATE INDEX CONCURRENTLY caveat if this table grows substantially).
+  @@index([orderId])
 }
 
 // Event log (not a counter) for junk-flag rescues — deliberately durable
