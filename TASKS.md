@@ -2937,6 +2937,27 @@
       ❄️ Deferred to 🐛 Bugs.
 
 ### Infra / reliability
+- [ ] **`Order.trackingNumber`/`returnTrackingNumber` are first-write-wins,
+      silently dropping later packages on multi-box orders — NEW
+      2026-08-28, found during carrier-row-disposition scoping (Phase 2
+      investigation, not that session's actual task).** `applyShippingTracking`/
+      `applyReturnTracking` (`lib/linkOrder.ts:393-445`) each check `if
+      (existing?.trackingNumber) return;` before writing — the first
+      `shipping_confirmation`/`return_label` email to populate tracking
+      wins permanently; a second box's shipping email for the same order
+      (e.g. a multi-carton furniture order) is parsed but its tracking
+      info is discarded, not merged or appended. Single field, not a
+      list — no schema support for multiple tracking numbers per order
+      today. Not carrier-row-specific — affects any order with more than
+      one shipment, independent of that session's topic. Not investigated
+      further (no repro against real data yet, found by reading code), no
+      fix proposed. **This finding also reinforces the decision to leave
+      carrier-email tracking-number extraction unbuilt** — see
+      `DECISIONS.md` 2026-08-28 "Carrier-email tracking-number extraction:
+      deferred despite a working parser": even if extraction were wired
+      up for carrier emails, the multi-package field shape would need
+      fixing first for the result to be trustworthy on any order with more
+      than one shipment.
 - [ ] **Extraction-failure email rows get a false-confidence "real purchase"
       reason in the needs-review bucket — NEW 2026-08-24, found during the
       routing-tree design pass (`NEEDS_REVIEW_ROUTING_DESIGN.md` §1, §3),
