@@ -7,6 +7,37 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-28 — Carrier-email tracking-number extraction: deferred despite a working parser
+
+Tracking-number extraction (`lib/trackingParser.ts`) already exists — regex-based,
+tested, zero Anthropic cost — but only fires on `shipping_confirmation`/`return_label`
+emails already linked to an Order (`lib/linkOrder.ts`'s `applyShippingTracking`/
+`applyReturnTracking`), never on orphaned carrier-tracking emails. Real-data check
+against the 5 currently-tagged `carrier_deferred` rows (carrier-row-disposition design
+pass) found carrier name resolves reliably (5/5) but tracking number comes back null
+for all 3 USPS rows, and 2 of 6 tagged carrier domains (OnTrac, LaserShip) have zero
+parser coverage at all.
+
+Deferred rather than wired up, for two reasons. The integration uplift to do it
+cleanly — link-time call site, field shape, migration, parser validation against
+carrier-email body shapes specifically, dedup edge cases — wasn't worth it to capture
+tracking numbers on 2 of the 5 current rows. And any future feature needing
+carrier-email tracking numbers will have to design the integration from scratch
+regardless of what's decided now — nothing about deferring it today forecloses or
+complicates that later work.
+
+Related finding logged separately reinforces the deferral: `Order.trackingNumber`/
+`returnTrackingNumber` are first-write-wins, silently dropping later packages on
+multi-box orders — the extraction-invocation gap isn't the only issue in this code
+path, and any future work here has to address the multi-package field shape first
+regardless.
+
+Trigger to revisit: a scoped feature (sibling auto-link, tracking-based return-status
+polling, or similar) whose design explicitly requires carrier-email tracking numbers —
+not a general "seems useful" impulse.
+
+---
+
 ## 2026-08-27 — Calendar-date fields render via UTC components, never local timezone
 
 Applies to every field that's semantically a calendar date but stored as `DateTime` at
