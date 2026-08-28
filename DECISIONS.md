@@ -7,6 +7,77 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-27 — Calendar-date fields render via UTC components, never local timezone
+
+Applies to every field that's semantically a calendar date but stored as `DateTime` at
+UTC midnight for legacy reasons — `deliveredAt`, `deliveryDate`, `estimatedDeliveryDate`,
+`orderDate`, `returnDeadline`. Render them by reading the stored UTC year/month/day
+directly (`lib/dateDisplay.ts`, `Intl` with `timeZone: "UTC"`). Never convert to any
+viewer's real local timezone, including the app's own US-based users' — that conversion
+is what rolled a UTC-midnight "Aug 22" back to "Aug 21" for any negative-UTC-offset
+viewer, which was the dashboard/detail drift bug this decision closes, not a fix for it.
+
+**The session's draft framing initially got this backwards.** "Render in the user's
+local timezone" was proposed first, on the reasoning that the dashboard's pre-existing
+client-side code already did that and every alpha user is Pacific. Caught before
+shipping: genuine Pacific conversion of a UTC-midnight value produces the WRONG day
+(Aug 21 for a value meant to represent Aug 22), which is exactly the rollback bug, not
+a resolution of it. The correct framing is that these fields were never real instants —
+the UTC-midnight storage is a stand-in for a calendar date, so the only faithful read is
+the date's own (UTC) components, independent of where anyone views it from. This holds
+regardless of country — it isn't a US-specific choice, it falls out of what the fields
+mean. Revisit only if the schema itself changes to a real date-only type, not if the app
+expands to other timezones/countries.
+
+Resolves the (a)/(b) framing left open in the 2026-08-21 and 2026-08-25 TASKS.md entries
+("(a) the date's own timezone (or UTC)" vs. "(b) the user's local timezone") as (a).
+
+---
+
+## 2026-08-27 — orderDate correction source: order_confirmation only, AI-extracted then anchorDate
+
+When correcting a heuristic-guess `orderDate` (source `"fallback"`/`"unknown"`),
+`lib/linkOrder.ts` trusts, in order: (1) an `order_confirmation` email's own
+AI-extracted `orderDate` field, then (2) that same email's forward-resolver
+`anchorDate` (`lib/forwardResolver.ts`) when the AI found no date in the body. Both
+tiers are scoped to `order_confirmation` emails only — deliberately not extended to
+`shipping_confirmation`/`delivery` emails' `anchorDate`, even though that would
+recover more orders (confirmed: 36 more, including Shopbop #143429832).
+
+Chose the narrower scope because it was the only one actually data-validated before
+shipping: a same-day investigation measured order_confirmation-only coverage (50
+orders via tier 1, 48 more via tier 2) and spot-checked tier-1-vs-tier-2 agreement
+(10 orders, deltas 0.16–3.13 days — no inversion). Extending to shipping/delivery
+`anchorDate` was only explored as a hypothesis (3 sample orders, deltas 1–3 days) —
+not enough evidence to trust it the same way. Revisit once that broader gate gets its
+own validation pass, not by silently widening this rule later.
+
+---
+
+## 2026-08-27 — Disagreeing orderDate signals: exclude from auto-correction, never pick a winner
+
+When an order has multiple `order_confirmation`-typed emails whose candidate
+`orderDate` values (or `anchorDate` values, for tier 2) disagree by more than
+same-day-different-time, the order is excluded from the orderDate backfill's
+auto-correction entirely — left at `orderDateSource: "fallback"`, value unchanged —
+rather than picking one of the disagreeing values as a winner.
+
+Reasoning (owner's own framing, kept verbatim): "we don't trust ourselves to." No
+sanity bound, no source-quality ranking, no most-recent-wins tiebreak — those all
+require a new heuristic that could itself be wrong, and the one case tested
+(Fitness Superstore #48868, disagreeing by a full year) showed the naive
+earliest-wins tiebreak actively picking the WRONG value and corrupting an
+already-correct row. Excluding is the only option that can't make a right thing wrong.
+
+Cost: orders hitting this exclusion stay unresolved rather than fixed (see the
+Multi-email signal disagreement 👀 Watching entry, TASKS.md, for the revisit
+trigger — >5% of orders exhibiting the pattern, or a user-reported wrong deadline
+traceable to a punted order). Revisit this decision, not just the trigger, if that
+threshold is hit — a real tiebreak design is the eventual answer, not raising the
+threshold.
+
+---
+
 ## 2026-08-25 — API billing split into two Console workspaces
 
 Created new Console workspace `return-window-alpha` and minted a dedicated key for the

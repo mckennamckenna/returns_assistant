@@ -4706,6 +4706,10 @@
       2026-08-27. **Not closed by this:** the email-detail-page return-
       deadline disagreement (frozen per-email snapshot) — confirmed still
       showing Sep 23 post-backfill, tracked as its own 🔴 Now item above.
+      → see DECISIONS.md 2026-08-27 ("orderDate correction source:
+      order_confirmation only, AI-extracted then anchorDate" and
+      "Disagreeing orderDate signals: exclude from auto-correction, never
+      pick a winner")
 
 - [x] **Timezone drift across calendar-date rendering — CLOSED 2026-08-27.**
       New shared `lib/dateDisplay.ts` (`formatCalendarDate`/
@@ -4724,6 +4728,8 @@
       day" entries (2026-08-21, 2026-08-25) — same root cause, one fix.
       Full session detail, including a mid-build correction to the owner's
       own stated decision: `HISTORY.md` 2026-08-27.
+      → see DECISIONS.md 2026-08-27 ("Calendar-date fields render via UTC
+      components, never local timezone")
 
 - [x] **Delivered badge stuck on "Arrives" (Zara #54421192781 + 9 other
       orders) — CLOSED 2026-08-27, owner-verified.** `deliveredAt` now
