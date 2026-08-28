@@ -114,6 +114,7 @@ export default async function Home({
     retailer: o.retailer,
     orderNumber: o.orderNumber,
     orderDate: o.orderDate,
+    orderTotal: o.orderTotal,
   }));
 
   // CARD_SPEC.md Part 3 — one unified needs-review bucket, replacing the

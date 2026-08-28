@@ -37,7 +37,7 @@ export default async function NeedsReviewPage() {
     }),
     prisma.order.findMany({
       where: { userId, archivedAt: null, deletedAt: null },
-      select: { id: true, retailer: true, orderNumber: true, orderDate: true },
+      select: { id: true, retailer: true, orderNumber: true, orderDate: true, orderTotal: true },
       orderBy: { orderDate: "desc" },
     }),
   ]);

@@ -10,6 +10,7 @@ export interface LinkablePickerOrder {
   retailer: string | null;
   orderNumber: string | null;
   orderDate: Date | null;
+  orderTotal: number | null;
 }
 
 // CARD_SPEC.md Part 3 — "Link to order" is a manual picker in v1: the user
