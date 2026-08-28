@@ -32,38 +32,50 @@
 
 ## 🔴 Now
 
-- [ ] **[CODE BUILT + TESTED 2026-08-27, NOT YET DEPLOYED] Sender display
-      name change — reminder / digest / coverage-check / admin-notify
-      emails show the sender name as literally "reminders."** Owner
-      wants "My Return Window" on all of them; sending address stays
-      `reminders@myreturnwindow.com` unchanged.
+- [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
+      SKIPPED per owner] Sender display name change — reminder / digest /
+      coverage-check / admin-notify emails show the sender name as
+      literally "reminders."** Owner wants "My Return Window" on all of
+      them; sending address stays `reminders@myreturnwindow.com`
+      unchanged.
       **Root cause:** `REMINDER_FROM_EMAIL` (Vercel production env var)
       is a bare address with no display name — Gmail (and most clients)
       fall back to showing the local-part as a pseudo-name. Confirmed via
       `vercel env pull` against production, read-only.
-      **Built:** `lib/postmark.ts` — new `SENDER_DISPLAY_NAME = "My
-      Return Window"` constant + `formatSenderEmail(email)` helper,
-      formatting `"Display Name <address>"` the way Postmark's `From`
-      field expects. Wired into all 4 call sites that read
-      `REMINDER_FROM_EMAIL` directly: `app/api/cron/route.ts`,
-      `.../weekly-digest/route.ts`, `.../weekly-coverage/route.ts`, and
-      — per owner's "brand them all" — `lib/adminNotify.ts` (internal
-      admin alerts, not originally in scope, added on request).
-      `lib/refundCheckin.ts`'s check-in emails receive the already-
-      formatted value passed through from `app/api/cron/route.ts`, so
-      they're fixed for free, not a 5th site to edit. Pure code change —
-      no env var, DKIM, SPF, or sending-address change. New
-      `__tests__/postmark.test.ts` for the formatter; 6 existing test
-      files' `@/lib/postmark` mocks updated to also export
-      `formatSenderEmail` (they broke on the new import, not a logic
-      regression — confirmed by reading each failure). 683/683 tests
-      passing, `npm run build` clean.
-      **Not committed/pushed/deployed yet.**
-      **Verify after deploy, per this repo's standing email-testing
-      rule (confirm recipient/timing before any real send, including a
-      forced cron run):** send one of each of the four email types,
-      confirm the sender renders as "My Return Window" in Gmail's inbox
-      list, not just the message body.
+      **Built and deployed (commit `6111fe2`):** `lib/postmark.ts` — new
+      `SENDER_DISPLAY_NAME = "My Return Window"` constant +
+      `formatSenderEmail(email)` helper, formatting `"Display Name
+      <address>"` the way Postmark's `From` field expects. Wired into all
+      4 call sites that read `REMINDER_FROM_EMAIL` directly:
+      `app/api/cron/route.ts`, `.../weekly-digest/route.ts`,
+      `.../weekly-coverage/route.ts`, and — per owner's "brand them all"
+      — `lib/adminNotify.ts` (internal admin alerts, not originally in
+      scope, added on request). `lib/refundCheckin.ts`'s check-in emails
+      receive the already-formatted value passed through from
+      `app/api/cron/route.ts`, so they're fixed for free, not a 5th site
+      to edit. Pure code change — no env var, DKIM, SPF, or
+      sending-address change. New `__tests__/postmark.test.ts` for the
+      formatter; 6 existing test files' `@/lib/postmark` mocks updated to
+      also export `formatSenderEmail` (they broke on the new import, not
+      a logic regression — confirmed by reading each failure). 683/683
+      tests passing, `npm run build` clean, deploy confirmed live.
+      **Live email verification attempted and blocked, not skipped
+      carelessly:** the real cron endpoints' `?force=true` path processes
+      every user's real orders, not just the owner's — running it for
+      real would have emailed other actual users just to check a sender
+      name, so that path was correctly ruled out (owner confirmed via
+      explicit question, per this repo's standing email-testing rule). A
+      direct one-off test send to the owner's own inbox was attempted
+      instead but blocked: the local `.env`'s `POSTMARK_SERVER_TOKEN` is
+      stale (401 Unauthorized), and the real production token is marked
+      **Sensitive** in Vercel, so `vercel env pull` returns it empty —
+      same restriction already known for `AUTH_SECRET`. **Owner chose to
+      skip live verification for now rather than work around the
+      Sensitive-var restriction.** Correctness rests on code review + the
+      passing tests, not an observed Gmail render. **Verify opportunistically
+      the next time a real reminder/digest/coverage/admin email goes out**
+      — check the sender name in Gmail's inbox list, not just the message
+      body — and close this fully at that point, not before.
 
 - [ ] **`Email.returnDeadline` frozen-snapshot drift — NEW 2026-08-27,
       end-of-day close-out on the orderDate write-once session.**
