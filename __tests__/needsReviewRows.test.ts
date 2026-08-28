@@ -34,6 +34,7 @@ describe("emailReviewRow", () => {
   const email = {
     id: "email-1",
     retailer: "Zara",
+    carrier: null as string | null,
     receivedAt: new Date("2026-07-01"),
     orderTotal: 100,
     orderCurrency: "USD",

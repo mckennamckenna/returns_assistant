@@ -39,6 +39,7 @@ function firstName(name: string | null): string {
 
 interface CoverageItem {
   retailer: string | null;
+  carrier: string | null;
   orderTotal: number | null;
   orderCurrency: string | null;
 }
@@ -49,7 +50,7 @@ function buildCoverageLines(items: CoverageItem[]): string {
   }
   return items
     .map((item) => {
-      const retailer = item.retailer || "an unknown retailer";
+      const retailer = item.retailer || item.carrier || "an unknown retailer";
       const total = formatCurrency(item.orderTotal, item.orderCurrency);
       return total ? `- ${retailer} — ${total}` : `- 1 order from ${retailer}`;
     })
@@ -190,11 +191,12 @@ export async function GET(request: NextRequest) {
           if (placedDate !== null && placedDate < lookbackStart) continue;
           items.push({
             retailer: email.order?.retailer ?? null,
+            carrier: null,
             orderTotal: email.order?.orderTotal ?? null,
             orderCurrency: email.order?.orderCurrency ?? null,
           });
         } else {
-          items.push({ retailer: email.retailer, orderTotal: null, orderCurrency: null });
+          items.push({ retailer: email.retailer, carrier: email.carrier, orderTotal: null, orderCurrency: null });
         }
       }
 

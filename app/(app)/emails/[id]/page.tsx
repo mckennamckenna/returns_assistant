@@ -96,7 +96,7 @@ export default async function EmailDetail({
           <dl className="grid grid-cols-2 gap-3">
             <Field label="Email type" value={email.emailType} />
             <Field label="Confidence" value={email.confidence} />
-            <Field label="Retailer" value={email.retailer} />
+            <Field label="Retailer" value={email.retailer ?? email.carrier} />
             <Field label="Order number" value={email.orderNumber} />
             <Field label="Order date" value={formatDate(email.orderDate)} />
             <Field label="Delivery date" value={formatDate(email.deliveryDate)} />

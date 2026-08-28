@@ -9,6 +9,10 @@ export interface NeedsReviewRowData {
   kind: "order" | "email";
   id: string;
   retailer: string | null;
+  // Carrier display name ("FedEx", "USPS", ...) — only ever set for
+  // email-kind rows (carrier-row-disposition Phase 1, 2026-08-28). Orders
+  // are out of scope for carrier display.
+  carrier: string | null;
   date: Date | null;
   amount: number | null;
   currency: string | null;
@@ -38,6 +42,7 @@ export function orderReviewRow(order: ReviewOrderInput, candidateOrders: Candida
     kind: "order",
     id: order.id,
     retailer: order.retailer,
+    carrier: null,
     date: order.orderDate,
     amount: order.orderTotal,
     currency: order.orderCurrency,
@@ -49,6 +54,7 @@ export function orderReviewRow(order: ReviewOrderInput, candidateOrders: Candida
 interface EmailReviewInput {
   id: string;
   retailer: string | null;
+  carrier: string | null;
   receivedAt: Date;
   orderTotal: number | null;
   orderCurrency: string | null;
@@ -90,6 +96,7 @@ export function emailReviewRow(email: EmailReviewInput, candidateOrders: Candida
     kind: "email",
     id: email.id,
     retailer: email.retailer,
+    carrier: email.carrier,
     date: email.receivedAt,
     amount: email.orderTotal,
     currency: email.orderCurrency,
