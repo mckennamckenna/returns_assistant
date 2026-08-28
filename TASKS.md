@@ -32,6 +32,45 @@
 
 ## 🔴 Now
 
+- [ ] **Carrier-row Phase 1 — persist `Email.carrier`, display carrier name
+      instead of "Unknown retailer" for carrier-tracking emails — build-ready,
+      NEW 2026-08-28, promoted from the carrier-row-disposition scoping
+      session (`docs/design/carrier_row_disposition_20260828.md`).**
+      Owner-approved design, atomicity-required: `carrier` must be written
+      in the same code path as `retailerSource = 'carrier_deferred'`, never
+      one without the other — both derive from the same sender-domain
+      signal inside the one shared `resolveRetailerFallback()`
+      (`lib/retailerFallback.ts`) both the runtime extraction path and the
+      backfill script already call.
+      **Build steps (full detail in the design doc):**
+      1. Add `CARRIER_DOMAIN_NAMES` map next to `CARRIER_DOMAINS` in
+         `lib/retailerFallback.ts` (fedex.com→"FedEx", usps.com→"USPS",
+         ups.com→"UPS", dhl.com→"DHL", ontrac.com→"OnTrac",
+         lasership.com→"LaserShip"); add `carrier: string | null` to
+         `RetailerFallbackResult`; Step 0's carrier-deferral return
+         includes it in the same return statement.
+      2. `lib/runExtraction.ts`'s existing `prisma.email.update` write
+         (currently missing `carrier` entirely) gets `carrier:
+         fallback.carrier` added — same write site, no new one.
+      3. Additive migration: `Email.carrier String?`. Shown for the
+         record per CLAUDE.md's migration rule (additive, no sign-off
+         gate needed beyond that).
+      4. Backfill script for the 5 existing rows, modeled on
+         `scripts/backfill-carrier-deferred-20260825.ts`: dry-run
+         default, `--apply` to write, idempotent (`WHERE carrier IS NULL
+         AND retailerSource = 'carrier_deferred'`), logs every row before
+         writing.
+      5. 5 read sites switch `row.retailer ?? "Unknown retailer"` to
+         `row.retailer ?? row.carrier ?? "Unknown retailer"`:
+         `lib/needsReviewRows.ts:92`, `app/NeedsReviewRow.tsx:69`,
+         `app/(app)/emails/[id]/page.tsx:99`,
+         `app/api/cron/weekly-coverage/route.ts` (lines 52/54/192/197),
+         `app/api/cron/route.ts` (lines 352/361).
+      No dependency on Phase 3 — can build and ship standalone. Note:
+      OnTrac/LaserShip have no `trackingParser.ts` coverage (separate,
+      Phase-2-scoped concern — irrelevant here, this phase is
+      carrier-name display only, not tracking numbers).
+
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
