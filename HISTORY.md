@@ -5,6 +5,104 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-27 — orderDate write-once fixed, backfill executed and verified
+
+Same-day follow-on to the delivered-badge and timezone-drift fixes. Owner
+noticed Zara #54421192781's `orderDate` (Aug 22) matched no linked email's
+date at all — the real order-confirmation (manually forwarded 8 days
+later) stated Aug 16.
+
+**Diagnosis (commit `179389e`, read-only):** `applyFallbackOrderDate`
+(`lib/linkOrder.ts`) treats "the earliest email currently linked" as a
+proxy for "the earliest email overall" — an assumption that breaks
+whenever an order is created from a later-received email because a truly
+earlier one was orphaned and reconciled afterward. `orderDate` is then
+write-once (a deliberate 2026-08-16 fix for a different bug) and never
+revisited. Confirmed non-Zara: Shopbop #143429832 shares the exact
+mechanism with zero retailer-fallback involvement — pure extraction-
+processing-order variance. 2/185 orders strictly impossible by the numbers
+alone (order date after the item shipped); likely an undercount, since a
+subtly-wrong date wouldn't trip that check.
+
+**Build (commit `c150170`):** new `Order.orderDateSource`
+(`"extracted"|"fallback"|"unknown"`, additive migration, all 198 existing
+rows default `"unknown"`). `lib/linkOrder.ts`'s four orderDate write sites
+(`createOrderFromEmail`, `mergeEmailIntoOrder`, `applyFallbackOrderDate`,
+and `rebuildOrderFromRemainingEmails` — a fourth site the original
+diagnosis didn't name but needed the same fix) now provenance-aware: a
+`"fallback"`/`"unknown"`-sourced value can be corrected by a later
+genuinely-extracted date; an `"extracted"` value never can. Two historical
+protections deliberately preserved via the existing
+`ALLOWED_FALLBACK_EMAIL_TYPES` type gate — caught via a clarifying
+question before implementing, since the first draft algorithm would have
+silently dropped the second one: the 2026-08-16 shipping-overwrites-
+order_confirmation fix, and the J.Crew #2523415500 lone-refund-email fix.
+
+Priority rule was data-validated before writing code, not assumed: a
+dedicated read-only investigation (same date) measured that an
+order_confirmation's own AI-extracted `orderDate` covers 50/198 orders,
+and its forward-resolver `anchorDate` (when the AI found no date) covers
+nearly as many more (48/198) — this second tier is specifically what
+fixes Zara, whose order_confirmation had `orderDate: null` in its own
+extraction. A quality check (10 spot-checked orders where both signals
+existed) found them agreeing within 0.16–3.13 days — the priority order
+isn't inverted. Deliberately not extended to shipping_confirmation/
+delivery `anchorDate` (would additionally fix Shopbop, ~36 more orders) —
+explored as a hypothesis, not adopted; confirmed via a second targeted
+check that Shopbop and 6 other previously-flagged orders (MANGO F4VLSF,
+Ruti 424051, Bettervits USA 444466, H&M 66993117803, Sidekick SK213978,
+Tuckernuck TNK6875105) remain uncorrected and are labeled `"fallback"`,
+not silently dropped. Separately discovered (read-only, not acted on):
+all 6 of those orders' emails predate the forward resolver shipping
+(2026-07-26) and were never classified at all — re-running the resolver's
+existing pure functions against their real stored content recovers a
+real, parseable `anchorDate` for every one of them. Logged as a 🟡 Watch
+item, higher expected value than most of that section.
+
+**Backfill SQL — caught a real bug via owner review before running, not
+by inspection alone (commit `c8fec62`):** the first draft's candidate
+selection ("earliest order_confirmation with a signal wins") had no check
+that multiple such emails actually agreed. Fitness Superstore #48868 has
+two order_confirmation emails whose own extracted `orderDate` disagree by
+a full year (2025 vs. 2026 — 2026 is correct, matching the order's own
+`createdAt`; 2025 is the pre-existing, already-documented
+`ANCHOR_DATE_RESOLVER.md` Part 3 "wrong year" extraction bug, never
+built). The original logic would have picked the wrong one and corrupted
+an already-correct value. Fixed: added a disagreement check — when an
+order's same-priority signals disagree by more than same-day-different-
+time, the order is excluded from auto-correction entirely (falls to the
+fallback label) rather than guessing which value is right, per owner
+decision ("we don't trust ourselves to"). Verified live: excludes exactly
+Fitness Superstore. Waitrose #1058208405 was also flagged (its one
+anchorDate is a reschedule notice 3 weeks after the real order) but
+doesn't trip the disagreement rule (only one signal, nothing to disagree
+with) — accepted as-is per owner: grocery order, out of product scope,
+doesn't affect any decision the app makes for it. Also surfaced,
+unrelated, not fixed: Waitrose's own `returnDeadline` was independently
+broken (2021 — 5 years stale), the same wrong-year bug class landing on a
+different field; logged as its own 🐛 Bugs entry.
+
+**Executed against production, 2026-08-27:** STEP 2A (orderDate +
+returnDeadline correction) — 97 rows. STEP 2B (fallback labeling) — 101
+rows. Re-ran STEP 1's SELECT immediately after: 0 rows returned —
+idempotent, confirmed. Final tally: **5 real value corrections** (Zara,
+Ulta Beauty, SKIMS, SSENSE, Waitrose), ~92 relabeled `"extracted"` with no
+value change (already correct), ~101 relabeled `"fallback"`. Zara
+hand-verified post-backfill: `orderDate` Aug 16 05:13, `returnDeadline`
+Sep 15 05:13 (Aug 16 + 30 days, matching the owner's expectation),
+`deliveredAt` Aug 22 unchanged (Option A, untouched by this session, as
+locked). Also verified the still-open related finding: the
+order_confirmation email's own frozen `returnDeadline` snapshot still
+reads Sep 23 post-backfill, exactly as predicted — that's a separate,
+still fully unbuilt fix (the per-email vs. per-order `computeDeadline`
+disagreement), not resolved by this closure.
+
+Anthropic calls across the entire arc: 0. Every session was DB reads,
+code reads/writes, local test/build runs, and owner-directed raw-SQL
+execution.
+
+---
+
 ## 2026-08-27 — Timezone drift across calendar-date rendering: fixed, three entries closed
 
 Follow-on to the same day's delivered-badge session — the dashboard (Aug

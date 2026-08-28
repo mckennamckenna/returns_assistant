@@ -1477,6 +1477,14 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [x] **CLOSED 2026-08-27 — see ✅ Done ("orderDate write-once fixed,
+      backfill executed") and `HISTORY.md` 2026-08-27 for the full arc.
+      The email-detail-page return-deadline disagreement (frozen per-email
+      snapshot, `Email.returnDeadline`) is NOT resolved by this closure —
+      verified still showing Sep 23 post-backfill, exactly as predicted —
+      and stays open as its own, separately-scoped, unbuilt fix (see the
+      "Related, separate finding" note below, preserved). Original
+      diagnosis + build detail preserved below, not edited:**
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27 (commit `c150170`) —
       backfill SQL revised after owner review, pending execution]
       orderDate write-once locks in the wrong email's date when
@@ -4565,6 +4573,22 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **orderDate write-once fixed, backfill executed — CLOSED 2026-08-27,
+      owner-verified.** `Order.orderDateSource` field + provenance-aware
+      `mergeEmailIntoOrder` rule (`lib/linkOrder.ts`) replace plain
+      write-once — a heuristic-guess orderDate can now be corrected by a
+      later genuinely-extracted date, while two historical protections
+      (2026-08-16 shipping-overwrite fix, J.Crew #2523415500 refund-orphan
+      fix) stay intact. Backfill run against production: STEP 2A 97 rows,
+      STEP 2B 101 rows, idempotency confirmed (0 rows left `unknown`).
+      Zara #54421192781 hand-verified: `orderDate` Aug 16, `returnDeadline`
+      Sep 15, `deliveredAt` Aug 22 unchanged. 4 other real corrections
+      (Ulta Beauty, SKIMS, SSENSE, Waitrose). Full diagnosis, design,
+      build, review-caught-bug, and backfill detail: `HISTORY.md`
+      2026-08-27. **Not closed by this:** the email-detail-page return-
+      deadline disagreement (frozen per-email snapshot) — confirmed still
+      showing Sep 23 post-backfill, tracked as its own open item.
 
 - [x] **Timezone drift across calendar-date rendering — CLOSED 2026-08-27.**
       New shared `lib/dateDisplay.ts` (`formatCalendarDate`/
