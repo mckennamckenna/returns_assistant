@@ -32,6 +32,71 @@
 
 ## 🔴 Now
 
+- [ ] **`Email.returnDeadline` frozen-snapshot drift — NEW 2026-08-27,
+      end-of-day close-out on the orderDate write-once session.**
+      Per-email `returnDeadline` is computed once, at extraction time
+      (`lib/extract.ts`'s `computeDeadline`, called from the extraction
+      pipeline), using only that email's own fields, and persisted to
+      `Email.returnDeadline` permanently — never recomputed afterward,
+      even when the order's underlying fields later change.
+      **Concrete, verified symptom:** Zara #54421192781's order page now
+      correctly shows `returnDeadline: Sep 15` (fixed by today's orderDate
+      backfill, commit `165ba45`), but its order_confirmation email's own
+      `Email.returnDeadline` still reads `Sep 23` — hand-verified live
+      immediately after the backfill ran. The order-level value updates;
+      the per-email snapshot doesn't, so the two surfaces now disagree in
+      exactly the way the original diagnosis (commit `179389e`) predicted
+      they would. **Not a hypothetical — reproduced end-to-end.**
+      **Fix scope TBD, three candidates, not decided or built here:**
+      (a) recompute `Email.returnDeadline` whenever an `Order` write
+      changes one of its inputs (touches `lib/linkOrder.ts`'s merge path
+      again, adds a new write trigger); (b) stop persisting it on `Email`
+      at all and compute live wherever it's rendered (cleanest, but needs
+      a check first for anything that reads the stored value directly —
+      reminder emails, cron jobs — before it's safe to drop); (c) leave it
+      stored but label the email-detail render as "deadline as of when
+      this email was processed," making the staleness explicit instead of
+      silently wrong. **Needs an owner call on which**, then its own
+      build session — not sized further here.
+
+- [ ] **Backfill forward-resolver (`classifyForwardType`/`resolveAnchorDate`)
+      against pre-2026-07-26 Email rows — PROMOTED from 👀 Watching
+      2026-08-27, end-of-day close-out on the orderDate write-once
+      session.** The orderDate diagnosis session's Part 1 finding
+      (commit `179389e`): all 6 previously-flagged orders (MANGO F4VLSF,
+      Ruti 424051, Bettervits USA 444466, H&M 66993117803, Sidekick
+      SK213978, Tuckernuck TNK6875105) have `forwardType`/`anchorDate`
+      null not because the resolver ran and found nothing, but because
+      every one of their emails predates the resolver shipping
+      (2026-07-26) — it never ran on these rows at all. Read-only
+      verification the same session (re-running `classifyForwardType`/
+      `resolveAnchorDate` against their actual stored content, no
+      writes): **all 6 come back `forwardType: "manual"` with a real,
+      parseable `anchorDate`** from the quoted forwarded header. The
+      signal isn't missing — it's just never been extracted.
+      **High expected value: recovers real, user-visible wrong-orderDate
+      cases using existing code, no new logic.** Would directly unblock
+      re-running today's orderDate backfill (see ✅ Done /
+      `HISTORY.md` 2026-08-27) against a materially larger population —
+      today's backfill only reached order_confirmation emails with
+      `forwardType`/`anchorDate` already populated, which structurally
+      excludes every pre-2026-07-26 row regardless of priority tier.
+      **Scoped as its own session, three phases, same discipline as
+      today's orderDate fix:**
+      1. Read-only diagnostic first — how many `Email` rows predate
+         2026-07-26, what fraction re-derive a clean
+         `forwardType`/`anchorDate` when the existing pure functions run
+         against their real stored content (not just the 6 known cases),
+         and whether re-deriving surfaces any NEW disagreement-pattern
+         orders (see the Multi-email signal disagreement Watch entry
+         below — check for this explicitly, don't assume it's clean).
+      2. Backfill SQL for owner review (SELECT-first, idempotent,
+         commented rollback — same pattern as today's two backfills).
+      3. Apply only after explicit owner sign-off, then re-run (or
+         extend) the orderDate backfill against the newly-classified
+         population.
+      Not built this session.
+
 - [x] **CLOSED 2026-08-27 — see ✅ Done ("Timezone drift across
       calendar-date rendering") and `HISTORY.md` 2026-08-27 for the fix.
       This entry, plus the two pre-existing timezone entries it turned out
@@ -2816,6 +2881,25 @@
       the write-once `orderDate` backfill.** Wrong-year-extraction shape.
       Archived, deadline past, not user-visible. Deferred: real-old-order
       vs. mis-extraction, read-only.
+      **Re-observed 2026-08-27, second confirmed instance, not a
+      duplicate entry — logging under this one per the existing bug.**
+      During the orderDate write-once backfill (`c8fec62`), this same
+      order surfaced again with a fuller picture: 6 of its 7 linked
+      emails are auto-generated marketing/survey follow-ups ("Congrats on
+      your order!", a "Room of Choice Survey" request, "What's Next for
+      Your Order?") all misclassified as `emailType: "order_confirmation"`
+      — only one is a real confirmation. The wrong-year extraction
+      (2025-07-09) landed specifically on the survey-request email; the
+      genuine confirmation, received a day later, extracted the correct
+      2026-07-09. This is the same `ANCHOR_DATE_RESOLVER.md` Part 3
+      deferred "wrong year" sanity-guard shape as before, now with a
+      second contributing factor (emailType misclassification feeding
+      multiple, disagreeing "order_confirmation"-typed candidates into
+      the same order) layered on top. The orderDate backfill's
+      disagreement check (added in `c8fec62` specifically because of this
+      order) correctly excluded it from auto-correction rather than
+      picking either value — order's `orderDate` is unchanged, still
+      2026-07-09 (already correct), `orderDateSource` now `"fallback"`.
 - [ ] **`forwardType` classifier undercount — NEW 2026-08-20, found while
       investigating food-grocery-exclusion's manual-forward exposure
       (see 👀 Watching entry). Small, no urgency, not fixed.** 58 Emails
@@ -4232,25 +4316,42 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
-- [ ] **Backfill forward-resolver (`classifyForwardType`/`resolveAnchorDate`)
-      against pre-2026-07-26 Email rows — NEW 2026-08-27, higher expected
-      value than most of this section.** The orderDate diagnosis session's
-      Part 1 finding: all 6 previously-flagged orders (MANGO F4VLSF, Ruti
-      424051, Bettervits USA 444466, H&M 66993117803, Sidekick SK213978,
-      Tuckernuck TNK6875105) have `forwardType`/`anchorDate` null not
-      because the resolver ran and found nothing, but because every one of
-      their emails predates the resolver shipping (2026-07-26) — it never
-      ran on these rows at all. Read-only verification (re-running
-      `classifyForwardType`/`resolveAnchorDate` against their actual
-      stored content, no writes): **all 6 come back `forwardType:
-      "manual"` with a real, parseable `anchorDate`** from the quoted
-      forwarded header. The signal isn't missing — it's just never been
-      extracted. A one-time pass re-deriving `forwardType`/`anchorDate` for
-      every pre-resolver `Email` row (same pure functions, no new logic)
-      would very likely recover all 6 of these, plus an unknown number of
-      other legacy orders, for free. Would directly unblock re-running
-      this session's orderDate backfill against a materially larger
-      population. Not built this session — flagged for a dedicated pass.
+- [ ] **Multi-email signal disagreement pattern — NEW 2026-08-27, from the
+      orderDate write-once backfill (`c8fec62`).** Found 2 orders where
+      multiple emails of the same priority-firing type carried disagreeing
+      candidate values for `orderDate`: Fitness Superstore #48868 (two
+      order_confirmation-typed emails, 2025 vs. 2026) and — differently —
+      Waitrose #1058208405 (only one signal existed, so it didn't trip
+      this specific check, but the underlying "which of several candidate
+      dates is trustworthy" question is the same shape). Handled this
+      session by excluding disagreeing orders from auto-correction
+      entirely rather than guessing a winner — safe, but means these
+      orders just sit unresolved (`orderDateSource: "fallback"`) rather
+      than actually getting fixed. **Revisit trigger: if more than 5% of
+      orders exhibit same-type-multiple-signal disagreement** (not
+      measured broadly this session — only checked within the ~198-order
+      orderDate backfill population), or **a user reports a wrong
+      deadline traceable to an order this exclusion punted on** — either
+      would justify designing a real tie-break rule (source-quality
+      ranking, most-recent-wins, most-confident-extraction-wins) instead
+      of always falling back to "don't touch it."
+- [ ] **Data-integrity monitoring — NEW 2026-08-27, from the 2026-08-27
+      session run (delivered-badge, timezone drift, orderDate write-once
+      — three real bugs in one day, all found by manual eyeballing, not
+      by any standing check).** At current alpha scale (~200 orders,
+      4-5 users) manually reviewing an eyeball list before a backfill
+      works — it caught Fitness Superstore before this session's own
+      backfill would have corrupted an already-correct value. It doesn't
+      scale past alpha. **Worth a future session designing a lightweight,
+      read-only data-integrity sweep** — queries that flag orders with
+      internally inconsistent fields (e.g. `deliveredAt` before
+      `orderDate`, `returnDeadline` not reconcilable from its own stated
+      `orderDate`/`returnWindowDays`/`returnWindowStartsFrom`, `orderDate`
+      not derivable from any linked email — the exact shape of check this
+      session's diagnostics were written ad hoc, one bug at a time).
+      **Revisit trigger: 25+ users, OR any user-reported bug traceable to
+      silently-wrong data** that a standing check could have caught before
+      the user noticed.
 - [ ] **Grocery orders are out-of-scope for product assumptions — NEW
       2026-08-27, from the Waitrose #1058208405 orderDate-backfill
       review.** This app's core assumptions (single-purchase,
@@ -4575,20 +4676,36 @@
 ## ✅ Done
 
 - [x] **orderDate write-once fixed, backfill executed — CLOSED 2026-08-27,
-      owner-verified.** `Order.orderDateSource` field + provenance-aware
-      `mergeEmailIntoOrder` rule (`lib/linkOrder.ts`) replace plain
-      write-once — a heuristic-guess orderDate can now be corrected by a
-      later genuinely-extracted date, while two historical protections
+      owner-verified.** Read-only diagnosis: commit `179389e`. Build
+      (schema + `lib/linkOrder.ts` provenance-aware rule + tests): commit
+      `c150170`. Backfill SQL revised after owner review caught a real
+      candidate-selection bug: commit `c8fec62`. Backfill executed against
+      production + close-out: commit `165ba45`, ~18:50 PT 2026-08-27.
+      `Order.orderDateSource` field + provenance-aware `mergeEmailIntoOrder`
+      rule (`lib/linkOrder.ts`) replace plain write-once — a
+      heuristic-guess orderDate can now be corrected by a later
+      genuinely-extracted date, while two historical protections
       (2026-08-16 shipping-overwrite fix, J.Crew #2523415500 refund-orphan
       fix) stay intact. Backfill run against production: STEP 2A 97 rows,
       STEP 2B 101 rows, idempotency confirmed (0 rows left `unknown`).
-      Zara #54421192781 hand-verified: `orderDate` Aug 16, `returnDeadline`
-      Sep 15, `deliveredAt` Aug 22 unchanged. 4 other real corrections
-      (Ulta Beauty, SKIMS, SSENSE, Waitrose). Full diagnosis, design,
-      build, review-caught-bug, and backfill detail: `HISTORY.md`
+      **Final bucket (a) — 5 real value corrections**, verified live:
+      Zara #54421192781 (Aug 22 → Aug 16), Ulta Beauty #M223726065,
+      SKIMS #SB33487073, SSENSE #44266308515307 — all clean single-signal
+      corrections — and Waitrose #1058208405 (Jul 14 → Aug 5), accepted
+      as an intentional non-goal correction (grocery order, out of
+      product scope, no disagreement to exclude on since it had only one
+      signal). **Fitness Superstore #48868 was excluded from bucket (a)**
+      by the disagreement check added in `c8fec62` — its two
+      order_confirmation emails' extracted `orderDate` disagreed by a
+      full year (2025 vs. 2026), so it was left at `orderDateSource:
+      "fallback"`, value unchanged, rather than risk picking the wrong
+      one. Zara #54421192781 hand-verified post-backfill: `orderDate`
+      Aug 16 05:13, `returnDeadline` Sep 15 05:13, `deliveredAt` Aug 22
+      unchanged (Option A, untouched by this session). Full diagnosis,
+      design, build, review-caught-bug, and backfill detail: `HISTORY.md`
       2026-08-27. **Not closed by this:** the email-detail-page return-
       deadline disagreement (frozen per-email snapshot) — confirmed still
-      showing Sep 23 post-backfill, tracked as its own open item.
+      showing Sep 23 post-backfill, tracked as its own 🔴 Now item above.
 
 - [x] **Timezone drift across calendar-date rendering — CLOSED 2026-08-27.**
       New shared `lib/dateDisplay.ts` (`formatCalendarDate`/
