@@ -1477,10 +1477,10 @@
 ## 🐛 Bugs
 
 ### Trust-breaking
-- [ ] **[CODE BUILT + TESTED 2026-08-27, NOT DEPLOYED — backfill SQL
-      pending owner review/execution] orderDate write-once locks in the
-      wrong email's date when extraction/linking happens out of
-      receivedAt order.**
+- [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27 (commit `c150170`) —
+      backfill SQL revised after owner review, pending execution]
+      orderDate write-once locks in the wrong email's date when
+      extraction/linking happens out of receivedAt order.**
       **Build session 2026-08-27 close-out:** `prisma/schema.prisma` — new
       `Order.orderDateSource` field (`"extracted" | "fallback" | "unknown"`,
       migration `20260827224554_add_order_date_source`, additive, all 198
@@ -1530,25 +1530,60 @@
       doesn't invent a date) and stay open as a residual, not silently
       dropped — flagged explicitly for a future session to decide on the
       broader gate.
-      **Backfill SQL drafted, NOT executed:**
-      `scripts/orderdate-source-backfill-20260827.sql` — SELECT-first
-      (verified live against production: 198 rows, 50 priority-1 / 48
-      priority-2 / 100 fallback-label-only, exactly matching the
-      investigation's predicted split), two idempotent UPDATEs (the
-      orderDate+returnDeadline correction, and the label-only pass for
-      residuals), commented rollback. **Also recomputes `returnDeadline`**
-      for corrected orders — a raw SQL `orderDate` change does NOT trigger
-      `computeDeadline()` the way a real ingested email would, so without
-      this the deadline would stay stale even after `orderDate` is fixed;
-      verified live that Zara's predicted values are exactly `orderDate:
-      2026-08-16 05:13`, `returnDeadline: 2026-09-15 05:13` (Aug 16 + 30
-      days), matching the original ask. Per CLAUDE.md's data-write rule:
-      **owner must review this SQL and run it manually against
-      production** — the code change alone only affects emails processed
-      from now on, it does not touch existing rows.
-      **Not deployed — code is written and tested locally but not
-      committed/pushed yet, pending this close-out and owner review of
-      the SQL.**
+      **Backfill SQL drafted, NOT executed, REVISED after owner review:**
+      `scripts/orderdate-source-backfill-20260827.sql` — SELECT-first, two
+      idempotent UPDATEs (the orderDate+returnDeadline correction, and the
+      label-only pass for residuals), commented rollback. **Also
+      recomputes `returnDeadline`** for corrected orders — a raw SQL
+      `orderDate` change does NOT trigger `computeDeadline()` the way a
+      real ingested email would, so without this the deadline would stay
+      stale even after `orderDate` is fixed.
+      **First draft caught a real bug before running, via owner review of
+      the eyeball list (not by inspection alone):** the original
+      candidate-selection logic picked "the earliest order_confirmation
+      with a signal" per order with no check that multiple such emails
+      actually agreed. Two of the original 6 "bucket (a)" corrections were
+      wrong: **Fitness Superstore #48868** has two order_confirmation
+      emails whose own extracted `orderDate` disagree by a full year
+      (2025 vs. 2026 — 2026 is correct; 2025 is a pre-existing,
+      already-documented extraction bug, `ANCHOR_DATE_RESOLVER.md`'s
+      deferred Part 3 "wrong year" guard) — the old logic picked the wrong
+      one and would have corrupted an already-correct value. **Fixed:**
+      added a disagreement check — when an order's order_confirmation
+      emails disagree by more than same-day-different-time on the
+      priority-firing field, the order is excluded from auto-correction
+      entirely (falls to the fallback label, no value change) rather than
+      guessing which signal is right. Verified live: excludes exactly
+      Fitness Superstore. **Waitrose #1058208405** was also flagged during
+      review (its one available anchorDate is a reschedule notice 3 weeks
+      after the real order, not the order date) but does NOT get caught by
+      the disagreement rule (only one signal exists, nothing to disagree
+      with) — owner accepted this as-is: Waitrose is a grocery order, out
+      of product scope, its orderDate accuracy doesn't affect any decision
+      the app makes for it (see new Watch entry on grocery scope below).
+      **Revised bucket (a) — 5 real value corrections, verified live
+      against production:** Zara #54421192781 (Aug 22 → Aug 16,
+      `returnDeadline` Sep 21 → Sep 15), Ulta Beauty #M223726065 (Jul 25 →
+      Jul 24), SKIMS #SB33487073 (Jul 31 19:47 → Jul 31 00:00), SSENSE
+      #44266308515307 (Jul 31 → Jul 30), Waitrose #1058208405 (Jul 14 →
+      Aug 5, accepted non-goal correction). Of the remaining 193 orders:
+      ~92 are relabeled `"extracted"` with no value change (already
+      correct), ~101 relabeled `"fallback"` (no usable signal, or
+      disagreement-excluded — includes Fitness Superstore, Shopbop
+      #143429832, and the 6 previously-flagged orders).
+      **Also surfaced during this verification, unrelated and NOT fixed
+      here:** Waitrose's existing `returnDeadline` (2021-08-21) is itself
+      badly broken — 5 years in the past. Traced to `returnWindowStartsFrom:
+      "delivery_date"`, so it anchors on a `deliveredAt`/estimated-delivery
+      signal, not `orderDate` — meaning this backfill correctly leaves it
+      untouched (in scope only for `orderDate`-anchored deadlines), but the
+      underlying value looks like the same "wrong year" extraction bug
+      class as Fitness Superstore, just landing on a different field. New
+      🐛 Bugs entry logged below, not investigated further this session.
+      Per CLAUDE.md's data-write rule: **owner must review this SQL and
+      run it manually against production** — the code change alone only
+      affects emails processed from now on, it does not touch existing
+      rows.
 
       **Root cause, confirmed via Zara's own data:** `applyFallbackOrderDate`
       (`lib/linkOrder.ts`) fires once, the moment an Order's `orderDate` is
@@ -2335,6 +2370,27 @@
       alpha user notices.
 
 ### Annoying
+- [ ] **Waitrose #1058208405 returnDeadline is 2021-08-21 — 5 years stale,
+      likely another instance of the wrong-year extraction bug — NEW
+      2026-08-27, surfaced during the orderDate-backfill review, not
+      investigated further this session.** `returnWindowStartsFrom:
+      "delivery_date"`, `returnWindowDays: 14`, `deadlineIsEstimated:
+      false`, `policySource: "stated_in_email"` — the deadline was
+      computed as confirmed (not estimated), so some linked email's own
+      extracted `deliveredAt`/estimated-delivery field almost certainly
+      has a `2021` year instead of `2026` (order and delivery both happen
+      in 2026; "Aug 21, 2021" = "Aug 7" + 14 days, and this order's real
+      delivery was "Friday, 7 August" [2026] per its own subject lines).
+      Same bug class as the `ANCHOR_DATE_RESOLVER.md` Part 3 deferred
+      "wrong year" sanity guard (also confirmed live this session on
+      Fitness Superstore #48868's `orderDate`) — this is the same class
+      landing on a different field. **Bucketed Annoying, not
+      Trust-breaking, per the grocery-out-of-scope Watch entry** — low
+      product stakes for a grocery order specifically, but the underlying
+      extraction bug is real and not grocery-specific; worth fixing as
+      part of whatever session finally builds the Part 3 guard, not
+      grocery-specific tooling. Not fixed here — no code touched, per this
+      session's lock to `orderDate` only.
 - [ ] **[PROMOTED to 🔴 Now 2026-07-21] AquaTru "Shipped" badge forever** —
       pointer only, not edited/removed. Full detail, design decisions, and
       the build now live in the 🔴 Now item "AquaTru 'Shipped forever' — add
@@ -4168,6 +4224,41 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Backfill forward-resolver (`classifyForwardType`/`resolveAnchorDate`)
+      against pre-2026-07-26 Email rows — NEW 2026-08-27, higher expected
+      value than most of this section.** The orderDate diagnosis session's
+      Part 1 finding: all 6 previously-flagged orders (MANGO F4VLSF, Ruti
+      424051, Bettervits USA 444466, H&M 66993117803, Sidekick SK213978,
+      Tuckernuck TNK6875105) have `forwardType`/`anchorDate` null not
+      because the resolver ran and found nothing, but because every one of
+      their emails predates the resolver shipping (2026-07-26) — it never
+      ran on these rows at all. Read-only verification (re-running
+      `classifyForwardType`/`resolveAnchorDate` against their actual
+      stored content, no writes): **all 6 come back `forwardType:
+      "manual"` with a real, parseable `anchorDate`** from the quoted
+      forwarded header. The signal isn't missing — it's just never been
+      extracted. A one-time pass re-deriving `forwardType`/`anchorDate` for
+      every pre-resolver `Email` row (same pure functions, no new logic)
+      would very likely recover all 6 of these, plus an unknown number of
+      other legacy orders, for free. Would directly unblock re-running
+      this session's orderDate backfill against a materially larger
+      population. Not built this session — flagged for a dedicated pass.
+- [ ] **Grocery orders are out-of-scope for product assumptions — NEW
+      2026-08-27, from the Waitrose #1058208405 orderDate-backfill
+      review.** This app's core assumptions (single-purchase,
+      single-delivery, non-recurring, one order → one return-window
+      decision) don't fit grocery-shaped data well — Waitrose's order
+      showed 7 emails, all reschedule notifications for one recurring
+      delivery slot, no clean "order placed" signal anywhere, and (see
+      the 🐛 Bugs entry logged this session) a separately-broken 5-years-
+      stale `returnDeadline`. Accepted as a non-goal this session rather
+      than special-cased: grocery orderDate/returnDeadline accuracy
+      doesn't affect any decision this product makes for a grocery order
+      today. **Revisit trigger: if real users start forwarding grocery
+      orders in volume** — then this needs an actual scoping decision
+      (exclude grocery entirely, à la the existing Whole Foods/Amazon
+      Fresh exclusion, vs. building real support for it), not more
+      one-off tolerance of bad data.
 - [ ] **Repeated xSource companion-field pattern — NEW 2026-08-27.**
       `Order.orderDateSource` (this session) is the second field of this
       exact shape on the schema — `Email.anchorSource` (2026-07-25,
