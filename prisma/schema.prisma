@@ -125,6 +125,9 @@ model Email {
   // FedEx/USPS — retailer deliberately left null, not sold-by-carrier) |
   // null (never extracted, or extracted before this column existed).
   retailerSource      String?
+  // Carrier display name ("FedEx", "USPS", ...) — set iff retailerSource
+  // === "carrier_deferred" (carrier-row-disposition Phase 1, 2026-08-28).
+  carrier             String?
   orderNumber         String?
   orderDate           DateTime?
   deliveryDate        DateTime? // legacy — superseded by estimatedDeliveryDate/deliveredAt below; kept for display fallback on rows predating that split
