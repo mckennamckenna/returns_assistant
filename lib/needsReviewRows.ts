@@ -60,6 +60,7 @@ interface EmailReviewInput {
   orderCurrency: string | null;
   orderNumber: string | null;
   emailType: string | null;
+  retailerSource: string | null;
 }
 
 const RETURN_SIDE_EMAIL_TYPES = new Set(["return_label", "refund"]);
@@ -83,6 +84,15 @@ function detectEmailReviewReason(email: EmailReviewInput, candidateOrders: Candi
   }
   if (email.emailType && PURCHASE_SIDE_EMAIL_TYPES.has(email.emailType) && (email.retailer || email.orderNumber)) {
     return "real_purchase_no_record";
+  }
+  // carrier-row-disposition Phase 3 (2026-08-28): carrier rows have
+  // retailer: null and orderNumber: null, so they fail branch 3's check and
+  // would otherwise fall into the true-no-signal fallback below, which
+  // degrades to "More info" with no link path. Peeled off here, checked
+  // before the fallback, so the true no-signal population (nothing to go
+  // on at all) is untouched.
+  if (email.retailerSource === "carrier_deferred") {
+    return "carrier_tracking_unlinked";
   }
   return "no_extraction_signal";
 }

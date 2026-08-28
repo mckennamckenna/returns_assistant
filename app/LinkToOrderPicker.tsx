@@ -5,6 +5,15 @@ import { useRouter } from "next/navigation";
 import { linkEmailToOrderAction } from "./actions";
 import { formatCalendarDateShort } from "@/lib/dateDisplay";
 
+function formatOrderTotal(total: number | null): string | null {
+  if (total == null) return null;
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(total);
+  } catch {
+    return `$${total}`;
+  }
+}
+
 export interface LinkablePickerOrder {
   id: string;
   retailer: string | null;
@@ -76,6 +85,8 @@ export function LinkToOrderPicker({
                       from the locale-numeric "8/22/2026" it used to render
                       to match every other calendar-date site in the app. */}
                   {order.orderDate ? formatCalendarDateShort(order.orderDate) : ""}
+                  {(order.orderNumber || order.orderDate) && formatOrderTotal(order.orderTotal) ? " · " : ""}
+                  {formatOrderTotal(order.orderTotal) ?? ""}
                 </span>
               </button>
             ))}

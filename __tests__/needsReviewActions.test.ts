@@ -56,6 +56,13 @@ describe("needsReviewAction", () => {
     });
   });
 
+  it("an email-kind row detected as carrier_tracking_unlinked offers link_to_order (carrier-row-disposition Phase 3, 2026-08-28)", () => {
+    expect(needsReviewAction({ kind: "email", reasonId: "carrier_tracking_unlinked" })).toEqual({
+      id: "link_to_order",
+      label: "Merge with existing order",
+    });
+  });
+
   it("every action id has UI copy (Q9: registry stays safely extensible)", () => {
     for (const id of Object.keys(NEEDS_REVIEW_ACTION_LABELS)) {
       expect(NEEDS_REVIEW_ACTION_LABELS[id as keyof typeof NEEDS_REVIEW_ACTION_LABELS].length).toBeGreaterThan(0);

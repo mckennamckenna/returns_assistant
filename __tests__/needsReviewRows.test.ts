@@ -40,6 +40,7 @@ describe("emailReviewRow", () => {
     orderCurrency: "USD",
     orderNumber: null as string | null,
     emailType: "order_confirmation" as string | null,
+    retailerSource: null as string | null,
   };
 
   it("branch 3: real_purchase_no_record when emailType is purchase-side and retailer is present, orderNumber absent", () => {
@@ -95,6 +96,23 @@ describe("emailReviewRow", () => {
 
   it("branch 4 (NEW): non-purchase-side, non-return-side emailType (e.g. 'other') falls to no_extraction_signal", () => {
     const row = emailReviewRow({ ...email, emailType: "other" }, []);
+    expect(row.reasonId).toBe("no_extraction_signal");
+  });
+
+  // carrier-row-disposition Phase 3 (2026-08-28): a new branch checked
+  // before the no_extraction_signal fallback, gated on
+  // retailerSource === "carrier_deferred".
+  it("carrier branch (NEW): retailerSource === 'carrier_deferred' routes to carrier_tracking_unlinked ahead of the no_extraction_signal fallback", () => {
+    const row = emailReviewRow(
+      { ...email, retailer: null, orderNumber: null, emailType: null, retailerSource: "carrier_deferred" },
+      [],
+    );
+    expect(row.reasonId).toBe("carrier_tracking_unlinked");
+    expect(row.why).toBe("This is a carrier tracking email — link it to the order it belongs to.");
+  });
+
+  it("carrier branch (NEW): a row without retailerSource === 'carrier_deferred' is unaffected — still falls to no_extraction_signal", () => {
+    const row = emailReviewRow({ ...email, retailer: null, orderNumber: null, emailType: null }, []);
     expect(row.reasonId).toBe("no_extraction_signal");
   });
 });

@@ -33,7 +33,17 @@ export default async function NeedsReviewPage() {
     prisma.email.findMany({
       where: { orderId: null, userId, ...JUNK_FILTER },
       orderBy: { receivedAt: "desc" },
-      select: { id: true, retailer: true, carrier: true, receivedAt: true, orderTotal: true, orderCurrency: true, orderNumber: true, emailType: true },
+      select: {
+        id: true,
+        retailer: true,
+        carrier: true,
+        receivedAt: true,
+        orderTotal: true,
+        orderCurrency: true,
+        orderNumber: true,
+        emailType: true,
+        retailerSource: true,
+      },
     }),
     prisma.order.findMany({
       where: { userId, archivedAt: null, deletedAt: null },
