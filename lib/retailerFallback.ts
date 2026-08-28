@@ -22,9 +22,19 @@ export const RETAILER_FALLBACK_GATE_EMAIL_TYPES = new Set([
 // mislabel a tracking notification as "sold by FedEx" — confirmed against
 // real data (5 of 8 rows in the initial diagnostic population) worse than
 // leaving retailer null. Extend only from real data, not speculatively.
-export const CARRIER_DOMAINS = new Set([
-  "fedex.com", "usps.com", "ups.com", "dhl.com", "ontrac.com", "lasership.com",
-]);
+//
+// Carrier-row-disposition Phase 1 (2026-08-28): display name for each
+// carrier domain, above. CARRIER_DOMAINS is derived from this map's keys
+// so the two lists can never drift apart.
+export const CARRIER_DOMAIN_NAMES: Record<string, string> = {
+  "fedex.com": "FedEx",
+  "usps.com": "USPS",
+  "ups.com": "UPS",
+  "dhl.com": "DHL",
+  "ontrac.com": "OnTrac",
+  "lasership.com": "LaserShip",
+};
+export const CARRIER_DOMAINS = new Set(Object.keys(CARRIER_DOMAIN_NAMES));
 
 // Decision 3, Step 1 — exact match only, case-insensitive. A fromName that
 // merely CONTAINS one of these words (e.g. "FedEx Delivery Manager") does
@@ -71,6 +81,10 @@ export interface RetailerFallbackResult {
   // rather than being marked 'body_extraction' (which would misrepresent
   // where the null came from).
   retailerSource: "sender_fallback" | "carrier_deferred" | null;
+  // Atomicity (carrier-row-disposition Phase 1, owner requirement): set
+  // if and only if retailerSource === "carrier_deferred", in the same
+  // return statement — never one without the other.
+  carrier: string | null;
 }
 
 // Applies Decision 3 (amended) precedence. Caller is responsible for
@@ -84,23 +98,23 @@ export function resolveRetailerFallback(fromEmail: string, fromName: string | nu
 
   // Step 0 — carrier deferral.
   if (CARRIER_DOMAINS.has(registered)) {
-    return { retailer: null, retailerSource: "carrier_deferred" };
+    return { retailer: null, retailerSource: "carrier_deferred", carrier: CARRIER_DOMAIN_NAMES[registered] };
   }
 
   // Step 1 — fromName, if present and not an exact generic match.
   const trimmedName = (fromName ?? "").trim();
   if (trimmedName.length > 0 && !GENERIC_FROM_NAMES.has(trimmedName.toLowerCase())) {
-    return { retailer: trimmedName, retailerSource: "sender_fallback" };
+    return { retailer: trimmedName, retailerSource: "sender_fallback", carrier: null };
   }
 
   // Step 2 — domain-derived.
   if (registered) {
-    return { retailer: titleCase(registered.split(".")[0]), retailerSource: "sender_fallback" };
+    return { retailer: titleCase(registered.split(".")[0]), retailerSource: "sender_fallback", carrier: null };
   }
 
   // Step 3 — override map. START EMPTY per design; add entries here only
   // once real data shows Steps 0-2 producing a wrong result.
 
   // Step 4 — nothing resolved.
-  return { retailer: null, retailerSource: null };
+  return { retailer: null, retailerSource: null, carrier: null };
 }

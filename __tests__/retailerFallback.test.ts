@@ -14,6 +14,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("noreply@zara.com", "Zara")).toEqual({
       retailer: "Zara",
       retailerSource: "sender_fallback",
+      carrier: null,
     });
   });
 
@@ -21,6 +22,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("noreply@zara.com", "noreply")).toEqual({
       retailer: "Zara",
       retailerSource: "sender_fallback",
+      carrier: null,
     });
   });
 
@@ -28,6 +30,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("orders@email.bloomingdales.com", null)).toEqual({
       retailer: "Bloomingdales",
       retailerSource: "sender_fallback",
+      carrier: null,
     });
   });
 
@@ -35,6 +38,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("TrackingUpdates@fedex.com", "FedEx Delivery Manager")).toEqual({
       retailer: null,
       retailerSource: "carrier_deferred",
+      carrier: "FedEx",
     });
   });
 
@@ -42,6 +46,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("auto-reply@tracking.usps.com", "USPS Tracking")).toEqual({
       retailer: null,
       retailerSource: "carrier_deferred",
+      carrier: "USPS",
     });
   });
 
@@ -53,6 +58,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("hello@somebrand.com", "Somebrand Delivery Manager")).toEqual({
       retailer: "Somebrand Delivery Manager",
       retailerSource: "sender_fallback",
+      carrier: null,
     });
   });
 
@@ -60,6 +66,7 @@ describe("resolveRetailerFallback", () => {
     expect(resolveRetailerFallback("", null)).toEqual({
       retailer: null,
       retailerSource: null,
+      carrier: null,
     });
   });
 
