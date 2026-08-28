@@ -130,6 +130,16 @@ second.
 Ships fully independently of Phases 2-5 — confirmed, no shared code with
 tracking extraction or the picker.
 
+**Post-build correction (2026-08-28, after Phase 1 shipped):** the read-site
+table above lists `app/api/cron/route.ts` lines 352/361 as a 5th site. On
+build, those lines turned out to be entirely `Order.retailer`-sourced —
+weekly reminder emails only ever fire off an already-linked Order, never an
+orphaned email — so no `carrier_deferred` row is ever reachable there. Left
+unmodified. **Real read-site count is 4, not 5**: `lib/needsReviewRows.ts`,
+`app/NeedsReviewRow.tsx`, `app/(app)/emails/[id]/page.tsx`, and
+`app/api/cron/weekly-coverage/route.ts`'s orphaned-email branch only. Full
+detail: `HISTORY.md` 2026-08-28.
+
 **Owner decision (2026-08-28): persisted column, not derived-on-read.**
 Rationale given: simplifies Phase 3/4/5's write-path (Q5) — a real
 `Email.carrier` column lets sibling-detection query by carrier +

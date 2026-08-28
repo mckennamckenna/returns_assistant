@@ -5,6 +5,48 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-28 — Carrier-row Phase 1: persisted `Email.carrier`, carrier-name display
+
+Build-ready per the owner-approved design (`docs/design/carrier_row_disposition_20260828.md`,
+Phase 1 section). Six commits, in order:
+
+- `21aec78` — additive migration, nullable `Email.carrier String?`.
+- `1cd6eaa` — `CARRIER_DOMAIN_NAMES` map in `lib/retailerFallback.ts`; `CARRIER_DOMAINS`
+  now derived from its keys so the two lists can't drift apart; `RetailerFallbackResult`
+  gains a `carrier` field set atomically with `retailerSource === "carrier_deferred"` in
+  every return path (never one without the other, per owner requirement).
+- `d837b4e` — `lib/runExtraction.ts` writes `carrier` at the existing extraction write
+  site. `fallback` turned out to be scoped inside the sender-fallback conditional only
+  (not available at the write site as the design doc assumed) — added a `finalCarrier`
+  variable mirroring the existing `finalRetailer`/`retailerSource` pattern instead.
+- `8e35abb` — table-driven test over all 6 carrier domains + a bidirectional atomicity
+  test (`carrier` non-null iff `retailerSource === "carrier_deferred"`).
+- `528584a` — `scripts/backfill-carrier-name-20260828.ts`, modeled on
+  `scripts/backfill-carrier-deferred-20260825.ts`: decrypt `fromEmail` in app code
+  (encrypted at rest), idempotent `WHERE carrier IS NULL AND retailerSource =
+  'carrier_deferred'`.
+- `881e638` — 4 read sites switched from `row.retailer ?? "Unknown retailer"` to
+  `row.retailer ?? row.carrier ?? "Unknown retailer"`: `lib/needsReviewRows.ts`,
+  `app/NeedsReviewRow.tsx`, `app/(app)/emails/[id]/page.tsx`,
+  `app/api/cron/weekly-coverage/route.ts`'s orphaned-email branch. Two dashboard
+  queries' Prisma `select` also gained `carrier: true`.
+
+**Design-doc drift, corrected in the same commit:** the doc listed `app/api/cron/route.ts`
+lines 352/361 as a 5th read site. On inspection those lines are entirely
+`Order.retailer`-sourced — weekly reminder emails only ever fire off an already-linked
+Order, never an orphaned email — so there is no carrier-deferred population reachable
+there. Left untouched per the standing "don't touch `order.retailer`" scope fence; real
+count is 4 read sites, not 5. Doc itself corrected same-day, see its own post-build note.
+
+**Backfill executed against production, same session:** dry-run found 5 candidates,
+matching the design doc's real-data table exactly (3 USPS, 2 FedEx — no OnTrac/LaserShip
+live yet). Applied under the session's hard-stop protocol (owner typed the literal token
+`go`). All 5 rows tagged; idempotency re-check confirmed 0 candidates remain.
+
+**Verified live:** deploy `dpl_2bR92zAK34U1eGwco4NUXDyfrmY2`, confirmed aliased to
+`app.myreturnwindow.com` before the backfill ran. 0 billed Anthropic API calls this
+session (migration, tests, and backfill are all pure regex/decrypt, DB-only).
+
 ## 2026-08-27 — orderDate write-once fixed, backfill executed and verified
 
 Same-day follow-on to the delivered-badge and timezone-drift fixes. Owner
