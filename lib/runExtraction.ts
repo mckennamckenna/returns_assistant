@@ -93,6 +93,7 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
     let finalRetailer = result.retailer;
     let retailerSource: "body_extraction" | "sender_fallback" | "carrier_deferred" | null =
       result.retailer != null ? "body_extraction" : null;
+    let finalCarrier: string | null = null;
 
     if (result.retailer == null && result.emailType != null && RETAILER_FALLBACK_GATE_EMAIL_TYPES.has(result.emailType)) {
       const decryptedFromEmail = decrypt(email.fromEmail);
@@ -100,6 +101,7 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
       const fallback = resolveRetailerFallback(decryptedFromEmail, decryptedFromName);
       finalRetailer = fallback.retailer;
       retailerSource = fallback.retailerSource;
+      finalCarrier = fallback.carrier;
     }
 
     await prisma.email.update({
@@ -108,6 +110,7 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
         emailType: result.emailType,
         retailer: finalRetailer,
         retailerSource,
+        carrier: finalCarrier,
         orderNumber: result.orderNumber,
         orderDate: result.orderDate ? new Date(result.orderDate) : null,
         deliveryDate: result.deliveryDate ? new Date(result.deliveryDate) : null,
