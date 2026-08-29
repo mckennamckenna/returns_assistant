@@ -3111,6 +3111,56 @@
       the Phase 6 scoping session close-out.** Suspected not working;
       unverified. Quick check.
 
+- [ ] **Single write path for deliveredAt + returnDeadline — NEW
+      2026-08-28, from the OFD misclassification diagnostic session.**
+      `Order.deliveredAt` is written from multiple call sites (notably
+      `resolveDeliveredAtBackfill` in `lib/linkOrder.ts:328-342`) without
+      recomputing `returnDeadline`, which is only computed inside
+      `mergeEmailIntoOrder`/`createOrderFromEmail` (`lib/linkOrder.ts:735,
+      761`). Stored `returnDeadline` can be stale relative to
+      `deliveredAt`. Consolidate writes behind one function that always
+      recomputes. Prerequisite for OFD work — doing OFD on top of split
+      write paths compounds the drift.
+
+- [ ] **Decide deliveryStatus schema shape — NEW 2026-08-28, from the
+      same diagnostic session.** Classifier lumps out-for-delivery and
+      delivered into `emailType='delivery'` (`lib/extract.ts:140-146`).
+      Prompt could plausibly distinguish them, but there's no output
+      slot. Two paths: add `"out_for_delivery"` as a new `emailType`
+      value (simpler, keeps the same overloading that caused the current
+      bug), or add a separate `deliveryStatus` sub-field (cleaner
+      separation, more surface). Design decision, no code. Blocks OFD as
+      first-class status (below).
+
+- [ ] **OFD as first-class status — NEW 2026-08-28, from the same
+      diagnostic session. Depends on the two entries above (write-path
+      consolidation, deliveryStatus schema decision).** Implement
+      out-for-delivery as a tracked status per that decision: prompt
+      update in `lib/extract.ts`, `routeDeliveryDate` skips OFD for
+      `deliveredAt` writes, `deriveDisplayStatus` gets a new OFD value,
+      UI shows OFD distinct from delivered. Requires reclassifying ~99
+      existing delivery-typed emails (paid — flag cost before running).
+      Product bet: accurate status + "arriving today" engagement
+      surface. Amazon out of scope.
+
+- [ ] **Split-shipment modeling — NEW 2026-08-28, from the same
+      diagnostic session. Owner-flagged KEY use case.** Single order
+      arriving in multiple packages doesn't fit the one-`deliveredAt`-
+      per-order schema (see Old Navy #1R1KXD3). Product decision needed
+      first: which delivery date drives the return deadline, and do we
+      support partial returns. Then schema, then code.
+
+- [ ] **Retire legacy Email.deliveryDate field — NEW 2026-08-28, from
+      the same diagnostic session.** `Email.deliveryDate` is marked
+      legacy in `prisma/schema.prisma:133`, superseded by
+      `estimatedDeliveryDate` + `deliveredAt`. Historical rows have real
+      dates in the legacy field that never migrated to the new columns —
+      `Order.deliveredAt` reads null on orders with confirmed delivery
+      data on file (Old Navy, Tuckernuck, Freda Salvador from the
+      2026-08-28 diagnostic). One-time backfill, then remove the field
+      and its read paths. No API cost. Last because it wants a stable
+      schema underneath.
+
 - [ ] **Migrate existing root-level design docs into `docs/design/` —
       NEW 2026-08-28, from the carrier-row-disposition scoping session.**
       That session introduced `docs/design/` as the first use of a
