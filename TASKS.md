@@ -32,59 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Carrier-row Phase 3 — full-dropdown manual link for carrier-tracking
-      emails (link + REQUIRED unlink) — build-ready, NEW 2026-08-28,
-      promoted from the carrier-row-disposition scoping session
-      (`docs/design/carrier_row_disposition_20260828.md`). Depends on
-      Phase 1 (carrier-name display) for row labeling.** Phase 2
-      (tracking-number extraction) is explicitly CLOSED, not part of this
-      — see `DECISIONS.md` 2026-08-28. No `Email.trackingNumber` field, no
-      extraction-pipeline changes.
-      **Key pre-design finding: carrier rows never reach the existing
-      `LinkToOrderPicker` today.** `detectEmailReviewReason`'s four-branch
-      tree (`lib/needsReviewRows.ts:69-82`) routes them to
-      `no_extraction_signal` (no retailer, no orderNumber) → `view_detail`
-      ("More info"), not `link_to_order` — a routing fix is required, not
-      optional.
-      **Build steps (full detail + rejected alternatives in the design
-      doc):**
-      1. New `carrier_tracking_unlinked` reasonId
-         (`lib/needsReviewReasons.ts`), own copy ("This is a carrier
-         tracking email — link it to the order it belongs to."), new
-         branch in `detectEmailReviewReason` gated on `retailerSource ===
-         'carrier_deferred'`, checked before the `no_extraction_signal`
-         fallback; routes to `link_to_order` in
-         `lib/needsReviewActions.ts`. (Rejected: widening
-         `real_purchase_no_record` instead — copy mismatch, would shift
-         an already-tuned population.)
-      2. Existing `LinkToOrderPicker` wired into the new reasonId's row,
-         unchanged (same scope as its one current call site: user's
-         non-archived/non-deleted orders, no date/retailer narrowing —
-         nothing carrier-specific needed).
-      3. **New `unlinkEmailFromOrderAction` server action — REQUIRED,
-         not deferrable (owner call, 2026-08-28):** mirrors
-         `linkEmailToOrderAction`'s pattern (ownership check, single-field
-         `Email.orderId` write back to `null`, `revalidatePath`). No
-         unlink path exists anywhere in the app today. Deferring this was
-         explicitly rejected — a picker misclick silently corrupts the
-         linked order's delivery data (wrong tracking/return-window
-         state) with no self-service recovery, a real failure mode
-         regardless of current alpha volume.
-      4. Additive migration: `@@index([orderId])` on `Email` — confirmed
-         genuinely unindexed today (checked schema + every migration, FK
-         constraint only, no index). Bundled here since Phase 3 adds new
-         read/write traffic through this column. **Re-check row count at
-         build time** — past a certain table size this becomes a `CREATE
-         INDEX CONCURRENTLY` question (can't run inside a transaction,
-         Prisma doesn't generate it automatically), not a plain migration.
-      Not in scope, explicitly deferred by owner: subject/sender on the
-      row (full detail already one click away via the card); orderTotal
-      in the picker dropdown (nice-to-have); multi-email-per-shipment
-      dedup/instrumentation (Zara-shaped case confirmed with real data —
-      2 FedEx rows share one tracking number — but each carrier email
-      links independently in this phase, no dedup, no warning; owner
-      confirmed acceptable at current volume, 5 rows).
-
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
@@ -4822,6 +4769,8 @@
 ## ✅ Done
 
 - [x] Carrier-row Phase 1 shipped and verified — orphaned carrier-tracking emails now show "FedEx"/"USPS" instead of "Unknown retailer". Full detail → HISTORY.md 2026-08-28.
+
+- [x] Carrier-row Phase 3 shipped and verified — orphaned carrier-tracking rows get a link picker (with orderTotal) instead of degrading to "More info," plus a required unlink action so a misclick is recoverable. Full detail → HISTORY.md 2026-08-28.
 
 - [x] **orderDate write-once fixed, backfill executed — CLOSED 2026-08-27,
       owner-verified.** Read-only diagnosis: commit `179389e`. Build

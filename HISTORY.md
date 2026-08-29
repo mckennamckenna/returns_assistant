@@ -5,6 +5,61 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-08-28 — Carrier-row Phase 3: full-dropdown link + required unlink for carrier rows
+
+Fast-follow to Phase 1, same session. Owner-approved design
+(`docs/design/carrier_row_disposition_20260828.md`, Phase 3 section). Phase 2
+(tracking-number extraction) stayed CLOSED per `DECISIONS.md` 2026-08-28 — no
+`Email.trackingNumber`, no extraction-pipeline changes. Row count checked
+first (`Email` table: 1,262 — well under the 50k threshold where `CREATE
+INDEX` would need `CONCURRENTLY` handling), so the migration below proceeded
+as a plain one. Seven commits, in order:
+
+- `802eb53` — `unlinkEmailFromOrderAction` (`app/actions.ts`), mirror of
+  `linkEmailToOrderAction`: ownership check, `Email.orderId` → `null`,
+  `needsReview: true` (mirrors link's `needsReview: false`). Also
+  revalidates `/orders/[orderId]` in addition to `/`, since unlink is
+  invoked from the order detail page itself.
+- `7232d78` — `orderTotal` added to `LinkablePickerOrder` (type + both
+  query sites: `app/(app)/page.tsx`, `app/(app)/needs-review/page.tsx`).
+- `5527f3d` — new `carrier_tracking_unlinked` reasonId + copy
+  (`lib/needsReviewReasons.ts`): "This is a carrier tracking email — link
+  it to the order it belongs to."
+- `03c1012` — the routing switch: `detectEmailReviewReason`
+  (`lib/needsReviewRows.ts`) peels off `retailerSource ===
+  'carrier_deferred'` rows into the new reasonId, checked before the
+  `no_extraction_signal` fallback so the true no-signal population is
+  untouched; `needsReviewAction` (`lib/needsReviewActions.ts`) routes it to
+  `link_to_order`; `LinkToOrderPicker` renders the new `orderTotal` column.
+  `NeedsReviewRow` needed no change — it gates on `action.id`, not
+  `reasonId`, so `link_to_order` rows pick up the picker automatically.
+- `a4ed8de` — Unlink button on the order detail page
+  (`app/UnlinkEmailButton.tsx`, mirrors `DeleteButton`'s pending-state
+  pattern), no confirm modal (trivially reversible — relink from
+  needs-review).
+- `cbe35ee` — `unlinkEmailFromOrderAction` test coverage: ownership
+  rejection, no-op on missing session/email, successful write shape,
+  both `revalidatePath` calls. `LinkablePickerOrder`'s `orderTotal` is
+  covered by `tsc` rather than a new runtime test — this repo has no
+  React-component test harness, judged out of scope to add for this
+  phase.
+- `85fd37b` — additive migration, `@@index([orderId])` on `Email`
+  (`Email_orderId_idx`). Confirmed genuinely unindexed before this
+  (schema + every migration checked — FK constraint only).
+
+**698/698 tests passing, `npm run build` clean.** All 7 commits pushed and
+deployed together (`dpl_A7PoGwxcc7vfMQvcdkhNYoJY6jkC`), confirmed aliased to
+`app.myreturnwindow.com` — deliberate, since shipping the link picker
+(commit `03c1012`) without the unlink action (`a4ed8de`) live would have
+been exactly the "misclick with no recovery" state the owner rejected.
+0 billed Anthropic API calls this session — every step was DB reads/writes,
+TypeScript, tests, and a schema migration.
+
+**Owner-verified live**, per this session's request to close out both
+phases.
+
+---
+
 ## 2026-08-28 — Carrier-row Phase 1: persisted `Email.carrier`, carrier-name display
 
 Build-ready per the owner-approved design (`docs/design/carrier_row_disposition_20260828.md`,
