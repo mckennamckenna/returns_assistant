@@ -32,33 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Phase 6 — Needs-Review row content quality — scoping session (not
-      build), NEW 2026-08-28. Sequence: build before Phase 4 (sibling
-      auto-link) and Phase 5 (candidates-first narrowing) — owner call,
-      simpler fix than either.** Discovery from Phase 3 verification: the
-      new link picker on carrier rows exposes that the card doesn't give
-      the user enough info to know which order to pick. Non-carrier row
-      types may or may not have the same problem — unknown, not audited.
-      **Do not pre-commit to a fix shape.** Prior mid-session drift was
-      toward "add subject line to the card" as the answer; that's an
-      assumption, not a finding, and may be a regression (a subject like
-      "Your FedEx order has shipped" costs card space to tell the user
-      nothing new). Real fix could be subject, body preview, a different
-      identifying field, per-reasonId card variation, or something else.
-      Data to gather before any design work:
-      1. Per reasonId, what does each existing needs-review row type
-         actually render on the card today? (Real production, not spec
-         inference.)
-      2. What do the subject lines of the 5 existing carrier_deferred
-         emails actually say? Dump them (decrypted, sanitize if needed).
-      3. What's the body content look like on those same 5? First 100
-         chars is probably enough to see whether body preview would help.
-      4. Does the identifying info exist anywhere in the email at all?
-         If not, that changes the problem from "what to show on the
-         card" to something Phase 4 or Phase 5 is better positioned to
-         solve — re-sequence at that point.
-      Design starts only after the above is in hand.
-
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
@@ -1611,6 +1584,12 @@
 
 ## ❄️ Deferred
 
+- [ ] **Phase 6 — Needs-review carrier row disambiguation (PAUSED 2026-08-29).**
+      Card content fix not worth the squeeze given data. See `DECISIONS.md`
+      2026-08-29. Revisit if: (a) carrier email volume grows and a larger
+      sample (n>3 shipments) looks materially different, or (b) Phase 4/5
+      gets scoped and this folds into that work.
+
 ## 🐛 Bugs
 
 ### Trust-breaking
@@ -3127,6 +3106,11 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Investigate: needs-review row expander behavior — there is no
+      expanded version, only the full detail page, NEW 2026-08-29 from
+      the Phase 6 scoping session close-out.** Suspected not working;
+      unverified. Quick check.
+
 - [ ] **Migrate existing root-level design docs into `docs/design/` —
       NEW 2026-08-28, from the carrier-row-disposition scoping session.**
       That session introduced `docs/design/` as the first use of a

@@ -7,6 +7,48 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-29 — Phase 6 (carrier-row card content) paused
+
+Context: Phase 6 was added post-hoc after Phase 3 shipped, when the needs-review
+card was found to lack enough info to disambiguate which order a carrier email
+belongs to.
+
+Investigation: Scoping session on 2026-08-29 gathered data before designing. Read
+the card-rendering code (`app/NeedsReviewRow.tsx`, `lib/needsReviewRows.ts`) and
+ran a read-only recon script
+(`scripts/pm-recon-carrier-deferred-content-20260829.ts`) against the 5 existing
+`carrier_deferred` rows.
+
+Findings:
+- No retailer name or order number in any subject or body across the 5 rows.
+- Weak signals present (platform name, fulfillment company name) but don't
+  reliably identify a specific order.
+- Tracking number present in every email but surfacing it would require
+  reopening Phase 2 (closed 2026-08-28).
+- Sample is small: 5 rows = 3 distinct shipments across 2 carriers. Holding
+  conclusions loosely.
+
+Decision: Pause Phase 6. A card-content fix isn't worth the squeeze — the info
+to put on the card isn't in the emails at strength. Not formally re-sequenced
+to Phase 4 or 5; that's a separate decision when either of those gets scoped.
+
+Revisit if: carrier email volume grows and a larger sample looks materially
+different, OR Phase 4/5 gets scoped and this folds into that work.
+
+Related finding, logged separately — orphan carrier emails sharing a tracking
+number could be grouped: the same 2026-08-29 recon (5 `carrier_deferred` rows =
+3 distinct shipments) surfaced that multiple carrier emails can share a
+tracking number — same physical shipment, different notification stages (e.g.
+"scheduled" + "out for delivery"). Today they appear as separate needs-review
+rows. Potential opportunity to group orphan carrier emails by tracking number
+even when no order-side match exists, so the user resolves one shipment at a
+time instead of N notification stages. Not the same as Phase 2 (using tracking
+number to link carrier→order, closed) — this is carrier↔carrier grouping among
+orphans. Possibly relevant to Phase 4 (sibling auto-link) — worth checking
+against that scope when Phase 4 gets picked up.
+
+---
+
 ## 2026-08-28 — Carrier-email tracking-number extraction: deferred despite a working parser
 
 Tracking-number extraction (`lib/trackingParser.ts`) already exists — regex-based,
