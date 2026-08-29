@@ -314,6 +314,11 @@ the record; no proposal, no code.
   auto-link. Will *begin* with tracking-number extraction as its own
   first scope question, from scratch — not dependent on any Phase 3
   write-path decision made now.
+- **Phase 5** — candidates-first narrowing. Unchanged from original doc,
+  further future.
+- **Phase 6** — needs-review row content quality (added post-hoc
+  2026-08-28 after Phase 3 verification). Sequenced ahead of Phases 4/5
+  per owner call. See Phase 6 section below and TASKS.md 🔴 Now entry.
 
 This changes Q5 below: Phase 3's write-path no longer needs to be
 designed for Phase 4 tracking-number compatibility, since Phase 4 starts
@@ -531,6 +536,24 @@ nothing in Phase 3 needs to change for Phase 4 to build on top of it.
 
 Deferred per original scope — depends on real Phase 3 link data to
 evaluate which signals actually narrow well. Not scoped here.
+
+---
+
+## Phase 6 — Needs-Review row content quality (added post-hoc 2026-08-28)
+
+Added after Phase 3 shipped and was verified in production. Discovery:
+the new link picker on carrier rows exposes that the review card doesn't
+carry enough info for the user to know which order to pick. Phase 3's
+Q4b deferred sender/subject on the row as "not required" on the reasoning
+that Phase 1's carrier name would suffice — real use showed it doesn't,
+for the pick-an-order case.
+
+**Sequenced ahead of Phase 4 and Phase 5** per owner call — simpler fix
+than either, addresses immediate pain surfaced by Phase 3 use. Phases 4/5
+may still be needed after Phase 6 lands, depending on what Phase 6's
+scoping finds; not pre-committing.
+
+Not scoped here — separate scoping session, see TASKS.md 🔴 Now entry.
 
 ---
 
