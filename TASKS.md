@@ -1392,9 +1392,10 @@
           update — link to the correct order."**
       (2) Expand the gate: shipment_unlinked fires on
           retailerSource === "carrier_deferred" OR
-          (emailType in {delivery, shipping_confirmation} AND
-           retailer truthy AND no orderNumber match). Branch 3
-          reshaped to no longer short-circuit these rows.
+          (emailType in {delivery, shipping_confirmation,
+           order_confirmation} AND retailer truthy AND no
+          orderNumber match). Branch 3 reshaped to no longer
+          short-circuit these rows.
       (3) New retailer-scoped candidate matcher (new logic, not
           reuse — no existing matcher covers the retailer-scoped,
           no-order-number case; findRefundFallbackOrder is closest
