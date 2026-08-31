@@ -37,26 +37,41 @@
       to reverse an accidental Keep. The two paths that write
       `displayStatus: "kept"` (`markKeptAction` in `app/actions.ts:94`, and
       `PATCH /api/orders/:id/status`) are one-way through the rank-gated
-      `buildStatusTransitionData` (`lib/displayStatus.ts`), and the only
-      reverse-shaped thing available — `PATCH /api/orders/:id/archive`'s
-      unarchive — touches `archivedAt` only and produces the LR #512867
-      "kept + at-risk countdown" state when used as a workaround.
+      `buildStatusTransitionData` (`lib/displayStatus.ts`) — confirmed via
+      read-only pass: kept and returned share rank 5, both call sites
+      reject `nextRank <= currentRank` (silent no-op in `advanceDisplayStatus`,
+      400 in the PATCH route). The only reverse-shaped thing available —
+      `PATCH /api/orders/:id/archive`'s unarchive — touches `archivedAt`
+      only and produces the LR #512867 "kept + at-risk countdown" state.
+      **Approach chosen (from the read):** dedicated new route
+      `POST /api/orders/:id/unkeep`, NOT a modification to the shared
+      rank-gate — the un-kept target isn't a fixed rank, it's whatever
+      `deriveDisplayStatus` computes from current evidence, so bolting an
+      exception onto the shared gate would erode its invariant for a
+      different-shaped operation.
       **Behavior:** on the order detail page when `displayStatus === "kept"`,
-      a button ("Not keeping it after all") that atomically (a) clears
-      `displayStatus` back to auto-derived via `deriveDisplayStatus`, (b)
-      clears `keptAt`, (c) clears `archivedAt` — mirrors the Keep-and-archive
-      coupling in reverse, restores the order to the dashboard, (d) writes
-      an `ActionLog` entry (first in-app status action with logging —
-      deliberately not backfilling logs to the two existing paths, that's
-      separate scope).
-      **Blocked on a read-only pass first:** does `buildStatusTransitionData`'s
-      rank-gate currently permit a downward transition? If not, decision
-      between (i) adding a documented downgrade path to the shared function
-      (blast radius: both existing kept-entry paths), or (ii) a dedicated new
-      route that bypasses it. Decision only after the read.
-      **Explicitly out of scope this session:** un-return/un-refund
-      (belongs to the queued Extend-signed-token-actions item), backfilling
-      `ActionLog` for the existing Keep/status paths, and the queued
+      a button ("May not be keeping after all") that atomically, in one
+      transaction, (a) clears `displayStatus` and re-derives via
+      `deriveDisplayStatus` (which never produces "kept"), (b) clears
+      `keptAt`, (c) clears `archivedAt` — mirrors Keep-and-archive coupling
+      in reverse, restores to dashboard, (d) recomputes `Order.status` via
+      `recomputeOrderStatus` — REQUIRED because `OPEN_STATUSES` in
+      `lib/alerts.ts` filters on `status`, not `displayStatus`, and a
+      stale `status: "kept"` would keep the order invisible to alerts
+      until the next email arrives. Then, best-effort after commit, (e)
+      writes an `ActionLog` entry (`action: "unkeep"`, `outcome: "success"`
+      — first in-app/dashboard-triggered ActionLog write).
+      **UI pattern:** mirror `ArchiveOrderButton.tsx` (client component,
+      fetch PATCH-style, local pending state, `router.refresh()`) — NOT
+      the `<form action={serverAction}>` pattern the other detail-page
+      buttons use. Landing spot: `app/(app)/orders/[id]/page.tsx` near the
+      Keep block (~lines 283–292), gated on `order.displayStatus === "kept"`.
+      No confirm dialog — the button label is already the softening.
+      **Explicitly out of scope this session:** un-return / un-refund
+      (belongs to the queued Extend-signed-token-actions item);
+      backfilling `ActionLog` for the existing Keep / status / archive
+      paths; fixing `computeOrderStatus`'s lack of a manual-state preserve
+      guard (CC read-only finding #2, its own item); the queued
       unarchive-should-warn / label-coherence spec passes.
 
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
@@ -6565,6 +6580,23 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`computeOrderStatus`/`recomputeOrderStatus` (`lib/linkOrder.ts`) has no
+  preserve guard for manually-set `Order.status` values, unlike
+  `deriveDisplayStatus`'s rank-based downgrade protection for
+  `displayStatus`.** Found 2026-08-31 during the un-kept-action read-only
+  investigation: `scripts/backfill-kept-status.ts` promoted `kept` into the
+  internal `status` field (CARD_SPEC.md Part 2), but `computeOrderStatus`
+  never derives `"kept"` and unconditionally overwrites `status` on every
+  email merge (`recomputeOrderStatus`, no read of the current value first)
+  — so `status: "kept"` silently reverts to `"returnable"`/`"completed"`/etc.
+  the moment any new email lands on that order, independent of
+  `displayStatus`. Not user-visible (the dashboard card reads only
+  `displayStatus`, per `lib/orderCardState.ts:32`) but it does mean
+  `lib/alerts.ts`'s `OPEN_STATUSES` filter (which reads `status`, not
+  `displayStatus`) can't be trusted to reflect kept/un-kept state reliably
+  without an email arriving to trigger recompute. Not fixed — out of scope
+  for the un-kept-action work, which works around it by calling
+  `recomputeOrderStatus` explicitly rather than patching the underlying gap.
 - **`__tests__/orderCardState.test.ts` — timezone-dependent date-formatting
   flake, NEW 2026-08-23, unrelated to the H&M session's changes.** "awaiting_delivery
   with an estimated delivery date" expects `"Arrives Aug 15"` for
