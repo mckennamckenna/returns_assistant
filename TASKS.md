@@ -1364,83 +1364,6 @@
       forward original order confirmations. Owner flagged these as edge
       cases to handle separately, not part of this workstream.
 
-- [ ] **Rename + expand carrier_tracking_unlinked → shipment_unlinked
-      to cover delivery emails with known retailer but no order
-      number — 2026-08-30.** Third instance of the "existing-order
-      shape" principle already applied to branch 2
-      (return_or_refund_no_link, NEEDS_REVIEW_ROUTING_DESIGN.md:75-94)
-      and to branch 4 (originally carrier_tracking_unlinked,
-      TASKS.md:2952-2957, 2026-08-25/26). Symptom: H&M UPS-delivery
-      emails (7/25/2026 dashboard, hand-verified) misroute to
-      real_purchase_no_record → "Start a new order" because branch 3
-      short-circuits any delivery/shipping_confirmation/order_
-      confirmation email with a truthy retailer, before branch 4's
-      retailerSource === "carrier_deferred" gate is reached — and
-      branch 4 wouldn't match anyway because H&M's retailer resolves
-      correctly from the email body.
-      **Phase A (2026-08-30):** carrier-fallback path (lib/retailer
-      Fallback.ts) is working as designed — gated on body-extraction
-      returning retailer=null, which H&M never trips. Not a bug there.
-      Recorded separately in Decisions log.
-      **Phase B fix scope, staged:**
-      (1) Rename reasonId carrier_tracking_unlinked → shipment_unlinked
-          across lib/needsReviewReasons.ts, lib/needsReviewActions.ts,
-          lib/needsReviewRows.ts, lib/orderReview.ts, tests, diagnostic
-          scripts, CARD_SPEC.md Part 3, NEEDS_REVIEW_ROUTING_DESIGN.md,
-          docs/design/carrier_row_disposition_20260828.md. Pure code +
-          copy change — reasonId is not persisted (verified against
-          prisma/schema.prisma; retailerSource IS persisted but its
-          values don't change). Card copy: **"Shipping or delivery
-          update — link to the correct order."**
-      (2) Expand the gate: shipment_unlinked fires on
-          retailerSource === "carrier_deferred" OR
-          (emailType in {delivery, shipping_confirmation,
-           order_confirmation} AND retailer truthy AND no
-          orderNumber match). Branch 3 reshaped to no longer
-          short-circuit these rows.
-      (3) New retailer-scoped candidate matcher (new logic, not
-          reuse — no existing matcher covers the retailer-scoped,
-          no-order-number case; findRefundFallbackOrder is closest
-          but hardcoded to refund shape). Rule: userId + retailer
-          exact match + open/in-flight order status. Deliberately
-          dumb — no fuzzy tiers, no date window. **Includes today's
-          manually-created null-orderNumber shell orders as
-          candidates** (retailer-only matching has no collision risk;
-          gives users the only manual recovery path for finding-5
-          duplicates).
-      (4) Middle-tier picker UX: LinkToOrderPicker's list gets
-          filtered to matcher output when a shipment_unlinked row
-          is picked, instead of showing all active orders. Picker
-          also gets a "None of these — create a new order instead"
-          action visible in both the empty-candidates and
-          populated-candidates states, wired to the same create-
-          order path today's "Start a new order" uses. Coordinate
-          with any existing queued picker-improvement work
-          (adding $ amount / other per-candidate detail) — CC to
-          check TASKS.md for prior tickets on this and flag
-          conflict before starting. No auto-select-if-one and no
-          merge-default-vs-secondary-create-new visual hierarchy
-          this pass — deferred as a follow-up if middle proves
-          insufficient.
-      Zero-candidate case (from the row's action): now handled via
-      picker's create-new escape hatch instead of a direct button.
-      **Not a pure reuse** — matcher + gate expansion + picker
-      filter + picker create-new action are new code; rename is
-      spec cleanup. Extends established pattern to its third case.
-      **Phase B.1 (complete, no code changes made):** discovery
-      only — merge-candidate matching function's exact rule (retailer/
-      status/date scope) and reusability, link_to_order renderer's
-      dropdown+auto-select behavior, reason-code recommendation
-      (reuse vs. new), and a trace of what happens today when a user
-      clicks "Start a new order" from a delivery email (does the
-      resulting Order carry retailer + delivery date such that a
-      later order-confirmation email would merge cleanly, or would
-      it duplicate?) — confirmed it would duplicate; see the sibling
-      ticket below. **Phase B.2 (in progress, 2026-08-30):** staged
-      build per the fix scope above — Stage 1 rename, Stage 2 gate
-      expansion, Stage 3 matcher, Stage 4 picker filter + create-new
-      escape hatch, doc pass. Stop between stages for owner review.
-
 - [ ] **Manually-created null-orderNumber orders are invisible to
       auto-matching → duplicates on later order_confirmation —
       NEW 2026-08-30.** When a user hits "Start a new order" from
@@ -5035,6 +4958,37 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **shipment_unlinked (rename + expand carrier_tracking_unlinked) —
+      CLOSED 2026-08-31, deployed and owner-verified.** Commits `c3c39de`
+      through `1571664` (11 commits total). Third instance of the
+      "existing-order shape" routing principle, applied to
+      delivery/shipping_confirmation/order_confirmation emails with a
+      known retailer but no order number (H&M via UPS, Poshmark via USPS
+      were the triggering real cases) — previously misrouted to
+      `real_purchase_no_record` → "Start a new order" instead of a merge
+      picker. Phase A confirmed `lib/retailerFallback.ts`'s
+      carrier-deferred gate was working as designed, not a bug (→
+      DECISIONS.md 2026-08-30). Shipped: Stage 1 pure rename to
+      `shipment_unlinked` + new copy; Stage 2 widened gate (delivery,
+      shipping_confirmation, order_confirmation — the last added same-day
+      after owner pushback on an initial, narrower exclusion); Stage 3
+      `findShipmentMergeCandidates` retailer-scoped matcher (built and
+      tested, **not wired up** — see below); Stage 4 Part 4b, the
+      picker's "+ Start a new order for [retailer]" create-new escape
+      hatch, pinned first in the list. **Deliberately NOT shipped: Part
+      4a**, filtering the picker's candidate list to the Stage 3
+      matcher's output — scoped, then deferred same session; plumbing
+      shape (side-map through `NeedsReviewBucket`/`NeedsReviewRow`) is
+      decided but unbuilt. Tracked in 👀 Watching, along with two
+      pre-existing inconsistencies surfaced during the build (the two
+      non-identical "active order" status conventions, and the
+      status-filter asymmetry across merge-candidate matchers) and the
+      retailer-string-matching-brittleness item. **Complementary, still
+      open, not closed by this:** the sibling null-orderNumber
+      duplicate-shell bug, tracked separately just below. Zero billed
+      Anthropic API calls across the whole build — static reading, code
+      edits, and unit tests only.
 
 - [x] Carrier-row Phase 1 shipped and verified — orphaned carrier-tracking emails now show "FedEx"/"USPS" instead of "Unknown retailer". Full detail → HISTORY.md 2026-08-28.
 
