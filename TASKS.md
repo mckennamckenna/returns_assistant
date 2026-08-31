@@ -4603,6 +4603,56 @@
       the same retailer." First place to look. Fix approach TBD — likely
       a shared retailer-normalization utility, but scope of what to
       normalize is a real design question, not a small edit.
+- [ ] **Two non-identical "active order" conventions coexist, on two
+      different fields, never reconciled — someday cleanup,
+      2026-08-31.** `OPEN_STATUSES` (`lib/alerts.ts:9`) operates on
+      `Order.status`: `["ordered", "shipped", "delivered", "returnable",
+      "needs_review"]` — "statuses where starting a return is still a
+      meaningful, available action," used for the dashboard's open-orders
+      list and the alerts badge/count. `NON_TERMINAL_STATUSES`
+      (`lib/autoArchive.ts:19`) operates on the separate `Order.
+      displayStatus` field: `["ordered", "shipped", "delivered",
+      "return_requested"]` — used only to decide what the nightly
+      auto-archive sweep is allowed to touch. Close in spirit ("not done
+      yet") but not identical, and on two different columns. Surfaced
+      2026-08-31 while deciding `findShipmentMergeCandidates`'s status
+      filter (TASKS.md 🔴 Now shipment_unlinked ticket, Stage 3) — that
+      function ended up using `OPEN_STATUSES` after an explicit owner
+      decision, but the duplication itself predates this build and wasn't
+      created by it. Not urgent, no known bug from it today.
+      **Revisit if:** the next feature that needs "is this order still
+      active" has to choose between the two and it isn't obvious which —
+      that's the forcing function this currently lacks. At that point,
+      worth deciding whether to consolidate onto one field/list or keep
+      both deliberately (if their different purposes genuinely warrant
+      different definitions).
+- [ ] **Status-filter asymmetry across merge-candidate matchers —
+      someday cleanup, 2026-08-31.** `findShipmentMergeCandidates`
+      (`lib/linkOrder.ts`, Stage 3 of the shipment_unlinked ticket)
+      filters candidates to `OPEN_STATUSES` — excludes terminal-state
+      orders (returned/refunded/completed/expired) from matching,
+      deliberate owner decision (done orders stay done). But the two
+      pre-existing matchers it sits alongside, `findMatchingOrder` and
+      `findRefundFallbackOrder` (both `lib/linkOrder.ts`), apply **no**
+      status filter at all — they rely purely on precise `orderNumber`
+      exact/prefix match or refund line-item/total signals instead, and
+      never exclude terminal-state orders. **User-facing consequence:**
+      an exact-orderNumber match or a refund-fallback match can silently
+      merge a new email into an already-returned/refunded/completed
+      order today; a retailer-only match (the new matcher) can't.
+      Rationale for the asymmetry is defensible — precise signals
+      (orderNumber, line-item overlap) are strong enough to trust
+      regardless of order status, while retailer-only matching is weak
+      enough that a status guard makes sense as an extra safety check —
+      but the inconsistency itself was never a deliberate design decision
+      on the pre-existing matchers' side, just an absence. Not proposing
+      a fix here — capturing so it isn't silently rediscovered later as
+      if it were new.
+      **Revisit if:** a user reports "the wrong order got merged into"
+      on an already-closed order, or the next design pass on matcher
+      rules generally (a natural point to decide whether all matchers
+      should agree on a status policy, or whether the asymmetry should
+      be made explicit/documented as intentional).
 - [ ] **shipment_unlinked picker: retailer-filtered candidate list
       deferred — 2026-08-31.** The shipment_unlinked ticket (TASKS.md
       🔴 Now) shipped the reasonId rename/gate expansion (Stages 1-2), a
