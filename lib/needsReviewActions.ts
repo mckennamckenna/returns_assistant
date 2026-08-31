@@ -46,7 +46,7 @@ export function needsReviewAction(row: NeedsReviewRowInput): NeedsReviewActionSp
     row.reasonId === "belongs_to_existing_order" ||
     row.reasonId === "duplicate" ||
     row.reasonId === "return_or_refund_no_link" ||
-    row.reasonId === "carrier_tracking_unlinked"
+    row.reasonId === "shipment_unlinked"
   ) {
     id = "link_to_order";
   } else if (row.reasonId === "real_purchase_no_record") {

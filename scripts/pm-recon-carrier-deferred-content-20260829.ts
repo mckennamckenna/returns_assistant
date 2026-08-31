@@ -10,8 +10,9 @@
 // dependencies).
 //
 // Scope: only rows where retailerSource === "carrier_deferred" — the DB
-// predicate reasonId "carrier_tracking_unlinked" derives from
-// (lib/needsReviewRows.ts:94). No other reasonId's rows are read or touched.
+// predicate reasonId "shipment_unlinked" (renamed 2026-08-30, formerly
+// carrier_tracking_unlinked) derives from (lib/needsReviewRows.ts:94). No
+// other reasonId's rows are read or touched.
 //
 // Usage:
 //   npx tsx scripts/pm-recon-carrier-deferred-content-20260829.ts

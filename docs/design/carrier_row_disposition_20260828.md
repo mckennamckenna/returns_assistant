@@ -357,6 +357,11 @@ go on).
 
 ### Design question 4a: how carrier rows get `link_to_order`
 
+**[2026-08-30: renamed `shipment_unlinked` and gate expanded to also cover
+delivery/shipping_confirmation emails with a known retailer but no order
+number — TASKS.md 🔴 Now. Historical text below describes the original
+2026-08-28 decision as made at the time; not updated in place.]**
+
 **Option A — new reasonId.** Add `carrier_tracking_unlinked` to
 `NeedsReviewReasonId`, detected as a new branch in
 `detectEmailReviewReason` (checked before the `no_extraction_signal`

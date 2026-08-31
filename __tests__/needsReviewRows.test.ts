@@ -102,13 +102,13 @@ describe("emailReviewRow", () => {
   // carrier-row-disposition Phase 3 (2026-08-28): a new branch checked
   // before the no_extraction_signal fallback, gated on
   // retailerSource === "carrier_deferred".
-  it("carrier branch (NEW): retailerSource === 'carrier_deferred' routes to carrier_tracking_unlinked ahead of the no_extraction_signal fallback", () => {
+  it("carrier branch (renamed 2026-08-30): retailerSource === 'carrier_deferred' routes to shipment_unlinked ahead of the no_extraction_signal fallback", () => {
     const row = emailReviewRow(
       { ...email, retailer: null, orderNumber: null, emailType: null, retailerSource: "carrier_deferred" },
       [],
     );
-    expect(row.reasonId).toBe("carrier_tracking_unlinked");
-    expect(row.why).toBe("This is a carrier tracking email — link it to the order it belongs to.");
+    expect(row.reasonId).toBe("shipment_unlinked");
+    expect(row.why).toBe("Shipping or delivery update — link to the correct order.");
   });
 
   it("carrier branch (NEW): a row without retailerSource === 'carrier_deferred' is unaffected — still falls to no_extraction_signal", () => {

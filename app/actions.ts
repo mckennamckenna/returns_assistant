@@ -54,7 +54,8 @@ export async function linkEmailToOrderAction(emailId: string, targetOrderId: str
 // deferred — a misclick in the picker has no other recovery path (owner,
 // 2026-08-28). needsReview: true mirrors linkEmailToExistingOrder setting it
 // false on link; the email re-enters the needs-review bucket and is
-// reclassified as carrier_tracking_unlinked by detectEmailReviewReason.
+// reclassified as shipment_unlinked (renamed 2026-08-30, formerly
+// carrier_tracking_unlinked) by detectEmailReviewReason.
 export async function unlinkEmailFromOrderAction(emailId: string): Promise<void> {
   const session = await auth();
   if (!session?.user) return;

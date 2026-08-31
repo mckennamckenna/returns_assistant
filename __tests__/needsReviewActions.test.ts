@@ -56,8 +56,8 @@ describe("needsReviewAction", () => {
     });
   });
 
-  it("an email-kind row detected as carrier_tracking_unlinked offers link_to_order (carrier-row-disposition Phase 3, 2026-08-28)", () => {
-    expect(needsReviewAction({ kind: "email", reasonId: "carrier_tracking_unlinked" })).toEqual({
+  it("an email-kind row detected as shipment_unlinked offers link_to_order (carrier-row-disposition Phase 3, 2026-08-28; renamed 2026-08-30)", () => {
+    expect(needsReviewAction({ kind: "email", reasonId: "shipment_unlinked" })).toEqual({
       id: "link_to_order",
       label: "Merge with existing order",
     });

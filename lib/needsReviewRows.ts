@@ -92,7 +92,7 @@ function detectEmailReviewReason(email: EmailReviewInput, candidateOrders: Candi
   // before the fallback, so the true no-signal population (nothing to go
   // on at all) is untouched.
   if (email.retailerSource === "carrier_deferred") {
-    return "carrier_tracking_unlinked";
+    return "shipment_unlinked";
   }
   return "no_extraction_signal";
 }

@@ -248,6 +248,8 @@ renders as, not a suggestion:
 | "We think this may not be e-commerce." | Not a purchase (delete / junk-with-rescue) | View detail |
 | "This looks like a duplicate of another order." | Merge with existing order (Link to order) | View detail |
 | "This looks like a real purchase with no order record." | Start a new order (Create new order) | View detail |
+| "This looks like a return or refund for an order we don't have on file." | Merge with existing order (Link to order) | View detail |
+| "Shipping or delivery update — link to the correct order." | Merge with existing order (Link to order) | View detail |
 | "We couldn't find a purchase date — the deadline may be estimated." | View detail (degrade — only action) | — |
 | "We couldn't find the order total." | View detail (degrade — only action) | — |
 | "We couldn't extract any details from this email." | View detail (degrade — only action) | — |
