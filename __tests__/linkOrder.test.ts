@@ -8,6 +8,7 @@ const mockPrisma = {
   order: {
     findUnique: vi.fn(),
     findUniqueOrThrow: vi.fn(),
+    findMany: vi.fn(),
     update: vi.fn(),
     create: vi.fn(),
   },
@@ -43,6 +44,7 @@ const {
   resolveDeliveredAtBackfill,
   recomputeDisplayStatus,
   createOrderFromEmail,
+  findShipmentMergeCandidates,
 } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
@@ -891,3 +893,79 @@ describe("linkEmailToOrder — retailer-name backstop", () => {
     });
   });
 });
+
+describe("findShipmentMergeCandidates", () => {
+  beforeEach(() => {
+    mockPrisma.order.findMany.mockReset();
+  });
+
+  it("exact retailer match, single candidate — returns it", async () => {
+    const order = { id: "order_1", userId: "user_1", retailer: "H&M", orderNumber: "H123", status: "ordered" };
+    mockPrisma.order.findMany.mockResolvedValueOnce([order]);
+
+    const result = await findShipmentMergeCandidates("user_1", "H&M");
+
+    expect(result).toEqual([order]);
+    expect(mockPrisma.order.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: "user_1",
+        retailer: { equals: "H&M", mode: "insensitive" },
+        archivedAt: null,
+        deletedAt: null,
+        status: { in: ["ordered", "shipped", "delivered", "returnable", "needs_review"] },
+      },
+    });
+  });
+
+  it("a second retailer (Poshmark) matches the same way — proves it's not H&M-specific", async () => {
+    const order = { id: "order_2", userId: "user_1", retailer: "Poshmark", orderNumber: null, status: "shipped" };
+    mockPrisma.order.findMany.mockResolvedValueOnce([order]);
+
+    const result = await findShipmentMergeCandidates("user_1", "Poshmark");
+
+    expect(result).toEqual([order]);
+  });
+
+  it("no match at all — returns an empty array, not null, not a throw", async () => {
+    mockPrisma.order.findMany.mockResolvedValueOnce([]);
+
+    const result = await findShipmentMergeCandidates("user_1", "Zara");
+
+    expect(result).toEqual([]);
+  });
+
+  it("multiple candidates for the same retailer — all returned", async () => {
+    const orderA = { id: "order_a", userId: "user_1", retailer: "H&M", orderNumber: "H1", status: "ordered" };
+    const orderB = { id: "order_b", userId: "user_1", retailer: "H&M", orderNumber: "H2", status: "returnable" };
+    mockPrisma.order.findMany.mockResolvedValueOnce([orderA, orderB]);
+
+    const result = await findShipmentMergeCandidates("user_1", "H&M");
+
+    expect(result).toEqual([orderA, orderB]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("includes null-orderNumber shell orders as candidates — the only manual recovery path for finding-5 duplicates", async () => {
+    const shell = { id: "order_shell", userId: "user_1", retailer: "H&M", orderNumber: null, status: "ordered" };
+    mockPrisma.order.findMany.mockResolvedValueOnce([shell]);
+
+    const result = await findShipmentMergeCandidates("user_1", "H&M");
+
+    expect(result).toEqual([shell]);
+    expect(result[0].orderNumber).toBeNull();
+  });
+
+  it("excludes terminal-state orders via the status filter passed to Prisma — the where clause never asks for returned/refunded/cancelled", async () => {
+    mockPrisma.order.findMany.mockResolvedValueOnce([]);
+
+    await findShipmentMergeCandidates("user_1", "H&M");
+
+    const whereArg = mockPrisma.order.findMany.mock.calls[0][0].where;
+    expect(whereArg.status.in).not.toContain("returned");
+    expect(whereArg.status.in).not.toContain("refunded");
+    expect(whereArg.status.in).not.toContain("cancelled");
+    expect(whereArg.status.in).not.toContain("completed");
+    expect(whereArg.status.in).not.toContain("expired");
+  });
+});
+

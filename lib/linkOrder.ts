@@ -7,6 +7,8 @@ import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displaySta
 import { parseTracking } from "@/lib/trackingParser";
 import { shouldAutoJunk } from "@/lib/junk";
 import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
+import { activeOrderFilter } from "@/lib/orderFilters";
+import { OPEN_STATUSES } from "@/lib/alerts";
 
 // Narrow field sets for functions that take a full Email but only read a
 // handful of fields — lets their callers `select` instead of fetching whole
@@ -613,6 +615,57 @@ export async function findRefundFallbackOrder(
 
   const mostRecent = [...candidates].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
   return { order: mostRecent, tier: "recency" };
+}
+
+// Retailer-scoped merge-candidate matcher for the shipment_unlinked
+// population (TASKS.md 🔴 Now, "Rename + expand carrier_tracking_unlinked
+// -> shipment_unlinked", Stage 3, 2026-08-30) — a delivery/shipping_
+// confirmation/order_confirmation email with a known retailer but no order
+// number to match on. Deliberately dumb, unlike findRefundFallbackOrder
+// above: no line-item/total tiers, no date window, no recency tiebreak —
+// just userId + case-insensitive exact retailer match (same convention as
+// findRefundFallbackOrder's own query above) + open/in-flight status
+// (activeOrderFilter + OPEN_STATUSES, lib/alerts.ts — "statuses where
+// starting a return is still a meaningful, available action," the closest
+// existing convention to "open/in-flight" for the Order.status field;
+// findMatchingOrder/findRefundFallbackOrder don't filter by status at all,
+// since they rely on precise orderNumber/line-item signals instead — no
+// precedent to follow there). If this ever needs a fuzzy tier, that's a
+// new decision, not an extension of this function — stop and flag first.
+//
+// Terminal-state orders (returned, refunded, cancelled — everything
+// outside OPEN_STATUSES) are DELIBERATELY excluded, owner decision
+// 2026-08-30: a newly-arriving shipment could in principle belong to an
+// already-returned/refunded order (e.g. a second box of a split shipment
+// arriving late), but done orders should stay done from the app's
+// perspective, and surfacing a user's full retail history in this picker
+// — rather than just what's still open — would be a real UX cost for the
+// common case to guard a rare one. If this needs revisiting, that's a new
+// decision, not a silent widening of OPEN_STATUSES.
+//
+// Deliberately DOES include null-orderNumber shell orders (owner
+// requirement, 2026-08-30): retailer-only matching has no orderNumber to
+// collide on, and this is the only manual recovery path today for the
+// finding-5 sibling bug (a shell order from "Start a new order" on an
+// unlinked shipment is otherwise invisible to every auto-matcher above,
+// forever). A freshly-created shell defaults to status "ordered" (schema
+// default) and gets recomputed via recomputeOrderStatus right after
+// creation (lib/orderReview.ts's createOrderFromOrphanedEmail) — lands on
+// "ordered" or "returnable" either way, both inside OPEN_STATUSES, so no
+// special-casing is needed for shells to qualify here.
+//
+// Returns [] (never null, never throws) when there's no candidate —
+// Stage 4's picker treats an empty array as "show the create-new escape
+// hatch with nothing above it," not an error case.
+export async function findShipmentMergeCandidates(userId: string, retailer: string): Promise<Order[]> {
+  return prisma.order.findMany({
+    where: {
+      userId,
+      retailer: { equals: retailer, mode: "insensitive" },
+      ...activeOrderFilter,
+      status: { in: OPEN_STATUSES },
+    },
+  });
 }
 
 // An order_confirmation describes the WHOLE order; a shipping or delivery
