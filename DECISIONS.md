@@ -7,6 +7,40 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-08-30 — Carrier-tracking retailer fallback confirmed working as designed on H&M UPS-delivery emails
+
+Context: H&M UPS-delivery emails were flagged as possibly bypassing the
+carrier-tracking retailer-fallback path (`lib/retailerFallback.ts`),
+during the shipment_unlinked routing investigation (TASKS.md 🔴 Now).
+
+Investigation: Traced the fallback's gate — it only fires when body
+extraction returns retailer = null (the Decision 2 gate, enforced by the
+caller, not the fallback function itself). Checked whether H&M's retailer
+was actually null coming out of body extraction on these emails.
+
+Findings:
+- H&M's retailer resolves correctly from the email body on these emails,
+  so the gate never trips and the fallback correctly never fires.
+  `retailerSource` stays `"body_extraction"`, `carrier` stays null — this
+  is the fallback correctly declining to fire, not silently failing.
+- "POLICY SOURCE: Web lookup," visible in the extraction UI on these rows,
+  refers to return-policy lookup (`lib/extract.ts`) — unrelated to
+  retailer detection. The two were conflated when the ticket was
+  originally opened.
+
+Decision: Not a bug. No fix needed in `lib/retailerFallback.ts`. The
+actual misrouting on these rows (defaulting to "Start a new order") traced
+to a different cause entirely — see the shipment_unlinked ticket
+(TASKS.md 🔴 Now, Stages 1-4).
+
+Revisit if: new evidence surfaces that body extraction is missing a
+retailer it should be catching. The carrier-tracking fallback is a
+recovery path for when retailer detection FAILS, not a preferred routing
+path when it succeeds — don't re-investigate whether it "should" claim an
+email whose retailer already resolved correctly without that evidence.
+
+---
+
 ## 2026-08-29 — Phase 6 (carrier-row card content) paused
 
 Context: Phase 6 was added post-hoc after Phase 3 shipped, when the needs-review
