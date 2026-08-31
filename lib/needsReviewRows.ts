@@ -64,21 +64,26 @@ interface EmailReviewInput {
 }
 
 const RETURN_SIDE_EMAIL_TYPES = new Set(["return_label", "refund"]);
+// order_confirmation included (widened 2026-08-30, TASKS.md 🔴 Now
+// amendment; originally excluded in the same-day Stage 2 commit on the
+// theory that an order_confirmation might be the first email for a
+// genuinely new order). Reversed same day: a zero-candidate
+// order_confirmation still reaches "Start a new order" via the picker's
+// create-new escape hatch (Stage 4) — identical outcome to the old direct
+// route — while an order_confirmation whose orderNumber extraction simply
+// failed (owner: common while the product builds out, not rare) now gets
+// a real chance to merge into its actual existing order instead of
+// guaranteed-duplicating it (the finding-5 sibling bug). No downside found
+// on the prerequisite grep — shouldAutoJunk (lib/junk.ts) already never
+// auto-junks a purchase-side orphan regardless of type, and nothing else
+// branches on an orphaned order_confirmation's emailType.
+//
+// Used by both isUnlinkedShipment below and the real_purchase_no_record
+// branch further down — the widening made those two checks' emailType
+// sets identical, so a separate SHIPMENT_EMAIL_TYPES constant would just
+// be a second name for the same three values (removed 2026-08-30, was
+// briefly its own const in the same-day Stage 2 commits).
 const PURCHASE_SIDE_EMAIL_TYPES = new Set(["order_confirmation", "shipping_confirmation", "delivery"]);
-// Same set as PURCHASE_SIDE_EMAIL_TYPES — order_confirmation included
-// (widened 2026-08-30, TASKS.md 🔴 Now amendment; originally excluded in
-// the same-day Stage 2 commit on the theory that an order_confirmation
-// might be the first email for a genuinely new order). Reversed same day:
-// a zero-candidate order_confirmation still reaches "Start a new order"
-// via the picker's create-new escape hatch (Stage 4) — identical outcome
-// to the old direct route — while an order_confirmation whose orderNumber
-// extraction simply failed (owner: common while the product builds out,
-// not rare) now gets a real chance to merge into its actual existing
-// order instead of guaranteed-duplicating it (the finding-5 sibling bug).
-// No downside found on the prerequisite grep — shouldAutoJunk (lib/junk.ts)
-// already never auto-junks a purchase-side orphan regardless of type, and
-// nothing else branches on an orphaned order_confirmation's emailType.
-const SHIPMENT_EMAIL_TYPES = new Set(["delivery", "shipping_confirmation", "order_confirmation"]);
 
 // True for both halves of the shipment_unlinked population: a carrier
 // ping with no retailer at all (retailerSource === "carrier_deferred",
@@ -91,7 +96,7 @@ const SHIPMENT_EMAIL_TYPES = new Set(["delivery", "shipping_confirmation", "orde
 function isUnlinkedShipment(email: EmailReviewInput): boolean {
   return (
     email.retailerSource === "carrier_deferred" ||
-    (!!email.emailType && SHIPMENT_EMAIL_TYPES.has(email.emailType) && !!email.retailer && !email.orderNumber)
+    (!!email.emailType && PURCHASE_SIDE_EMAIL_TYPES.has(email.emailType) && !!email.retailer && !email.orderNumber)
   );
 }
 
