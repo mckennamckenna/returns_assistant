@@ -617,6 +617,20 @@ export async function findRefundFallbackOrder(
   return { order: mostRecent, tier: "recency" };
 }
 
+// CURRENTLY UNUSED — not wired into the picker or detectEmailReviewReason
+// (2026-08-31). Built and tested in Stage 3 for the shipment_unlinked
+// ticket's Part 4a (filtering LinkToOrderPicker's candidate list to
+// same-retailer, open orders), but Part 4a was scoped and then deferred
+// same session — it needs real prop-drilling / shared-state work across
+// app/(app)/page.tsx, app/(app)/needs-review/page.tsx,
+// app/NeedsReviewBucket.tsx, and app/NeedsReviewRow.tsx that the ticket
+// chose not to take on in this pass (Stage 4 shipped only Part 4b, the
+// picker's create-new escape hatch, which doesn't call this function at
+// all). See TASKS.md 👀 Watching for the deferred-work entry. This
+// function and its tests (__tests__/linkOrder.test.ts) are ready to wire
+// up whenever that work picks up — don't re-derive the matching rule from
+// scratch, the reasoning below is still current.
+//
 // Retailer-scoped merge-candidate matcher for the shipment_unlinked
 // population (TASKS.md 🔴 Now, "Rename + expand carrier_tracking_unlinked
 // -> shipment_unlinked", Stage 3, 2026-08-30) — a delivery/shipping_
@@ -654,9 +668,10 @@ export async function findRefundFallbackOrder(
 // "ordered" or "returnable" either way, both inside OPEN_STATUSES, so no
 // special-casing is needed for shells to qualify here.
 //
-// Returns [] (never null, never throws) when there's no candidate —
-// Stage 4's picker treats an empty array as "show the create-new escape
-// hatch with nothing above it," not an error case.
+// Returns [] (never null, never throws) when there's no candidate — the
+// intended caller (whenever Part 4a's filter wiring lands) should treat an
+// empty array as "show the create-new escape hatch with nothing above
+// it," not an error case.
 export async function findShipmentMergeCandidates(userId: string, retailer: string): Promise<Order[]> {
   return prisma.order.findMany({
     where: {
