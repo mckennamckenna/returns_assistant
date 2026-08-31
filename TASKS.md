@@ -32,6 +32,33 @@
 
 ## 🔴 Now
 
+- [ ] **User-initiated "un-kept" action — new capability, also closes LR
+      #512867 investigation finding (a).** Today there is no user-facing way
+      to reverse an accidental Keep. The two paths that write
+      `displayStatus: "kept"` (`markKeptAction` in `app/actions.ts:94`, and
+      `PATCH /api/orders/:id/status`) are one-way through the rank-gated
+      `buildStatusTransitionData` (`lib/displayStatus.ts`), and the only
+      reverse-shaped thing available — `PATCH /api/orders/:id/archive`'s
+      unarchive — touches `archivedAt` only and produces the LR #512867
+      "kept + at-risk countdown" state when used as a workaround.
+      **Behavior:** on the order detail page when `displayStatus === "kept"`,
+      a button ("Not keeping it after all") that atomically (a) clears
+      `displayStatus` back to auto-derived via `deriveDisplayStatus`, (b)
+      clears `keptAt`, (c) clears `archivedAt` — mirrors the Keep-and-archive
+      coupling in reverse, restores the order to the dashboard, (d) writes
+      an `ActionLog` entry (first in-app status action with logging —
+      deliberately not backfilling logs to the two existing paths, that's
+      separate scope).
+      **Blocked on a read-only pass first:** does `buildStatusTransitionData`'s
+      rank-gate currently permit a downward transition? If not, decision
+      between (i) adding a documented downgrade path to the shared function
+      (blast radius: both existing kept-entry paths), or (ii) a dedicated new
+      route that bypasses it. Decision only after the read.
+      **Explicitly out of scope this session:** un-return/un-refund
+      (belongs to the queued Extend-signed-token-actions item), backfilling
+      `ActionLog` for the existing Keep/status paths, and the queued
+      unarchive-should-warn / label-coherence spec passes.
+
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
