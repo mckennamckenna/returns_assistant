@@ -3,6 +3,7 @@ import { needsReviewAction, NEEDS_REVIEW_ACTION_LABELS } from "@/lib/needsReview
 import type { NeedsReviewRowData } from "@/lib/needsReviewRows";
 import { NeedsReviewRowActions } from "./NeedsReviewRowActions";
 import { LinkToOrderPicker, type LinkablePickerOrder } from "./LinkToOrderPicker";
+import { shouldShowCreateNewEscapeHatch } from "@/lib/shipmentUnlinkedPicker";
 import { formatCalendarDateShort } from "@/lib/dateDisplay";
 
 function formatCurrency(total: number | null, currency: string | null): string | null {
@@ -83,7 +84,13 @@ export function NeedsReviewRow({
             primary. Archive is email-kind only (see comment above). */}
         {!isDegrade &&
           (action.id === "link_to_order" && row.kind === "email" ? (
-            <LinkToOrderPicker emailId={row.id} orders={linkablePickerOrders} className={linkButtonClass} />
+            <LinkToOrderPicker
+              emailId={row.id}
+              orders={linkablePickerOrders}
+              showCreateNewEscapeHatch={shouldShowCreateNewEscapeHatch(row.reasonId)}
+              retailer={row.retailer}
+              className={linkButtonClass}
+            />
           ) : (
             <NeedsReviewRowActions emailId={row.id} actionId={action.id} label={action.label} className={actionButtonClass} />
           ))}

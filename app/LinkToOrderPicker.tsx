@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { linkEmailToOrderAction } from "./actions";
+import { linkEmailToOrderAction, createOrderFromEmailAction } from "./actions";
 import { formatCalendarDateShort } from "@/lib/dateDisplay";
+import { createNewOrderEscapeHatchLabel, runCreateNewOrderEscapeHatch } from "@/lib/shipmentUnlinkedPicker";
 
 function formatOrderTotal(total: number | null): string | null {
   if (total == null) return null;
@@ -27,13 +28,39 @@ export interface LinkablePickerOrder {
 // dumb, no auto-suggestion/search this pass — sidesteps the "squirrelly
 // sender" problem entirely, since a human eyeballing the list doesn't care
 // what the sender string said.
+//
+// showCreateNewEscapeHatch (TASKS.md 🔴 Now, shipment_unlinked ticket,
+// Stage 4 Part 4b, 2026-08-31) — the picker's list here is still the full,
+// unfiltered active-order list (retailer-filtering was scoped for this
+// ticket and then deferred, see 👀 Watching), so a shipment_unlinked row
+// (a delivery/shipping_confirmation/order_confirmation email with a known
+// retailer but no order number) can easily have no correct order to pick
+// from the list even when candidates exist. Without an escape hatch here,
+// that's a dead end — the row's only other actions are Archive and More
+// info, neither of which resolves it.
+//
+// Rendered as a pinned-first LIST ITEM, not a separate button below the
+// list (owner decision 2026-08-31, correcting the first pass of this
+// build) — "none of these, it's actually a new order" is a valid answer
+// to the picker's own question ("which order is this?"), not a different
+// question, so it belongs inside the same list the real candidates render
+// in. Wired to the same createOrderFromEmailAction the real_purchase_
+// no_record "Start a new order" button uses (NeedsReviewRowActions.tsx),
+// same confirm-step copy, so the two "create a new order" entry points
+// behave identically. Visibility/copy/click-orchestration logic lives in
+// lib/shipmentUnlinkedPicker.ts, not inline here, so it's unit-testable
+// without a component-rendering harness (none exists in this repo yet).
 export function LinkToOrderPicker({
   emailId,
   orders,
+  showCreateNewEscapeHatch = false,
+  retailer = null,
   className = "",
 }: {
   emailId: string;
   orders: LinkablePickerOrder[];
+  showCreateNewEscapeHatch?: boolean;
+  retailer?: string | null;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -46,6 +73,26 @@ export function LinkToOrderPicker({
       await linkEmailToOrderAction(emailId, orderId);
       setOpen(false);
       router.refresh();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleCreateNew() {
+    setPending(true);
+    try {
+      // Same confirm copy as NeedsReviewRowActions.tsx's create_new_order
+      // path — one user-facing "create a new order" action, two entry
+      // points, identical behavior either way.
+      const created = await runCreateNewOrderEscapeHatch(
+        emailId,
+        () => window.confirm("Create a new order from this email?"),
+        createOrderFromEmailAction,
+      );
+      if (created) {
+        setOpen(false);
+        router.refresh();
+      }
     } finally {
       setPending(false);
     }
@@ -67,7 +114,19 @@ export function LinkToOrderPicker({
           />
           <div className="absolute right-0 top-full mt-1 z-20 w-72 max-h-80 overflow-y-auto bg-card border border-border rounded-lg shadow-lg p-2 flex flex-col gap-1">
             <p className="text-xs text-muted px-2 py-1">Which order is this?</p>
-            {orders.length === 0 && <p className="text-xs text-muted px-2 py-1">No orders to link to yet.</p>}
+            {showCreateNewEscapeHatch && (
+              <button
+                type="button"
+                onClick={handleCreateNew}
+                disabled={pending}
+                className="text-left text-sm text-secondary hover:bg-page rounded px-2 py-1.5 disabled:opacity-50 mb-1 pb-2 border-b border-border"
+              >
+                {createNewOrderEscapeHatchLabel(retailer)}
+              </button>
+            )}
+            {orders.length === 0 && !showCreateNewEscapeHatch && (
+              <p className="text-xs text-muted px-2 py-1">No orders to link to yet.</p>
+            )}
             {orders.map((order) => (
               <button
                 key={order.id}
