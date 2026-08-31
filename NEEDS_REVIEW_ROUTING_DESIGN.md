@@ -61,9 +61,36 @@ than re-litigated here since two are already tracked:
 
 ## 2. Proposed population → action mapping
 
-Four branches, checked in priority order, for **email-kind rows only**
-(order-kind rows keep their existing, separately-scoped behavior — always
-View detail, per `needsReviewActions.ts:43-44`; not touched here).
+**[2026-08-30 update — reflects the shipped, current tree, not just this
+session's original 4-branch proposal.]** Two branches were added after this
+doc's original 2026-08-24 pass: `carrier_tracking_unlinked`
+(carrier-row-disposition Phase 3, 2026-08-28,
+`docs/design/carrier_row_disposition_20260828.md`), gated only on
+`retailerSource === "carrier_deferred"` (a carrier-sender email with no
+retailer at all — e.g. a bare "USPS Tracking" sender). That branch was
+**renamed and expanded to `shipment_unlinked`** on 2026-08-30 (TASKS.md 🔴
+Now) once real data (H&M via UPS, Poshmark via USPS) showed a second,
+much more common population hitting the same "link this to an order, no
+order number to help you" user job: a purchase-side email whose retailer
+resolves correctly from the body, just with no order number. The old
+branch 3 (below) used to short-circuit that second population to
+`real_purchase_no_record` before the carrier-only check ever ran — the fix
+moves the check earlier and widens its condition, it doesn't add a new
+priority position.
+
+Same day, widened a second time: the gate initially excluded
+`order_confirmation` (on the theory that an order_confirmation might be the
+first email for a genuinely new order), then included it a few hours later
+once the owner flagged that the exclusion had no upside — a zero-candidate
+`order_confirmation` still reaches "Start a new order" via the picker's
+create-new escape hatch (Stage 4), identical to the old direct route, while
+an `order_confirmation` whose orderNumber extraction simply failed (common
+while the product builds out, not rare, per owner) now gets a real chance
+to merge into its actual existing order instead of guaranteed-duplicating
+it (the finding-5 sibling bug). Five branches today, checked in priority
+order, for **email-kind rows only** (order-kind rows keep their existing,
+separately-scoped behavior — always View detail, per
+`needsReviewActions.ts:43-44`; not touched here).
 
 ```
 1. orderNumber exact-matches an existing order
@@ -72,11 +99,27 @@ View detail, per `needsReviewActions.ts:43-44`; not touched here).
 2. emailType ∈ {return_label, refund}
    → return_or_refund_no_link (NEW)                 → Link to order (manual picker)
 
-3. emailType ∈ {order_confirmation, shipping_confirmation, delivery}
+3. retailerSource === "carrier_deferred"
+   OR (emailType ∈ {order_confirmation, delivery, shipping_confirmation}
+       AND retailer present AND orderNumber absent)
+   → shipment_unlinked (renamed + expanded 2026-08-30, formerly
+     carrier_tracking_unlinked, carrier-only)         → Link to order (manual picker)
+   Examples: a bare USPS/FedEx carrier ping with no retailer at all;
+   an H&M delivery notification forwarded via UPS; a Poshmark shipping
+   confirmation via USPS; an order_confirmation with a known retailer
+   whose orderNumber extraction failed — same reason, same action,
+   retailer/carrier/emailType agnostic.
+
+4. emailType ∈ {order_confirmation, shipping_confirmation, delivery}
    AND (retailer present OR orderNumber present)
    → real_purchase_no_record (unchanged reasonId, narrower trigger) → Create new order
+   Note: as of the second 2026-08-30 widening, this branch is now only
+   reached by a purchase-side email that carries an orderNumber (even if
+   unmatched against a candidate) — a known retailer with NO orderNumber,
+   of any purchase-side emailType including order_confirmation, is
+   branch 3's case.
 
-4. everything else (emailType null/other, or zero signal at all)
+5. everything else (emailType null/other, or zero signal at all)
    → no_extraction_signal (NEW)                     → View detail (degrade)
 ```
 
@@ -110,10 +153,19 @@ instead of silently coercing everything into a mapped one.
 discipline as the 2026-08-21 rebuild, tracked separately):
 - Email-kind `duplicate` detection — no canonical dedup key exists yet.
 - Real not-e-commerce detection (`emailType === "other"` currently has no
-  positive signal to route on; it falls through to branch 4, which is a
+  positive signal to route on; it falls through to branch 5, which is a
   safe degrade, not a fix).
 - Order-kind rows' forced View detail (a separate, larger decision about
   order-to-order merge machinery — out of scope for this design).
+- **[2026-08-30 addition]** `shipment_unlinked`'s "Link to order" picker
+  itself is still the full, unfiltered active-order list in this pass — it
+  is not narrowed to same-retailer candidates, and there's no auto-select
+  or "none of these, create new" escape hatch. Addressed in Stages 3-4
+  (TASKS.md 🔴 Now), not solved by this reasonId change. Also unchanged:
+  the sibling bug where a manually-created, null-orderNumber order (from
+  "Start a new order" on one of these rows) is invisible to auto-matching
+  and can duplicate on a later order_confirmation — tracked as its own
+  TASKS.md item, not fixed here.
 
 ---
 
