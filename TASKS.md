@@ -4554,6 +4554,41 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Order-detail action-row layout on kept orders reads
+      confusingly — NEW 2026-08-31, owner-reported after
+      un-keep hand-verification. Not urgent, not fixed.**
+      On a kept order's detail page, the action row now shows
+      "May not be keeping after all" and "Archive" side by
+      side, plus a "Kept" badge in the top-right. Two issues
+      tangled together:
+      (1) Both buttons interact with `archivedAt` — un-keep
+      clears it as part of the atomic write, Archive sets it —
+      but neither label says so, so the user has two buttons
+      operating on overlapping state with no visible cue.
+      (2) A truly-kept order shouldn't have Archive reachable
+      at all (Keep atomically archives, so it'd be a no-op) —
+      the fact that it IS reachable here means this specific
+      order is in the LR #512867 kept-and-unarchived state,
+      which the un-keep feature was built to give users a way
+      out of. So the confusing UX is partly the fingerprint of
+      the underlying label-coherence gap the queued spec pass
+      is meant to address, not purely a fresh UX problem.
+      **Observed on:** Loeffler Randall #512867 (yes, that one).
+      **Why parked rather than fixed:**
+      - Not clear yet whether the fix is a button-visibility
+        rule (hide Archive when displayStatus === "kept" and
+        archivedAt is already set) or belongs to the queued
+        label-coherence spec pass, which will re-examine
+        kept/archived interaction holistically.
+      - Fixing button visibility in isolation risks locking in
+        a rule that the spec pass then wants to redo.
+      **Revisit if:** (a) another user (not #512867) hits the
+      same confusion, meaning it's not just the known LR
+      unarchived-kept case; (b) the label-coherence spec pass
+      gets picked up — this is a concrete example to test
+      against; (c) un-return/un-refund actions ship (queued
+      Extend-signed-token-actions item), at which point the
+      whole reverse-action row needs a layout decision anyway.
 - [ ] **Preserve-guard asymmetry between `deriveDisplayStatus` and
       `computeOrderStatus` — someday cleanup, 2026-08-31, surfaced by
       the un-kept action read-only pass.** `deriveDisplayStatus`
