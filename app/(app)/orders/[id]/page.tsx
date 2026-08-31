@@ -6,6 +6,7 @@ import { deleteEmail, markReturnedAction, markKeptAction, approveOrderAction, un
 import { DeleteButton } from "@/app/DeleteButton";
 import { UnlinkEmailButton } from "@/app/UnlinkEmailButton";
 import { ArchiveOrderButton } from "@/app/ArchiveOrderButton";
+import { UnkeepOrderButton } from "@/app/UnkeepOrderButton";
 import { MarkRefundedButton } from "@/app/MarkRefundedButton";
 import { StartReturnButton } from "@/app/StartReturnButton";
 import { OrderStateChip } from "@/app/OrderStateChip";
@@ -154,6 +155,7 @@ export default async function OrderDetail({
   const canStartReturn = actions.includes("start_return");
   const canMarkReturned = actions.includes("mark_returned");
   const canKeep = actions.includes("keep");
+  const canUnkeep = order.displayStatus === "kept";
   const canMarkRefunded = actions.includes("mark_refunded");
 
   // Consolidated into one note below, rather than repeating "(estimated)" on
@@ -290,6 +292,12 @@ export default async function OrderDetail({
               </button>
               <span className="text-xs text-muted">{KEPT_WARNING_CAPTION}</span>
             </form>
+          )}
+          {canUnkeep && (
+            <UnkeepOrderButton
+              orderId={order.id}
+              className="border border-border text-ink text-sm font-medium rounded-lg px-4 py-2 hover:bg-page"
+            />
           )}
           <ArchiveOrderButton
             orderId={order.id}

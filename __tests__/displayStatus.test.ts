@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   deriveDisplayStatus,
+  deriveDisplayStatusCore,
   DISPLAY_STATUS_RANK,
   buildStatusTransitionData,
   requiresConfirmBeforeStatusChange,
@@ -244,6 +245,48 @@ describe("deriveDisplayStatus — delivered rung", () => {
   // the email-type signal rather than a persisted date.
   it("the AquaTru-shaped combined case: delivery-signal-only (no deliveredAt) plus a return in progress still shows the return state", () => {
     expect(deriveDisplayStatus(["delivery", "return_label"], "ordered", false, null)).toBe("return_requested");
+  });
+});
+
+// ── deriveDisplayStatusCore: the un-keep re-derivation path ─────────────────
+// app/api/orders/[id]/unkeep/route.ts calls this directly with
+// currentDisplayStatus "ordered" (the lowest rank) to bypass
+// deriveDisplayStatus's kept-guard and get a from-scratch re-derivation off
+// the order's current evidence, with no floor to respect.
+
+describe("deriveDisplayStatusCore — un-keep re-derivation (called with 'ordered' as the floor)", () => {
+  it("lands on 'ordered' when there is no shipping/delivery/return evidence at all", () => {
+    expect(deriveDisplayStatusCore(["order_confirmation"], "ordered", false, null)).toBe("ordered");
+  });
+
+  it("lands on 'shipped' when a shipping_confirmation email is linked", () => {
+    expect(deriveDisplayStatusCore(["order_confirmation", "shipping_confirmation"], "ordered", false, null)).toBe(
+      "shipped",
+    );
+  });
+
+  it("lands on 'delivered' when deliveredAt is set", () => {
+    expect(
+      deriveDisplayStatusCore(["shipping_confirmation"], "ordered", false, new Date("2026-07-15T00:00:00Z")),
+    ).toBe("delivered");
+  });
+
+  it("lands on 'return_requested' when a return_label email is linked", () => {
+    expect(deriveDisplayStatusCore(["shipping_confirmation", "return_label"], "ordered", false, null)).toBe(
+      "return_requested",
+    );
+  });
+
+  it("lands on 'refunded' when a confirmed-amount refund email is linked", () => {
+    expect(deriveDisplayStatusCore(["refund"], "ordered", true, null)).toBe("refunded");
+  });
+
+  it("lands on 'returned' when a no-amount refund email is linked", () => {
+    expect(deriveDisplayStatusCore(["refund"], "ordered", false, null)).toBe("returned");
+  });
+
+  it("never produces 'kept' — the guard lives only in the deriveDisplayStatus wrapper", () => {
+    expect(deriveDisplayStatusCore([], "ordered", false, null)).not.toBe("kept");
   });
 });
 

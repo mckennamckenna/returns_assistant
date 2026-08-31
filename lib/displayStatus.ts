@@ -104,6 +104,23 @@ export function deriveDisplayStatus(
 ): string {
   if (currentDisplayStatus === "kept") return "kept";
 
+  return deriveDisplayStatusCore(emailTypes, currentDisplayStatus, hasConfirmedRefundAmount, deliveredAt);
+}
+
+// The post-"kept"-guard body of deriveDisplayStatus, extracted so the
+// un-keep route (app/api/orders/[id]/unkeep/route.ts) can re-derive a fresh
+// status from an order's current evidence with no floor to respect — it
+// calls this directly with currentDisplayStatus "ordered" (the lowest
+// rank), bypassing deriveDisplayStatus's own kept-guard rather than adding
+// a bypass flag to the public function every other caller would have to
+// reason about. No behavior change for deriveDisplayStatus's existing
+// callers, who still only ever reach this via the wrapper above.
+export function deriveDisplayStatusCore(
+  emailTypes: string[],
+  currentDisplayStatus: string,
+  hasConfirmedRefundAmount: boolean,
+  deliveredAt: Date | null,
+): string {
   const currentRank = DISPLAY_STATUS_RANK[currentDisplayStatus] ?? 0;
 
   if (emailTypes.includes("refund")) {
@@ -187,14 +204,18 @@ export const REFUND_CONFIRM_MESSAGE =
   "Mark this order as refunded? This closes the loop — no more reminders will fire for it, and it will move to your Archive (where you can still find it). Refunded status can't be undone from the UI.";
 
 // Only "refunded" requires a confirm gate today — it's the one manual
-// transition that's irreversible in the UI and has a side effect (archiving)
-// the user might not expect. "return_requested" and "returned" stay
+// transition that has no UI path back and a side effect (archiving) the
+// user might not expect. "return_requested" and "returned" stay
 // frictionless: both are easily correctable if clicked by mistake.
-// "kept" shares refunded's two confirm-triggering properties (irreversible,
-// auto-archives) but deliberately does NOT get a blocking confirm — instead
-// an always-visible inline caption (KEPT_WARNING_CAPTION below) states the
-// consequence before the tap. No dollar amount is at stake the way refunded
-// has, and the owner's call was that friction there isn't worth it.
+// "kept" shares refunded's auto-archive side effect, and still deliberately
+// does NOT get a blocking confirm — instead an always-visible inline
+// caption (KEPT_WARNING_CAPTION below) states the consequence before the
+// tap. No dollar amount is at stake the way refunded has, and the owner's
+// call was that friction there isn't worth it. Unlike refunded, "kept" now
+// has a UI path back — POST /api/orders/:id/unkeep, surfaced on the order
+// detail page as "May not be keeping after all" — so the confirm-vs-caption
+// tradeoff here leans even further away from a blocking dialog: a wrong tap
+// is correctable in one more tap, not just readable-before-committing.
 export function requiresConfirmBeforeStatusChange(nextStatus: string): boolean {
   return nextStatus === "refunded";
 }
