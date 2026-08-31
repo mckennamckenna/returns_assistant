@@ -4554,6 +4554,44 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Preserve-guard asymmetry between `deriveDisplayStatus` and
+      `computeOrderStatus` — someday cleanup, 2026-08-31, surfaced by
+      the un-kept action read-only pass.** `deriveDisplayStatus`
+      (`lib/displayStatus.ts:99-132`) has an explicit preserve guard at
+      line 105 (`if (currentDisplayStatus === "kept") return "kept";`)
+      so email-driven recomputes can never silently overwrite a
+      user-set manual state. `computeOrderStatus`/`recomputeOrderStatus`
+      (`lib/linkOrder.ts:238-286`, called on every order
+      create/relink/review-resolve, `lib/linkOrder.ts:294-296`) has
+      **no equivalent guard** and reads no current value before
+      writing — so any inbound email on an order whose `status`
+      happens to equal `"kept"` will overwrite it back to
+      `"returnable"`/`"completed"`/etc. without warning.
+      **Practical consequence today:** `status: "kept"` isn't
+      durable across email arrivals. Mostly invisible because
+      `status` isn't user-facing and `computeKeptStatusConflict`
+      (`lib/linkOrder.ts:450-467`) guards the two email types most
+      likely to matter (return_label/refund on a kept order → flags
+      needsReview instead of merging silently). Other inbound email
+      types would silently reset `status`. The un-kept action being
+      built (🔴 Now) sidesteps this by unconditionally recomputing
+      status on un-keep, so the asymmetry doesn't bite that path —
+      but it remains a real difference in the two systems'
+      write-safety contracts.
+      **Rationale for not fixing now:** the two systems have
+      different design intents per the 2026-07-19/20 Session-1
+      close-out (see ✅ Done: `status` = purely automatic
+      email-evidence signal, `displayStatus` = user-facing state
+      that accepts manual writes), so it's defensible that only the
+      user-facing one guards against automatic overwrites of
+      manual state. But no manual write path currently sets `status`
+      directly, so the asymmetry has never been tested by a case
+      that would actually hurt.
+      **Revisit if:** (a) we ever add a manual write path to
+      `status`, (b) any user-facing surface starts reading `status`
+      directly instead of `displayStatus`, or (c) we discover an
+      email path that resets `status: "kept"` in a way that affects
+      alert eligibility or reminder logic on a real user's order.
 - [ ] **Retailer string matching brittleness — 2026-08-30.**
       `findShipmentMergeCandidates` (`lib/linkOrder.ts`) and
       `findRefundFallbackOrder` both do case-insensitive-exact retailer
