@@ -32,48 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **User-initiated "un-kept" action — new capability, also closes LR
-      #512867 investigation finding (a).** Today there is no user-facing way
-      to reverse an accidental Keep. The two paths that write
-      `displayStatus: "kept"` (`markKeptAction` in `app/actions.ts:94`, and
-      `PATCH /api/orders/:id/status`) are one-way through the rank-gated
-      `buildStatusTransitionData` (`lib/displayStatus.ts`) — confirmed via
-      read-only pass: kept and returned share rank 5, both call sites
-      reject `nextRank <= currentRank` (silent no-op in `advanceDisplayStatus`,
-      400 in the PATCH route). The only reverse-shaped thing available —
-      `PATCH /api/orders/:id/archive`'s unarchive — touches `archivedAt`
-      only and produces the LR #512867 "kept + at-risk countdown" state.
-      **Approach chosen (from the read):** dedicated new route
-      `POST /api/orders/:id/unkeep`, NOT a modification to the shared
-      rank-gate — the un-kept target isn't a fixed rank, it's whatever
-      `deriveDisplayStatus` computes from current evidence, so bolting an
-      exception onto the shared gate would erode its invariant for a
-      different-shaped operation.
-      **Behavior:** on the order detail page when `displayStatus === "kept"`,
-      a button ("May not be keeping after all") that atomically, in one
-      transaction, (a) clears `displayStatus` and re-derives via
-      `deriveDisplayStatus` (which never produces "kept"), (b) clears
-      `keptAt`, (c) clears `archivedAt` — mirrors Keep-and-archive coupling
-      in reverse, restores to dashboard, (d) recomputes `Order.status` via
-      `recomputeOrderStatus` — REQUIRED because `OPEN_STATUSES` in
-      `lib/alerts.ts` filters on `status`, not `displayStatus`, and a
-      stale `status: "kept"` would keep the order invisible to alerts
-      until the next email arrives. Then, best-effort after commit, (e)
-      writes an `ActionLog` entry (`action: "unkeep"`, `outcome: "success"`
-      — first in-app/dashboard-triggered ActionLog write).
-      **UI pattern:** mirror `ArchiveOrderButton.tsx` (client component,
-      fetch PATCH-style, local pending state, `router.refresh()`) — NOT
-      the `<form action={serverAction}>` pattern the other detail-page
-      buttons use. Landing spot: `app/(app)/orders/[id]/page.tsx` near the
-      Keep block (~lines 283–292), gated on `order.displayStatus === "kept"`.
-      No confirm dialog — the button label is already the softening.
-      **Explicitly out of scope this session:** un-return / un-refund
-      (belongs to the queued Extend-signed-token-actions item);
-      backfilling `ActionLog` for the existing Keep / status / archive
-      paths; fixing `computeOrderStatus`'s lack of a manual-state preserve
-      guard (CC read-only finding #2, its own item); the queued
-      unarchive-should-warn / label-coherence spec passes.
-
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
@@ -5074,6 +5032,14 @@
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **User-initiated "un-kept" action — CLOSED 2026-08-31, deployed and
+      owner-verified on LR #512867.** New `POST /api/orders/:id/unkeep`
+      route and "May not be keeping after all" button on the order detail
+      page let a user reverse an accidental Keep, re-deriving displayStatus
+      from current email evidence and clearing keptAt/archivedAt/stale
+      internal status. Two follow-ups spun out to Watching (kept-order
+      action-row layout confusion; the deriveDisplayStatus/computeOrderStatus
+      preserve-guard asymmetry) rather than expanding scope here.
 - [x] **shipment_unlinked (rename + expand carrier_tracking_unlinked) —
       CLOSED 2026-08-31, deployed and owner-verified.** Commits `c3c39de`
       through `1571664` (11 commits total). Third instance of the
