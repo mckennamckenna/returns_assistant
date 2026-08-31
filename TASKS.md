@@ -6618,6 +6618,30 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Un-keep's `status` recompute is non-atomic with the main
+  update — accepted 2026-08-31, shipped in `eef90c9`.** `POST
+  /api/orders/[id]/unkeep` writes `displayStatus`/`keptAt`/
+  `archivedAt` in one Prisma transaction, then calls
+  `recomputeOrderStatus` as a second immediate write outside
+  that transaction. `recomputeOrderStatus`'s signature doesn't
+  accept a tx client and the build session's instruction was
+  not to refactor it just for this caller. Documented inline in
+  the route.
+  **Window:** between the two writes, the order has
+  `displayStatus` re-derived and `archivedAt` cleared (so it's
+  back on the dashboard) but `status` still reads `"kept"` (so
+  it's invisible to `OPEN_STATUSES`-filtered alert queries in
+  `lib/alerts.ts`). Milliseconds under normal load.
+  **What it looks like if it bites:** a user un-keeps an order,
+  a cron/alert query fires in that specific millisecond window,
+  the order is briefly missing from closing-soon / needs-review
+  results despite being visible on the dashboard. Recovers on
+  the next query.
+  **Revisit if:** (a) it's observed in production (would show
+  up as "I un-kept this and it didn't appear in my reminder for
+  one cycle"), or (b) `recomputeOrderStatus`'s signature is
+  refactored to accept a tx client for other reasons — at that
+  point the un-keep route should be updated to use it, cheap.
 - **`computeOrderStatus`/`recomputeOrderStatus` (`lib/linkOrder.ts`) has no
   preserve guard for manually-set `Order.status` values, unlike
   `deriveDisplayStatus`'s rank-based downgrade protection for
