@@ -51,9 +51,18 @@ export const JUNK_FILTER = {
 //        order_confirmation with orderNumber: null) — 15 real cases found,
 //        12 of 15 with an obvious candidate order already in the system.
 //        These are real purchases; junking them would hide money-costing
-//        data from the user. Tracked separately (TASKS.md 🔴 Now, the
-//        no-fallback-matcher gap) — not this file's problem to solve, but
-//        definitely this file's problem not to make worse.
+//        data from the user. As of 2026-08-30, this exact population
+//        (known retailer, purchase-side emailType, no orderNumber) routes
+//        through the shipment_unlinked reasonId (lib/needsReviewRows.ts)
+//        to a "Merge with existing order" picker instead of degrading —
+//        that's the resolution to the gap named below, not a still-open
+//        no-fallback-matcher problem. The picker itself is still the full,
+//        unfiltered order list (retailer-scoped filtering was scoped and
+//        then deferred, TASKS.md 👀 Watching) — worth knowing before
+//        treating this as fully closed. Whether the widened routing now
+//        makes this population safe for MORE aggressive auto-junking is a
+//        separate, not-yet-asked design question — out of scope here,
+//        this file's logic is unchanged.
 //      - emailType === null — the runExtraction.ts catch-block failure
 //        fingerprint (a genuinely successful extraction always sets
 //        emailType to something, even "other"). An extraction failure is

@@ -157,15 +157,20 @@ discipline as the 2026-08-21 rebuild, tracked separately):
   safe degrade, not a fix).
 - Order-kind rows' forced View detail (a separate, larger decision about
   order-to-order merge machinery — out of scope for this design).
-- **[2026-08-30 addition]** `shipment_unlinked`'s "Link to order" picker
-  itself is still the full, unfiltered active-order list in this pass — it
-  is not narrowed to same-retailer candidates, and there's no auto-select
-  or "none of these, create new" escape hatch. Addressed in Stages 3-4
-  (TASKS.md 🔴 Now), not solved by this reasonId change. Also unchanged:
-  the sibling bug where a manually-created, null-orderNumber order (from
-  "Start a new order" on one of these rows) is invisible to auto-matching
-  and can duplicate on a later order_confirmation — tracked as its own
-  TASKS.md item, not fixed here.
+- **[2026-08-31 update]** `shipment_unlinked`'s "Link to order" picker
+  itself is still the full, unfiltered active-order list — it is NOT
+  narrowed to same-retailer candidates, and there's no auto-select.
+  A retailer-scoped candidate matcher exists and is tested
+  (`findShipmentMergeCandidates`, `lib/linkOrder.ts`, Stage 3) but wiring
+  it into the picker (Part 4a) was scoped and then deliberately deferred
+  as a follow-up, not addressed in this ticket — see TASKS.md 👀 Watching.
+  The picker DOES now have a "none of these, create a new order instead"
+  escape hatch (Stage 4 Part 4b, shipped 2026-08-31) — that part is done,
+  it just operates over the still-unfiltered full list rather than a
+  narrowed one. Also unchanged: the sibling bug where a manually-created,
+  null-orderNumber order (from "Start a new order" on one of these rows)
+  is invisible to auto-matching and can duplicate on a later
+  order_confirmation — tracked as its own TASKS.md item, not fixed here.
 
 ---
 

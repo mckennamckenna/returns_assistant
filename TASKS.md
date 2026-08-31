@@ -275,7 +275,9 @@
       `NEEDS_REVIEW_ROUTING_DESIGN.md` §2 and `CARD_SPEC.md` Part 3
       amendment D. `lib/needsReviewRows.ts:49-81` (`EmailReviewInput`
       gains `emailType`; `detectEmailReviewReason` rewritten to the
-      four-branch tree). `lib/needsReviewReasons.ts:11-20,29-38` (two new
+      four-branch tree — [now five branches after the 2026-08-28 carrier
+      addition and the 2026-08-30 shipment_unlinked rename/expansion, see
+      the shipment_unlinked ticket below]). `lib/needsReviewReasons.ts:11-20,29-38` (two new
       reasonIds + their exact spec sentences). `lib/needsReviewActions.ts:
       45-50` (`return_or_refund_no_link` added additively to the
       `link_to_order` branch; `no_extraction_signal` needs no new branch —
@@ -1504,8 +1506,10 @@
   contradiction now live in 🔴 Now.
 
 - [x] **RESOLVED 2026-08-24 — Needs-review routing-tree design, owner review
-  complete.** Full design doc: `NEEDS_REVIEW_ROUTING_DESIGN.md`. Sign-off
-  given on: the four-branch tree (§2), the two new reasonIds/copy
+  complete.** Full design doc: `NEEDS_REVIEW_ROUTING_DESIGN.md`. [§2 is now
+  a five-branch tree as of 2026-08-30, see the shipment_unlinked ticket in
+  🔴 Now — doc updated in place, not re-signed-off as a separate entry.]
+  Sign-off given on: the four-branch tree (§2), the two new reasonIds/copy
   (`return_or_refund_no_link`, `no_extraction_signal`), and the proposed
   `CARD_SPEC.md` Part 3 amendments — A and B applied, C deferred (spec
   note added), D (collapsed bucket-row controls) applied. Full item MOVED
@@ -3013,7 +3017,11 @@
       selection" (🔴 Now — build session ready to start) — this bug entry
       exists so the false-confidence
       copy shown to the user is tracked as a real defect, not folded silently
-      into the design task's optional scope.
+      into the design task's optional scope. [Shipped as the four-branch
+      tree, 2026-08-25; the carrier-residue population this entry flagged
+      is what later became carrier_tracking_unlinked (2026-08-28), then
+      shipment_unlinked (2026-08-30) — see the shipment_unlinked ticket in
+      🔴 Now.]
 - [ ] **Carrier-tracking emails (FedEx/USPS/UPS/etc.) route as null-retailer
       orphans in the needs-review bucket — NEW 2026-08-25, surfaced during
       Zara fallback diagnostic (`ZARA_DIAGNOSTIC_FINDINGS_BACKFILL_RADIUS_
@@ -4595,6 +4603,30 @@
       the same retailer." First place to look. Fix approach TBD — likely
       a shared retailer-normalization utility, but scope of what to
       normalize is a real design question, not a small edit.
+- [ ] **shipment_unlinked picker: retailer-filtered candidate list
+      deferred — 2026-08-31.** The shipment_unlinked ticket (TASKS.md
+      🔴 Now) shipped the reasonId rename/gate expansion (Stages 1-2), a
+      retailer-scoped candidate matcher (Stage 3, `findShipmentMergeCandidates`,
+      `lib/linkOrder.ts`, tested), and a "none of these, create a new
+      order instead" escape hatch inside the picker (Stage 4 Part 4b). It
+      did NOT ship narrowing `LinkToOrderPicker`'s candidate list to that
+      matcher's output (Part 4a) — scoped, then deliberately deferred same
+      session. The matcher exists and is tested but isn't wired to
+      anything; the picker still shows every active order regardless of
+      the row's retailer.
+      **Plumbing shape decided, not built:** a side map
+      (`shipmentMergeCandidatesByEmailId: Record<string, LinkablePickerOrder[]>`)
+      computed at the page level (`app/(app)/page.tsx`,
+      `app/(app)/needs-review/page.tsx`) and threaded through one new prop
+      each on `NeedsReviewBucket` → `NeedsReviewRow` → `LinkToOrderPicker`
+      — chosen over attaching candidates directly to `NeedsReviewRowData`
+      to avoid touching the already-tested pure row-building code in
+      `lib/needsReviewRows.ts`.
+      **Revisit if:** the picker UX becomes a real pain point in
+      production — users regularly scrolling a long full-order list to
+      find the right one on a shipment_unlinked row, or reporting the
+      picker as unhelpful/confusing. Not urgent while the create-new
+      escape hatch covers the dead-end case.
 - [ ] **Multi-email signal disagreement pattern — NEW 2026-08-27, from the
       orderDate write-once backfill (`c8fec62`).** Found 2 orders where
       multiple emails of the same priority-firing type carried disagreeing
