@@ -4581,6 +4581,20 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Retailer string matching brittleness — 2026-08-30.**
+      `findShipmentMergeCandidates` (`lib/linkOrder.ts`) and
+      `findRefundFallbackOrder` both do case-insensitive-exact retailer
+      matching. No whitespace normalization, no punctuation folding, no
+      brand-family logic. Handles capitalization drift from extraction,
+      but retailers with real punctuation/whitespace variants (Levi's vs.
+      Levis, AT&T vs. AT and T, J.Crew vs. J Crew) won't cross-match.
+      Surfaced during the shipment_unlinked build (2026-08-30);
+      deliberately not scoped into that ticket.
+      **Revisit if:** picker starts under-suggesting candidates in
+      production, or a user reports "the app doesn't recognize this is
+      the same retailer." First place to look. Fix approach TBD — likely
+      a shared retailer-normalization utility, but scope of what to
+      normalize is a real design question, not a small edit.
 - [ ] **Multi-email signal disagreement pattern — NEW 2026-08-27, from the
       orderDate write-once backfill (`c8fec62`).** Found 2 orders where
       multiple emails of the same priority-firing type carried disagreeing
