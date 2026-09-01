@@ -32,6 +32,42 @@
 
 ## 🔴 Now
 
+- [ ] **Pre-order display: suppress misleading "Return by" during pre-order
+      phase, show ship-by date instead — NEW 2026-08-31, from the Loeffler
+      Randall investigation (read-only session, see that session's report).**
+      Today `shipByDate` (extracted per the existing PREORDER SHIP DATE
+      prompt section, `lib/extract.ts:187`) gets folded into
+      `estimatedDeliveryDate` via `resolveEstimatedDeliveryDate`
+      (`extract.ts:286`) and `computeDeadline` then treats it exactly like a
+      real delivery estimate — producing a "Return by" deadline while the
+      item hasn't even shipped. Confirmed live on LR order #512867
+      (`orderNumber 512867`): its `estimatedDeliveryDate` sits at
+      2026-08-31, actually the ship-by date from a shipping-delay email, not
+      a delivery estimate.
+      **Detect pre-order state** from order-confirmation emails using a seed
+      vocabulary — "preorder", "pre-order", "ships by [date]", "ships on
+      [date]", "backorder" — extend as new retailers surface it.
+      **When an order is in pre-order state and no real shipping-confirmation
+      or delivery signal has landed yet:** hide `returnDeadline` from the UI,
+      show a "Ships by [date]" pill using the extracted ship-by date instead,
+      and skip all reminders for that order.
+      **Once a real shipping-confirmation or delivery email lands** and
+      updates the order, normal flow resumes.
+      **Explicitly in scope:** detection + suppression + display only.
+      **Explicitly NOT in scope:** promoting `shipByDate` to a first-class DB
+      column, adding transit-time math to compute a predicted arrival, or
+      changing `computeDeadline`.
+      **Also log every detected pre-order** (retailer, extracted phrase,
+      ship-by date) so there's real N>1 data before ever designing arrival
+      prediction.
+      **Verification:** LR order #512867 renders with a "Ships by Aug 19"
+      pill and no "Return by" line during the pre-order weeks; no reminders
+      fire for it; once its shipping/delivery emails land, the order behaves
+      normally (matches production history: it's currently past that phase).
+      Related but out of scope here: the OFD ("out for delivery" ≠
+      "delivered") misclassification bug sits in 🟡 Next, not this item —
+      don't conflate the two while building.
+
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
@@ -2559,17 +2595,12 @@
       a real delivered display state," which also absorbed point (4) of the
       Preorder/unconfirmed-delivery wrong-deadline investigation.
 - [ ] **Pre-orders extract incorrectly** (Loeffler Randall was a pre-order and
-      came through wrong). [needs repro — what's wrong: dates? deadline?
-      status?] **Bucket unconfirmed** — owner flagged this could be
-      trust-breaking instead of annoying; re-bucket once the actual failure
-      mode is known.
-      **[2026-08-26]** Verification sequence: FIRST re-verify item 1234's
-      already-shipped preorder fix against the real Loeffler Randall
-      email (that verification has been blocked since 2026-07-20 credit
-      outage; credit long since restored, no re-attempt logged). If the
-      LR fix works end-to-end on the real email, this entry may be
-      fully discharged. If a residual bug remains, re-scope this entry
-      from what the live verification shows. → see item 1234.
+      came through wrong). **SUPERSEDED 2026-08-31** by the 🔴 Now entry
+      "Pre-order display: suppress misleading 'Return by' during pre-order
+      phase, show ship-by date instead" (TASKS.md:35), which reproduced the
+      actual failure mode against this same order (LR #512867) and scopes
+      the fix. Left unchecked, not deleted, pending owner review of whether
+      to remove this entry outright or keep it as a superseded pointer.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
       e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
       to near-nothing after the (already-shortened) order number eats the
