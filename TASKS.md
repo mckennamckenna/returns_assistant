@@ -3090,20 +3090,6 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
-- [ ] **Investigate: shipping_confirmation emails extract no ETA — NEW
-      2026-09-01, from the Loeffler Randall investigation. Owner plans to
-      run this tonight, right after this cleanup pass.** Loeffler
-      Randall's shipping confirmation (2026-08-25, "Your Order Has
-      Shipped!") was classified correctly as `emailType:
-      "shipping_confirmation"` and had tracking info scraped, but the AI
-      extracted `estimatedDeliveryDate: null`. Unknown whether this is (a)
-      a prompt gap — extraction doesn't ask for an ETA from shipping
-      confirmations, (b) a model reliability issue — asks but doesn't find
-      it, or (c) a data-availability issue — the email genuinely doesn't
-      state one. Scope: investigate which of the three it is. Read-only —
-      no fix in this scope; a fix decision depends on what the
-      investigation finds.
-
 - [ ] **Investigate: needs-review row expander behavior — there is no
       expanded version, only the full detail page, NEW 2026-08-29 from
       the Phase 6 scoping session close-out.** Suspected not working;
@@ -5010,6 +4996,10 @@
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **Investigated: shipping_confirmation ETA extraction — not a bug.
+      Most retailers don't state a delivery ETA in their shipping
+      confirmations; extraction correctly returns null. Amazon
+      relative-date gap already tracked in AMAZON_HANDLING.md.**
 - [x] **Preorder ship-date handling — Loeffler Randall order now computes a
       defensible deadline instead of the old wrong one, verified against
       the live LR order over the past month.** Full detail → HISTORY.md
