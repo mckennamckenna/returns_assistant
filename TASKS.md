@@ -3212,6 +3212,34 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Self-email ingestion loop — reject own outbound at inbound
+      webhook.** Investigation completed 2026-09-01 (three passes,
+      conversation-only — no Done entry filed for the investigation
+      itself, this Next item is the only written record): users' Gmail
+      auto-forward rules — the same kind of
+      rule our onboarding sets up — route our own outbound reminders/
+      digest/refund-check-in emails back into our own inbound pipeline.
+      27 self-emails ingested across 5 users in the last 90 days; 3-4
+      corrupted an Order's `returnPortalUrl`. Loop is structural (a
+      product feature colliding with itself), won't self-resolve on its
+      own, though the boomerang rate is inconsistent per user (4%-57% of
+      sends, not every send — confirmed via a precise Reminder-table
+      comparison, not blanket forwarding).
+      **Fix shape from investigation:** an ingestion guard rejecting any
+      email whose (a) From: / Return-Path / envelope sender matches our
+      own sending addresses/domain, OR (b) `classifyForwardType()`
+      returns `"auto"` AND the header chain contains our own sending
+      address/domain/inbound token. The signal is already computed in
+      `classifyForwardType` at ingestion — just not currently acted on.
+      Plus: null the 3-4 corrupted `returnPortalUrl` rows on ship.
+      **Deferred concerns from investigation — do NOT fold in when
+      picked up, separate work:** audit of whether the 23 self-emails
+      that didn't corrupt `returnPortalUrl` silently corrupted other
+      fields; the merge-side trust hierarchy in
+      `resolveReturnPortalUrlForWrite` (always prefers email-stated URL
+      over an existing good value); fancier self-email detection via
+      subject/content fingerprinting.
+
 - [ ] **Confirm page: "Remind me tomorrow" action — NEW 2026-09-01,
       flagged during the Start-return CTA build [needs clarification].**
       The Start-return confirm page (`app/action/start-return/page.tsx`
