@@ -32,6 +32,19 @@
 
 ## 🔴 Now
 
+- [ ] **`returnPortalUrl` self-domain correctness bug — NEW 2026-09-02, from
+      the fleet URL health audit (filed under Done).** At least one active
+      order has `returnPortalUrl` set to
+      `https://app.myreturnwindow.com/orders/{id}` — our own app's domain,
+      not the retailer's return page. A user clicking Start-return from a
+      reminder would be sent to our own login page instead of the
+      retailer's return flow. Investigation first (blast radius, root
+      cause, extraction-side check) — report before any fix. Fix (once
+      confirmed): (A) validation guard at every `returnPortalUrl` DB write
+      path rejecting self-domain URLs, logged not silently dropped; (B)
+      null out existing affected rows, no re-extraction/backfill (separate
+      concern). Scope: `returnPortalUrl`-write paths only.
+
 - [ ] **`returnPortalUrl` coverage gap — why do only ~57% of active orders
       have one? — NEW 2026-09-01, surfaced by Start-return CTA build.**
       Coverage report during that build: 52/91 active orders (57.1%) have
