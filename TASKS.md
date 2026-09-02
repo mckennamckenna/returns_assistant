@@ -32,36 +32,41 @@
 
 ## 🔴 Now
 
-- [ ] **`returnPortalUrl` self-domain correctness bug — NEW 2026-09-02, from
-      the fleet URL health audit (filed under Done).** At least one active
-      order has `returnPortalUrl` set to
-      `https://app.myreturnwindow.com/orders/{id}` — our own app's domain,
-      not the retailer's return page. A user clicking Start-return from a
-      reminder would be sent to our own login page instead of the
-      retailer's return flow. Investigation first (blast radius, root
-      cause, extraction-side check) — report before any fix. Fix (once
-      confirmed): (A) validation guard at every `returnPortalUrl` DB write
-      path rejecting self-domain URLs, logged not silently dropped; (B)
-      null out existing affected rows, no re-extraction/backfill (separate
-      concern). Scope: `returnPortalUrl`-write paths only.
+- [x] **CLOSED (superseded) 2026-09-02 — `returnPortalUrl` self-domain
+      correctness bug.** At least one active order had `returnPortalUrl`
+      set to `https://app.myreturnwindow.com/orders/{id}` — our own app's
+      domain, not the retailer's return page. Investigated across three
+      passes this session: blast radius (3 orders total, 2 active),
+      extraction-side root cause (our own outbound reminder/digest/
+      refund-check-in emails re-entering the inbound pipeline via users'
+      Gmail auto-forward rules, then `resolveReturnPortalUrlForWrite`
+      unconditionally preferring the email-stated URL over a previously-
+      correct one), then the loop mechanism itself (raw headers, per-user
+      boomerang rate 4%-57%, not blanket forwarding). **Not fixed this
+      session — the narrow write-path guard originally scoped here was
+      paused because the real fix belongs at the ingestion level, one
+      layer up.** Superseded by, and fully absorbed into, the 🟡 Next
+      item "Self-email ingestion loop — reject own outbound at inbound
+      webhook," which now also carries the null-out cleanup for these
+      same 3 rows. Closed here rather than left duplicated across two
+      open items.
 
-- [ ] **`returnPortalUrl` coverage gap — why do only ~57% of active orders
-      have one? — NEW 2026-09-01, surfaced by Start-return CTA build.**
-      Coverage report during that build: 52/91 active orders (57.1%) have
-      `returnPortalUrl` populated; 39 do not. Those 39 receive the
-      improved reminder (order date + copyable order number) but no
-      Start-return button.
-      **Investigation questions:** (a) retailer breakdown of the 39 —
-      concentrated or spread across the long tail? (b) for retailers where
-      SOME orders have a URL and OTHERS don't, what's different —
-      different email types, extraction paths, source confidence? (c) is
-      the extraction prompt failing to find URLs actually present in the
-      source emails, or are the source emails genuinely not carrying them?
-      **Read-only investigation first, then decide fix.** Distinct from
-      item 4250 (stale URLs we DO have, not missing ones) and item 4237
-      (retailer policy DB — portal URL incidental there, not the point).
-      **Explicitly NOT in scope of this item:** building the fix — that's
-      a follow-up shaped by what the investigation finds.
+- [x] **CLOSED 2026-09-02 — `returnPortalUrl` coverage gap investigated,
+      no build warranted.** Coverage report: 52/91 active orders (57.1%)
+      had `returnPortalUrl` populated; 39 did not. Investigated: retailer
+      breakdown of the 39 is 31/39 (79%) Amazon-family — but Amazon orders
+      never receive the deadline reminder at all (`isAmazonOrder()` skip
+      in the cron loop, per AMAZON_HANDLING.md's awareness-only
+      principle), so those 31 were never actually going to get a
+      Start-return button regardless of `returnPortalUrl`. Real exposure
+      after stripping Amazon out: **8 orders, 8 different one-off
+      retailers** — genuine long tail, no concentration, no
+      same-retailer inconsistency to chase. **Conclusion: not worth a
+      dedicated build** — small, spread-thin population. Distinct from
+      `returnportal-trust-tier` (stale URLs we DO have — the bigger,
+      confirmed problem, see that item's 2026-09-01 amendment) and item
+      4237 (retailer policy DB). No follow-up opened for this item
+      specifically.
 
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-02, LIVE
       VERIFICATION PENDING] Reminder email: add order date, obviously
