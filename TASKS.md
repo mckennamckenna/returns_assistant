@@ -32,6 +32,85 @@
 
 ## 🔴 Now
 
+- [ ] **[CODE BUILT + TESTED, NOT YET PUSHED/DEPLOYED] Reminder email: add
+      order date, obviously copyable order number, and "Start return" CTA
+      that also fires the state change — NEW + BUILT 2026-09-01/09-02, from
+      owner review of a live SKIMS reminder.** Original gap: the reminder
+      template omitted `orderDate`, buried `orderNumber` in prose, and had
+      no direct return-flow entry point.
+      **Investigation first (this repo's diagnostic-first habit):** the
+      existing Mark-as-returned/Archive email links use a two-step,
+      POST-gated pattern — an HMAC-signed token opens a read-only GET
+      confirm page, and only a subsequent form POST (carrying a second
+      derived CSRF token bound to that page load) performs the write. The
+      code is explicit about why (`app/api/action/returned/route.ts:36-38`):
+      an email client's link-prescanner issuing an automatic GET must never
+      be able to redeem a token by itself. The original spec asked for a
+      single GET-triggers-write-then-302 route with "no intermediate
+      page" — flagged as unsafe (would let prescanners silently fire
+      `return_requested`) and NOT built that way. **Owner resolved: reuse
+      the existing two-step pattern as-is (Option 1), no auth-model
+      change.**
+      **Built:**
+      - `app/api/cron/route.ts` (`buildBody`/`buildHtmlBody`): `orderDate`
+        on its own line; `orderNumber` on its own line (HTML: inline
+        `<code>` block, monospace, selectable in one gesture — no
+        click-to-copy button, matches the plan's explicit v1 scope); a
+        "Start return" link/button using `truncateOrderNumber` for
+        display formatting. Omitted entirely (no dead link, no "coming
+        soon") when `Order.returnPortalUrl` is null — **coverage check
+        run this session: 52/91 active orders (57.1%) currently have a
+        `returnPortalUrl`; the other 39 will keep getting the reminder
+        without a Start-return button until that field is populated.**
+      - `lib/startReturnAction.ts` + `lib/startReturnPageState.ts` — pure
+        decision logic mirroring `lib/returnedAction.ts`/`returnedPageState.ts`,
+        one deliberate difference: idempotent like Archive (not a rank-gated
+        block like "returned") — reaching the retailer's portal stays
+        useful regardless of the order's current status, so a stale link
+        still redirects; only the DB write is conditional on rank.
+      - `app/action/start-return/page.tsx` (+ `StartReturnSubmitButton.tsx`
+        client component) — new GET confirm page per the owner's design
+        spec (single card, no nav/footer/extra links, "Return to
+        {retailer}" / meta lines / one primary button / "Not now"). Primary
+        button fire-and-forget copies the real (untruncated) order number
+        to clipboard on click before the native form POST — never awaited,
+        never blocks the submit, silently no-ops on permission failure.
+      - `app/api/action/start-return/route.ts` — POST-only (no GET
+        handler, same as returned/archive), same
+        `TokenRedemption`-first-for-single-use transaction shape, calls
+        `buildStatusTransitionData("return_requested", order)` — the same
+        pure transition-data builder `app/actions.ts`'s
+        `advanceDisplayStatus` (the in-app Start Return button's path)
+        already uses, so both entry points stay behind one shared
+        contract. Success 302s straight to `returnPortalUrl`; every other
+        outcome (expired/already_used/invalid/order_state_changed/
+        `no_portal` — new: portal URL cleared between send and click) 303s
+        to a new `app/action/start-return/done/page.tsx`.
+      - `prisma/schema.prisma`: doc-comment-only updates listing
+        `"start-return"`/`"no_portal"` alongside the existing action/outcome
+        values — no migration, no schema change.
+      - Tests: `__tests__/cron.test.ts` extended (existing literals gained
+        `orderDate`/`returnPortalUrl`, new cases for the date/number lines
+        and Start-return presence/omission); new
+        `__tests__/startReturnAction.test.ts` and
+        `__tests__/startReturnPageState.test.ts` mirroring the
+        returned/archive equivalents. **762/762 tests passing,
+        `npm run build` clean (typecheck + lint), all new routes
+        registered** (`/action/start-return`, `/action/start-return/done`,
+        `/api/action/start-return`) confirmed via build output. Confirmed
+        `proxy.ts`'s matcher doesn't touch `/action/*` or `/api/action/*` —
+        no session-gating change needed, same as the existing two actions.
+      **Explicitly not touched, per scope:** digest/coverage-check/
+      admin-notify templates; `returnPortalUrl` extraction/trust-tiering;
+      the app's order detail page; the in-app `StartReturnButton.tsx`
+      (reused its underlying transition data builder, didn't fork it);
+      no clipboard pre-copy beyond the one primary-button click described
+      above.
+      **Not yet done:** commit, push, deploy, or live Gmail verification —
+      all still pending as of this session's close. See
+      the "Remind me tomorrow" follow-up (🟡 Next) opened during this
+      build for out-of-scope-for-v1 work flagged along the way.
+
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
@@ -3090,6 +3169,22 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Confirm page: "Remind me tomorrow" action — NEW 2026-09-01,
+      flagged during the Start-return CTA build [needs clarification].**
+      The Start-return confirm page (`app/action/start-return/page.tsx`
+      — not yet built as of this flag; depends on the in-progress
+      Start-return CTA session resolving its auth-flow question first)
+      currently offers Continue / Not now. Add a third path: a snooze
+      that schedules an ad-hoc reminder for +1 day (or +N days) outside
+      the normal reminder cadence.
+      **Open questions before spec:** does snooze override the next
+      scheduled reminder or add to it; snooze cap (unlimited? 3x?); UI
+      to view/cancel a pending snooze; whether this only appears on the
+      Start-return page or also on the Mark-as-returned and Archive
+      confirm pages (probably only Start-return, since the other two
+      are terminal actions).
+      Real evidence: owner flagged during 2026-09-01 build.
+
 - [ ] **Investigate: needs-review row expander behavior — there is no
       expanded version, only the full detail page, NEW 2026-08-29 from
       the Phase 6 scoping session close-out.** Suspected not working;

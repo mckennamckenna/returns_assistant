@@ -369,7 +369,7 @@ model Reminder {
 model TokenRedemption {
   id        String   @id @default(cuid())
   tokenHash String   @unique
-  action    String // "archive" | "returned" | "refunded" | "kept" | "unarchive"
+  action    String // "archive" | "returned" | "refunded" | "kept" | "unarchive" | "start-return"
   orderId   String?
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
   redeemedAt DateTime @default(now())
@@ -389,7 +389,7 @@ model ActionLog {
   orderId   String?
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
   action    String
-  outcome   String // "success" | "expired" | "already_used" | "invalid" | "order_state_changed"
+  outcome   String // "success" | "expired" | "already_used" | "invalid" | "order_state_changed" | "no_portal"
   ipAddress String?
   userAgent String?
   at        DateTime @default(now())

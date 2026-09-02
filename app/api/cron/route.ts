@@ -18,6 +18,7 @@ import { rateLimitSweepWhere } from "@/lib/rateLimit";
 import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 import { isAmazonOrder } from "@/lib/amazonBundle";
 import { formatCalendarDate } from "@/lib/dateDisplay";
+import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +77,18 @@ export function buildSubject(reminderType: ReminderType, retailer: string | null
 }
 
 export function buildBody(
-  order: { id: string; retailer: string | null; orderNumber: string | null; returnDeadline: Date; deadlineIsEstimated: boolean; orderTotal: number | null; orderCurrency: string | null; userId: string },
+  order: {
+    id: string;
+    retailer: string | null;
+    orderNumber: string | null;
+    orderDate: Date | null;
+    returnDeadline: Date;
+    deadlineIsEstimated: boolean;
+    orderTotal: number | null;
+    orderCurrency: string | null;
+    returnPortalUrl: string | null;
+    userId: string;
+  },
   reminderType: ReminderType,
 ): string {
   const retailer = order.retailer || "your order";
@@ -85,15 +97,23 @@ export function buildBody(
   const total = formatCurrency(order.orderTotal, order.orderCurrency);
   const returnedLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "returned" });
   const archiveLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "archive" });
+  // No dead link, no "coming soon" — omitted entirely when there's no
+  // portal to start a return at (TASKS.md 2026-09-01).
+  const startReturnLink = order.returnPortalUrl
+    ? buildActionLink({ orderId: order.id, userId: order.userId, action: "start-return" })
+    : null;
 
   return [
     `Your return window for ${retailer}${orderRef} ${CLOSES_PHRASE[reminderType]}.`,
     "",
+    order.orderDate ? `Order date: ${formatDate(order.orderDate)}` : null,
+    order.orderNumber ? `Order number: ${truncateOrderNumber(order.orderNumber)}` : null,
     `Return deadline: ${deadline}`,
     order.deadlineIsEstimated ? "Deadline based on shipping estimate — may shift with delivery." : null,
     total ? `Order total: ${total}` : null,
     "",
     `View details: ${APP_URL}/orders/${order.id}`,
+    startReturnLink ? `Start a return at ${retailer}: ${startReturnLink}` : null,
     `Already shipped it back? Mark as returned: ${returnedLink}`,
     `Archive this order (stops all reminders): ${archiveLink}`,
     "",
@@ -106,7 +126,18 @@ export function buildBody(
 // HTML counterpart of buildBody — same content, real <a> links instead of
 // raw URLs. Sent alongside buildBody's plain text, never in place of it.
 export function buildHtmlBody(
-  order: { id: string; retailer: string | null; orderNumber: string | null; returnDeadline: Date; deadlineIsEstimated: boolean; orderTotal: number | null; orderCurrency: string | null; userId: string },
+  order: {
+    id: string;
+    retailer: string | null;
+    orderNumber: string | null;
+    orderDate: Date | null;
+    returnDeadline: Date;
+    deadlineIsEstimated: boolean;
+    orderTotal: number | null;
+    orderCurrency: string | null;
+    returnPortalUrl: string | null;
+    userId: string;
+  },
   reminderType: ReminderType,
 ): string {
   const retailer = order.retailer || "your order";
@@ -116,14 +147,31 @@ export function buildHtmlBody(
   const returnedLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "returned" });
   const archiveLink = buildActionLink({ orderId: order.id, userId: order.userId, action: "archive" });
   const detailsLink = `${APP_URL}/orders/${order.id}`;
+  // No dead link, no "coming soon" — omitted entirely when there's no
+  // portal to start a return at (TASKS.md 2026-09-01).
+  const startReturnLink = order.returnPortalUrl
+    ? buildActionLink({ orderId: order.id, userId: order.userId, action: "start-return" })
+    : null;
 
   const parts = [
     `<p style="margin:0 0 16px;">Your return window for ${escapeHtml(retailer)}${escapeHtml(orderRef)} ${escapeHtml(CLOSES_PHRASE[reminderType])}.</p>`,
+    order.orderDate
+      ? `<p style="margin:0 0 4px;">Order date: ${escapeHtml(formatDate(order.orderDate))}</p>`
+      : null,
+    // Monospace, visually distinct block — selectable in one gesture. No
+    // click-to-copy button: email clients don't run JS, so "copyable" here
+    // just means easy to select (TASKS.md 2026-09-01).
+    order.orderNumber
+      ? `<p style="margin:0 0 16px;">Order number<br/><code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#f5f5f4;border:1px solid #e7e5e4;border-radius:4px;padding:4px 8px;display:inline-block;font-size:13px;">${escapeHtml(truncateOrderNumber(order.orderNumber))}</code></p>`
+      : null,
     `<p style="margin:0 0 4px;">Return deadline: ${escapeHtml(deadline)}</p>`,
     order.deadlineIsEstimated
       ? `<p style="margin:0 0 16px;color:#78716c;font-size:13px;">Deadline based on shipping estimate — may shift with delivery.</p>`
       : null,
     total ? `<p style="margin:0 0 16px;">Order total: ${escapeHtml(total)}</p>` : null,
+    startReturnLink
+      ? `<p style="margin:0 0 16px;"><a href="${startReturnLink}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:8px;">Start return →</a></p>`
+      : null,
     `<p style="margin:0 0 8px;">${htmlLink(detailsLink, "View order details")}</p>`,
     `<p style="margin:0 0 8px;">${htmlLink(returnedLink, "Already shipped it back? Mark as returned →")}</p>`,
     `<p style="margin:0;">${htmlLink(archiveLink, "Archive this order")} <span style="color:#78716c;font-size:13px;">(stops all reminders)</span></p>`,
@@ -275,10 +323,12 @@ export async function GET(request: NextRequest) {
         id: order.id,
         retailer: order.retailer,
         orderNumber: order.orderNumber,
+        orderDate: order.orderDate,
         returnDeadline: order.returnDeadline,
         deadlineIsEstimated: order.deadlineIsEstimated,
         orderTotal: order.orderTotal,
         orderCurrency: order.orderCurrency,
+        returnPortalUrl: order.returnPortalUrl,
         userId: order.userId,
       };
       const body = buildBody(orderForBody, reminderType);
