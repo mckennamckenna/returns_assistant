@@ -32,42 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Pre-order display: suppress misleading "Return by" during pre-order
-      phase, show ship-by date instead — NEW 2026-08-31, from the Loeffler
-      Randall investigation (read-only session, see that session's report).**
-      Today `shipByDate` (extracted per the existing PREORDER SHIP DATE
-      prompt section, `lib/extract.ts:187`) gets folded into
-      `estimatedDeliveryDate` via `resolveEstimatedDeliveryDate`
-      (`extract.ts:286`) and `computeDeadline` then treats it exactly like a
-      real delivery estimate — producing a "Return by" deadline while the
-      item hasn't even shipped. Confirmed live on LR order #512867
-      (`orderNumber 512867`): its `estimatedDeliveryDate` sits at
-      2026-08-31, actually the ship-by date from a shipping-delay email, not
-      a delivery estimate.
-      **Detect pre-order state** from order-confirmation emails using a seed
-      vocabulary — "preorder", "pre-order", "ships by [date]", "ships on
-      [date]", "backorder" — extend as new retailers surface it.
-      **When an order is in pre-order state and no real shipping-confirmation
-      or delivery signal has landed yet:** hide `returnDeadline` from the UI,
-      show a "Ships by [date]" pill using the extracted ship-by date instead,
-      and skip all reminders for that order.
-      **Once a real shipping-confirmation or delivery email lands** and
-      updates the order, normal flow resumes.
-      **Explicitly in scope:** detection + suppression + display only.
-      **Explicitly NOT in scope:** promoting `shipByDate` to a first-class DB
-      column, adding transit-time math to compute a predicted arrival, or
-      changing `computeDeadline`.
-      **Also log every detected pre-order** (retailer, extracted phrase,
-      ship-by date) so there's real N>1 data before ever designing arrival
-      prediction.
-      **Verification:** LR order #512867 renders with a "Ships by Aug 19"
-      pill and no "Return by" line during the pre-order weeks; no reminders
-      fire for it; once its shipping/delivery emails land, the order behaves
-      normally (matches production history: it's currently past that phase).
-      Related but out of scope here: the OFD ("out for delivery" ≠
-      "delivered") misclassification bug sits in 🟡 Next, not this item —
-      don't conflate the two while building.
-
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
       coverage-check / admin-notify emails show the sender name as
@@ -1250,52 +1214,6 @@
       tonight. The inbound webhook auth rollout (completed `d5772a8`,
       2026-07-15) is directly relevant context to start from — its
       findings inform this cleanse, not blocking work.
-- [ ] **Preorder ship-date handling — IMPLEMENTED 2026-07-20, pushed — live
-      re-extraction test BLOCKED, not Done.** Step 1 (read-only) confirmed
-      clean: `computeDeadline()`'s `estimatedDeliveryDate` case (case 3)
-      already runs before the `orderDate+5` fallback (case 4); a later
-      shipping-confirmation's own restated estimate already overwrites it
-      via `mergeEmailIntoOrder`'s existing `??` merge. No changes needed to
-      either function.
-      **Implemented (`lib/extract.ts`):** new `RawExtraction.shipByDate`
-      field + a new "PREORDER SHIP DATE" prompt section (only fires on
-      explicit preorder/backorder language with a stated future date, null
-      otherwise — no behavior change for normal orders). New exported
-      `resolveEstimatedDeliveryDate(routedEstimate, shipByDate)` composes it
-      with the existing `routeDeliveryDate` output — a real routed estimate
-      always wins; `shipByDate` is a pure fallback. No schema change, no
-      persisted field — reuses `estimatedDeliveryDate` exactly as scoped.
-      13 new unit tests (`__tests__/computeDeadline.test.ts`), including a
-      direct reproduction of LR's real numbers: confirms the old code
-      produces the actual wrong Jul 25 deadline, and that supplying the
-      8/19 ship date via this new path produces Sep 9 instead (sane,
-      correctly marked `deadlineIsEstimated: true`). 435/435 tests passing,
-      `npm run build` clean.
-      → see DECISIONS.md 2026-07-21 ("Preorder ship-date handling: accepted assumption")
-      **Could not complete the live re-extraction test.** Attempted against
-      the real email (`runExtraction` on LR's actual `order_confirmation`)
-      — the Anthropic API call failed: *"Your credit balance is too low to
-      access the Anthropic API."* Not a code issue — confirmed the Order
-      row was completely untouched by the failed attempt (before/after
-      identical). One real side effect from the attempt itself: it flipped
-      the linked `Email.needsReview` to `true` (this project's
-      `runExtraction` catch-block behavior on any extraction failure) —
-      reverted back to `false` immediately, since it reflected my test
-      hitting a billing wall, not a genuine data-quality signal.
-      **⚠️ URGENT, separate from this task:** this account-level billing
-      failure likely affects **production**, not just this local test —
-      `ANTHROPIC_API_KEY` is confirmed set in Vercel Production (`vercel env
-      ls`), and "credit balance too low" is an Anthropic-account-level
-      error, not specific to one key. **If production shares this same
-      Anthropic account, every real inbound email extraction is currently
-      failing silently** (same catch-block behavior: `needsReview: true`,
-      no real data extracted) — this would mean the core product function
-      is down right now. Owner should check Anthropic Console billing
-      immediately, independent of whether this preorder fix ever gets its
-      live test. Not verified further here (didn't want to spend more of a
-      possibly-already-critical budget testing this).
-      **CONFIRMED 2026-07-20 — this was real, credit has since been
-      restored by owner.** See the outage-scope item directly below.
 - [ ] **Forward auto/manual mis-classification — deadline gate depends on
       this. NEW 2026-07-21, from the probe above — NOT a "classifier picked
       wrong" bug, more severe: no classifier exists at all.** `app/(app)/page.tsx:230`
@@ -2594,13 +2512,6 @@
       the build now live in the 🔴 Now item "AquaTru 'Shipped forever' — add
       a real delivered display state," which also absorbed point (4) of the
       Preorder/unconfirmed-delivery wrong-deadline investigation.
-- [ ] **Pre-orders extract incorrectly** (Loeffler Randall was a pre-order and
-      came through wrong). **SUPERSEDED 2026-08-31** by the 🔴 Now entry
-      "Pre-order display: suppress misleading 'Return by' during pre-order
-      phase, show ship-by date instead" (TASKS.md:35), which reproduced the
-      actual failure mode against this same order (LR #512867) and scopes
-      the fix. Left unchecked, not deleted, pending owner review of whether
-      to remove this entry outright or keep it as a superseded pointer.
 - [ ] **Mobile: order-number + item-summary line overflows on narrow widths** —
       e.g. Poshmark's row shows `#6a4d94…748a · M...`, the item name truncated
       to near-nothing after the (already-shortened) order number eats the
@@ -3179,6 +3090,20 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Investigate: shipping_confirmation emails extract no ETA — NEW
+      2026-09-01, from the Loeffler Randall investigation. Owner plans to
+      run this tonight, right after this cleanup pass.** Loeffler
+      Randall's shipping confirmation (2026-08-25, "Your Order Has
+      Shipped!") was classified correctly as `emailType:
+      "shipping_confirmation"` and had tracking info scraped, but the AI
+      extracted `estimatedDeliveryDate: null`. Unknown whether this is (a)
+      a prompt gap — extraction doesn't ask for an ETA from shipping
+      confirmations, (b) a model reliability issue — asks but doesn't find
+      it, or (c) a data-availability issue — the email genuinely doesn't
+      state one. Scope: investigate which of the three it is. Read-only —
+      no fix in this scope; a fix decision depends on what the
+      investigation finds.
+
 - [ ] **Investigate: needs-review row expander behavior — there is no
       expanded version, only the full detail page, NEW 2026-08-29 from
       the Phase 6 scoping session close-out.** Suspected not working;
@@ -4543,6 +4468,28 @@
       Code confirms this before running per header). Fix session gated
       on what the diagnostic finds; may be nothing to fix.
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Pre-order residual: "Return by" line + reminders can fire
+      pre-shipment — NEW 2026-09-01, downgraded from 🔴 Now.** Originally
+      opened from the Loeffler Randall investigation as a full suppression
+      build; a same-session follow-up investigation found the acute bug
+      that motivated it is already fixed — the old wrong Jul-25-style
+      deadline was fixed by commit `0598f4a` (preorder `shipByDate`
+      handling), and the acute "green countdown + Start Return button
+      pre-delivery" combination is structurally unreachable today thanks to
+      the unrelated `CARD_SPEC.md` order-card state machine, which gates
+      the `returnable` state on a real `deliveredAt`. Two smaller residuals
+      remain, not worth a build against yet:
+      (1) The "Return by [date]" line still renders during the pre-order/
+      not-yet-shipped phase. The number is defensible now (ship-by-date +
+      return-window-days, e.g. Sep 9 for LR) but implies more certainty
+      than exists on an item that hasn't shipped.
+      (2) 7-day and 2-day reminders remain eligible to fire pre-shipment —
+      `suppressForEstimatedDeadline` only blocks 1-day/same-day reminders
+      on an estimated deadline, so a pre-order could still get a "7 days
+      left" nudge on an item still sitting in the retailer's warehouse.
+      **Revisit if:** a real user complains about either residual, or the
+      7-day/2-day reminders are actually observed firing on a real
+      pre-order and reading as wrong.
 - [ ] **Order-detail action-row layout on kept orders reads
       confusingly — NEW 2026-08-31, owner-reported after
       un-keep hand-verification. Not urgent, not fixed.**
@@ -5063,6 +5010,12 @@
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **Preorder ship-date handling — Loeffler Randall order now computes a
+      defensible deadline instead of the old wrong one, verified against
+      the live LR order over the past month.** Full detail → HISTORY.md
+      2026-07-20 (build note appended 2026-09-01).
+- [x] **Pre-orders extract incorrectly (Loeffler Randall) — fixed by
+      preorder ship-date handling, verified against live LR order.**
 - [x] **User-initiated "un-kept" action — CLOSED 2026-08-31, deployed and
       owner-verified on LR #512867.** New `POST /api/orders/:id/unkeep`
       route and "May not be keeping after all" button on the order detail

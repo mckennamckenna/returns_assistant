@@ -1424,6 +1424,18 @@ Full report given in-session, not duplicated here.
       value stays user-overridable until a confirmed one arrives.
       Not spec'd further — owner to decide direction before any build.
 
+      **Documentation-gap note, appended 2026-09-01:** despite this entry's
+      own "no code changed" framing, fix shape (A) was actually built later
+      the same evening — commit `0598f4a` ("Add preorder ship-date handling
+      (estimatedDeliveryDate reuse, no new anchor)"). Shipped: a new
+      `RawExtraction.shipByDate` field + prompt section, plus
+      `resolveEstimatedDeliveryDate()` folding it into `estimatedDeliveryDate`
+      as a fallback whenever no real shipping/delivery ETA exists yet. The
+      investigation was logged first, the build happened right after in the
+      same session, and nobody appended back to this entry once it shipped
+      — a documentation gap, not a hidden or undocumented change. Closure
+      trail: TASKS.md ✅ Done, "Preorder ship-date handling."
+
 ---
 
 
