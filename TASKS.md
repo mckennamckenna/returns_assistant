@@ -5132,6 +5132,69 @@
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **Fleet-wide `returnPortalUrl` health audit — completed 2026-09-01/09-02,
+      follow-up to the 10-sample spot-check that found a 30-40% bad rate.**
+      Read-only, no writes, 0 Anthropic API calls. Fetched every non-null
+      `returnPortalUrl` on the active, non-Amazon order set (36 orders, 28
+      distinct URLs) and categorized each.
+      **First pass used a bot-identifying User-Agent and overstated the
+      problem in one specific way** — corrected same session after
+      feedback: re-ran with a realistic Chrome UA. Two Gap URLs that
+      appeared to redirect to a cookie-consent failure page turned out to
+      be a false positive from the bad UA, not real retailer behavior —
+      **retracted** as a failure category. Corrected numbers below are
+      the Chrome-UA pass; see `feedback_http_diagnostic_useragent`
+      memory for the standing methodology fix.
+      **Corrected findings:** overall bad rate 19/36 = **52.8%** (still
+      far above the original 10-sample estimate). By `policySource`:
+      `web_lookup` 17/30 = 56.7% bad vs. `stated_in_email` 2/5 = 40% bad —
+      directionally supports source-quality correlation, but `policySource`
+      is a coarse proxy (Order rows carry no confidence field of their
+      own). By retailer: most repeat retailers were uniformly good or
+      uniformly bad (systematic per-retailer outcome, not per-order
+      noise) — American Girl, NET-A-PORTER, Buff City Soap, Shopbop,
+      Julia Amory, Vespoli all uniform; Target and Gap showed real
+      per-order variance.
+      **Failure modes (plain English, cause-grouped):** (1) extraction
+      grabbed an unrelated page entirely — Ancient Greek Sandals →
+      DHL's shipping-carrier locator, Buff City Soap → Contact Us,
+      Vespoli → general store-info page; (2) dead/404 — Wayfair, plus an
+      Optiturn single-use "return code" link that had expired/been
+      consumed; (3) bot/anti-scraping block (403) that **persisted even
+      with a realistic Chrome UA** — Rufflebutts, SSENSE, The RealReal's
+      `stated_in_email` URL — genuine JS-challenge/fingerprint-based
+      blocking, not simple UA-sniffing, so these are "inconclusive by
+      static fetch," not confidently dead; a real browser might still
+      succeed; (4) generic login/account gate, not order-specific —
+      Shopbop resolves straight to a sign-in wall; (5) marketing-tracking
+      links that decay over time — Target: two orders, same link shape,
+      one still resolves, one doesn't, pure elapsed-time decay,
+      independent of extraction confidence; (6) **`returnPortalUrl` set
+      to our own app's own order-detail URL** — The RealReal's
+      `web_lookup` order stores `https://app.myreturnwindow.com/orders/{id}`,
+      which redirects an unauthenticated fetch to our own `/login`. This
+      is a correctness bug in extraction/merge, not a staleness/trust
+      issue — flagged as the highest-severity single finding, separate
+      from anything about trust-tiering.
+      **Fallback feasibility:** Gap and Target both already have a good
+      URL on file from another order for the same retailer — cheap
+      same-retailer fallback could self-heal both with zero new
+      curation. Smaller/niche retailers (Julia Amory, Vespoli, Market
+      Hall Foods, Ancient Greek Sandals, Rufflebutts) have no good
+      example on file and curation is genuinely harder there.
+      **Framing view for the spec pass (data + recommendation only, no
+      new items opened, no fix built):** item `returnportal-trust-tier`'s
+      "degrade low-confidence values" framing is right in spirit but
+      underspecified — a single confidence-tier switch doesn't cover
+      finding 6 (a correctness bug, not staleness), findings 2/5 (decay
+      that was correct at write time and rotted afterward — only
+      catchable by send-time validation, never by extraction-time
+      confidence), or finding 3 (bot-blocked ≠ dead, needs an
+      "inconclusive" bucket). At minimum three separable pieces belong
+      in the spec: (a) a direct correctness fix for finding 6, (b)
+      live-or-recent validation rather than trusting a value forever
+      from extraction time, (c) a same-retailer-fallback mechanism that
+      needs no new curation for at least the Gap/Target cases.
 - [x] **Investigated: shipping_confirmation ETA extraction — not a bug.
       Most retailers don't state a delivery ETA in their shipping
       confirmations; extraction correctly returns null. Amazon
