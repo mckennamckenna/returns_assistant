@@ -73,6 +73,12 @@ function ConfirmCard({ order, csrf, token }: { order: StartReturnOrderDetails; c
         <form method="POST" action="/api/action/start-return" className="mt-6">
           <input type="hidden" name="token" value={token} />
           <input type="hidden" name="csrf" value={csrf} />
+          {order.orderNumber && (
+            <p className="text-xs text-muted mb-2">
+              We&rsquo;ll copy your order number to your clipboard — paste it on {retailer}&rsquo;s page if they ask
+              for it.
+            </p>
+          )}
           <StartReturnSubmitButton orderNumber={order.orderNumber} retailer={retailer} />
         </form>
         <a href={APP_URL} className="inline-block mt-4 text-xs text-muted hover:text-secondary">
