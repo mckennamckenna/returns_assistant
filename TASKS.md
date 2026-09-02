@@ -32,10 +32,11 @@
 
 ## 🔴 Now
 
-- [ ] **[CODE BUILT + TESTED, NOT YET PUSHED/DEPLOYED] Reminder email: add
-      order date, obviously copyable order number, and "Start return" CTA
-      that also fires the state change — NEW + BUILT 2026-09-01/09-02, from
-      owner review of a live SKIMS reminder.** Original gap: the reminder
+- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-02, LIVE
+      VERIFICATION PENDING] Reminder email: add order date, obviously
+      copyable order number, and "Start return" CTA that also fires the
+      state change — NEW + BUILT 2026-09-01/09-02, from owner review of a
+      live SKIMS reminder.** Original gap: the reminder
       template omitted `orderDate`, buried `orderNumber` in prose, and had
       no direct return-flow entry point.
       **Investigation first (this repo's diagnostic-first habit):** the
@@ -103,13 +104,24 @@
       **Explicitly not touched, per scope:** digest/coverage-check/
       admin-notify templates; `returnPortalUrl` extraction/trust-tiering;
       the app's order detail page; the in-app `StartReturnButton.tsx`
-      (reused its underlying transition data builder, didn't fork it);
-      no clipboard pre-copy beyond the one primary-button click described
-      above.
-      **Not yet done:** commit, push, deploy, or live Gmail verification —
-      all still pending as of this session's close. See
-      the "Remind me tomorrow" follow-up (🟡 Next) opened during this
-      build for out-of-scope-for-v1 work flagged along the way.
+      (reused its underlying transition data builder, didn't fork it).
+      **Follow-up requested same session (2026-09-02):** the confirm
+      page's clipboard pre-copy was silent — added quiet helper text
+      above the primary button ("We'll copy your order number to your
+      clipboard — paste it on {retailer}'s page if they ask for it"),
+      phrased as intent ("we'll copy," not "we copied") since the write
+      can fail silently. Only renders when `orderNumber` is present.
+      **Committed (`a2f6eb9`, `35fb137`), pushed, and deployed — Vercel
+      alias confirmed serving `35fb137`, status Ready (verified via
+      `vercel inspect` immediately after push, 2026-09-02).** Still
+      **awaiting live Gmail verification** per this repo's "no ✅ until
+      hand-verified" rule — owner will confirm against the next real
+      reminder: order date on its own line, order number selectable in
+      one gesture, Start-return button lands on the retailer's page with
+      no intermediate stop, and order state shows return-started
+      immediately after. See the "Remind me tomorrow" follow-up (🟡 Next)
+      opened during this build for out-of-scope-for-v1 work flagged
+      along the way.
 
 - [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
       SKIPPED per owner] Sender display name change — reminder / digest /
