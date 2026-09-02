@@ -32,6 +32,24 @@
 
 ## 🔴 Now
 
+- [ ] **`returnPortalUrl` coverage gap — why do only ~57% of active orders
+      have one? — NEW 2026-09-01, surfaced by Start-return CTA build.**
+      Coverage report during that build: 52/91 active orders (57.1%) have
+      `returnPortalUrl` populated; 39 do not. Those 39 receive the
+      improved reminder (order date + copyable order number) but no
+      Start-return button.
+      **Investigation questions:** (a) retailer breakdown of the 39 —
+      concentrated or spread across the long tail? (b) for retailers where
+      SOME orders have a URL and OTHERS don't, what's different —
+      different email types, extraction paths, source confidence? (c) is
+      the extraction prompt failing to find URLs actually present in the
+      source emails, or are the source emails genuinely not carrying them?
+      **Read-only investigation first, then decide fix.** Distinct from
+      item 4250 (stale URLs we DO have, not missing ones) and item 4237
+      (retailer policy DB — portal URL incidental there, not the point).
+      **Explicitly NOT in scope of this item:** building the fix — that's
+      a follow-up shaped by what the investigation finds.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-02, LIVE
       VERIFICATION PENDING] Reminder email: add order date, obviously
       copyable order number, and "Start return" CTA that also fires the
@@ -4275,6 +4293,17 @@
       high-volume retailers once retailer policy DB ships (curated URLs). Real
       evidence: WNU on Caroline's dashboard. Slug:
       `returnportal-trust-tier`.
+      **AMENDED 2026-09-01, from Start-return CTA coverage investigation:**
+      original framing was WNU as one data point. Spot-check of 10 random
+      `returnPortalUrl` values now in production found 3-4 clearly broken
+      (Buff City Soap → contact page, Gap → cookie failure, Wayfair →
+      404), plus 3 Amazon URLs returning 200 but landing on a generic
+      claim-auth flow that may not resolve to the user's specific order.
+      Real bad-URL rate estimated at 30-40%, not a one-off. Higher
+      priority than originally scoped, and the "degrade low-confidence
+      values" remedy needs sharpening — the bad URLs weren't uniformly
+      low-confidence, and static URL health checks won't catch semantic
+      wrongness (Amazon case). Spec pass required before build.
 - [ ] **Setup-page copy: warn about stale Gmail confirmation codes** — dashboard
       currently displays whatever code arrived last; if user comes back to setup
       page hours later, the displayed code may already be Gmail-expired (Google
