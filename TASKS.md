@@ -32,6 +32,48 @@
 
 ## 🔴 Now
 
+- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
+      VERIFICATION PENDING] Guard local dev from sending real
+      emails.** lib/postmark.ts sendEmail() has no environment
+      check; local dev with POSTMARK_SERVER_TOKEN set fires real
+      Postmark sends from whatever REMINDER_FROM_EMAIL/
+      LOGIN_FROM_EMAIL is in .env. Local .env currently has
+      stale mckenna@metaxmoda.com (owner's pre-migration personal
+      domain), so any local dev run hitting a send path
+      (reminder cron, refund check-in, admin notify, magic link)
+      silently emails real users from a personal domain. Fix:
+      add opt-out guard in sendEmail() — default behavior in
+      non-production is "log intended send, do not call Postmark
+      API"; explicit ALLOW_REAL_EMAIL_IN_DEV=true env var
+      overrides for intentional testing. Also update stale
+      .env value to reminders@myreturnwindow.com. Discovered
+      by CC during self-email loop fix session, commit 22be2d7.
+      **Built 2026-09-03:** `shouldActuallySend()` in
+      `lib/postmark.ts` — `NODE_ENV === "production"` → send
+      normally, unchanged from before; otherwise only sends when
+      `ALLOW_REAL_EMAIL_IN_DEV === "true"` exactly (a stray
+      truthy-but-not-`"true"` value like `"1"` does NOT bypass —
+      tested explicitly), and logs a WARN noting the override is
+      active; the true default (non-production, no override) logs
+      `to`/`from`/`subject` at INFO and returns without calling
+      Postmark — no body/template content in the log, per this
+      repo's PII-minimization convention. Single choke point, no
+      caller changes (adminNotify/refundCheckin/magicLinkRateLimit/
+      cron route all untouched, as scoped). Local `.env`'s
+      `REMINDER_FROM_EMAIL` updated to
+      `reminders@myreturnwindow.com`; `LOGIN_FROM_EMAIL` and other
+      `*_FROM_EMAIL` vars checked — none other present locally
+      (falls back to `REMINDER_FROM_EMAIL` per existing code).
+      **Tests:** `__tests__/postmarkDevSendGuard.test.ts`, 4 cases
+      covering all three branches plus the truthy-string-bypass
+      guard. **772/772 tests passing, `npm run build` clean.**
+      Zero Anthropic API calls, zero DB access. Production
+      behavior unchanged (still hits the same unconditional send
+      path as before). Committed and pushed to `main`; Vercel
+      auto-deploys on push — deploy is safe/inert for production
+      traffic since the guard only changes non-production
+      behavior.
+
 - [ ] **INVESTIGATION IN FLIGHT 2026-09-02 — retailer-name
       normalisation current state.** Read-only audit of how
       retailer names/identities are stored, derived, and
