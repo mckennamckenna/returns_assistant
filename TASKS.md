@@ -32,176 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Log every manual `displayStatus` change to `ActionLog` — NEW
-      2026-09-04, owner-approved, scope widened from an earlier
-      refunded-only draft.** Investigated why two H&M orders sit at
-      `displayStatus: "refunded"` despite both linked "refund" emails
-      being vague ("we're processing your refund," no dollar amount) —
-      `lib/displayStatus.ts`'s `hasConfirmedRefundAmount` gate is correct
-      and would only auto-derive these to `"returned"`, not `"refunded"`.
-      `ActionLog` had zero entries for either order ID, ruling out the
-      signed email-link actions it does cover. By elimination, the only
-      remaining path was the in-app "Mark as refunded" button — which
-      writes no record of who/when/why at all. Same missing-audit-trail
-      gap already surfaced once before, narrower scope, in the 2026-07-20
-      "kept" investigation (line ~6587) — this is the first time it's
-      actually obscured something with real money-tracking consequences
-      (an order silently losing its refund check-in reminder with no way
-      to tell afterward whether that was justified).
-      **Owner wants this generalized: every manual state change a user
-      can make, logged with how/where it happened — not just refunded.**
-      Revised plan, reusing the table this repo already has rather than
-      adding a schema column: `ActionLog` (`userId`, `orderId`, `action`,
-      `outcome`, `ipAddress`, `userAgent`, `at`) already exists and is
-      already written by the three signed-email-link routes (`archive`,
-      `returned`, `start-return` under `app/api/action/`) — it just isn't
-      written by the in-app paths. **No migration needed.** Two silent
-      call sites to instrument:
-      1. **`app/actions.ts`'s `advanceDisplayStatus`**
-         (`app/actions.ts:127-146`) — the single shared function behind
-         all four dashboard buttons (`markReturnRequestedAction`,
-         `markReturnedAction`, `markRefundedAction`, `markKeptAction`).
-         One instrumentation point covers all four.
-      2. **`PATCH /api/orders/:id/status`**
-         (`app/api/orders/[id]/status/route.ts`) — the order-detail-page
-         status path.
-      Covers every status a user can manually set (`return_requested`,
-      `returned`, `refunded`, `kept`), via every current in-app
-      mechanism, in both directions the owner asked about (how AND
-      where). Auto-derived transitions (`lib/linkOrder.ts`'s
-      `recomputeDisplayStatus`) are deliberately NOT logged here — those
-      already have their trigger (the linked email) as their own record;
-      this item is specifically about the actions that currently leave no
-      trace. **Explicitly out of scope, owner-confirmed 2026-09-04** — a
-      separate task if it's ever wanted.
-      **PLAN v2 — 2026-09-04, addressing owner's 4 lock-down points before
-      any code is touched:**
-      **(1) FROM status, not just target.** `ActionLog` has no notes/meta
-      field (confirmed — `id, userId, orderId, action, outcome,
-      ipAddress, userAgent, at`, nothing else). Encode it in `action`:
-      `"status_action:<from>-><to>"` for the dashboard-button path,
-      `"status_patch:<from>-><to>"` for the detail-page path (e.g.
-      `"status_action:returned->refunded"` — arrow alone means "to",
-      no redundant `"to:"` label). Plain ASCII `->`, not a unicode arrow
-      — keeps it grep/log/URL-safe. Convention gets a comment on the
-      `ActionLog` model itself (point 2 covers exactly what that comment
-      says). **[REVISED 2026-09-04 per owner: dropped the redundant
-      "->to:" — was `"status_action:returned->to:refunded"`, now
-      `"status_action:returned->refunded"`.]**
-      **(2) Action-name mapping, documented on the model.** New Prisma
-      schema comment block on `ActionLog` enumerating every `action`
-      string this repo writes and its origin, so a future query is a
-      lookup, not a scavenger hunt:
-        - `"archive"` — signed email-link Archive
-          (`app/api/action/archive/route.ts`)
-        - `"returned"` — signed email-link Mark Returned
-          (`app/api/action/returned/route.ts`)
-        - `"start-return"` — signed email-link Start Return
-          (`app/api/action/start-return/route.ts`)
-        - `"status_action:<from>-><to>"` — dashboard quick-action button
-          (`app/actions.ts`'s `advanceDisplayStatus`, one entry per
-          manual transition it's asked to make); on outcome `"exception"`
-          only, suffixed `:error:<message>` (point 3)
-        - `"status_patch:<from>-><to>"` — order-detail-page status
-          control (`app/api/orders/[id]/status/route.ts`); same
-          `:error:<message>` suffix convention on `"exception"`
-      Called out explicitly: the same logical event ("user marked an
-      order returned") can appear under `"returned"`,
-      `"status_action:...->returned"`, or `"status_patch:...->returned"`
-      depending on which UI surface was used — by design, since that's
-      the "where" the owner asked for, not an inconsistency to paper over.
-      **(3) Outcome taxonomy — every attempt logged, not just successes.**
-      Reuses the existing precedent from `app/api/action/returned/route.ts`
-      (a `decide*Outcome` helper feeding the log row) rather than
-      inventing a parallel convention. For the two new call sites:
-        - `"success"` — rank advanced, `Order.update` applied.
-        - `"noop_already_at_status"` — requested status's rank is `<=` the
-          order's current rank (covers both the owner's example —
-          clicking "Mark as refunded" on an already-refunded order — and
-          any attempted downgrade). Self-describing on purpose — a future
-          SQL query shouldn't need to know the internal rank concept to
-          read this value. **[RENAMED 2026-09-04 per owner from
-          `"noop_no_rank_change"` — that name required knowing
-          `DISPLAY_STATUS_RANK` internals to parse; this one reads clearly
-          cold.]** This is the single most useful row for the "why does
-          this order look wrong" investigations this exists for, so it
-          must never be silently swallowed the way both call sites do
-          today.
-        - `"not_found"` — order doesn't exist, or exists but
-          `userId` doesn't match the session (today: silent no-op in
-          `app/actions.ts`, a 404 in the PATCH route — both currently
-          unlogged).
-        - `"invalid_status"` — **`PATCH` route only**: requested `status`
-          isn't in `ALLOWED_MANUAL_STATUSES` (malformed request; can't
-          happen from `app/actions.ts` since each button hardcodes a
-          valid status).
-        - `"unauthenticated"` — no session. Logged with `userId: null`
-          (the model's existing nullable-`userId` design was built for
-          exactly this "don't know who" case, per its own schema
-          comment). Low expected frequency since both surfaces sit behind
-          the auth wall already, but cheap to include and closes the
-          taxonomy completely rather than leaving one silent branch
-          behind.
-        - `"exception"` — **NEW 2026-09-04 per owner.** Each call site's
-          body wrapped in try/catch; on any thrown error (e.g. a DB flake
-          mid-`order.update`), write an `ActionLog` row with
-          `outcome: "exception"` and the error message appended to
-          `action` as a `:error:<message>` suffix (truncated to a
-          reasonable length — no field elsewhere to put it, and the
-          message is exactly what's needed for debugging later) BEFORE
-          rethrowing. Written as its own single `actionLog.create` (not
-          inside the now-failed/rolled-back transaction — see point 4) so
-          the failure itself is never silently dropped, which is
-          precisely the gap this whole item exists to close.
-      **(4) Atomicity.** Every branch that both changes `Order` and writes
-      `ActionLog` (i.e. the `"success"` branch) runs both writes inside a
-      single `prisma.$transaction`, mirroring
-      `app/api/action/returned/route.ts:114-140` exactly (fetch order
-      inside the transaction, decide the outcome, conditionally
-      `tx.order.update`, always `tx.actionLog.create`). Branches that only
-      ever produce a log row and no `Order` write (`not_found`,
-      `invalid_status`, `unauthenticated`) don't need a transaction — a
-      single write has nothing to be atomic with. The new `"exception"`
-      branch (point 3) is deliberately OUTSIDE any transaction — if the
-      transaction itself is what threw, the log write must survive its
-      rollback, so it runs as an independent `prisma.actionLog.create`
-      call in the `catch` block, same reasoning as the existing
-      `logActionWithRetry` fallback in `app/api/action/returned/route.ts`
-      for its `P2002` catch branch.
-      **[CODE BUILT + TESTED 2026-09-04, NOT YET PUSHED] Status: built as
-      planned, all 4 review points implemented as specified above.**
-      New pure helper `decideManualStatusChange` in `lib/displayStatus.ts`
-      (mirrors `decideReturnedOutcome`'s separation-of-concerns pattern) —
-      shared by both call sites so their outcome/action-string logic can't
-      drift apart. `app/actions.ts`'s `advanceDisplayStatus` and
-      `app/api/orders/[id]/status/route.ts`'s `PATCH` both rewritten:
-      every branch (`success`, `not_found`, `noop_already_at_status`,
-      `invalid_status` [PATCH only], `unauthenticated`, `exception`) now
-      writes an `ActionLog` row. `success` runs inside
-      `prisma.$transaction` (order update + log atomic); the
-      `exception` branch logs via the existing `logActionWithRetry`
-      helper (`lib/actionLog.ts`) OUTSIDE the transaction, exactly as
-      planned, then rethrows/returns a clean 500. IP/user-agent captured
-      via `next/headers`' `headers()` in `app/actions.ts` (a Server
-      Action, no direct `NextRequest`) and the existing
-      `x-vercel-forwarded-for` pattern in the route. Prisma schema
-      comment added on `ActionLog` documenting the full action-name
-      mapping and outcome taxonomy per points 1–3.
-      **Tests:** 5 new cases for `decideManualStatusChange` in
-      `__tests__/displayStatus.test.ts` (not_found on missing order,
-      not_found on cross-account order — asserts `fromStatus: "unknown"`
-      so a real status is never leaked, noop on re-click, noop on
-      downgrade, success with real `fromStatus` and populated `data`).
-      **798/798 tests passing, `npm run build` clean** (`npx prisma
-      validate` also clean — comment-only schema change, no migration
-      generated or needed). Zero Anthropic API calls, zero live-DB writes
-      during this build (all changes are code + a schema comment).
-      **Not yet committed/pushed** — per this repo's "Done means
-      deployed" rule, this stays in Now until pushed and the two live
-      code paths (a real "Mark as refunded" click, a real order-detail
-      PATCH) are exercised in production and their `ActionLog` rows
-      confirmed.
-
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
       VERIFICATION PENDING] Dev-send guard: fix env-var check
       (VERCEL_ENV not NODE_ENV).** Guard shipped in 75861d5
@@ -5642,6 +5472,176 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **CLOSED 2026-09-04 — Log every manual `displayStatus` change to `ActionLog` — NEW
+      2026-09-04, owner-approved, scope widened from an earlier
+      refunded-only draft.** Investigated why two H&M orders sit at
+      `displayStatus: "refunded"` despite both linked "refund" emails
+      being vague ("we're processing your refund," no dollar amount) —
+      `lib/displayStatus.ts`'s `hasConfirmedRefundAmount` gate is correct
+      and would only auto-derive these to `"returned"`, not `"refunded"`.
+      `ActionLog` had zero entries for either order ID, ruling out the
+      signed email-link actions it does cover. By elimination, the only
+      remaining path was the in-app "Mark as refunded" button — which
+      writes no record of who/when/why at all. Same missing-audit-trail
+      gap already surfaced once before, narrower scope, in the 2026-07-20
+      "kept" investigation (line ~6587) — this is the first time it's
+      actually obscured something with real money-tracking consequences
+      (an order silently losing its refund check-in reminder with no way
+      to tell afterward whether that was justified).
+      **Owner wants this generalized: every manual state change a user
+      can make, logged with how/where it happened — not just refunded.**
+      Revised plan, reusing the table this repo already has rather than
+      adding a schema column: `ActionLog` (`userId`, `orderId`, `action`,
+      `outcome`, `ipAddress`, `userAgent`, `at`) already exists and is
+      already written by the three signed-email-link routes (`archive`,
+      `returned`, `start-return` under `app/api/action/`) — it just isn't
+      written by the in-app paths. **No migration needed.** Two silent
+      call sites to instrument:
+      1. **`app/actions.ts`'s `advanceDisplayStatus`**
+         (`app/actions.ts:127-146`) — the single shared function behind
+         all four dashboard buttons (`markReturnRequestedAction`,
+         `markReturnedAction`, `markRefundedAction`, `markKeptAction`).
+         One instrumentation point covers all four.
+      2. **`PATCH /api/orders/:id/status`**
+         (`app/api/orders/[id]/status/route.ts`) — the order-detail-page
+         status path.
+      Covers every status a user can manually set (`return_requested`,
+      `returned`, `refunded`, `kept`), via every current in-app
+      mechanism, in both directions the owner asked about (how AND
+      where). Auto-derived transitions (`lib/linkOrder.ts`'s
+      `recomputeDisplayStatus`) are deliberately NOT logged here — those
+      already have their trigger (the linked email) as their own record;
+      this item is specifically about the actions that currently leave no
+      trace. **Explicitly out of scope, owner-confirmed 2026-09-04** — a
+      separate task if it's ever wanted.
+      **PLAN v2 — 2026-09-04, addressing owner's 4 lock-down points before
+      any code is touched:**
+      **(1) FROM status, not just target.** `ActionLog` has no notes/meta
+      field (confirmed — `id, userId, orderId, action, outcome,
+      ipAddress, userAgent, at`, nothing else). Encode it in `action`:
+      `"status_action:<from>-><to>"` for the dashboard-button path,
+      `"status_patch:<from>-><to>"` for the detail-page path (e.g.
+      `"status_action:returned->refunded"` — arrow alone means "to",
+      no redundant `"to:"` label). Plain ASCII `->`, not a unicode arrow
+      — keeps it grep/log/URL-safe. Convention gets a comment on the
+      `ActionLog` model itself (point 2 covers exactly what that comment
+      says). **[REVISED 2026-09-04 per owner: dropped the redundant
+      "->to:" — was `"status_action:returned->to:refunded"`, now
+      `"status_action:returned->refunded"`.]**
+      **(2) Action-name mapping, documented on the model.** New Prisma
+      schema comment block on `ActionLog` enumerating every `action`
+      string this repo writes and its origin, so a future query is a
+      lookup, not a scavenger hunt:
+        - `"archive"` — signed email-link Archive
+          (`app/api/action/archive/route.ts`)
+        - `"returned"` — signed email-link Mark Returned
+          (`app/api/action/returned/route.ts`)
+        - `"start-return"` — signed email-link Start Return
+          (`app/api/action/start-return/route.ts`)
+        - `"status_action:<from>-><to>"` — dashboard quick-action button
+          (`app/actions.ts`'s `advanceDisplayStatus`, one entry per
+          manual transition it's asked to make); on outcome `"exception"`
+          only, suffixed `:error:<message>` (point 3)
+        - `"status_patch:<from>-><to>"` — order-detail-page status
+          control (`app/api/orders/[id]/status/route.ts`); same
+          `:error:<message>` suffix convention on `"exception"`
+      Called out explicitly: the same logical event ("user marked an
+      order returned") can appear under `"returned"`,
+      `"status_action:...->returned"`, or `"status_patch:...->returned"`
+      depending on which UI surface was used — by design, since that's
+      the "where" the owner asked for, not an inconsistency to paper over.
+      **(3) Outcome taxonomy — every attempt logged, not just successes.**
+      Reuses the existing precedent from `app/api/action/returned/route.ts`
+      (a `decide*Outcome` helper feeding the log row) rather than
+      inventing a parallel convention. For the two new call sites:
+        - `"success"` — rank advanced, `Order.update` applied.
+        - `"noop_already_at_status"` — requested status's rank is `<=` the
+          order's current rank (covers both the owner's example —
+          clicking "Mark as refunded" on an already-refunded order — and
+          any attempted downgrade). Self-describing on purpose — a future
+          SQL query shouldn't need to know the internal rank concept to
+          read this value. **[RENAMED 2026-09-04 per owner from
+          `"noop_no_rank_change"` — that name required knowing
+          `DISPLAY_STATUS_RANK` internals to parse; this one reads clearly
+          cold.]** This is the single most useful row for the "why does
+          this order look wrong" investigations this exists for, so it
+          must never be silently swallowed the way both call sites do
+          today.
+        - `"not_found"` — order doesn't exist, or exists but
+          `userId` doesn't match the session (today: silent no-op in
+          `app/actions.ts`, a 404 in the PATCH route — both currently
+          unlogged).
+        - `"invalid_status"` — **`PATCH` route only**: requested `status`
+          isn't in `ALLOWED_MANUAL_STATUSES` (malformed request; can't
+          happen from `app/actions.ts` since each button hardcodes a
+          valid status).
+        - `"unauthenticated"` — no session. Logged with `userId: null`
+          (the model's existing nullable-`userId` design was built for
+          exactly this "don't know who" case, per its own schema
+          comment). Low expected frequency since both surfaces sit behind
+          the auth wall already, but cheap to include and closes the
+          taxonomy completely rather than leaving one silent branch
+          behind.
+        - `"exception"` — **NEW 2026-09-04 per owner.** Each call site's
+          body wrapped in try/catch; on any thrown error (e.g. a DB flake
+          mid-`order.update`), write an `ActionLog` row with
+          `outcome: "exception"` and the error message appended to
+          `action` as a `:error:<message>` suffix (truncated to a
+          reasonable length — no field elsewhere to put it, and the
+          message is exactly what's needed for debugging later) BEFORE
+          rethrowing. Written as its own single `actionLog.create` (not
+          inside the now-failed/rolled-back transaction — see point 4) so
+          the failure itself is never silently dropped, which is
+          precisely the gap this whole item exists to close.
+      **(4) Atomicity.** Every branch that both changes `Order` and writes
+      `ActionLog` (i.e. the `"success"` branch) runs both writes inside a
+      single `prisma.$transaction`, mirroring
+      `app/api/action/returned/route.ts:114-140` exactly (fetch order
+      inside the transaction, decide the outcome, conditionally
+      `tx.order.update`, always `tx.actionLog.create`). Branches that only
+      ever produce a log row and no `Order` write (`not_found`,
+      `invalid_status`, `unauthenticated`) don't need a transaction — a
+      single write has nothing to be atomic with. The new `"exception"`
+      branch (point 3) is deliberately OUTSIDE any transaction — if the
+      transaction itself is what threw, the log write must survive its
+      rollback, so it runs as an independent `prisma.actionLog.create`
+      call in the `catch` block, same reasoning as the existing
+      `logActionWithRetry` fallback in `app/api/action/returned/route.ts`
+      for its `P2002` catch branch.
+      **BUILT 2026-09-04, all 4 review points implemented as specified
+      above.** New pure helper `decideManualStatusChange` in
+      `lib/displayStatus.ts` (mirrors `decideReturnedOutcome`'s
+      separation-of-concerns pattern) — shared by both call sites so
+      their outcome/action-string logic can't drift apart.
+      `app/actions.ts`'s `advanceDisplayStatus` and
+      `app/api/orders/[id]/status/route.ts`'s `PATCH` both rewritten:
+      every branch (`success`, `not_found`, `noop_already_at_status`,
+      `invalid_status` [PATCH only], `unauthenticated`, `exception`) now
+      writes an `ActionLog` row. `success` runs inside
+      `prisma.$transaction` (order update + log atomic); the
+      `exception` branch logs via the existing `logActionWithRetry`
+      helper (`lib/actionLog.ts`) OUTSIDE the transaction, then
+      rethrows/returns a clean 500. IP/user-agent captured via
+      `next/headers`' `headers()` in `app/actions.ts` (a Server Action,
+      no direct `NextRequest`) and the existing `x-vercel-forwarded-for`
+      pattern in the route. Prisma schema comment added on `ActionLog`
+      documenting the full action-name mapping and outcome taxonomy.
+      **Tests:** 5 new cases for `decideManualStatusChange` in
+      `__tests__/displayStatus.test.ts`. **798/798 tests passing,
+      `npm run build` clean, `npx prisma validate` clean** (comment-only
+      schema change, no migration). Committed `b8f762b`, pushed, Vercel
+      auto-deployed (`dpl_GAzvbsvNbqLa4V5UWwk5sas3USKj`, confirmed Ready
+      and aliased to `app.myreturnwindow.com`).
+      **LIVE-VERIFIED 2026-09-04:** owner clicked "Mark kept" on a real
+      order (Buff Beauty, from phone) immediately after deploy. Queried
+      `ActionLog` for that order — new row present: `action:
+      "status_action:shipped->kept"`, `outcome: "success"`,
+      `ipAddress`/`userAgent` populated (iPhone, Chrome), timestamp
+      matching the order's own `updatedAt` to the second. First real
+      production row from this feature; end-to-end path confirmed
+      working. **DONE.**
+
 
 - [x] **CLOSED 2026-09-02 — Ground-truth return-URL spreadsheet.**
       Built empty CSV of 36 populated non-Amazon orders at
