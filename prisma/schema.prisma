@@ -401,7 +401,7 @@ model ActionLog {
 // is never stored; this exists purely to count how often it happens).
 model DiscardLog {
   id         String   @id @default(cuid())
-  reason     String // "non_commerce" | "duplicate_messageid" (2026-07-26, ingestion dedup) — room to add more reasons later
+  reason     String // "non_commerce" | "duplicate_messageid" (2026-07-26, ingestion dedup) | "self_outbound_loop" (2026-09-02, self-email ingestion loop guard) — room to add more reasons later
   occurredAt DateTime @default(now())
 }
 

@@ -13,6 +13,7 @@ import { classifyForwardType, resolveAnchorDate, type RawHeader } from "@/lib/fo
 import { resolveBodyText } from "@/lib/emailBodyText";
 import { shouldAutoJunk } from "@/lib/junk";
 import { extractDomain } from "@/lib/foodGroceryExclusion";
+import { detectSelfOutboundLoop } from "@/lib/selfOutboundGuard";
 
 const INBOUND_RATE_LIMIT = 30;
 const INBOUND_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
@@ -119,6 +120,16 @@ function buildEmailCreateData(payload: PostmarkInboundPayload, userId: string, i
     anchorSource,
     messageId: payload.MessageID ?? null,
   };
+}
+
+// Logging-only helper for the self-outbound-loop guard below — the raw
+// From header text (which can include a display name, e.g. "My Return
+// Window <reminders@myreturnwindow.com>") is useful in logs even though
+// detectSelfOutboundLoop itself works off FromFull.Email, not this.
+function findRawHeaderValue(headers: RawHeader[] | null | undefined, name: string): string | null {
+  if (!headers) return null;
+  const lower = name.toLowerCase();
+  return headers.find((h) => h.Name?.toLowerCase() === lower)?.Value ?? null;
 }
 
 function isDuplicateMessageIdRace(error: unknown): boolean {
@@ -255,6 +266,33 @@ export async function POST(request: NextRequest) {
       );
 
       console.log("Detected Gmail forwarding verification email, notified admin, not stored");
+      return NextResponse.json({ ok: true });
+    }
+
+    // Self-email ingestion loop guard (TASKS.md 🔴 Now, 2026-09-02) — users'
+    // Gmail auto-forward rules route our own outbound reminder/digest/
+    // refund-check-in sends back into our own inbound webhook, corrupting
+    // Order fields (confirmed on returnPortalUrl; see
+    // investigations/2026-09-02-extraction-root-cause/). Checked here,
+    // ahead of dedup/pre-junk/classification, so a looped-back send of ours
+    // costs nothing beyond this one pure check — never creates or updates
+    // an Email/Order row. See lib/selfOutboundGuard.ts for why a From/
+    // Return-Path domain match alone reliably tells a loop apart from a
+    // genuine user reply (a reply always carries the user's own address as
+    // From, never ours).
+    const selfOutboundDetection = detectSelfOutboundLoop({
+      fromEmail: payload.FromFull?.Email,
+      headers: payload.Headers,
+      forwardType: classifyForwardType(payload.Headers),
+    });
+    if (selfOutboundDetection.isSelfOutbound) {
+      console.log("Rejected self-outbound loop at inbound webhook:", {
+        messageId: payload.MessageID ?? null,
+        sender: payload.FromFull?.Email ?? null,
+        originalFrom: findRawHeaderValue(payload.Headers, "From"),
+        detectedReason: selfOutboundDetection.reason,
+      });
+      await prisma.discardLog.create({ data: { reason: "self_outbound_loop" } });
       return NextResponse.json({ ok: true });
     }
 

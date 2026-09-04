@@ -32,6 +32,120 @@
 
 ## 🔴 Now
 
+- [ ] **INVESTIGATION IN FLIGHT 2026-09-02 — retailer-name
+      normalisation current state.** Read-only audit of how
+      retailer names/identities are stored, derived, and
+      normalised (if at all) across the order model. Feeds the
+      alpha weekly search-and-verify job — inconsistent retailer
+      names silently poison search quality (Gap Inc. vs. GAP vs.
+      Gap return different results). Read-only, no code, no
+      Anthropic calls.
+
+- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
+      VERIFICATION PENDING] Self-email ingestion loop fix.** Reject
+      own outbound reminder/digest/refund-check-in emails at the
+      inbound webhook so they never reach the extraction pipeline
+      and clobber good returnPortalUrl values with self-domain
+      URLs. Absorbs the null-out cleanup for the 3 affected rows
+      (previously scoped inside the closed self-domain
+      correctness bug item). Scope: webhook-level filter only,
+      not merge-logic changes. Investigation-one confirmed
+      generic merge-logic behaviour ("last non-null wins") is
+      acceptable when extraction is well-behaved and the alpha
+      review flow catches the rest — no code fix warranted at
+      merge layer.
+      **Investigation detail (absorbed from the closed 🟡 Next
+      item "Self-email ingestion loop — reject own outbound at
+      inbound webhook," investigation completed 2026-09-01):**
+      users' Gmail auto-forward rules — the same kind of rule our
+      onboarding sets up — route our own outbound reminders/
+      digest/refund-check-in emails back into our own inbound
+      pipeline. 27 self-emails ingested across 5 users in the
+      last 90 days; 3-4 corrupted an Order's `returnPortalUrl`.
+      Loop is structural (a product feature colliding with
+      itself), won't self-resolve on its own, though the
+      boomerang rate is inconsistent per user (4%-57% of sends,
+      not every send — confirmed via a precise Reminder-table
+      comparison, not blanket forwarding). **Fix shape from
+      investigation:** an ingestion guard rejecting any email
+      whose (a) From: / Return-Path / envelope sender matches our
+      own sending addresses/domain, OR (b) `classifyForwardType()`
+      returns `"auto"` AND the header chain contains our own
+      sending address/domain/inbound token. The signal is already
+      computed in `classifyForwardType` at ingestion — just not
+      currently acted on. **Deferred concerns from investigation
+      — do NOT fold in when picked up, separate work:** audit of
+      whether the 23 self-emails that didn't corrupt
+      `returnPortalUrl` silently corrupted other fields; the
+      merge-side trust hierarchy in `resolveReturnPortalUrlForWrite`
+      (always prefers email-stated URL over an existing good
+      value); fancier self-email detection via subject/content
+      fingerprinting.
+      **Built 2026-09-03:** `lib/selfOutboundGuard.ts`
+      (`detectSelfOutboundLoop`) — checked at the inbound webhook
+      (`app/api/inbound/route.ts`), right after the Gmail-
+      forwarding-verification branch and before dedup/pre-junk/
+      classification, so a looped-back send costs nothing beyond
+      one pure check. Detection confirmed against real data first
+      (all 3 known self-domain rows' corrupting email had
+      `fromEmail: reminders@myreturnwindow.com`, `forwardType:
+      "auto"`, verified via a read-only decrypt query before
+      writing any code): (a) From/Return-Path domain matches
+      `myreturnwindow.com` or any subdomain — the signal that
+      actually fires on every real case, and which a genuine user
+      reply can never match (a reply always carries the replying
+      user's own address as From, never ours, so no explicit
+      reply-vs-loop differentiation logic was needed — the domain
+      check already can't false-positive on a reply); (b)
+      belt-and-suspenders fallback: `forwardType === "auto"` AND
+      any header in the chain otherwise mentions
+      `myreturnwindow.com` (not expected to fire given (a), kept
+      for a forwarding path that might someday rewrite From/
+      Return-Path). Rejected mail creates no Email/Order row, logs
+      structured context (messageId, sender, originalFrom header,
+      detectedReason), and records `DiscardLog{reason:
+      "self_outbound_loop"}` (new reason value on the existing
+      String field, no migration). **Note on the send-side
+      domain:** local `.env`'s `REMINDER_FROM_EMAIL` is a stale
+      personal-domain value (`mckenna@metaxmoda.com`) that does
+      NOT match production — pulled the real production env vars
+      directly to confirm before building (`reminders@` /
+      `hello@myreturnwindow.com`), so the guard is built against
+      what's actually live, not what local `.env` implied.
+      **Null-out cleanup:** dry-run query found exactly 3 orders
+      (Ruti — archived — plus both known active RealReal orders),
+      matching the earlier investigation's count precisely;
+      executed and verified post-update, all 3 now
+      `returnPortalUrl: null`.
+      **Tests:** `__tests__/inboundSelfOutboundGuard.test.ts`, 6
+      cases — self-loop rejected (with and without Gmail
+      auto-forward headers), genuine user reply NOT filtered
+      (record created normally, extraction runs), ordinary
+      retailer email unaffected, case-insensitive + subdomain
+      matching, dot-boundary matching (a domain that merely ends
+      in similar characters without a real subdomain boundary does
+      NOT false-positive). **768/768 tests passing, `npm run
+      build` clean** (typecheck + lint). Zero Anthropic API calls
+      — pure header/string logic plus read-only/one UPDATE DB
+      queries only, no extraction call sites touched. Committed
+      and pushed to `main`; Vercel auto-deploys on push.
+
+- [ ] **NEW 2026-09-02 — Alpha weekly search-and-verify for
+      returnPortalUrl.** Weekly batch job runs a search (retailer
+      name + returns) for every new order added in the past week,
+      produces a candidate URL, lands it in a Google Sheet review
+      queue for owner manual approval. Approved URLs overwrite
+      returnPortalUrl on the order (schema decision:
+      overwrite, not separate field). Extraction stays as
+      best-effort input; alpha review is source of truth.
+      Purpose: get users a working button now, accumulate
+      hand-labeled ground truth for eventual automation. Runs on
+      all new orders (not just extraction failures). Search
+      mechanism: start with search API + heuristics; add
+      LLM-with-web-search as a second candidate column after a
+      few weeks of accumulated review. Gated on retailer-name
+      normalisation investigation landing first.
+
 - [x] **CLOSED (superseded) 2026-09-02 — `returnPortalUrl` self-domain
       correctness bug.** At least one active order had `returnPortalUrl`
       set to `https://app.myreturnwindow.com/orders/{id}` — our own app's
@@ -3217,33 +3331,13 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
-- [ ] **Self-email ingestion loop — reject own outbound at inbound
-      webhook.** Investigation completed 2026-09-01 (three passes,
-      conversation-only — no Done entry filed for the investigation
-      itself, this Next item is the only written record): users' Gmail
-      auto-forward rules — the same kind of
-      rule our onboarding sets up — route our own outbound reminders/
-      digest/refund-check-in emails back into our own inbound pipeline.
-      27 self-emails ingested across 5 users in the last 90 days; 3-4
-      corrupted an Order's `returnPortalUrl`. Loop is structural (a
-      product feature colliding with itself), won't self-resolve on its
-      own, though the boomerang rate is inconsistent per user (4%-57% of
-      sends, not every send — confirmed via a precise Reminder-table
-      comparison, not blanket forwarding).
-      **Fix shape from investigation:** an ingestion guard rejecting any
-      email whose (a) From: / Return-Path / envelope sender matches our
-      own sending addresses/domain, OR (b) `classifyForwardType()`
-      returns `"auto"` AND the header chain contains our own sending
-      address/domain/inbound token. The signal is already computed in
-      `classifyForwardType` at ingestion — just not currently acted on.
-      Plus: null the 3-4 corrupted `returnPortalUrl` rows on ship.
-      **Deferred concerns from investigation — do NOT fold in when
-      picked up, separate work:** audit of whether the 23 self-emails
-      that didn't corrupt `returnPortalUrl` silently corrupted other
-      fields; the merge-side trust hierarchy in
-      `resolveReturnPortalUrlForWrite` (always prefers email-stated URL
-      over an existing good value); fancier self-email detection via
-      subject/content fingerprinting.
+- [x] **CLOSED (superseded) 2026-09-02 — Self-email ingestion loop —
+      reject own outbound at inbound webhook.** Investigation detail
+      (27 self-emails/5 users, 4%-57% boomerang rate, fix shape,
+      deferred concerns) absorbed verbatim into 🔴 Now's "Self-email
+      ingestion loop fix" item, which is where this gets built from.
+      Closed here to avoid one fix having two open descriptions that
+      could drift.
 
 - [ ] **Confirm page: "Remind me tomorrow" action — NEW 2026-09-01,
       flagged during the Start-return CTA build [needs clarification].**
@@ -4320,8 +4414,11 @@
       high-volume retailers where we can
       justify curation (Moda, Shopbop, Nordstrom, J.Crew, Amazon, and the next
       ~15-25), maintain a known-good record of return policy: window(s), tiering
-      conditions, refund vs. store credit windows, return portal URL, sale-item
-      exclusions, anchor (order date vs. delivery date). Extraction priority
+      conditions, refund vs. store credit windows, sale-item
+      exclusions, anchor (order date vs. delivery date). **Return portal URL
+      curation is no longer this item's scope as of 2026-09-02 — see
+      "Retailer URL / policy cache — long-term" below, gated on alpha
+      review data.** Extraction priority
       becomes: retailer-known-policy → email → web_lookup → guess. Deeply
       entangled with the tiered-policy schema work below (likely one shared
       schema, one shared spec pass). Highest-quality trust upgrade for extraction
@@ -4329,27 +4426,27 @@
       change + governance question (audit cadence, ownership). Spec in BUILD.md
       before Claude Code touches it. Real evidence: Moda + Shopbop both surfaced
       today from a single walkthrough.
-- [ ] **Stale return-portal URLs from web_lookup — trust-tier the field** — WNU's
-      `returnsportal.co` URL was extracted from web_lookup and is a defunct
-      provider (redirects to Swap Commerce, acquired). AI-extracted portal URLs
-      can be stale from indexed-but-outdated sources. Proposal: low-confidence
-      `returnPortalUrl` values surface as "Start return at [retailer]" linking
-      to retailer's own returns landing page rather than the direct portal.
-      Bigger UX change than a prompt tweak. May become largely moot for
-      high-volume retailers once retailer policy DB ships (curated URLs). Real
-      evidence: WNU on Caroline's dashboard. Slug:
-      `returnportal-trust-tier`.
-      **AMENDED 2026-09-01, from Start-return CTA coverage investigation:**
-      original framing was WNU as one data point. Spot-check of 10 random
-      `returnPortalUrl` values now in production found 3-4 clearly broken
-      (Buff City Soap → contact page, Gap → cookie failure, Wayfair →
-      404), plus 3 Amazon URLs returning 200 but landing on a generic
-      claim-auth flow that may not resolve to the user's specific order.
-      Real bad-URL rate estimated at 30-40%, not a one-off. Higher
-      priority than originally scoped, and the "degrade low-confidence
-      values" remedy needs sharpening — the bad URLs weren't uniformly
-      low-confidence, and static URL health checks won't catch semantic
-      wrongness (Amazon case). Spec pass required before build.
+- [ ] **Retailer URL / policy cache — long-term.** Once alpha
+      review has accumulated 4-6 weeks of hand-verified URLs,
+      evaluate whether a curated per-retailer registry (top
+      N retailers by fleet volume) beats or complements the
+      search-and-verify mechanism. Decision deferred until real
+      data exists. Related: retailer policy DB (above) — that
+      item is the broader multi-field policy record (windows,
+      tiering, refund terms, anchor date); this one is narrower
+      and specifically gated on alpha-review URL data landing
+      first, not a duplicate.
+- [x] **CLOSED (superseded) 2026-09-02 — `returnportal-trust-tier`.**
+      Superseded by the alpha weekly search-and-verify flow. **Why:**
+      extraction-time confidence doesn't predict correctness — the
+      root-cause investigation found bad URLs weren't concentrated in
+      low-confidence rows (categories C and F both slip past any
+      confidence signal) — so trust-tiering the field can't reliably
+      catch what verified human approval catches instead. See 🔴 Now
+      "Self-email ingestion loop fix" and "Alpha weekly search-and-verify
+      for returnPortalUrl"; see
+      `investigations/2026-09-02-extraction-root-cause/` (traces.md,
+      eval-set.jsonl) for the underlying evidence.
 - [ ] **Setup-page copy: warn about stale Gmail confirmation codes** — dashboard
       currently displays whatever code arrived last; if user comes back to setup
       page hours later, the displayed code may already be Gmail-expired (Google
@@ -5177,6 +5274,38 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **CLOSED 2026-09-02 — Ground-truth return-URL spreadsheet.**
+      Built empty CSV of 36 populated non-Amazon orders at
+      investigations/2026-09-02-ground-truth-spreadsheet/
+      return-urls.csv for owner manual review. Owner reviewed
+      currentStoredUrl values against the "acceptable = retailer
+      returns page reachable without login" bar. Findings:
+      ~47% already at or acceptably near bar (Loop/Optiturn deep
+      portals, or retailer.com/returns landing pages);
+      ~25% clearly wrong (contact pages, DHL locator, self-domain
+      loop, account-only landings); ~8% decays over time
+      (marketing tracker wrappers, Nordstrom/Target); rest
+      borderline. Findings drove the alpha approach — see new 🔴
+      Now item. Blank fill-in columns intentionally left empty
+      (categorization lived in review conversation, not the
+      sheet). 0 Anthropic API calls.
+
+- [x] **CLOSED 2026-09-02 — returnPortalUrl extraction root-cause
+      investigation.** Traced 19 known-bad URLs to source emails,
+      categorized by root cause (47% C: no good URL existed;
+      26% D: auth-walled inconclusive; 16% E: merge overwrote good
+      with bad — includes new Wayfair finding beyond the self-email
+      loop; 5% B: right email wrong URL; 5% F: correct at write,
+      decayed since). Outputs at
+      investigations/2026-09-02-extraction-root-cause/. Owner
+      manually verified traces.md and eval-set.jsonl. **Fix
+      recommendation (prompt iteration on null escape hatch +
+      merge-logic fix) SUPERSEDED** — owner review revealed most
+      "good" URLs are also policy pages, reframing the problem
+      from extraction quality to "how do we get to a retailer's
+      returns page at all." See new 🔴 Now alpha weekly
+      search-and-verify item. 0 Anthropic API calls.
 
 - [x] **Fleet-wide `returnPortalUrl` health audit — completed 2026-09-01/09-02,
       follow-up to the 10-sample spot-check that found a 30-40% bad rate.**
