@@ -4899,21 +4899,37 @@
       overflow risk as the order-date-on-card item above — if both
       built in the same session, reconcile the collapsed layout once,
       not twice.
-- [ ] **Refund check-in reminders — read-only diagnostic. NEW
+- [x] **Refund check-in reminders — read-only diagnostic. NEW
       2026-08-26, owner-flagged: "don't think I'm getting them for
-      everything."** Investigate whether `runRefundCheckinReminders()`
-      (`lib/refundCheckin.ts`) is firing when the rules say it should.
-      For each Order currently in status `return_started` or
-      `refund_pending` (plus any recently transitioned out), enumerate:
-      (a) per the reminder rules, on which dates should a check-in
-      reminder have fired; (b) does the `Reminder` table show it
-      actually did fire on those dates? Report the delta.
+      everything." RUN 2026-09-04.** Investigated whether
+      `runRefundCheckinReminders()` (`lib/refundCheckin.ts`) is firing
+      when the rules say it should. Read-only DB query (zero billed
+      Anthropic calls): 7 `refund_checkin` reminders sent to date
+      (Gap Inc., H&M ×2, Chan Luu, Ancient Greek Sandals, NET-A-PORTER,
+      SSENSE, 2026-07-24 through 2026-08-27). Cross-checked every order
+      currently in `displayStatus: "returned"` against its 5-day
+      (tracked) / 10-day (untracked) due date — all that had crossed
+      their threshold had already been sent; the one not yet due
+      (Zara, returned 2026-08-30) correctly hadn't fired.
+      **Finding: no misses among currently-`returned` orders — working
+      as designed.** Root cause of the owner's "not getting them for
+      everything" impression, confirmed via one example (Suzie Kondi,
+      $1,103.10): an order that auto-transitions straight to
+      `displayStatus: "refunded"` off its own refund-confirmation email
+      (skips `"returned"` per the status precedence in
+      `prisma/schema.prisma`) auto-archives in the same write and is
+      correctly excluded from the check-in query — by design, since the
+      system considers the loop already closed. **Residual risk, not a
+      bug, not actioned:** this exclusion trusts the retailer's refund
+      email at face value (amount, correctness of match) with no
+      verification against an actual bank/card statement — a
+      misextracted refund email would silently archive an order with no
+      safety-net reminder to catch it. Not gated on anything; revisit
+      only if a real misfire is found.
       Related-but-separate: item 1221 (`refund_pending → SKIP_STATUSES`
-      guard) — confirm the diagnostic query doesn't misclassify orders
-      that were correctly skipped by that guard.
-      READ-ONLY (pure DB query, zero billed Anthropic calls — Claude
-      Code confirms this before running per header). Fix session gated
-      on what the diagnostic finds; may be nothing to fix.
+      guard) — this diagnostic did not find any order misclassified by
+      that guard (0 orders in `refund_pending` at query time, consistent
+      with that item's own note).
 ## 👀 Watching — parked, revisit only if it recurs
 - [ ] **Pre-order residual: "Return by" line + reminders can fire
       pre-shipment — NEW 2026-09-01, downgraded from 🔴 Now.** Originally
