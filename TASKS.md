@@ -4931,6 +4931,39 @@
       that guard (0 orders in `refund_pending` at query time, consistent
       with that item's own note).
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **Multi-shipment orders — watching, 2026-09-04.** The current model
+      assumes one order = one delivery date = one return window
+      (`estimatedDeliveryDate` on `Order`, moved by shipping emails via
+      `mergeEmailIntoOrder`). Orders that ship in multiple boxes with
+      different arrival dates — and potentially different per-item
+      return-window anchors depending on retailer policy — are NOT modeled.
+      The extractor collapses them to one deadline, which may be wrong for
+      the earlier-arriving box's items.
+      **Not building yet:** not enough real examples to spec against. Same
+      reason the Amazon spec was gated on N accumulated patches (2026-07-19).
+      **Revisit when:** [pick trigger — e.g. "≥5 orders flagged by the
+      detector," or "a user reports a wrong deadline traceable to this
+      case"].
+      Explicit non-goals in the meantime — do NOT let a future session
+      sneak these in:
+      - No new `displayStatus` value (e.g. "partially_delivered"). Every
+        switch on displayStatus would need to learn it — that's a spec,
+        not a patch.
+      - No delivery-date qualifier like "arriving Sept 10 (multiple
+        packages)."
+      - No per-shipment return-window recomputation.
+      - No UX change to the card.
+      Open questions to answer at spec time, recorded so they're not
+      rediscovered:
+      - Do multi-shipment orders and Amazon bundles share underlying
+        machinery ("a deliverable unit within a container") or stay
+        parallel special cases? Amazon's bundle model (2026-07-20) is the
+        closest precedent.
+      - Return-window anchor: per-shipment, order-earliest-delivery, or
+        order-latest-delivery? Retailer-policy-dependent.
+      - Collapsed-card contract when box A is delivered and box B isn't —
+        inherits the standard 2×2 (2026-07-20) or the Amazon exception
+        (summary, not action)?
 - [ ] **Pre-order residual: "Return by" line + reminders can fire
       pre-shipment — NEW 2026-09-01, downgraded from 🔴 Now.** Originally
       opened from the Loeffler Randall investigation as a full suppression
