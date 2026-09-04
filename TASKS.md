@@ -69,10 +69,10 @@
          simpler, default the parameter to `"manual"` so only
          `linkOrder.ts` needs to opt in, since it's the one call site with
          `hasConfirmedRefundAmount` in scope.
-      4. **Surface it:** show `refundedSource` next to the refunded badge
-         on the order detail page (or at minimum keep it queryable) so
-         "was this auto-confirmed or did I click it" is answerable without
-         a manual investigation like this one next time.
+      No UI surface — this is a DB-queryable field for future
+      investigations like this one, not a user-facing element. Adding it
+      to the order detail page would be a separate product decision, not
+      part of this scope.
       Scoped to the `refunded` transition only, matching what actually
       bit us — extending to `kept`/`returned` later is a trivial follow-on
       if it turns out to matter, not built preemptively here.
