@@ -4,6 +4,7 @@ import {
   deriveDisplayStatusCore,
   DISPLAY_STATUS_RANK,
   buildStatusTransitionData,
+  decideManualStatusChange,
   requiresConfirmBeforeStatusChange,
 } from "../lib/displayStatus";
 
@@ -402,6 +403,47 @@ describe("buildStatusTransitionData", () => {
   it("treats a missing keptAt field the same as null (optional for backward compatibility)", () => {
     const data = buildStatusTransitionData("kept", { returnedAt: null, archivedAt: null });
     expect(data.keptAt).toBeInstanceOf(Date);
+  });
+});
+
+// ── decideManualStatusChange: feeds the ActionLog outcome/action-string for
+// both app/actions.ts's advanceDisplayStatus and PATCH /api/orders/:id/status
+// (2026-09-04 — closing the gap where every non-success branch of both was a
+// silent, unlogged no-op). ────────────────────────────────────────────────
+
+describe("decideManualStatusChange", () => {
+  it("returns not_found with fromStatus 'unknown' when the order doesn't exist", () => {
+    const result = decideManualStatusChange(null, "user_1", "refunded");
+    expect(result).toEqual({ outcome: "not_found", fromStatus: "unknown", data: null });
+  });
+
+  it("returns not_found with fromStatus 'unknown' when the order belongs to a different user (never reveals the real status cross-account)", () => {
+    const order = { userId: "user_2", displayStatus: "returned", returnedAt: new Date(), archivedAt: null };
+    const result = decideManualStatusChange(order, "user_1", "refunded");
+    expect(result).toEqual({ outcome: "not_found", fromStatus: "unknown", data: null });
+  });
+
+  it("returns noop_already_at_status when the requested status's rank is at or below the current rank (owner's example: re-clicking refunded on an already-refunded order)", () => {
+    const order = { userId: "user_1", displayStatus: "refunded", returnedAt: new Date(), archivedAt: new Date() };
+    const result = decideManualStatusChange(order, "user_1", "refunded");
+    expect(result.outcome).toBe("noop_already_at_status");
+    expect(result.fromStatus).toBe("refunded");
+    expect(result.data).toBeNull();
+  });
+
+  it("returns noop_already_at_status on an attempted downgrade", () => {
+    const order = { userId: "user_1", displayStatus: "refunded", returnedAt: new Date(), archivedAt: new Date() };
+    const result = decideManualStatusChange(order, "user_1", "returned");
+    expect(result.outcome).toBe("noop_already_at_status");
+  });
+
+  it("returns success with real fromStatus and a populated data object when the transition advances rank", () => {
+    const order = { userId: "user_1", displayStatus: "returned", returnedAt: new Date("2026-08-01T00:00:00Z"), archivedAt: null };
+    const result = decideManualStatusChange(order, "user_1", "refunded");
+    expect(result.outcome).toBe("success");
+    expect(result.fromStatus).toBe("returned");
+    expect(result.data).not.toBeNull();
+    expect(result.data?.displayStatus).toBe("refunded");
   });
 });
 

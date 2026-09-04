@@ -196,6 +196,42 @@ export function buildStatusTransitionData(
   return data;
 }
 
+// Pure function — safe to test without DB or mocks, same reasoning as
+// decideReturnedOutcome (lib/returnedAction.ts) for the signed-link routes:
+// the outcome decision is fully separable from the DB/transaction plumbing
+// around it. Both app/actions.ts's advanceDisplayStatus and PATCH
+// /api/orders/:id/status share this so their ActionLog outcomes/action
+// strings can't drift apart — see the ActionLog model comment in
+// prisma/schema.prisma for the full "status_action:<from>-><to>" /
+// "status_patch:<from>-><to>" action-string convention this feeds.
+// fromStatus is "unknown" for not_found: the order either doesn't exist or
+// isn't owned by the requesting user, so its real current status must never
+// be revealed in the log for a cross-account request.
+export type ManualStatusOutcome = "success" | "not_found" | "noop_already_at_status";
+
+export function decideManualStatusChange(
+  order: { userId: string; displayStatus: string; returnedAt: Date | null; archivedAt: Date | null; keptAt?: Date | null } | null,
+  requestingUserId: string,
+  nextStatus: string,
+): {
+  outcome: ManualStatusOutcome;
+  fromStatus: string;
+  data: ReturnType<typeof buildStatusTransitionData> | null;
+} {
+  if (!order || order.userId !== requestingUserId) {
+    return { outcome: "not_found", fromStatus: "unknown", data: null };
+  }
+
+  const currentRank = DISPLAY_STATUS_RANK[order.displayStatus] ?? 0;
+  const nextRank = DISPLAY_STATUS_RANK[nextStatus] ?? 0;
+
+  if (nextRank <= currentRank) {
+    return { outcome: "noop_already_at_status", fromStatus: order.displayStatus, data: null };
+  }
+
+  return { outcome: "success", fromStatus: order.displayStatus, data: buildStatusTransitionData(nextStatus, order) };
+}
+
 // The teaching-copy confirm message shown before "Mark as refunded" commits.
 // Refunded is one-way (no UI path back), and it auto-archives the order —
 // both surprising enough consequences that the user should see them spelled

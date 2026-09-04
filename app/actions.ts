@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/db";
 import { auth, signOut } from "@/auth";
 import { linkEmailToExistingOrder, createOrderFromOrphanedEmail, archiveOrphanedEmail, approveOrder } from "@/lib/orderReview";
 import { rescueEmail } from "@/lib/junk";
-import { DISPLAY_STATUS_RANK, buildStatusTransitionData } from "@/lib/displayStatus";
+import { decideManualStatusChange } from "@/lib/displayStatus";
+import { logActionWithRetry } from "@/lib/actionLog";
 
 export async function deleteEmail(emailId: string): Promise<void> {
   const session = await auth();
@@ -124,23 +126,67 @@ export async function rescueEmailAction(emailId: string): Promise<void> {
   revalidatePath("/");
 }
 
+// Logs every call to ActionLog (action "status_action:<from>-><to>") — see
+// the model comment in prisma/schema.prisma for the full convention and
+// outcome taxonomy. Added 2026-09-04: this was previously a silent no-op on
+// every non-success branch, which is exactly what made a manual "Mark as
+// refunded" on an order with no confirmed refund amount unrecoverable to
+// investigate after the fact.
 async function advanceDisplayStatus(orderId: string, nextStatus: string): Promise<void> {
+  const hdrs = await headers();
+  const ipAddress = hdrs.get("x-vercel-forwarded-for");
+  const userAgent = hdrs.get("user-agent");
+
   const session = await auth();
-  if (!session?.user) return;
+  if (!session?.user) {
+    await logActionWithRetry({
+      userId: null,
+      orderId,
+      action: `status_action:unknown->${nextStatus}`,
+      outcome: "unauthenticated",
+      ipAddress,
+      userAgent,
+    });
+    return;
+  }
+  const userId = session.user.id;
 
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true, keptAt: true },
-  });
-  if (!order || order.userId !== session.user.id) return;
+  let succeeded = false;
+  try {
+    succeeded = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        select: { userId: true, displayStatus: true, returnedAt: true, archivedAt: true, keptAt: true },
+      });
 
-  const currentRank = DISPLAY_STATUS_RANK[order.displayStatus] ?? 0;
-  const nextRank = DISPLAY_STATUS_RANK[nextStatus] ?? 0;
-  if (nextRank <= currentRank) return;
+      const decision = decideManualStatusChange(order, userId, nextStatus);
+      const action = `status_action:${decision.fromStatus}->${nextStatus}`;
 
-  const data = buildStatusTransitionData(nextStatus, order);
+      if (decision.outcome === "success" && decision.data) {
+        await tx.order.update({ where: { id: orderId }, data: decision.data });
+      }
 
-  await prisma.order.update({ where: { id: orderId }, data });
+      await tx.actionLog.create({
+        data: { userId, orderId, action, outcome: decision.outcome, ipAddress, userAgent },
+      });
+
+      return decision.outcome === "success";
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logActionWithRetry({
+      userId,
+      orderId,
+      action: `status_action:unknown->${nextStatus}:error:${message.slice(0, 200)}`,
+      outcome: "exception",
+      ipAddress,
+      userAgent,
+    });
+    throw error;
+  }
+
+  if (!succeeded) return;
+
   revalidatePath("/");
   revalidatePath(`/orders/${orderId}`);
 }

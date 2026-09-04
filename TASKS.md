@@ -79,12 +79,15 @@
       **(1) FROM status, not just target.** `ActionLog` has no notes/meta
       field (confirmed — `id, userId, orderId, action, outcome,
       ipAddress, userAgent, at`, nothing else). Encode it in `action`:
-      `"status_action:<from>->to:<to>"` for the dashboard-button path,
-      `"status_patch:<from>->to:<to>"` for the detail-page path (e.g.
-      `"status_action:returned->to:refunded"`). Plain ASCII `->`, not a
-      unicode arrow — keeps it grep/log/URL-safe. Convention gets a
-      comment on the `ActionLog` model itself (point 2 covers exactly
-      what that comment says).
+      `"status_action:<from>-><to>"` for the dashboard-button path,
+      `"status_patch:<from>-><to>"` for the detail-page path (e.g.
+      `"status_action:returned->refunded"` — arrow alone means "to",
+      no redundant `"to:"` label). Plain ASCII `->`, not a unicode arrow
+      — keeps it grep/log/URL-safe. Convention gets a comment on the
+      `ActionLog` model itself (point 2 covers exactly what that comment
+      says). **[REVISED 2026-09-04 per owner: dropped the redundant
+      "->to:" — was `"status_action:returned->to:refunded"`, now
+      `"status_action:returned->refunded"`.]**
       **(2) Action-name mapping, documented on the model.** New Prisma
       schema comment block on `ActionLog` enumerating every `action`
       string this repo writes and its origin, so a future query is a
@@ -95,29 +98,35 @@
           (`app/api/action/returned/route.ts`)
         - `"start-return"` — signed email-link Start Return
           (`app/api/action/start-return/route.ts`)
-        - `"status_action:<from>->to:<to>"` — dashboard quick-action
-          button (`app/actions.ts`'s `advanceDisplayStatus`, one entry
-          per manual transition it's asked to make)
-        - `"status_patch:<from>->to:<to>"` — order-detail-page status
-          control (`app/api/orders/[id]/status/route.ts`)
+        - `"status_action:<from>-><to>"` — dashboard quick-action button
+          (`app/actions.ts`'s `advanceDisplayStatus`, one entry per
+          manual transition it's asked to make); on outcome `"exception"`
+          only, suffixed `:error:<message>` (point 3)
+        - `"status_patch:<from>-><to>"` — order-detail-page status
+          control (`app/api/orders/[id]/status/route.ts`); same
+          `:error:<message>` suffix convention on `"exception"`
       Called out explicitly: the same logical event ("user marked an
       order returned") can appear under `"returned"`,
-      `"status_action:...->to:returned"`, or
-      `"status_patch:...->to:returned"` depending on which UI surface was
-      used — by design, since that's the "where" the owner asked for, not
-      an inconsistency to paper over.
+      `"status_action:...->returned"`, or `"status_patch:...->returned"`
+      depending on which UI surface was used — by design, since that's
+      the "where" the owner asked for, not an inconsistency to paper over.
       **(3) Outcome taxonomy — every attempt logged, not just successes.**
       Reuses the existing precedent from `app/api/action/returned/route.ts`
       (a `decide*Outcome` helper feeding the log row) rather than
       inventing a parallel convention. For the two new call sites:
         - `"success"` — rank advanced, `Order.update` applied.
-        - `"noop_no_rank_change"` — requested status's rank is `<=` the
+        - `"noop_already_at_status"` — requested status's rank is `<=` the
           order's current rank (covers both the owner's example —
           clicking "Mark as refunded" on an already-refunded order — and
-          any attempted downgrade). This is the single most useful row
-          for the "why does this order look wrong" investigations this
-          exists for, so it must never be silently swallowed the way both
-          call sites do today.
+          any attempted downgrade). Self-describing on purpose — a future
+          SQL query shouldn't need to know the internal rank concept to
+          read this value. **[RENAMED 2026-09-04 per owner from
+          `"noop_no_rank_change"` — that name required knowing
+          `DISPLAY_STATUS_RANK` internals to parse; this one reads clearly
+          cold.]** This is the single most useful row for the "why does
+          this order look wrong" investigations this exists for, so it
+          must never be silently swallowed the way both call sites do
+          today.
         - `"not_found"` — order doesn't exist, or exists but
           `userId` doesn't match the session (today: silent no-op in
           `app/actions.ts`, a 404 in the PATCH route — both currently
@@ -133,6 +142,17 @@
           the auth wall already, but cheap to include and closes the
           taxonomy completely rather than leaving one silent branch
           behind.
+        - `"exception"` — **NEW 2026-09-04 per owner.** Each call site's
+          body wrapped in try/catch; on any thrown error (e.g. a DB flake
+          mid-`order.update`), write an `ActionLog` row with
+          `outcome: "exception"` and the error message appended to
+          `action` as a `:error:<message>` suffix (truncated to a
+          reasonable length — no field elsewhere to put it, and the
+          message is exactly what's needed for debugging later) BEFORE
+          rethrowing. Written as its own single `actionLog.create` (not
+          inside the now-failed/rolled-back transaction — see point 4) so
+          the failure itself is never silently dropped, which is
+          precisely the gap this whole item exists to close.
       **(4) Atomicity.** Every branch that both changes `Order` and writes
       `ActionLog` (i.e. the `"success"` branch) runs both writes inside a
       single `prisma.$transaction`, mirroring
@@ -141,11 +161,46 @@
       `tx.order.update`, always `tx.actionLog.create`). Branches that only
       ever produce a log row and no `Order` write (`not_found`,
       `invalid_status`, `unauthenticated`) don't need a transaction — a
-      single write has nothing to be atomic with.
-      Not started. Ready for a plan/approval pass before editing per this
-      repo's non-trivial-change convention. No DB migration, so the
-      "show the SQL first" gate doesn't apply — this is pure application
-      code plus one Prisma schema *comment* (no column, no migration).
+      single write has nothing to be atomic with. The new `"exception"`
+      branch (point 3) is deliberately OUTSIDE any transaction — if the
+      transaction itself is what threw, the log write must survive its
+      rollback, so it runs as an independent `prisma.actionLog.create`
+      call in the `catch` block, same reasoning as the existing
+      `logActionWithRetry` fallback in `app/api/action/returned/route.ts`
+      for its `P2002` catch branch.
+      **[CODE BUILT + TESTED 2026-09-04, NOT YET PUSHED] Status: built as
+      planned, all 4 review points implemented as specified above.**
+      New pure helper `decideManualStatusChange` in `lib/displayStatus.ts`
+      (mirrors `decideReturnedOutcome`'s separation-of-concerns pattern) —
+      shared by both call sites so their outcome/action-string logic can't
+      drift apart. `app/actions.ts`'s `advanceDisplayStatus` and
+      `app/api/orders/[id]/status/route.ts`'s `PATCH` both rewritten:
+      every branch (`success`, `not_found`, `noop_already_at_status`,
+      `invalid_status` [PATCH only], `unauthenticated`, `exception`) now
+      writes an `ActionLog` row. `success` runs inside
+      `prisma.$transaction` (order update + log atomic); the
+      `exception` branch logs via the existing `logActionWithRetry`
+      helper (`lib/actionLog.ts`) OUTSIDE the transaction, exactly as
+      planned, then rethrows/returns a clean 500. IP/user-agent captured
+      via `next/headers`' `headers()` in `app/actions.ts` (a Server
+      Action, no direct `NextRequest`) and the existing
+      `x-vercel-forwarded-for` pattern in the route. Prisma schema
+      comment added on `ActionLog` documenting the full action-name
+      mapping and outcome taxonomy per points 1–3.
+      **Tests:** 5 new cases for `decideManualStatusChange` in
+      `__tests__/displayStatus.test.ts` (not_found on missing order,
+      not_found on cross-account order — asserts `fromStatus: "unknown"`
+      so a real status is never leaked, noop on re-click, noop on
+      downgrade, success with real `fromStatus` and populated `data`).
+      **798/798 tests passing, `npm run build` clean** (`npx prisma
+      validate` also clean — comment-only schema change, no migration
+      generated or needed). Zero Anthropic API calls, zero live-DB writes
+      during this build (all changes are code + a schema comment).
+      **Not yet committed/pushed** — per this repo's "Done means
+      deployed" rule, this stays in Now until pushed and the two live
+      code paths (a real "Mark as refunded" click, a real order-detail
+      PATCH) are exercised in production and their `ActionLog` rows
+      confirmed.
 
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
       VERIFICATION PENDING] Dev-send guard: fix env-var check

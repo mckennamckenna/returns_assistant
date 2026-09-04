@@ -444,6 +444,27 @@ model TokenRedemption {
 // not a reason to drop the row. Both relations are SetNull on delete, same
 // reasoning as TokenRedemption — an audit trail should survive its subject
 // being deleted, not silently vanish or block the deletion.
+//
+// `action` values this repo writes, and what emits each one (2026-09-04 —
+// added to close the gap where in-app manual status changes left no trace,
+// only the signed email-link ones below did):
+//   "archive"                    — signed email-link Archive
+//                                   (app/api/action/archive/route.ts)
+//   "returned"                   — signed email-link Mark Returned
+//                                   (app/api/action/returned/route.ts)
+//   "start-return"               — signed email-link Start Return
+//                                   (app/api/action/start-return/route.ts)
+//   "status_action:<from>-><to>" — dashboard quick-action button
+//                                   (app/actions.ts's advanceDisplayStatus)
+//   "status_patch:<from>-><to>"  — order-detail-page status control
+//                                   (app/api/orders/[id]/status/route.ts)
+// The same logical event (e.g. "user marked an order returned") can
+// legitimately appear under three different action strings depending on
+// which UI surface triggered it — that's intentional, it's the "where"
+// this log exists to answer, not an inconsistency.
+// On outcome "exception" only, the two status_* actions above get a
+// ":error:<message>" suffix (message truncated) — there's no separate
+// field for it, and the message is exactly what's needed for debugging.
 model ActionLog {
   id        String   @id @default(cuid())
   userId    String?
@@ -451,7 +472,17 @@ model ActionLog {
   orderId   String?
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
   action    String
-  outcome   String // "success" | "expired" | "already_used" | "invalid" | "order_state_changed" | "no_portal"
+  // Token-route outcomes: "success" | "expired" | "already_used" | "invalid"
+  //   | "order_state_changed" | "no_portal"
+  // status_action:*/status_patch:* outcomes: "success"
+  //   | "noop_already_at_status" (requested status's rank <= current rank —
+  //     e.g. clicking "Mark as refunded" on an already-refunded order)
+  //   | "not_found" (order missing, or not owned by the session's user)
+  //   | "invalid_status" (status_patch only — not in ALLOWED_MANUAL_STATUSES)
+  //   | "unauthenticated" (no session; userId logged as null)
+  //   | "exception" (threw mid-transaction; logged outside the rolled-back
+  //     transaction so the failure itself is never silently dropped)
+  outcome   String
   ipAddress String?
   userAgent String?
   at        DateTime @default(now())
