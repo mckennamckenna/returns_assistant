@@ -217,6 +217,96 @@
       LLM-with-web-search as a second candidate column after a
       few weeks of accumulated review. Gated on retailer-name
       normalisation investigation landing first.
+      **SCOPE LOCKED 2026-09-03 — gate cleared (retailer-name
+      normalisation investigation landed 2026-09-02,
+      `investigations/2026-09-02-retailer-name-normalisation/`),
+      build starting this session.** Expanded scope from the
+      2026-09-02 framing above, full spec given by owner: covers
+      the ENTIRE active non-Amazon order backlog on first run, not
+      just new orders from the past week (fixing existing bad URLs
+      is the primary motivation) — self-heals on later runs since
+      already-queued orders are skipped. Adds retailer-name
+      approval alongside URL approval in the same sheet row (owner
+      can correct both in one pass); approved retailer names
+      overwrite `Order.retailer` when changed, symmetric with the
+      URL overwrite. New `ReturnUrlReview` Prisma table accumulates
+      both as ground truth — explicitly ground-truth generation
+      input to the future shared retailer cache (PHASE 1a/1b +
+      "Retailer URL / policy cache — long-term"), NOT itself a
+      cache or a consumer of one; normalization key (passive,
+      lowercase/whitespace/suffix/trailing-punctuation) deliberately
+      matches the invariant locked in the 2026-08-13 cache-sizing
+      investigation (HISTORY.md) so no re-key is needed if/when
+      approved rows migrate as cache seed data. Two cron jobs
+      (weekly search → Sheet, daily apply-approvals ← Sheet)
+      following the existing `app/api/cron/*` + `CRON_SECRET`
+      pattern (`weekly-coverage`, `weekly-digest`). Sheet via
+      `googleapis` service account; search via Serper API. Explicit
+      non-goals this pass: no extraction-pipeline changes, no
+      PHASE 1a/1b cache, no LLM-web-search candidate source, no
+      fuzzy retailer matching, no shared Retailer/RetailerAlias
+      table, no UI beyond the Sheet. Plan-then-implement: owner
+      wants the implementation plan (files, migration SQL, env
+      vars, deps) shown and approved before any code is written.
+      **[CODE BUILT + TESTED, NOT YET PUSHED/DEPLOYED, 2026-09-04.]**
+      Plan approved 2026-09-03 with two amendments: (1) `APP_DOMAIN`
+      has no hardcoded default and never reads
+      `lib/selfOutboundGuard.ts`'s domain — both cron routes fail
+      loudly (500) before any Serper/Sheets call if unset; (2)
+      `isMeaningfulRetailerChange()` built as a second helper in
+      `lib/retailer-normalize.ts`, not a mode flag on
+      `normalizeRetailer()`. Built: `prisma/schema.prisma`'s
+      `ReturnUrlReview` model + `ReturnUrlReviewStatus`/
+      `ReturnUrlCandidateSource` enums (migration
+      `20260904011814_add_return_url_review`, additive only —
+      applied to the live DB); `lib/retailer-normalize.ts`
+      (`normalizeRetailer`, `isMeaningfulRetailerChange`);
+      `lib/search.ts` (Serper wrapper, one 429 retry); `lib/sheets.ts`
+      (googleapis service-account wrapper — append/read/
+      bootstrap-headers); `app/api/cron/weekly-url-review/route.ts`
+      (Sunday `0 3 * * 1` UTC ≈ 20:00 PT — search-subject priority,
+      `scoreResult()` heuristics, self-heals on per-order failure by
+      never creating a review row); `app/api/cron/apply-url-reviews/
+      route.ts` (daily `0 13 * * *` UTC ≈ 06:00 PT — applies
+      approved/rejected Sheet rows, gated on `ReturnUrlReview.status
+      === PENDING` so re-runs are safe). `vercel.json` +2 cron
+      entries. `.env.example` created (new file — none existed
+      before), `.gitignore`'s blanket `.env*` exclusion given a
+      `!.env.example` carve-out so the template actually commits.
+      `BUILD.md` updated: Env vars table, Cron schedules table,
+      `ReturnUrlReview` data-model entry, full "Alpha weekly
+      search-and-verify" operational section (setup steps, Sheet
+      column contract, manual-trigger command, known limitations,
+      explicit out-of-scope list). New dependency: `googleapis`.
+      **Bug caught by the new test suite, fixed before commit:**
+      `scoreResult()`'s path-keyword scoring originally checked the
+      *whole* URL string, not just the pathname — since
+      `myreturnwindow.com` itself contains the substring `"return"`,
+      a self-domain-loop URL got a false +3 bonus that partially
+      offset the -10 own-domain penalty. Fixed to score
+      `new URL(...).pathname` only.
+      **Second bug caught by owner-requested self-review, fixed before
+      commit 2026-09-04:** `applyApproval()` in `apply-url-reviews/route.ts`
+      originally wrote `ReturnUrlReview.status = APPROVED` and
+      `Order.returnPortalUrl` as two separate sequential `prisma` calls —
+      a crash between them would silently strand the row: no longer
+      `PENDING`, so never retried, and the order's URL never actually
+      updated. Wrapped both writes in one `prisma.$transaction`.
+      **Tests:** `__tests__/retailerNormalize.test.ts` (11 cases —
+      suffix stripping, trailing-punctuation/DONNI parity, no
+      prefix-truncation, no fuzzy matching, meaningful-vs-cosmetic
+      change detection) + `__tests__/weeklyUrlReview.test.ts` (9
+      cases — scoring heuristics including the caught bug, all three
+      search-subject priority branches). **793/793 tests passing,
+      `npm run build` clean** (typecheck + lint, both new routes
+      compile). Zero Anthropic API calls — no model call sites in
+      this feature at all (Serper + Sheets only). **Not yet
+      committed, not yet pushed, not yet deployed — owner has not
+      seen a real Sheet round-trip yet (no `GOOGLE_SERVICE_ACCOUNT_JSON`/
+      `RETURN_URL_REVIEW_SHEET_ID`/`SERPER_API_KEY`/`APP_DOMAIN`
+      configured or verified live).** Per CLAUDE.md "Done means
+      deployed": stays in Now until committed, pushed, and verified
+      against a real weekly + apply run in production.
 
 - [x] **CLOSED (superseded) 2026-09-02 — `returnPortalUrl` self-domain
       correctness bug.** At least one active order had `returnPortalUrl`

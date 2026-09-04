@@ -9,6 +9,8 @@ export type NotificationKind =
   | "reminder_summary"
   | "weekly_coverage_summary"
   | "weekly_digest_summary"
+  | "weekly_url_review_summary"
+  | "apply_url_reviews_summary"
   | "inbound_volume_spike"
   | "inbound_rate_limited"
   | "magic_link_rate_limited"

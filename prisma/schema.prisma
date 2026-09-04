@@ -334,6 +334,68 @@ model Order {
   reminders        Reminder[]
   tokenRedemptions TokenRedemption[]
   actionLogs       ActionLog[]
+  returnUrlReview  ReturnUrlReview?
+}
+
+enum ReturnUrlReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReturnUrlCandidateSource {
+  SEARCH
+  EXTRACTION_FALLBACK
+  MANUAL
+}
+
+// ReturnUrlReview accumulates hand-verified (retailer → return URL,
+// canonical retailer name) pairs from the alpha weekly review flow.
+// This table is designed as ground-truth generation input to a future
+// shared retailer cache (see TASKS.md: PHASE 1a/1b policy-lookup cache,
+// and the "Retailer URL / policy cache — long-term" Someday item).
+// It is NOT itself a consumer of that cache. Migration path when the
+// shared cache lands: approved rows become seed data. Key normalization
+// (see lib/retailer-normalize.ts) already matches the cache's locked
+// invariant (case, whitespace, trailing punctuation, common suffixes)
+// so cross-reference lookups will work without a re-key.
+model ReturnUrlReview {
+  id      String @id @default(cuid())
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Verbatim snapshot of Order.retailer at queue time — read-only
+  // reference column in the review sheet, never overwritten.
+  rawRetailer String
+
+  // Owner-approved canonical retailer name, populated on APPROVED or
+  // REJECTED (a rejected URL doesn't invalidate a corrected retailer
+  // name — see apply-url-reviews). May equal rawRetailer if it was
+  // already correct.
+  approvedRetailer String?
+
+  // The actual search query issued — kept for debugging why a bad
+  // candidate came back.
+  queryUsed String
+
+  candidateUrl    String?
+  alternativeUrls Json? // string[], top 2 alternatives after candidateUrl
+  candidateSource ReturnUrlCandidateSource @default(SEARCH)
+
+  status ReturnUrlReviewStatus @default(PENDING)
+
+  // Owner-approved URL — may differ from candidateUrl if edited inline
+  // in the review sheet. Populated only when status becomes APPROVED.
+  approvedUrl String?
+
+  // Row identifier in the Google Sheet, for round-trip lookup by the
+  // daily apply-approvals job.
+  sheetRowId String?
+
+  queuedAt   DateTime  @default(now())
+  reviewedAt DateTime?
+
+  @@index([status])
 }
 
 // --- Milestone 4: tracks which reminder emails have already been sent,

@@ -99,6 +99,10 @@ sequenced one action at a time.**
 | `ALPHA_MODE` | `"true"` enables the Friday per-user alpha coverage-check email |
 | `ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM field-level encryption |
 | `TOKEN_SIGNING_SECRET` | 32+ byte hex key, HMAC-SHA256 signing for one-tap-from-email action tokens — see Signed action token invariants below |
+| `APP_DOMAIN` | Root domain of the production app, used only for the alpha URL-review jobs' self-domain scoring penalty — see "Alpha weekly search-and-verify" below. No hardcoded default; both jobs fail loudly if unset. Deliberately independent of `lib/selfOutboundGuard.ts`'s own domain check. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Service-account credentials JSON for the alpha review Google Sheet |
+| `RETURN_URL_REVIEW_SHEET_ID` | Spreadsheet ID of the alpha review Google Sheet |
+| `SERPER_API_KEY` | Serper.dev API key for the weekly candidate-URL search |
 
 **Local env files:** `.env.local` takes precedence over `.env` in Next.js — a var
 set in both resolves to `.env.local`'s value. Worth checking both files before
@@ -256,6 +260,43 @@ model Reminder {
   @@unique([orderId, reminderType])
 }
 ```
+
+### ReturnUrlReview (alpha weekly search-and-verify — see Behavioral rules below)
+
+```prisma
+model ReturnUrlReview {
+  id      String @id @default(cuid())
+  orderId String @unique
+
+  rawRetailer      String  // verbatim snapshot of Order.retailer at queue time
+  approvedRetailer String? // owner-approved canonical name; set on APPROVED or REJECTED
+
+  queryUsed       String
+  candidateUrl    String?
+  alternativeUrls Json?   // string[], top 2 alternatives
+  candidateSource ReturnUrlCandidateSource @default(SEARCH) // SEARCH | EXTRACTION_FALLBACK | MANUAL
+
+  status      ReturnUrlReviewStatus @default(PENDING) // PENDING | APPROVED | REJECTED
+  approvedUrl String? // set only on APPROVED; may differ from candidateUrl if owner edited the cell
+
+  sheetRowId String? // round-trip lookup — parsed from the Sheets append API response
+
+  queuedAt   DateTime  @default(now())
+  reviewedAt DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+```
+
+Ground-truth generation input to the future shared retailer cache (TASKS.md
+PHASE 1a/1b + "Retailer URL / policy cache — long-term") — not itself a
+cache or a consumer of one. `lib/retailer-normalize.ts`'s normalization
+(lowercase, whitespace, trailing legal/store suffixes, trailing
+punctuation) deliberately matches the invariant locked in the 2026-08-13
+cache-sizing investigation (HISTORY.md), so approved rows can seed the
+shared cache later without a re-key migration.
 
 ### TokenRedemption (one-tap-from-email — live for Archive, Mark returned)
 
@@ -770,6 +811,111 @@ this pass.
 - **Refund check-in:** 5 days after `returnedAt` when `returnTrackingNumber` is set; 10 days otherwise. Deduped by `@@unique([orderId, "refund_checkin"])`. Excludes archived/deleted. `refundCheckinOrderWhere()` (`lib/refundCheckin.ts`) requires `displayStatus: "returned"` exactly — once an order transitions to `"refunded"` it no longer matches this query at all, independent of archive state. Auto-archiving a refunded order is a second, redundant layer of exclusion here (via `activeOrderFilter`), not the mechanism that suppresses it — the `displayStatus` mismatch alone already does that.
 - All sends go to `order.user.email`. No global `REMINDER_EMAIL` anywhere in active code.
 
+### Alpha weekly search-and-verify (`ReturnUrlReview`, built 2026-09-04)
+
+**Why this exists.** Investigation found 52.8% of stored `returnPortalUrl`
+values on active non-Amazon orders are bad (contact pages, shipping
+trackers, login walls, self-domain loops, decayed marketing URLs), and most
+of the remaining "good" ones are policy pages, not true return-initiation
+URLs — retailers structurally don't put initiation links in post-purchase
+emails. Extraction can't deliver what the reminder email's "Start return"
+button promises, so alpha steps back from fixing extraction to a
+search-based, human-reviewed flow: extraction stays best-effort background
+input; the weekly review Sheet is source of truth for both `returnPortalUrl`
+and `retailer`, and accumulates hand-labeled ground truth for whatever
+automated system eventually replaces it (see the `ReturnUrlReview` data
+model entry above for its relationship to the future shared retailer
+cache — TASKS.md PHASE 1a/1b + "Retailer URL / policy cache — long-term").
+
+**Two cron jobs, one Sheet:**
+
+1. **`app/api/cron/weekly-url-review`** (Sunday, `0 3 * * 1` UTC ≈ 20:00 PT)
+   — for every active non-Amazon order without a `ReturnUrlReview` row: picks
+   a search subject (priority: a previously-approved retailer name for the
+   same normalized retailer → the domain of an existing `returnPortalUrl`
+   that looks like a real retailer domain → the passive-normalized
+   `Order.retailer`), searches Serper (`"{subject}" returns`), scores the
+   top 10 results with fixed heuristics (`scoreResult()` in the route file —
+   own-domain match, `return`/`returns`/`policy`/`refund` in path score up;
+   `contact`/`help`/`support`/`track`/`login`/`signin`/`account` in path,
+   known carrier/marketing domains, and our own `APP_DOMAIN` score down),
+   appends a row to the review Sheet, and creates the `ReturnUrlReview` row.
+   No `createdAt` filter — the first run queues the entire active backlog
+   (the primary motivation), later runs only pick up genuinely new orders.
+   **Self-healing:** an order whose search fails this run gets no
+   `ReturnUrlReview` row, so it's retried automatically next run — no retry
+   flag or status needed.
+2. **`app/api/cron/apply-url-reviews`** (daily, `0 13 * * *` UTC ≈ 06:00 PT)
+   — reads every Sheet row marked `approved`/`rejected` whose corresponding
+   `ReturnUrlReview.status` is still `PENDING` (that check is what makes
+   re-running the job same-day safe). On `approved`: writes the Sheet's
+   "Approved retailer"/"Candidate URL" cells (owner may have edited either)
+   into `ReturnUrlReview`, **overwrites `Order.returnPortalUrl`** with the
+   approved URL, and overwrites `Order.retailer` too if the approved name is
+   a meaningful change (`isMeaningfulRetailerChange()` — a stricter
+   case/whitespace-only comparison than the search-query normalization, so
+   "GAP" → "Gap Inc." doesn't false-trigger a write but a real correction
+   does). On `rejected`: only `approvedRetailer` + `status` are written —
+   `Order.returnPortalUrl`/`Order.retailer` are left untouched (a rejected
+   URL isn't a strong enough signal to write back a retailer correction on
+   its own).
+
+**Both jobs fail loudly (500, before any Serper/Sheets call) if `APP_DOMAIN`
+is unset** — no hardcoded default, and deliberately not read from
+`lib/selfOutboundGuard.ts`'s own domain check (independently-owned concern;
+coupling them means a rename to one silently breaks the other).
+
+**Review Sheet columns** (`lib/sheets.ts`'s `SHEET_HEADERS`, header row
+auto-bootstrapped if the sheet is empty): Order ID, Raw retailer
+(read-only), **Approved retailer** (editable — pre-filled with the search
+subject used), Retailer notes (owner scratch), Query used (read-only,
+debugging), Current returnPortalUrl (read-only reference), **Candidate URL**
+(editable), Alternative 1 / Alternative 2 (read-only), Status (`pending` /
+`approved` / `rejected`, owner-typed), URL notes (owner scratch — the job
+pre-fills `"all candidates scored negatively, likely no good page exists"`
+when every scored candidate is negative, otherwise empty), Queued at. Rows
+are never deleted by either job — the Sheet is the accumulating
+ground-truth record.
+
+**Setup (Google Sheets service account):**
+1. Create/reuse a Google Cloud project, enable the Google Sheets API.
+2. Create a service account, generate a JSON key.
+3. Share the review Sheet with the service account's email as Editor.
+4. Set `GOOGLE_SERVICE_ACCOUNT_JSON` (the whole JSON blob) and
+   `RETURN_URL_REVIEW_SHEET_ID` (the spreadsheet ID from its URL).
+5. The Sheet's first tab must be named `Sheet1` (the Google Sheets default —
+   `lib/sheets.ts`'s `SHEET_TAB_NAME`).
+6. Set `SERPER_API_KEY` (serper.dev) and `APP_DOMAIN` (production app root
+   domain, no scheme/path).
+
+**Manual trigger (testing / catching up):** both routes use the same
+`CRON_SECRET` auth as every other cron route — `?secret=<CRON_SECRET>` query
+param or `Authorization: Bearer <CRON_SECRET>` header, e.g.
+`curl "https://app.myreturnwindow.com/api/cron/weekly-url-review?secret=..."`.
+
+**Known limitations, accepted for alpha (not bugs):** new orders show the
+extracted (possibly bad) URL for up to 7 days between weekly runs (small
+practical exposure — reminders fire ~7 days before window close, users
+rarely click in week 1). Cron times are DST-approximate, fixed UTC values
+chosen for the majority-of-year PDT offset, not adjusted twice a year. One
+review per order lifetime — a retailer's URL changing later, or an owner
+realizing an earlier approval was wrong, needs a manual re-queue (no
+mechanism built). Retailer-name reuse in step (1) above only fires on an
+exact match after passive normalization — "Rufflebutts" won't match
+"Rufflebutts + Ruggedbutts" — a nice-to-have optimization, not a
+correctness guarantee. No back-population: approving "Oak Valley Designs"
+for one order doesn't retroactively fix other existing orders still reading
+"Oak Valley" — each gets fixed on its own review pass; the eventual shared
+cache is expected to handle this properly.
+
+**Explicitly out of scope for this build** (do not add without a fresh
+scoping pass): any change to `lib/extract.ts`'s extraction pipeline or
+`lookupReturnPolicy()`; PHASE 1a/1b `lookupReturnPolicy()` caching (separate
+TASKS.md item, gated on separate owner sign-off); an LLM-with-web-search
+second candidate source (deferred until there's a few weeks of review data
+to compare against); any shared `Retailer`/`RetailerAlias` table; fuzzy
+retailer matching; any UI beyond the Sheet.
+
 ### HTML emails (`lib/emailHtml.ts`) — LIVE across all three link-bearing emails
 - Every outbound email that carries a link sends **both** `TextBody` and `HtmlBody`
   (`lib/postmark.ts`'s `sendEmail()` — `htmlBody` is optional and additive, never a
@@ -833,6 +979,8 @@ No match → discard (same no-content-log as non-commerce), never attributed to 
 | `/api/cron` | `0 14 * * *` | Daily deadline reminders + hard-delete + auto-archive missed windows |
 | `/api/cron/weekly-digest` | `0 16 * * 0` | Sunday return-window digest |
 | `/api/cron/weekly-coverage` | `0 16 * * 5` | Friday alpha coverage check (ALPHA_MODE only) |
+| `/api/cron/weekly-url-review` | `0 3 * * 1` | Sunday 20:00 PT (DST-approximate — see below) — search + queue returnPortalUrl/retailer candidates for owner review |
+| `/api/cron/apply-url-reviews` | `0 13 * * *` | Daily 06:00 PT (DST-approximate) — apply owner approvals/rejections from the review Sheet |
 
 ---
 
