@@ -32,6 +32,54 @@
 
 ## 🔴 Now
 
+- [ ] **Record manual vs. auto-derived on every `displayStatus: "refunded"`
+      transition — NEW 2026-09-04, owner-approved.** Investigated why two
+      H&M orders sit at `displayStatus: "refunded"` despite both linked
+      "refund" emails being vague ("we're processing your refund," no
+      dollar amount) — `lib/displayStatus.ts`'s `hasConfirmedRefundAmount`
+      gate is correct and would only auto-derive these to `"returned"`,
+      not `"refunded"`. `ActionLog` has zero entries for either order ID,
+      ruling out the signed email-link actions it does cover. By
+      elimination, the only remaining path is the in-app "Mark as
+      refunded" button → `PATCH /api/orders/:id/status`
+      (`app/api/orders/[id]/status/route.ts`) — which writes no record of
+      who/when/why at all. Same missing-audit-trail gap already surfaced
+      once before, narrower scope, in the 2026-07-20 "kept" investigation
+      (line ~6587) — this is the first time it's actually obscured
+      something with real money-tracking consequences (an order silently
+      losing its refund check-in reminder with no way to tell afterward
+      whether that was justified).
+      **Owner has decided: worth building, minimally — one field, not a
+      full audit-log integration.** Suggested path:
+      1. **Schema (additive, safe under this repo's migration rule):** add
+         `refundedSource String?` to `Order` in `prisma/schema.prisma`
+         (values: `"auto_confirmed_amount"` | `"manual"`; `null` for rows
+         predating the field, same backfill-is-optional precedent as
+         `orderDateSource`). New nullable column, no backfill required to
+         be safe — additive, can proceed once SQL is shown.
+      2. **`lib/displayStatus.ts`:** add a `source: "manual" | "auto"`
+         parameter to `buildStatusTransitionData`, set
+         `data.refundedSource` only when `nextStatus === "refunded"`.
+      3. **Call sites:** `lib/linkOrder.ts`'s auto-derivation call (the
+         only genuinely automated path) passes `"auto"` →
+         `"auto_confirmed_amount"`; the four manual/signed-link call sites
+         (`app/actions.ts`, `app/api/action/returned/route.ts`,
+         `app/api/action/start-return/route.ts`,
+         `app/api/orders/[id]/status/route.ts`) pass `"manual"` — or
+         simpler, default the parameter to `"manual"` so only
+         `linkOrder.ts` needs to opt in, since it's the one call site with
+         `hasConfirmedRefundAmount` in scope.
+      4. **Surface it:** show `refundedSource` next to the refunded badge
+         on the order detail page (or at minimum keep it queryable) so
+         "was this auto-confirmed or did I click it" is answerable without
+         a manual investigation like this one next time.
+      Scoped to the `refunded` transition only, matching what actually
+      bit us — extending to `kept`/`returned` later is a trivial follow-on
+      if it turns out to matter, not built preemptively here.
+      Not started. Needs a plan/approval pass before editing per this
+      repo's non-trivial-change convention, and the exact migration SQL
+      shown before running `prisma migrate dev`.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
       VERIFICATION PENDING] Dev-send guard: fix env-var check
       (VERCEL_ENV not NODE_ENV).** Guard shipped in 75861d5
