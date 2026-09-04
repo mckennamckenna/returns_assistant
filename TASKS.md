@@ -300,13 +300,24 @@
       search-subject priority branches). **793/793 tests passing,
       `npm run build` clean** (typecheck + lint, both new routes
       compile). Zero Anthropic API calls — no model call sites in
-      this feature at all (Serper + Sheets only). **Not yet
-      committed, not yet pushed, not yet deployed — owner has not
-      seen a real Sheet round-trip yet (no `GOOGLE_SERVICE_ACCOUNT_JSON`/
+      this feature at all (Serper + Sheets only).
+      **[COMMITTED + PUSHED + DEPLOYED 2026-09-04, `0fdd581`.]**
+      Owner self-review requested and completed before commit (see
+      transaction-fix entry above); two owner notes recorded, not
+      requiring action: (1) swapping README.md for BUILD.md as the
+      docs destination mid-build without flagging first was scope
+      creep — judgment was right, but ask next time; (2) the
+      no-row-on-failure retry mechanism was approved as a good read
+      of the spec gap. `git log origin/main..main` empty post-push;
+      `app.myreturnwindow.com` confirmed aliased to the new
+      deployment (`dpl_3mrsRT42sAFQeM1UeW5Yd3jmE2Qc`) post-deploy.
+      **Still NOT verified live** — no `GOOGLE_SERVICE_ACCOUNT_JSON`/
       `RETURN_URL_REVIEW_SHEET_ID`/`SERPER_API_KEY`/`APP_DOMAIN`
-      configured or verified live).** Per CLAUDE.md "Done means
-      deployed": stays in Now until committed, pushed, and verified
-      against a real weekly + apply run in production.
+      configured yet, so neither cron route can run end-to-end (both
+      will 500 loudly on the `APP_DOMAIN` check). Per CLAUDE.md
+      "Done means deployed," stays in Now until those env vars are
+      set and a real weekly-search + apply-approval round-trip
+      through the Sheet has been owner-verified in production.
 
 - [x] **CLOSED (superseded) 2026-09-02 — `returnPortalUrl` self-domain
       correctness bug.** At least one active order had `returnPortalUrl`
