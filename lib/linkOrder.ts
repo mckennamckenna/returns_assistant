@@ -9,6 +9,7 @@ import { shouldAutoJunk } from "@/lib/junk";
 import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
 import { activeOrderFilter } from "@/lib/orderFilters";
 import { OPEN_STATUSES } from "@/lib/alerts";
+import { logActionWithRetry } from "@/lib/actionLog";
 
 // Narrow field sets for functions that take a full Email but only read a
 // handful of fields — lets their callers `select` instead of fetching whole
@@ -389,6 +390,45 @@ export async function recomputeDisplayStatus(orderId: string): Promise<void> {
   }
 }
 
+// Multi-shipment detector (TASKS.md 2026-09-04, watching-mode only). Records
+// an ActionLog marker the first time a second shipping_confirmation lands
+// for an order with a tracking number that differs from the one already
+// stored — applyShippingTracking below is "first tracking wins" and
+// silently drops every later shipment's tracking info, so this is the only
+// place that later info is ever visible at all. Deliberately just a log
+// row: no schema field, no displayStatus change, no return-window impact —
+// this exists purely to make the affected population queryable
+// (`SELECT DISTINCT "orderId" FROM "ActionLog" WHERE action =
+// 'multi_shipment_detected'`) once multi-shipment orders get a real spec.
+// A missing tracking number on either side does NOT count as a difference
+// (can't distinguish "second box" from "carrier info just didn't parse").
+// Idempotent: guards on an existing marker row for this order before
+// inserting another, so reprocessing the same email never double-logs.
+export async function detectMultiShipment(
+  orderId: string,
+  userId: string | null,
+  existingTrackingNumber: string | null,
+  newTrackingNumber: string | null,
+): Promise<void> {
+  if (!existingTrackingNumber || !newTrackingNumber) return;
+  if (existingTrackingNumber === newTrackingNumber) return;
+
+  const alreadyLogged = await prisma.actionLog.findFirst({
+    where: { orderId, action: "multi_shipment_detected" },
+    select: { id: true },
+  });
+  if (alreadyLogged) return;
+
+  await logActionWithRetry({
+    orderId,
+    userId,
+    action: "multi_shipment_detected",
+    outcome: "success",
+    ipAddress: null,
+    userAgent: null,
+  });
+}
+
 // Scrapes carrier/trackingNumber/trackingUrl from a shipping_confirmation email
 // body and writes them to the order. Skips if the order already has tracking
 // info (from an earlier shipping email) or if the email is not a shipping_confirmation.
@@ -397,13 +437,16 @@ async function applyShippingTracking(orderId: string, email: TrackingEmail): Pro
 
   const existing = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { trackingNumber: true },
+    select: { trackingNumber: true, userId: true },
   });
-  if (existing?.trackingNumber) return;
 
   const textBody = email.textBody ? decrypt(email.textBody) : null;
   const htmlBody = email.htmlBody ? decrypt(email.htmlBody) : null;
   const tracking = parseTracking(textBody, htmlBody);
+
+  await detectMultiShipment(orderId, existing?.userId ?? null, existing?.trackingNumber ?? null, tracking.trackingNumber);
+
+  if (existing?.trackingNumber) return;
 
   if (tracking.carrier || tracking.trackingNumber || tracking.trackingUrl) {
     await prisma.order.update({

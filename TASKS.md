@@ -32,6 +32,37 @@
 
 ## 🔴 Now
 
+- [ ] **[CODE BUILT + TESTED + PUSHED, LIVE VERIFICATION PENDING]
+      Multi-shipment detector: log a marker when a second
+      shipping_confirmation with a distinct tracking number lands for an
+      existing order — NEW 2026-09-04, detection only.** Multi-shipment
+      orders aren't modeled yet (see decisions log entry of same date);
+      this task installs a cheap detector so the affected population is
+      queryable when we're ready to spec. No schema migration: neither
+      `Order` nor `Email` has a suitable JSON/metadata field, but the
+      existing `ActionLog` table (already schema-present, generic
+      action/outcome event log) covers "log a marker" with zero migration
+      — used instead of literal Path A/B. Implemented in
+      `detectMultiShipment()` in `lib/linkOrder.ts`, called from
+      `applyShippingTracking()` before its existing first-tracking-wins
+      early return (that early return is what was silently dropping every
+      later shipment's tracking info — this is the only place that later
+      info is ever visible at all). Writes an ActionLog row
+      (`action: "multi_shipment_detected"`) the first time an order's
+      already-stored tracking number differs from a newly parsed one on a
+      shipping_confirmation email; a missing tracking number on either
+      side does not count as a difference; guarded idempotent (checks for
+      an existing marker row before inserting another). Query:
+      `SELECT DISTINCT "orderId" FROM "ActionLog" WHERE action =
+      'multi_shipment_detected'`. Tests added in `__tests__/linkOrder.test.ts`
+      (`describe("detectMultiShipment")`) covering: differing tracking
+      numbers logs once, same tracking number doesn't log, missing
+      tracking number on either side doesn't log, reprocessing doesn't
+      double-log. Explicitly out of scope (untouched): return-window
+      recomputation, `displayStatus` changes, UI changes, any new status
+      value like "partially_delivered". Awaiting a real multi-shipment
+      email to hand-verify against production.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
       VERIFICATION PENDING] Dev-send guard: fix env-var check
       (VERCEL_ENV not NODE_ENV).** Guard shipped in 75861d5

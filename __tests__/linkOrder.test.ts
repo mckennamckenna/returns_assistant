@@ -18,6 +18,10 @@ const mockPrisma = {
     findMany: vi.fn(),
     update: vi.fn(),
   },
+  actionLog: {
+    findFirst: vi.fn(),
+    create: vi.fn(),
+  },
 };
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/crypto", () => ({ decrypt: (x: string) => x }));
@@ -45,6 +49,7 @@ const {
   recomputeDisplayStatus,
   createOrderFromEmail,
   findShipmentMergeCandidates,
+  detectMultiShipment,
 } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
@@ -139,6 +144,43 @@ describe("computeKeptStatusConflict", () => {
       expect(computeKeptStatusConflict(displayStatus, "return_label").isKeptStatusConflict).toBe(false);
       expect(computeKeptStatusConflict(displayStatus, "refund").isKeptStatusConflict).toBe(false);
     }
+  });
+});
+
+describe("detectMultiShipment", () => {
+  beforeEach(() => {
+    mockPrisma.actionLog.findFirst.mockReset();
+    mockPrisma.actionLog.create.mockReset();
+    mockPrisma.actionLog.findFirst.mockResolvedValue(null);
+  });
+
+  it("logs a marker when a second shipping email has a different tracking number", async () => {
+    await detectMultiShipment("order1", "user1", "1Z999AA10123456784", "9400111899223197428070");
+    expect(mockPrisma.actionLog.create).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.actionLog.create.mock.calls[0][0].data).toMatchObject({
+      orderId: "order1",
+      userId: "user1",
+      action: "multi_shipment_detected",
+      outcome: "success",
+    });
+  });
+
+  it("does not log when the tracking number is the same", async () => {
+    await detectMultiShipment("order1", "user1", "1Z999AA10123456784", "1Z999AA10123456784");
+    expect(mockPrisma.actionLog.create).not.toHaveBeenCalled();
+  });
+
+  it("does not log when either tracking number is missing", async () => {
+    await detectMultiShipment("order1", "user1", null, "9400111899223197428070");
+    await detectMultiShipment("order1", "user1", "1Z999AA10123456784", null);
+    await detectMultiShipment("order1", "user1", null, null);
+    expect(mockPrisma.actionLog.create).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: does not log again if a marker already exists for this order", async () => {
+    mockPrisma.actionLog.findFirst.mockResolvedValue({ id: "existing-log" });
+    await detectMultiShipment("order1", "user1", "1Z999AA10123456784", "9400111899223197428070");
+    expect(mockPrisma.actionLog.create).not.toHaveBeenCalled();
   });
 });
 
