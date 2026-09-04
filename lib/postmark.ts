@@ -27,11 +27,19 @@ interface SendEmailParams {
 // including local dev. Combined with a stale REMINDER_FROM_EMAIL in a
 // developer's .env, that meant a local `npm run dev` run hitting any send
 // path (reminder cron, refund check-in, admin notify, magic link) could
-// silently email real users. NODE_ENV === "production" is the only send
-// path left unguarded — everywhere else defaults to log-and-skip unless a
-// developer explicitly opts in for one run via ALLOW_REAL_EMAIL_IN_DEV.
+// silently email real users. **Checks VERCEL_ENV, not NODE_ENV** (fixed
+// 2026-09-03, follow-up to the original 75861d5 guard) — Next.js/Vercel
+// always run a production build for EVERY deployment, including previews,
+// so NODE_ENV === "production" is true on preview deploys too and provided
+// zero real protection there; Preview env has real POSTMARK_SERVER_TOKEN/
+// REMINDER_FROM_EMAIL/LOGIN_FROM_EMAIL values, so any send path reachable
+// on a preview URL was firing real sends. VERCEL_ENV is undefined locally
+// (correctly falsy) and is Vercel's actual production/preview/development
+// signal — VERCEL_ENV === "production" is the only send path left
+// unguarded; everywhere else defaults to log-and-skip unless a developer
+// explicitly opts in for one run via ALLOW_REAL_EMAIL_IN_DEV.
 function shouldActuallySend(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
+  if (process.env.VERCEL_ENV === "production") return true;
   return process.env.ALLOW_REAL_EMAIL_IN_DEV === "true";
 }
 
@@ -48,7 +56,7 @@ export async function sendEmail({ to, from, subject, textBody, htmlBody, bcc }: 
     return;
   }
 
-  if (process.env.NODE_ENV !== "production" && process.env.ALLOW_REAL_EMAIL_IN_DEV === "true") {
+  if (process.env.VERCEL_ENV !== "production" && process.env.ALLOW_REAL_EMAIL_IN_DEV === "true") {
     console.warn("[dev-send-guard] ALLOW_REAL_EMAIL_IN_DEV=true — sending a REAL email from a non-production environment:", {
       to,
       from,

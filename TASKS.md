@@ -33,6 +33,36 @@
 ## 🔴 Now
 
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
+      VERIFICATION PENDING] Dev-send guard: fix env-var check
+      (VERCEL_ENV not NODE_ENV).** Guard shipped in 75861d5
+      checks NODE_ENV === "production", which is true in every
+      Vercel deploy including previews — providing zero
+      protection on preview deploys with real Postmark
+      credentials (REMINDER_FROM_EMAIL, LOGIN_FROM_EMAIL,
+      POSTMARK_SERVER_TOKEN all present in Preview env with
+      real values). Any send path hittable via a preview URL
+      (magic link, admin notify, refund check-in) currently
+      sends real emails to real users. Fix: one-line swap in
+      lib/postmark.ts shouldActuallySend() from NODE_ENV to
+      VERCEL_ENV. VERCEL_ENV is undefined locally (correctly
+      falsy), and distinguishes preview/production/development
+      on Vercel infra. Discovered as follow-up to 75861d5
+      during preview-deploy sanity-check.
+      **Built 2026-09-03:** straight swap, both checks in
+      `shouldActuallySend()` (the send gate and the warn-log
+      condition) now read `VERCEL_ENV` instead of `NODE_ENV`. No
+      caller changes. **Tests:** `__tests__/postmarkDevSendGuard.test.ts`
+      updated to stub `VERCEL_ENV` instead of `NODE_ENV` across
+      all cases, plus one new case for the exact gap this closes
+      — `VERCEL_ENV=preview`, no override → logs-and-skips (the
+      original guard would have sent for real here). **773/773
+      tests passing, `npm run build` clean.** Zero Anthropic API
+      calls, zero DB access. Committed and pushed to `main`;
+      Vercel auto-deploys on push. Production behavior unchanged
+      (Vercel always sets `VERCEL_ENV=production` there, same as
+      it always set `NODE_ENV=production`).
+
+- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
       VERIFICATION PENDING] Guard local dev from sending real
       emails.** lib/postmark.ts sendEmail() has no environment
       check; local dev with POSTMARK_SERVER_TOKEN set fires real
