@@ -4972,9 +4972,17 @@
       the earlier-arriving box's items.
       **Not building yet:** not enough real examples to spec against. Same
       reason the Amazon spec was gated on N accumulated patches (2026-07-19).
-      **Revisit when:** [pick trigger — e.g. "≥5 orders flagged by the
-      detector," or "a user reports a wrong deadline traceable to this
-      case"].
+      **Revisit when:** the marker query returns ≥5 distinct orders, OR a
+      user reports a wrong deadline traceable to this case — whichever
+      comes first.
+      **Detector (shipped 2026-09-04):** `detectMultiShipment()` in
+      `lib/linkOrder.ts`, called from `applyShippingTracking()`. Writes one
+      `ActionLog` row the first time an order's stored tracking number
+      differs from a newly parsed one on a later shipping_confirmation;
+      missing tracking numbers never count as a difference; idempotent to
+      reprocessing. Marker query:
+      `SELECT DISTINCT "orderId" FROM "ActionLog" WHERE action =
+      'multi_shipment_detected'`.
       Explicit non-goals in the meantime — do NOT let a future session
       sneak these in:
       - No new `displayStatus` value (e.g. "partially_delivered"). Every
