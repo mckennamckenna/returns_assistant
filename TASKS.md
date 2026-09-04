@@ -311,13 +311,22 @@
       of the spec gap. `git log origin/main..main` empty post-push;
       `app.myreturnwindow.com` confirmed aliased to the new
       deployment (`dpl_3mrsRT42sAFQeM1UeW5Yd3jmE2Qc`) post-deploy.
-      **Still NOT verified live** — no `GOOGLE_SERVICE_ACCOUNT_JSON`/
-      `RETURN_URL_REVIEW_SHEET_ID`/`SERPER_API_KEY`/`APP_DOMAIN`
-      configured yet, so neither cron route can run end-to-end (both
-      will 500 loudly on the `APP_DOMAIN` check). Per CLAUDE.md
-      "Done means deployed," stays in Now until those env vars are
-      set and a real weekly-search + apply-approval round-trip
-      through the Sheet has been owner-verified in production.
+      **CORRECTION 2026-09-04, same day:** the initial report that all
+      4 env vars were unconfigured was wrong — owner had already set
+      `GOOGLE_SERVICE_ACCOUNT_JSON`/`RETURN_URL_REVIEW_SHEET_ID`/
+      `SERPER_API_KEY`/`APP_DOMAIN` in Vercel Production before that
+      review pass; confirmed present via `npx vercel env ls
+      production`. Also confirmed the live deployment
+      (`dpl_6dB9cLNpJAGDThi4B1NmR4qNNxXF`, from the follow-on
+      TASKS.md-only commit `9d77e23`) was built *after* the env vars
+      were added, so they're live in production now — no redeploy
+      needed. **Still NOT verified live** — no cron run has fired yet.
+      Remaining gate, narrowed: owner plans to manually trigger
+      `weekly-url-review` Monday-ish (via the `?secret=` query-param
+      path, same as every other cron route) to watch the first run
+      against the 44-order backlog, then verify a real
+      approve/reject → `apply-url-reviews` round-trip through the
+      Sheet before this moves to Done.
 
 - [x] **CLOSED (superseded) 2026-09-02 — `returnPortalUrl` self-domain
       correctness bug.** At least one active order had `returnPortalUrl`
