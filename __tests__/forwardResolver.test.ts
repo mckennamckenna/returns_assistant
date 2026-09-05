@@ -16,7 +16,7 @@ vi.mock("@/lib/displayStatus", async () => {
   return real;
 });
 vi.mock("@/lib/trackingParser", () => ({
-  parseTracking: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
+  parseTrackingResolved: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
 }));
 
 const { classifyForwardType, resolveAnchorDate, forwardTypeLabel } = await import("../lib/forwardResolver");

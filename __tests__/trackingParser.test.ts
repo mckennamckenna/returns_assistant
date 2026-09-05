@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseTracking } from "../lib/trackingParser";
+import { parseTracking, parseTrackingResolved } from "../lib/trackingParser";
 
 describe("parseTracking", () => {
   // ── UPS ───────────────────────────────────────────────────────────────────
@@ -156,5 +156,75 @@ describe("parseTracking", () => {
     expect(result.carrier).toBeNull();
     expect(result.trackingNumber).toBeNull();
     expect(result.trackingUrl).toBeNull();
+  });
+});
+
+// 2026-09-04 outbound diagnostic (docs/audits/2026-09-04-outbound-diagnostic.md):
+// 2 confirmed real orders had a tracking number sitting as an <a> tag's
+// VISIBLE link text — invisible to parseTracking() because its plain-text
+// phase never receives htmlBody as text when textBody is empty, and the
+// href itself pointed at a non-carrier redirect domain (EasyPost), so the
+// href-domain scan (phase 1) never matched either. Fixtures below reproduce
+// that shape with fabricated numbers/tokens/dates — no real order numbers,
+// customer names, addresses, or EasyPost tokens from the source emails.
+describe("parseTrackingResolved", () => {
+  it("finds a tracking number sitting as visible HTML link text behind a non-carrier redirect href, when textBody is empty", () => {
+    const html = `
+      <p>We received notice that your return was shipped via UPS on a recent date. You can track your package at any time using the link below.</p>
+      <p>UPS tracking number: <a href="https://track.easypost.com/some-opaque-token">1ZAAA0000000000001</a></p>
+    `;
+    const result = parseTrackingResolved("", html);
+    expect(result.carrier).toBe("UPS");
+    expect(result.trackingNumber).toBe("1ZAAA0000000000001");
+    expect(result.trackingUrl).toContain("ups.com/track");
+  });
+
+  it("finds a second, differently-shaped confirmed case (another retailer, same underlying gap)", () => {
+    const html = `
+      <table><tr><td>
+        <p>Your return is on its way back to us.</p>
+        <p>Carrier: UPS — <a href="https://track.easypost.com/another-opaque-token">1ZBBB1111111111112</a></p>
+      </td></tr></table>
+    `;
+    const result = parseTrackingResolved(null, html);
+    expect(result.carrier).toBe("UPS");
+    expect(result.trackingNumber).toBe("1ZBBB1111111111112");
+  });
+
+  it("does NOT find a number that's only in a redirect href, when there's no visible link text to fall back to (parity with parseTracking)", () => {
+    const html = `<p>Track your return <a href="https://track.easypost.com/some-opaque-token">here</a>.</p>`;
+    const result = parseTrackingResolved("", html);
+    expect(result.carrier).toBeNull();
+    expect(result.trackingNumber).toBeNull();
+  });
+
+  it("regression: prefers a substantial textBody's real number over misleading content in htmlBody", () => {
+    const textBody = "Your return has shipped. UPS tracking number: 1ZCCC2222222222223. ".repeat(2);
+    const htmlBody = `<p>Unrelated marketing content mentioning a different carrier and number: FedEx 999999999999.</p>`;
+    const result = parseTrackingResolved(textBody, htmlBody);
+    expect(result.carrier).toBe("UPS");
+    expect(result.trackingNumber).toBe("1ZCCC2222222222223");
+  });
+
+  it("falls back to htmlBody exactly like resolveBodyText does, when textBody is present but too thin to count as substantial", () => {
+    const textBody = "Hi"; // well under MIN_TEXT_BODY_CHARS
+    const htmlBody = `<p>UPS tracking number: <a href="https://track.easypost.com/token">1ZDDD3333333333334</a></p>`;
+    const result = parseTrackingResolved(textBody, htmlBody);
+    expect(result.carrier).toBe("UPS");
+    expect(result.trackingNumber).toBe("1ZDDD3333333333334");
+  });
+
+  it("returns all-null when neither body has anything, same as parseTracking", () => {
+    const result = parseTrackingResolved(null, null);
+    expect(result.carrier).toBeNull();
+    expect(result.trackingNumber).toBeNull();
+    expect(result.trackingUrl).toBeNull();
+  });
+
+  it("still prefers a direct carrier-domain href over resolved text (phase 1 unaffected)", () => {
+    const html = `<a href="https://www.ups.com/track?tracknum=1Z999AA10123456784">Track</a>`;
+    const result = parseTrackingResolved("", html);
+    expect(result.carrier).toBe("UPS");
+    expect(result.trackingNumber).toBe("1Z999AA10123456784");
   });
 });

@@ -4,7 +4,7 @@ import { computeDeadline, normalizeReturnPortalUrl, classifyReturnPortalTrust } 
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyText } from "@/lib/emailBodyText";
 import { deriveDisplayStatus, buildStatusTransitionData } from "@/lib/displayStatus";
-import { parseTracking } from "@/lib/trackingParser";
+import { parseTrackingResolved } from "@/lib/trackingParser";
 import { shouldAutoJunk } from "@/lib/junk";
 import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
 import { activeOrderFilter } from "@/lib/orderFilters";
@@ -442,7 +442,7 @@ async function applyShippingTracking(orderId: string, email: TrackingEmail): Pro
 
   const textBody = email.textBody ? decrypt(email.textBody) : null;
   const htmlBody = email.htmlBody ? decrypt(email.htmlBody) : null;
-  const tracking = parseTracking(textBody, htmlBody);
+  const tracking = parseTrackingResolved(textBody, htmlBody);
 
   await detectMultiShipment(orderId, existing?.userId ?? null, existing?.trackingNumber ?? null, tracking.trackingNumber);
 
@@ -475,7 +475,7 @@ async function applyReturnTracking(orderId: string, email: TrackingEmail): Promi
 
   const textBody = email.textBody ? decrypt(email.textBody) : null;
   const htmlBody = email.htmlBody ? decrypt(email.htmlBody) : null;
-  const tracking = parseTracking(textBody, htmlBody);
+  const tracking = parseTrackingResolved(textBody, htmlBody);
 
   if (tracking.carrier || tracking.trackingNumber || tracking.trackingUrl) {
     await prisma.order.update({

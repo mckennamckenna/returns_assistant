@@ -1,3 +1,5 @@
+import { resolveBodyText } from "./emailBodyText";
+
 export interface TrackingInfo {
   carrier: string | null;
   trackingNumber: string | null;
@@ -171,4 +173,24 @@ export function parseTracking(plainText: string | null, rawHtml: string | null):
   }
 
   return empty;
+}
+
+// Text-resolving variant of parseTracking(), for callers that only have the
+// raw decrypted textBody/htmlBody fields (2026-09-04, outbound diagnostic —
+// docs/audits/2026-09-04-outbound-diagnostic.md). Closes a real gap: a
+// tracking number can sit as an <a> tag's VISIBLE link text (not its href),
+// invisible to parseTracking()'s plain-text phase whenever textBody is empty
+// or too thin, since that phase never receives htmlBody as text — only the
+// raw href-domain scan (phase 1, unaffected here) ever looks at rawHtml.
+//
+// Uses resolveBodyText() (lib/emailBodyText.ts) — NOT
+// resolveBodyTextWithAlternate() — deliberately: resolveBodyText() already
+// returns textBody completely unchanged, htmlBody never even consulted,
+// whenever textBody clears its own substantiality bar. That's the same
+// "prefer textBody when substantial" precedence set as a hard constraint in
+// the 2026-08-23 H&M fix (efd4f43) — inherited here for free, not
+// reimplemented. This is a pure text-resolution step; rawHtml is still
+// passed through unchanged for phase 1's href-domain scan.
+export function parseTrackingResolved(textBody: string | null, htmlBody: string | null): TrackingInfo {
+  return parseTracking(resolveBodyText(textBody, htmlBody), htmlBody);
 }
