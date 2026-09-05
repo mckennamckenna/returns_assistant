@@ -5581,8 +5581,8 @@
 ## ✅ Done
 
 - [x] Diagnosed outbound tracking failures on 12 return-eligible
-      orders; 3 fixable via HTML parsing, 4 Amazon no-box
-      (unfixable by design), 5 need machinery. See 2026-09-04
+      orders; 2 fixable via HTML parsing, 4 Amazon no-box
+      (unfixable by design), 6 need machinery. See 2026-09-04
       outbound diagnostic report. `84050ae`
 
 - [x] Audited current tracking coverage and correctness: incoming 52%

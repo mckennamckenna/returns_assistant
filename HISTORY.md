@@ -20,25 +20,28 @@ orders missing outbound tracking, plus a named-sub-pattern tally
 broken into concrete named patterns rather than left generic).
 
 Three categories:
-- **3 orders, fixable via HTML parsing** (Julia Amory, NET-A-PORTER,
-  plus one more folded into this bucket at close-out) — a real
-  tracking number sits as visible HTML link text (e.g. a UPS `1Z...`
-  number as an `<a>` tag's visible text, wrapped in an EasyPost
-  redirect href) that `parseTracking()`'s plain-text fallback never
-  sees, because it only ever receives the separate `textBody` field,
-  never `htmlBody` resolved to text. Verified directly: feeding
-  HTML-resolved text through the existing `parseTracking()` extracts
-  the number correctly with the carrier pattern that already exists —
-  no new carrier support needed.
+- **2 orders, fixable via HTML parsing** (Julia Amory, NET-A-PORTER)
+  — a real tracking number sits as visible HTML link text (e.g. a
+  UPS `1Z...` number as an `<a>` tag's visible text, wrapped in an
+  EasyPost redirect href) that `parseTracking()`'s plain-text
+  fallback never sees, because it only ever receives the separate
+  `textBody` field, never `htmlBody` resolved to text. Verified
+  directly: feeding HTML-resolved text through the existing
+  `parseTracking()` extracts the number correctly with the carrier
+  pattern that already exists — no new carrier support needed.
 - **4 orders, Amazon no-box return flow** — no tracking number is
   ever stated in the email at all (QR code / authenticated
   print-label click-through). Contradicts the diagnostic's own
   opening assumption that missing tracking implies an extraction
   miss; not fixable via extraction. Owner has deprioritized Amazon
   generally (see DECISIONS.md 2026-09-04).
-- **5 orders needing dedicated machinery** — 2 PDF-attachment-only,
-  1 generic carrier-locator-link with no embedded ID, 1
-  redirect-wrapped link (SendGrid click-tracking — same pattern as
+- **6 orders needing dedicated machinery** — 2 PDF-attachment-only,
+  1 generic carrier-locator-link with no embedded ID (Ancient Greek
+  Sandals — correction 2026-09-05: this one was initially miscounted
+  into the HTML-parsing bucket at close-out; it belongs here, since
+  no number is present anywhere in the email at all, HTML-resolved
+  or otherwise — there's nothing an HTML-parsing fix would recover),
+  1 redirect-wrapped link (SendGrid click-tracking — same pattern as
   the already-deferred Klaviyo redirect-resolution decision, DECISIONS.md
   2026-09-04, via a different ESP), 1 returns-portal-only link with
   no visible number, 1 order with no `return_label` email linked at
