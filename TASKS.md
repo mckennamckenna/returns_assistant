@@ -32,7 +32,8 @@
 
 ## 🔴 Now
 
-- [ ] **Wire parseTracking() call sites through
+- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-05, LIVE
+      VERIFICATION PENDING] Wire parseTracking() call sites through
       resolveBodyText() to close the HTML-only tracking
       number gap — NEW 2026-09-04, follows from the
       2026-09-04 outbound diagnostic (Category 1, 2 confirmed
@@ -54,6 +55,29 @@
       auditing other call sites (Item B covers that
       separately). This entry is the two tracking call sites
       only.
+      **Implemented (commit `c30c9fc`):** new exported
+      `parseTrackingResolved(textBody, htmlBody)` in
+      `lib/trackingParser.ts` — pure wrapper,
+      `parseTracking(resolveBodyText(textBody, htmlBody),
+      htmlBody)`. Both `lib/linkOrder.ts` call sites now use it;
+      `parseTracking()` itself untouched. Uses `resolveBodyText()`,
+      not `resolveBodyTextWithAlternate()` — both confirmed cases
+      have `textBody` at 0 characters, and `resolveBodyText()`
+      already returns `textBody` unchanged whenever it's substantial,
+      inheriting the 2026-08-23 "prefer textBody" precedence for
+      free. 7 new tests in `trackingParser.test.ts` (both confirmed
+      cases' shape, a redirect-href-with-no-visible-text negative
+      case, an explicit textBody-wins-over-misleading-htmlBody
+      regression test, thin-textBody fallback, all-null parity,
+      phase-1-unaffected parity). Full suite 818/818, `npm run build`
+      clean, deployed and confirmed live via `vercel inspect`
+      (`dpl_Gn5CMnKLEfp617bCNENnC6af66Hn`). No backfill (forward-only,
+      confirmed by owner). **Awaiting real-world verification:** the
+      next Julia Amory- or NET-A-PORTER-shaped return_label email
+      (or any retailer using the same redirect-wrapped,
+      visible-link-text pattern) should now surface a tracking
+      number where it previously wouldn't have — not yet observed
+      against a live inbound email.
 
 - [ ] **Inventory: which email-body parsing call sites in the
       repo go through resolveBodyText() vs. read raw fields
