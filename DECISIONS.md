@@ -7,6 +7,55 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-04 — PDF ingestion is shared infrastructure, not a single-feature build
+
+Context: Surfaced during the 2026-09-04 package-tracking signal audit
+(TASKS.md ✅ Done, `docs/audits/2026-09-04-package-tracking-signal.md`).
+Q3 quantified the PDF-attachment channel on `return_label` emails as a
+possible tracking-feature input.
+
+Findings: Only 4 of 41 `return_label` emails (~10%, small base) carry a
+PDF attachment — a real but narrow channel for tracking specifically.
+But the same audit's inventory also surfaced that Zara and H&M send
+receipts as PDFs, not just return labels. So PDF ingestion, if built,
+would unlock receipt parsing (order totals, line items, refund
+confirmations) in addition to return tracking.
+
+Decision: Score PDF ingestion's ROI across all its uses (tracking +
+receipt parsing) when it comes up for prioritization, not against the
+tracking channel alone — the ~10% return-label number understates the
+infrastructure's value if evaluated in isolation.
+
+Revisit if: PDF ingestion is proposed as a scoped, tracking-only build —
+point back here first to confirm the receipt-parsing angle has been
+weighed, not just the return-label number.
+
+---
+
+## 2026-09-04 — Return carrier/tracking-number correctness is a first-class product signal, not a data-quality nit
+
+Context: Surfaced during the 2026-09-04 package-tracking signal audit
+(TASKS.md ✅ Done, `docs/audits/2026-09-04-package-tracking-signal.md`).
+Q2 measured carrier-vs-tracking-number-format correctness and found 0
+format-level mismatches, but also directly confirmed the pre-known H&M
+DHL/USPS mislabel is real and simply invisible to a format-regex check
+(a business-logic handoff collision, not a format collision).
+
+Decision: Return carrier and return tracking number are first-class
+product signals, not incidental metadata. Owner has varied reasons for
+wanting them captured correctly — some obvious (accurate tracking
+links, correct "where's my return" answers), some product-specific and
+not enumerated here. Consequence: read the Q2 carrier-correctness
+results, and any future carrier-attribution work, as feature-blocking,
+not merely a data-quality nit. Do not narrow the framing to any single
+downstream use case.
+
+Revisit if: a future investigation narrows carrier correctness back
+down to one specific use case (e.g., "it only matters for the tracking
+link") — check against this decision before accepting that framing.
+
+---
+
 ## 2026-08-30 — Carrier-tracking retailer fallback confirmed working as designed on H&M UPS-delivery emails
 
 Context: H&M UPS-delivery emails were flagged as possibly bypassing the
