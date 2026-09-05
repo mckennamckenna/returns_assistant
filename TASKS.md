@@ -32,6 +32,23 @@
 
 ## 🔴 Now
 
+- [ ] **Expand `parseTracking()`'s known-carrier list beyond the
+      current four (UPS/USPS/FedEx/DHL) — NEW 2026-09-04, follows
+      from the 2026-09-04 tracking audit and a live Veho order
+      example the owner surfaced.** Add pattern support for
+      additional US last-mile carriers commonly used by
+      e-commerce retailers: Veho, OnTrac, LaserShip, AxleHire,
+      Amazon Logistics, UniUni, Pandion. Both link-domain
+      detection AND tracking-number format regex per carrier
+      (mirroring how the existing four are structured in
+      `lib/trackingParser.ts`). No other changes to the parser's
+      mechanism — same "link-domain-wins, format-regex fallback"
+      logic, just with more carriers in the list.
+      **Explicitly out of scope:** rewriting the mechanism,
+      changing how carrier is decided when signals disagree,
+      touching PDF ingestion, fixing the DHL/USPS mislabel,
+      backfilling existing orders, any UI change.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED, LIVE VERIFICATION PENDING]
       Multi-shipment detector: log a marker when a second
       shipping_confirmation with a distinct tracking number lands for an
