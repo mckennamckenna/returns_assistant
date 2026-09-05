@@ -5438,6 +5438,24 @@
       here or in a separate recruiting doc — logged here for now since no
       such doc exists yet.
 ## ⚪ Someday
+- [ ] **Middleware (`proxy.ts`) serverless bundle still ~32.5 MB — NEW
+      2026-09-04, out of scope for the Prisma bundle-size fix above.**
+      `outputFileTracingExcludes` (added in `1835d00`) doesn't reach
+      middleware's bundle — confirmed via local `vercel build` comparison,
+      middleware's traced Prisma footprint was identical before and
+      after. Middleware goes through Next's separate middleware-manifest
+      pipeline, not the per-route output-file-tracing path the config
+      option targets. Would need a different approach (e.g. trimming what
+      `proxy.ts`'s import chain — currently `@/auth`, which pulls in
+      `@/lib/db` — pulls into that pipeline) if it becomes worth fixing.
+- [ ] **`googleapis` full-package import in `lib/sheets.ts` — NEW
+      2026-09-04, out of scope for the Prisma bundle-size fix above.**
+      `import { google } from "googleapis"` pulls in the entire
+      multi-API client library (207 MB in `node_modules`) instead of a
+      scoped Sheets-only subpackage. Only inflates the 2 cron routes that
+      import it (`apply-url-reviews`, `weekly-url-review`), not the
+      uniform ~33.5 MB pattern the Prisma fix addressed — lower priority,
+      narrower blast radius.
 - [ ] **Retailer logos — MOVED here 2026-07-26 (was 🟡 Next), per the
       2026-07-13 investigation (`LOGO_COVERAGE.md`, untracked — not yet
       committed).** `RetailerAvatar` currently shows initials only
@@ -5544,6 +5562,50 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **CLOSED 2026-09-04 — Reduce Prisma serverless bundle size via
+      `outputFileTracingExcludes` — audit + fix, production-verified.**
+      Vercel reported 41 functions nearly all at a uniform ~33.5 MB.
+      Audited via a real local `vercel build` (not just `node_modules`
+      inspection): 95% of that size was `@prisma/client`, and of that,
+      the majority was dead weight — Prisma's generated client statically
+      requires WASM fallback engines for every database provider it
+      supports (mysql/sqlite/sqlserver/cockroachdb), not just the
+      postgresql one this app uses, and Next's file tracer was including
+      all of them in nearly every function even though only the native
+      postgresql engine is ever loaded (confirmed: only one native engine
+      binary was ever traced — no multi-platform duplication). Confirmed
+      `@prisma/client`/`prisma` are already in Next 16's default
+      `serverExternalPackages` list, so that wasn't an available fix —
+      it only affects webpack bundling, not output-file-tracing.
+      **Fix:** added `outputFileTracingExcludes` in `next.config.ts`
+      (commit `1835d00`) excluding only the four unused providers'
+      `query_engine_bg.*`/`query_compiler_bg.*` files — native engine and
+      all postgresql runtime files untouched, verified present
+      before/after. Zero application/Prisma/auth code changed.
+      **Verified on a real Preview deployment** before touching
+      Production: Preview's `DATABASE_URL` was empty (no dev/test DB
+      exists for this project — confirmed via CLAUDE.md's one-database
+      note), so with owner approval I temporarily pointed Preview at the
+      same DB for read-only checks only (no writes/migrations/archive
+      actions), confirmed a real Prisma query executed successfully
+      (`/admin` secret-gated page load, 200, real data) with clean logs
+      (no engine/module errors), then fully reverted both env vars to
+      empty, deleted both preview deployments (a deployment's runtime env
+      is a snapshot — reverting the project var doesn't retroactively
+      cut an already-live deployment's DB access), and disabled the
+      protection-bypass secret added to test through Vercel's SSO gate.
+      **Pushed to `origin/main`, auto-deployed to Production
+      (`dpl_AibVgMe6k6CxMuQ5buU4B7WTbJL5`), owner-verified live:**
+      ordinary functions dropped **~33.5 MB → 15.9 MB**; middleware
+      unaffected at ~32.5 MB (its bundle goes through a separate
+      manifest pipeline `outputFileTracingExcludes` doesn't reach — known
+      limitation, not a bug in this fix); production healthy, no runtime
+      errors/warnings; auth, dashboard, and database reads all confirmed
+      working. **Deliberately out of scope, left for future work:**
+      middleware's own bundle size, and `googleapis`'s full-package
+      import in `lib/sheets.ts` (only affects the 2 cron routes that use
+      it, not the uniform-size pattern this task addressed).
 
 - [x] **CLOSED 2026-09-04 — Log every manual `displayStatus` change to `ActionLog` — NEW
       2026-09-04, owner-approved, scope widened from an earlier
