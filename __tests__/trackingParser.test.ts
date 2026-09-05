@@ -45,6 +45,71 @@ describe("parseTracking", () => {
     expect(result.trackingUrl).toContain("dhl.com");
   });
 
+  // ── Amazon Logistics ─────────────────────────────────────────────────────
+  it("detects an Amazon Logistics TBA tracking number in plain text", () => {
+    const result = parseTracking("Your package is on its way: TBA305477112000", null);
+    expect(result.carrier).toBe("Amazon Logistics");
+    expect(result.trackingNumber).toBe("TBA305477112000");
+    expect(result.trackingUrl).toContain("track.amazon.com");
+  });
+
+  it("also matches TBM/TBC Amazon Logistics prefixes", () => {
+    expect(parseTracking("TBM305477112000", null).carrier).toBe("Amazon Logistics");
+    expect(parseTracking("TBC305477112000", null).carrier).toBe("Amazon Logistics");
+  });
+
+  // ── OnTrac ────────────────────────────────────────────────────────────────
+  it("detects an OnTrac tracking number (letter + 14 digits) in plain text", () => {
+    const result = parseTracking("OnTrac: C12345678901234", null);
+    expect(result.carrier).toBe("OnTrac");
+    expect(result.trackingNumber).toBe("C12345678901234");
+    expect(result.trackingUrl).toContain("ontrac.com");
+  });
+
+  // ── LaserShip ─────────────────────────────────────────────────────────────
+  it("detects a LaserShip '1LS'-prefixed tracking number in plain text", () => {
+    const result = parseTracking("LaserShip tracking: 1LSCYM1000AIBES", null);
+    expect(result.carrier).toBe("LaserShip");
+    expect(result.trackingNumber).toBe("1LSCYM1000AIBES");
+    expect(result.trackingUrl).toContain("lasership.com");
+  });
+
+  // ── UniUni ────────────────────────────────────────────────────────────────
+  it("detects a UniUni 'UUS'-prefixed tracking number in plain text", () => {
+    const result = parseTracking("UniUni: UUS0570455416253", null);
+    expect(result.carrier).toBe("UniUni");
+    expect(result.trackingNumber).toBe("UUS0570455416253");
+    expect(result.trackingUrl).toContain("uniuni.com");
+  });
+
+  // ── Veho (domain-only — no public number format) ────────────────────────
+  it("detects Veho from a tracking URL but leaves trackingNumber null", () => {
+    const html = `<a href="https://www.shipveho.com/track/91f5baadefb732585">Track</a>`;
+    const result = parseTracking(null, html);
+    expect(result.carrier).toBe("Veho");
+    expect(result.trackingUrl).toContain("shipveho.com");
+    expect(result.trackingNumber).toBeNull();
+  });
+
+  it("never claims a Veho carrier from plain text alone", () => {
+    const result = parseTracking("Veho tracking: 91f5baadefb732585", null);
+    expect(result.carrier).toBeNull();
+  });
+
+  // ── AxleHire (domain-only — no public number format) ────────────────────
+  it("detects AxleHire from a tracking URL but leaves trackingNumber null", () => {
+    const html = `<a href="https://www.axlehire.com/tracking?trackingId=5y4slr4phjhm2x5">Track</a>`;
+    const result = parseTracking(null, html);
+    expect(result.carrier).toBe("AxleHire");
+    expect(result.trackingUrl).toContain("axlehire.com");
+    expect(result.trackingNumber).toBeNull();
+  });
+
+  it("never claims an AxleHire carrier from plain text alone", () => {
+    const result = parseTracking("AxleHire tracking: 5y4slr4phjhm2x5", null);
+    expect(result.carrier).toBeNull();
+  });
+
   // ── URL-based detection ───────────────────────────────────────────────────
   it("detects a UPS tracking URL from an HTML href", () => {
     const html = `<a href="https://www.ups.com/track?tracknum=1Z999AA10123456784">Track</a>`;
