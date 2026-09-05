@@ -7,6 +7,65 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-04 — Plain-text-only tracking numbers (no clickable link) not separately measured
+
+Context: Surfaced while scoping the `parseTracking()` carrier-list
+expansion (TASKS.md 🔴 Now, 2026-09-04), following the 2026-09-04
+tracking audit's Q4 finding that all 71 incoming misses are
+already-linked emails where `parseTracking()` found nothing.
+
+Findings: `fromPlainText()` in `lib/trackingParser.ts` already exists
+specifically to cover emails with no clickable tracking link at
+all — a bare tracking number typed into the body text. This is a
+real, acknowledged case the parser is designed to handle. Its actual
+frequency in the current dataset — how many of the 71 incoming misses
+are "no link, and the plain-text regex also failed" vs. "had a link
+we don't recognize yet" vs. "genuinely no tracking number present
+anywhere in the body" — is unmeasured. The 2026-09-04 audit did not
+break Q4's incoming misses down this way.
+
+Decision: Defer as a distinct investigation, not folded into the
+carrier-list expansion. Expanding the carrier list (more domains,
+more format regexes) helps both `fromHtmlHrefs()` and
+`fromPlainText()`, but doesn't answer which failure mode dominates
+the 71 misses — that needs its own read-only pass over the actual
+email bodies.
+
+Revisit if: a future diagnostic wants to sharpen the "is this a
+parser gap or a tracking-genuinely-absent gap" distinction for
+incoming misses — this note marks that the distinction hasn't been
+made yet, not that it isn't worth making.
+
+---
+
+## 2026-09-04 — Following external links at parse time (redirect resolution) — deferred
+
+Context: Surfaced while scoping the `parseTracking()` carrier-list
+expansion (TASKS.md 🔴 Now, 2026-09-04). Considered as a way to
+resolve Klaviyo / marketing-tracker redirect URLs to their real
+carrier destination, which would improve carrier attribution on
+emails where the visible link is a redirect wrapper rather than a
+direct carrier domain.
+
+Findings: Doing this would require ingestion to make outbound network
+requests to third-party URLs at parse time — a mechanism change, not
+a carrier-list addition. That introduces: latency (an HTTP round-trip
+per parse), cost (at volume), privacy exposure (every click-through
+is data the retailer/tracker sees, potentially including that a
+specific user's return-window app just "opened" their tracking link),
+and reliability risk (redirects fail, expire, or change shape without
+notice, unlike a static domain/regex check).
+
+Decision: Deferred. Not part of the 2026-09-04 carrier-list expansion
+or any near-term work. `parseTracking()` stays a pure, no-network
+function.
+
+Revisit if: redirect-wrapped links become a measured large fraction
+of tracking-attribution misses, AND simpler options (per-retailer
+overrides, sender-domain heuristics) have been exhausted first.
+
+---
+
 ## 2026-09-04 — PDF ingestion is shared infrastructure, not a single-feature build
 
 Context: Surfaced during the 2026-09-04 package-tracking signal audit
