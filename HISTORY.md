@@ -5,6 +5,45 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-04 — Package tracking signal audit
+
+Commit: `0cdf04d`
+Artifacts: `scripts/audits/package-tracking-signal.ts`,
+           `docs/audits/2026-09-04-package-tracking-signal.md`
+
+Ran a read-only audit to answer: what tracking are we already
+surfacing, and is it right? Regex + sender-domain heuristics
+only, zero billed model calls, zero DB writes.
+
+Findings:
+- Incoming coverage: 78/149 orders (52.3%) with a linked
+  shipping_confirmation have tracking surfaced.
+- Outbound coverage: 2/14 orders (small-N caveat).
+- Q2 carrier-vs-format correctness: 0 format-level mismatches
+  found — but format-regex was demonstrated NOT to catch the
+  pre-known H&M DHL/USPS case (business-logic handoff, not
+  format collision). Reported as-is, regex not loosened.
+- Q3: 4/41 return_label emails (9.8%) have PDF attachments.
+- Q4: all 71 incoming misses are already-linked emails where
+  `parseTracking()` found nothing — most tractable lead.
+- Appendix: 2 of 5 DHL-labeled outbound orders (both H&M)
+  independently flagged via body-text/URL signal — a real
+  lower bound for the mislabel population.
+
+Verified: report reviewed by owner; numbers spot-checked
+against DB. Script committed for reproducibility.
+
+Follow-ups (separate Now items, not resolved by this audit):
+- Expand parseTracking() carrier list (Veho + long-tail).
+- Outbound diagnostic on the 12 misses.
+- DHL/USPS mislabel — parked, 2-case population doesn't
+  justify prioritizing over the incoming-parse gap.
+- Carrier attribution rewrite — parked, would need a
+  different investigation to decide.
+- PDF ingestion — parked, noted as shared infrastructure
+  (also unlocks receipt parsing) rather than
+  tracking-specific.
+
 ## 2026-08-28 — Carrier-row Phase 3: full-dropdown link + required unlink for carrier rows
 
 Fast-follow to Phase 1, same session. Owner-approved design
