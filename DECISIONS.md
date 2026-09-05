@@ -7,6 +7,48 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-04 — Amazon no-box returns are structurally trackingless — represent as first-class state, not "missing tracking"
+
+Context: The 2026-09-04 outbound tracking-failure diagnostic
+(TASKS.md ✅ Done, `docs/audits/2026-09-04-outbound-diagnostic.md`)
+found 4 of 12 return-eligible orders missing outbound tracking are
+all Amazon's no-box return flow: "Drop off by [date] / Dropoff
+location: [venue]," with UPS/a UPS Store appearing only as a
+drop-off venue name, never as a tracking link or number. Confirmed
+by reading the actual email bodies — no tracking number is stated
+anywhere in these emails, on any of the 4 orders.
+
+Findings: This is not an extraction gap. Amazon's no-box flow
+generates a QR code or print-at-home label behind an
+Amazon-authenticated web session; the tracking number, if one is
+ever assigned, is never surfaced in the return-confirmation email
+itself. No amount of parser improvement recovers data that was never
+in the email. This directly contradicts the diagnostic's own opening
+assumption ("missing outbound tracking almost always means the data
+existed and we failed to extract it") for this specific case — worth
+recording precisely so a future session doesn't re-assume extraction
+is always the answer for Amazon rows.
+
+Decision: If Amazon return tracking is ever addressed, it should be
+represented as a distinct, first-class state (e.g. "tracked
+externally via Amazon" or similar) rather than folded into the
+generic "missing tracking" bucket alongside genuinely fixable gaps —
+conflating the two would misdirect future triage the same way it
+nearly did here. Deprioritized generally by the owner: Amazon
+typically issues refunds immediately regardless of return-tracking
+visibility, so the practical pain of not tracking these returns is
+small. Ties to the existing Amazon posture in `AMAZON_HANDLING.md`
+("v1 scope decision 2026-07-20: awareness-only... users handle Amazon
+returns in Amazon's own (frictionless) flow; Return Window's Amazon
+value is visibility, not action") — this finding is consistent with
+that posture, not a reversal of it.
+
+Revisit if: Amazon order volume grows meaningfully, or Amazon's
+refund behavior changes such that a user's return could sit
+un-refunded without visibility into where the package actually is.
+
+---
+
 ## 2026-09-04 — Plain-text-only tracking numbers (no clickable link) not separately measured
 
 Context: Surfaced while scoping the `parseTracking()` carrier-list

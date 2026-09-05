@@ -5,6 +5,67 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-04 — Outbound tracking-failure diagnostic
+
+Commit: `84050ae`
+Artifacts: `scripts/audits/outbound-diagnostic.ts`,
+           `docs/audits/2026-09-04-outbound-diagnostic.md`
+
+Follow-up to the same-day package-tracking signal audit's Q1 outbound
+finding (2/14 coverage), per owner's priority call that returns are
+more product-critical than incoming. Read-only, zero billed model
+calls, zero DB writes — per-order breakdown of all 12 return-eligible
+orders missing outbound tracking, plus a named-sub-pattern tally
+(the task's generic "(e) something else" bucket dominated, so it was
+broken into concrete named patterns rather than left generic).
+
+Three categories:
+- **3 orders, fixable via HTML parsing** (Julia Amory, NET-A-PORTER,
+  plus one more folded into this bucket at close-out) — a real
+  tracking number sits as visible HTML link text (e.g. a UPS `1Z...`
+  number as an `<a>` tag's visible text, wrapped in an EasyPost
+  redirect href) that `parseTracking()`'s plain-text fallback never
+  sees, because it only ever receives the separate `textBody` field,
+  never `htmlBody` resolved to text. Verified directly: feeding
+  HTML-resolved text through the existing `parseTracking()` extracts
+  the number correctly with the carrier pattern that already exists —
+  no new carrier support needed.
+- **4 orders, Amazon no-box return flow** — no tracking number is
+  ever stated in the email at all (QR code / authenticated
+  print-label click-through). Contradicts the diagnostic's own
+  opening assumption that missing tracking implies an extraction
+  miss; not fixable via extraction. Owner has deprioritized Amazon
+  generally (see DECISIONS.md 2026-09-04).
+- **5 orders needing dedicated machinery** — 2 PDF-attachment-only,
+  1 generic carrier-locator-link with no embedded ID, 1
+  redirect-wrapped link (SendGrid click-tracking — same pattern as
+  the already-deferred Klaviyo redirect-resolution decision, DECISIONS.md
+  2026-09-04, via a different ESP), 1 returns-portal-only link with
+  no visible number, 1 order with no `return_label` email linked at
+  all. None individually justify the machinery they'd need on this
+  small a sample.
+
+Confirmed: none of the 12 involve a carrier outside the current
+supported list — the same-day carrier-list expansion (`efd5ea8`)
+does not resolve any of these 12.
+
+Self-correction during the session: the script's first pass used a
+bare-digit DHL regex to scan HTML-resolved text and flagged 3
+"confirmed" cases; 2 of those (Zara, The RealReal) were manually
+verified as false positives (an order number and a footer ID
+fragment misread as tracking numbers). Fixed before finalizing — only
+distinctive-prefix carrier formats trusted as "confirmed" from that
+check going forward.
+
+Follow-ups: Category 1 (HTML-parsing fix) scoped as a separate Now
+item after a history check confirmed the codebase already has the
+right building block (`resolveBodyText()`/`resolveBodyTextWithAlternate()`,
+`lib/emailBodyText.ts`) — `applyShippingTracking`/`applyReturnTracking`
+in `lib/linkOrder.ts` call `parseTracking()` on raw decrypted fields
+directly, never through this resolver, unlike `classify.ts` and
+`runExtraction.ts`. Category 2 (Amazon) deprioritized per owner.
+Category 3 items parked, no individual fix scoped.
+
 ## 2026-09-04 — Package tracking signal audit
 
 Commit: `0cdf04d`
