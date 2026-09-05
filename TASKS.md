@@ -32,6 +32,64 @@
 
 ## 🔴 Now
 
+- [ ] **Audit: what tracking are we already surfacing, and is it
+      right? — NEW 2026-09-04, crawl step for a possible
+      package-tracking feature. REVISED from earlier "is the signal
+      extractable" framing — H&M order shows tracking already runs
+      in production, so the question shifts to coverage + correctness
+      of what's live, not feasibility.** Read-only DB investigation,
+      zero model calls, zero writes. Regex + sender-domain heuristics
+      only. If the script needs a model call to answer any question,
+      stop and surface it — do not proceed. Deliverable is a written
+      report, not code in the app.
+      Four questions to answer:
+      1. **Coverage.** Of orders eligible for tracking (incoming: any
+         order with a shipping_confirmation; outbound: any order in
+         return_requested or returned), what % currently have a
+         tracking number or tracking link surfaced in the app today?
+         Break down by direction (in / out) and retailer.
+      2. **Correctness of carrier attribution.** For orders where a
+         carrier is currently attributed, does the tracking number's
+         format match the claimed carrier? Regex-checkable per
+         carrier (1Z... = UPS, 9400/9500 = USPS, 12/15-digit = FedEx,
+         etc.). Report mismatch rate overall and per retailer. Do NOT
+         hit carrier APIs — format match only. Known example to
+         confirm the check works: H&M outbound is labeled DHL,
+         tracking number format is USPS.
+      3. **PDF-attachment channel.** Of return-related emails
+         (return_label, return_confirmation, return_shipping, or
+         however they're typed in this schema — enumerate what's
+         actually there), what % have PDF attachments? Whether the
+         current pipeline reads PDFs is out of scope to change; just
+         quantify the population.
+      4. **Missing-tracking diagnosis.** For orders with no tracking
+         surfaced, split into: (a) no relevant email received at all,
+         (b) email present but blocked upstream (retailer
+         unidentified, needsReview, extraction failed), (c) email
+         present, extraction ran, no tracking pulled. This is the
+         most important row — it tells us whether the fix is
+         ingestion, extraction, or upstream email-linking.
+      Plus one catalog row (not a question, but capture it):
+      - **DHL/USPS mislabel — confirmed manually on one H&M order
+        pre-audit.** Not being fixed in this session per owner. Audit
+        should surface the population size so it can be triaged after
+        the report lands. Do not treat this as an in-scope fix.
+      Deliverables:
+      - Report at `docs/audits/2026-09-04-package-tracking-signal.md`
+      - Re-runnable script at
+        `scripts/audits/package-tracking-signal.ts` (committed so
+        the numbers are reproducible)
+      - One-paragraph recommendation on where the biggest gap
+        actually is (coverage vs. correctness vs. blocked-upstream)
+        and what a minimal next step would be. Bias conservative —
+        borderline is borderline, not talked up.
+      Estimated billed model calls: 0. Estimated DB writes: 0.
+      **Explicitly out of scope:** fixing the DHL/USPS mislabel,
+      adding PDF ingestion, fixing retailer-identification failures,
+      schema changes, UI, any parallel "while I was in there" fix.
+      This entry is the audit only — any downstream build is a
+      separate Now entry after the report is read.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED, LIVE VERIFICATION PENDING]
       Multi-shipment detector: log a marker when a second
       shipping_confirmation with a distinct tracking number lands for an
