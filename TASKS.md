@@ -32,6 +32,56 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic: why does outbound tracking fail on 12 of 14
+      return-eligible orders? — NEW 2026-09-04, follows from the
+      2026-09-04 tracking audit (Q1 outbound 2/14) and owner's
+      priority call that returns are more product-critical than
+      incoming.** Read-only DB investigation, zero model calls,
+      zero writes. Regex + sender-domain heuristics + email
+      inspection only. If the script needs a model call to answer
+      any question, stop and surface it — do not proceed.
+      Deliverable is a written report, not code in the app.
+      **Context to hold in mind:** outbound is structurally
+      different from incoming — a user cannot ship a return
+      without a label, and the label carries tracking by
+      definition. So missing outbound tracking almost always
+      means the data existed in an email and we failed to
+      extract it, not that the data was absent. The carrier-list
+      expansion (`efd5ea8`) may have already resolved some of
+      the 12 for future emails; this diagnostic measures the
+      current state of those 12 orders specifically.
+      For each of the 12 orders missing outbound tracking:
+      1. Is there a return_label email linked to the order? If
+         no, is there one unlinked that should have been linked?
+      2. If yes: what does the email actually contain — plain
+         text with tracking number? Link to a carrier? Link to a
+         retailer portal? PDF attachment? QR code image? All of
+         the above?
+      3. What carrier(s) appear in the email (body text, links,
+         attachment filenames)? Does any of them match the seven
+         we just added support for (Amazon Logistics, OnTrac,
+         LaserShip, UniUni, Veho, AxleHire) — meaning the same
+         email would parse correctly if resent today?
+      4. Categorize each of the 12 into a failure mode: (a)
+         retailer used a carrier we still don't support, (b)
+         tracking is in a PDF attachment we don't read, (c)
+         tracking is in an image/QR we don't read, (d) email
+         wasn't linked to the order at all, (e) something else —
+         name it.
+      Deliverables:
+      - Report at `docs/audits/2026-09-04-outbound-diagnostic.md`
+      - Re-runnable script at
+        `scripts/audits/outbound-diagnostic.ts`
+      - Per-order breakdown (12 rows) plus a summary tally by
+        failure mode.
+      - One-paragraph recommendation on the biggest actionable
+        gap. Conservative bias.
+      Estimated billed model calls: 0. Estimated DB writes: 0.
+      **Explicitly out of scope:** fixing anything the diagnostic
+      surfaces, adding PDF or image ingestion, backfilling
+      historical orders, UI changes, any parallel "while I was
+      in there" fix. Diagnostic only.
+
 - [ ] **Expand `parseTracking()`'s known-carrier list beyond the
       current four (UPS/USPS/FedEx/DHL) — NEW 2026-09-04, follows
       from the 2026-09-04 tracking audit and a live Veho order
