@@ -32,6 +32,46 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic: Gap order confirmation (#1RYJR48, forwarded
+      2026-09-02) — extraction came back nearly-blank (order date,
+      items, prices, totals, return policy all missing; confidence
+      low; "Needs Review") despite the viewer showing full order
+      data. NEW 2026-09-06, follows from the 2026-09-06 body-text
+      call-site inventory (call site #5, AI extraction path,
+      marked "helper = safe" — this case suggests that verdict
+      was too quick).**
+      Same shape as the three prior HTML-vs-text bugs (commerce
+      classification ~2026-05-28, H&M order-number 2026-08-23,
+      tracking 2026-09-04). But the AI extraction call site already
+      routes through `resolveBodyTextWithAlternate()` — the
+      two-pass retry added by `efd4f43` specifically to fix the
+      H&M case — so the mechanism that's supposed to catch this
+      shape isn't catching Gap.
+      **Four hypotheses on the table:** (1) both passes ran but
+      html→text conversion stripped the real data down to
+      boilerplate-looking output; (2) retry didn't trigger — the
+      "pass 1 insufficient" signal doesn't fire for this email
+      shape; (3) `textBody` and `htmlBody` were both near-empty
+      at ingestion and the viewer is rendering from a different
+      source than the extractor saw; (4) the H&M fix is narrower
+      than the inventory treated it as (scoped to a specific
+      field/condition Gap-shaped data doesn't hit).
+      **This item is the diagnostic only** — determine which
+      hypothesis is right, produce a written finding, stop. A fix
+      is a separate follow-up item, to be scoped after the
+      diagnostic lands.
+      **Explicitly out of scope:** any fix; any code change to
+      `resolveBodyText`, `resolveBodyTextWithAlternate`, or
+      `runExtraction.ts`; reprocessing #1RYJR48 or any other
+      email; any model call. Read-only means no DB writes AND
+      zero billed API calls here.
+      **Deliverable:** `docs/audits/2026-09-06-gap-extraction-
+      diagnostic.md` — one-paragraph summary, one section per
+      diagnostic step with raw findings, verdict on which
+      hypothesis (or "something else"), and a one-paragraph
+      scope note framing what a fix would need to address
+      (framing only, not a fix recommendation).
+
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-05, LIVE
       VERIFICATION PENDING] Wire parseTracking() call sites through
       resolveBodyText() to close the HTML-only tracking
