@@ -62,6 +62,34 @@
       **See paired Claude Code prompt for execution detail** —
       this Now entry alone is not an executable spec; do not
       paste this into Claude Code.
+      **STATUS 2026-09-06: code+tests built, committed (`534be8d`),
+      pushed, deployed, verified live via `vercel inspect`
+      (`dpl_Fd3ZXZdzQPLMD8ePs4MUPRyxWuXa`). Backfill run: 4 of
+      the original 10 matched rows reprocessed** — Amazon (3),
+      Amazon Haul (1), Whole Foods Market (1), and Monos (1)
+      excluded by owner instruction (Amazon bound to
+      `AMAZON_HANDLING.md` spec pass; grocery blocked by policy
+      and prior spot-check already found the Whole Foods row a
+      different-cause no-op; Monos' `needsReview: true` disagreed
+      with its Kept/Archive UI state, so "safe reprocess" didn't
+      hold — not investigated, owner to decide if it's its own
+      item, possibly related to the null-orderNumber-orders
+      duplicate bug). All 4 exclusions are baked into
+      `scripts/audits/2026-09-06-retry-fix-backfill-count.ts`'s
+      WHERE clause, not just this note. The 4 reprocessed Gap
+      rows (incl. `1RYJR48`) each gap-filled `orderTotal` +
+      `lineItems`; `orderDate`/`returnWindowDays` weren't
+      recoverable from the alternate body either, so stayed null
+      on the Email row post-reprocess — the linked Order's own
+      `returnWindowDays` (30, from the original web-lookup) was
+      unaffected, confirmed via direct query, because
+      `linkOrder.ts`'s merge is nullish-coalescing
+      (`email.returnWindowDays ?? existing.returnWindowDays`).
+      8 billed model calls total (4× `email_extraction` + 4×
+      `email_extraction_retry`; no policy web-search fired, since
+      each linked Order already had a resolved window).
+      **Awaiting owner real-world verification — not moved to
+      Done.**
 
 - [ ] **Spot-check: known Gap Inc. orders (Old Navy + additional
       Gap orders owner knows are in the DB) to test whether the
