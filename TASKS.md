@@ -3790,6 +3790,34 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Diagnostic: Monos order shows `needsReview: true` in DB
+      but Kept/Archive in the app UI — states shouldn't
+      disagree for the same order. NEW 2026-09-06, surfaced
+      during the 2026-09-06 retry-trigger fix backfill (Monos
+      row matched the backfill predicate; excluded from
+      reprocess because "safe reprocess" assumes the row is
+      the one the owner thinks it is, and this discrepancy
+      breaks that assumption).**
+      Two possibilities to distinguish: (1) fresh instance of
+      the known "manually-created null-orderNumber orders →
+      duplicates on later order_confirmation" bug (line 1839
+      of TASKS.md) — same real-world purchase stored twice,
+      owner interacted with one, the other sits in Needs
+      Review invisibly; (2) state-sync issue between
+      `needsReview` and Kept/Archive state on the same row.
+      **This item is the diagnostic only** — determine which
+      possibility (or a third), then either fold into the
+      existing line-1839 item as additional data or spawn a
+      separate fix item, whichever fits.
+      **Explicitly out of scope:** any fix; any code change;
+      any reprocessing; any model call.
+      **Deliverable:** short written finding (single audit
+      doc or an addendum to the line-1839 item) —
+      side-by-side comparison of DB state (all rows matching
+      the Monos order across `Email` and `Order`) vs UI
+      state, verdict on which possibility, and next-step
+      recommendation.
+
 - [x] **CLOSED (superseded) 2026-09-02 — Self-email ingestion loop —
       reject own outbound at inbound webhook.** Investigation detail
       (27 self-emails/5 users, 4%-57% boomerang rate, fix shape,

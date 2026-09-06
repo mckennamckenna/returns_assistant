@@ -7,6 +7,25 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-06 — `linkOrder.ts` nullish-coalescing merge is a load-bearing property, not an implementation detail
+
+The merge in `linkOrder.ts` uses nullish-coalescing semantics so that
+reprocessing an `Email` row can never overwrite a resolved `Order` field
+with a fresh `null`. This was surfaced during the 2026-09-06 Gap Inc.
+extraction fix backfill: reprocessing correctly dropped `returnWindowDays`
+back to `null` on 3 of 4 `Email` rows (retry couldn't recover it from Gap's
+alternate body), but the linked `Order` records still show the correct
+`returnWindowDays: 30` and `returnDeadline` because `linkOrder.ts`'s merge
+refused to overwrite the existing good value.
+
+Any change to this merge semantic — e.g., "cleaning up" the
+nullish-coalescing to strict equality or to unconditional overwrite — must
+consider impact on every backfill and reprocess path in the codebase, not
+just the one currently being touched. Reprocess safety is a codebase-wide
+invariant that lives here.
+
+---
+
 ## 2026-09-06 — Gmail-verification body parsing: structural gap left unfixed, input shape makes it inert
 
 The 2026-09-06 body-text call-site inventory
