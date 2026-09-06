@@ -624,40 +624,87 @@ export async function extractEmailIdentity(
   const resolvedSubject = subject ?? "(no subject)";
   let parsed: RawExtraction = await runRawExtraction(textBody, resolvedSubject, emailId, "email_extraction");
 
-  // Two-pass retry (TASKS.md 2026-08-22, H&M return_label case): a commerce
-  // email where the retailer resolved but orderNumber didn't sometimes means
-  // resolveBodyText hands the model the wrong body, not that the number is
-  // genuinely absent — H&M's row had it as plain labeled text in htmlBody
-  // while textBody (the chosen default) only had it buried in an S3 URL.
-  // Deliberately narrow, and deliberately does NOT fire on the Zara shape
-  // (retailer null) — that's a different mechanism with its own fix, and
-  // this retry must not collide with it. Only orderNumber and needsReview
-  // are taken from the retry result; every other field stays from the
-  // primary pass, so the existing "textBody wins when substantial" default
-  // is preserved for everything except this one targeted gap. needsReview
-  // has to come from the retry too, not just orderNumber: the primary
-  // pass's own self-reported needsReview was set true BECAUSE it couldn't
-  // determine orderNumber (see the NEEDS REVIEW prompt rule) — carrying
-  // that stale flag forward would leave a successfully-recovered row stuck
-  // in the needs-review bucket forever. The retry ran against the body
-  // that actually had the order number, so its own needsReview reflects
-  // the corrected picture (still true if IT also found something else
-  // genuinely ambiguous, false if not).
+  // Two-pass retry (TASKS.md 2026-08-22, H&M return_label case; widened
+  // 2026-09-06, Gap order_confirmation case). A commerce email where the
+  // retailer resolved but the body pass came back thin sometimes means
+  // resolveBodyText handed the model the wrong body, not that the data is
+  // genuinely absent — H&M's row had orderNumber as plain labeled text in
+  // htmlBody while textBody (the chosen default) only had it buried in an
+  // S3 URL. The original gate (`orderNumber == null`) missed a second shape:
+  // Gap's order_confirmation emails source orderNumber from the subject
+  // line, which satisfies that gate even when the body pass 1 actually used
+  // was pure boilerplate with none of the real order data. The
+  // `hasNoBodyContent` disjunct below catches that second shape without
+  // widening the gate to fire on healthy emails — it's scoped to
+  // order_confirmation specifically, because a null orderDate/orderTotal/
+  // lineItems/returnWindowDays on e.g. a shipping_confirmation is normal,
+  // not a signal the body pass failed.
   const trimmedAlternate = alternateBodyText?.trim() ?? "";
   const alternateDiffersFromPrimary = trimmedAlternate.length > 0 && trimmedAlternate !== textBody.trim();
+  const hasNoBodyContent =
+    parsed.emailType === "order_confirmation" &&
+    parsed.orderDate == null &&
+    parsed.orderTotal == null &&
+    (parsed.lineItems == null || parsed.lineItems.length === 0) &&
+    parsed.returnWindowDays == null;
+
   if (
-    parsed.orderNumber == null &&
+    (parsed.orderNumber == null || hasNoBodyContent) &&
     parsed.retailer != null &&
     parsed.emailType !== "other" &&
     alternateDiffersFromPrimary
   ) {
     const retry = await runRawExtraction(trimmedAlternate, resolvedSubject, emailId, "email_extraction_retry");
-    if (retry.orderNumber != null) {
+
+    // Gap-fill only: a field is taken from the retry only when pass 1 left
+    // it null (empty lineItems counts as null-equivalent here), and a
+    // pass-1 value is never overwritten. `retry.orderNumber != null` used
+    // to double as both "the retry succeeded" and "there's new data to
+    // merge" — those were the same thing when orderNumber was the only
+    // mergeable field. Now that any of five fields can be gap-filled
+    // (Gap Inc.'s shape recovers orderDate/orderTotal/lineItems/
+    // returnWindowDays with orderNumber already non-null going in), the two
+    // signals decouple, so whether to merge at all is now driven by
+    // `filledFields` being non-empty, not by `retry.orderNumber` alone.
+    const gapFilled: Partial<RawExtraction> = {};
+    const filledFields: string[] = [];
+
+    if (parsed.orderNumber == null && retry.orderNumber != null) {
+      gapFilled.orderNumber = retry.orderNumber;
+      filledFields.push("orderNumber");
+    }
+    if (parsed.orderDate == null && retry.orderDate != null) {
+      gapFilled.orderDate = retry.orderDate;
+      filledFields.push("orderDate");
+    }
+    if (parsed.orderTotal == null && retry.orderTotal != null) {
+      gapFilled.orderTotal = retry.orderTotal;
+      filledFields.push("orderTotal");
+    }
+    if ((parsed.lineItems == null || parsed.lineItems.length === 0) && retry.lineItems != null && retry.lineItems.length > 0) {
+      gapFilled.lineItems = retry.lineItems;
+      filledFields.push("lineItems");
+    }
+    if (parsed.returnWindowDays == null && retry.returnWindowDays != null) {
+      gapFilled.returnWindowDays = retry.returnWindowDays;
+      filledFields.push("returnWindowDays");
+    }
+
+    if (filledFields.length > 0) {
+      // needsReview comes from the retry, not the primary pass's stale
+      // self-report: the primary pass's needsReview was often set true
+      // BECAUSE it couldn't determine these fields (see the NEEDS REVIEW
+      // prompt rule) — carrying that forward would leave a
+      // successfully-gap-filled row stuck in the needs-review bucket
+      // forever. `confidence` deliberately stays sourced from pass 1,
+      // untouched by gap-fill — populated fields plus a cleared
+      // needsReview must never read as "upgraded confidence" on their own;
+      // needsReview only clears here when the retry itself says so.
       parsed = {
         ...parsed,
-        orderNumber: retry.orderNumber,
+        ...gapFilled,
         needsReview: retry.needsReview,
-        notes: `${parsed.notes} Order number recovered from alternate body source on retry.`,
+        notes: `${parsed.notes} Fields recovered from alternate body source on retry: ${filledFields.join(", ")}.`,
       };
     }
   }
