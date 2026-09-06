@@ -32,6 +32,37 @@
 
 ## 🔴 Now
 
+- [ ] **Fix: widen retry trigger in `extractEmailIdentity` from
+      `orderNumber == null` to a body-content-dependent-fields
+      predicate; expand pass 2 write-scope to gap-fill full field
+      set. NEW 2026-09-06, follows from the 2026-09-06 Gap
+      diagnostic (mechanism), blast-radius census (initial n=1),
+      and Gap Inc. spot-check (corrected finding: 4 of 5 known
+      Gap Inc. orders show the mechanism; census predicate had a
+      hidden dependency on `returnWindowDays IS NULL` that public-
+      policy web lookup was independently satisfying).**
+      Shape B (retailer-agnostic predicate-widening) chosen over
+      retailer-specific bypass, per owner's maintenance-cost
+      argument. Pass 2 write-scope B2 (gap-fill full field set,
+      never overwrite) chosen over B1 (two-branch), given the
+      spot-check's confirmed 4x undercount and the safety of
+      gap-fill semantics.
+      **Includes as final step:** run the corrected mechanism-
+      fingerprint query against the full 158-row `order_
+      confirmation` baseline, reprocess every matched row
+      (including #1RYJR48). Backfill count discovered as part
+      of the fix, not gated on a prior re-census.
+      **Explicitly out of scope:** any refactor of
+      `extractEmailIdentity` beyond the two changes above; any
+      cleanup of `resolveBodyText` or `resolveBodyTextWithAlternate`;
+      any change to the Haiku classifier or `emailType` gating;
+      auditing other call sites; retailer- or emailType-sourced
+      variants of the mechanism (unconfirmed, deferred as future
+      mechanism trace).
+      **See paired Claude Code prompt for execution detail** —
+      this Now entry alone is not an executable spec; do not
+      paste this into Claude Code.
+
 - [ ] **Spot-check: known Gap Inc. orders (Old Navy + additional
       Gap orders owner knows are in the DB) to test whether the
       2026-09-06 blast-radius census undercounted the affected
