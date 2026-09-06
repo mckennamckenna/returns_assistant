@@ -32,6 +32,48 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic: blast-radius census for the retry-trigger
+      proxy-signal failure surfaced by the 2026-09-06 Gap
+      extraction diagnostic. NEW 2026-09-06, follows from the
+      2026-09-06 Gap diagnostic (verdict: retry trigger gates
+      on `orderNumber == null`, which a subject-line-sourced
+      order number silently satisfies without the body pass
+      having usable content).**
+      Gap surfaced this loudly because its `textBody` is pure
+      branding AND its subject line contains the order number.
+      Theoretically the same failure mode can hit any retailer
+      that (a) supplies `orderNumber`, `retailer`, or
+      `emailType` from a non-body source (subject line, sender
+      domain, Haiku classifier) and (b) has a body pass 1 saw
+      that was thin enough to yield no other fields. The
+      visible population is probably smaller than the actual
+      affected population — orders that got `orderNumber` from
+      subject and lost every body-content-dependent field may
+      not be tripping `needsReview` reliably, which means the
+      coverage-check net wouldn't surface them either.
+      **Census question (broader than "Gap-shape"):** how many
+      existing orders show the pattern "gate-signal field
+      present + body-content-dependent fields all null" —
+      across all retailers, both inside and outside
+      `needsReview`. Also: retailer distribution (Gap-only or
+      systemic?) and the silent-slice count (orders in the
+      shape but NOT flagged for review).
+      **This item is the census only** — no fix, no fix
+      scoping. Fix scoping is a separate follow-up item after
+      the census lands.
+      **Explicitly out of scope:** any fix; any code change to
+      `resolveBodyText`, `resolveBodyTextWithAlternate`,
+      `runExtraction.ts`, `extractEmailIdentity`, or the H&M
+      retry trigger; reprocessing any email; any model call;
+      backfill of any kind.
+      **Deliverable:** `docs/audits/2026-09-06-retry-trigger-
+      blast-radius-census.md` — baseline population,
+      pattern-match count with retailer breakdown, split by
+      `needsReview` state, silent-slice count and its retailer
+      distribution, and a spot-check of 3–5 non-Gap examples
+      confirming the shape holds (or doesn't) beyond Gap. No
+      fix framing — that's the next item.
+
 - [ ] **Diagnostic: Gap order confirmation (#1RYJR48, forwarded
       2026-09-02) — extraction came back nearly-blank (order date,
       items, prices, totals, return policy all missing; confidence
