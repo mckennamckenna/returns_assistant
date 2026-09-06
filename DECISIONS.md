@@ -7,6 +7,35 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-06 — Gmail-verification body parsing: structural gap left unfixed, input shape makes it inert
+
+The 2026-09-06 body-text call-site inventory
+(TASKS.md ✅ Done, `docs/audits/2026-09-06-body-text-callsite-inventory.md`)
+surfaced one structural gap: `extractVerificationDetails()`
+(`lib/gmailVerification.ts`, called from
+`app/api/inbound/route.ts:233`) reads raw `payload.TextBody ??
+payload.HtmlBody` and skips `resolveBodyText()` entirely — the
+same shape as the two confirmed production bugs that motivated
+`resolveBodyText()`/`resolveBodyTextWithAlternate()` in the first
+place (tracking: Julia Amory / NET-A-PORTER; order number: H&M).
+
+Considered wiring it through `resolveBodyText()` to close the gap
+on principle. Chose not to. The input to this call site is always
+a Google system email — a fixed transactional template that
+reliably ships a real plain-text body — not a retailer marketing
+email assembled by whatever ESP that retailer uses, which is where
+the textBody-empty/htmlBody-only asymmetry actually originates in
+every case seen so far. The bug pattern is a retailer-email
+problem; this call site never sees a retailer email.
+
+If a real Gmail-verification parsing failure ever surfaces, this
+decision is cheap to revisit — the wire-through is a two-line
+change, already proven safe by the Item A precedent. Documented so
+a future session doesn't re-open the question on structural-shape
+grounds alone, absent an actual failure.
+
+---
+
 ## 2026-09-04 — Amazon no-box returns are structurally trackingless — represent as first-class state, not "missing tracking"
 
 Context: The 2026-09-04 outbound tracking-failure diagnostic

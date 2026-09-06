@@ -5,6 +5,80 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-06 — Body-text call-site inventory (Item B)
+
+Commit: `98b770f`
+Artifacts: `docs/audits/2026-09-06-body-text-callsite-inventory.md`
+
+Read-only inventory, zero billed Anthropic API calls, zero DB writes, no code
+changed, no deploy (docs-only). Follows Item A (`c30c9fc`, wired
+`parseTracking()`'s two `lib/linkOrder.ts` call sites through
+`resolveBodyText()`) and the history check that raised the question of
+whether other call sites in the repo silently read raw `textBody`/`htmlBody`
+instead of the helper.
+
+**Scope and method:** cataloged every call site in `lib/` and `app/` that
+reads `Email.textBody`/`htmlBody` (or the Postmark webhook's PascalCase
+`TextBody`/`HtmlBody`). `scripts/` footnoted rather than inventoried
+row-by-row — 26 files there touch these fields, all one-off diagnostic/
+backfill/investigation scripts, none wired into any recurring or production
+execution path (confirmed: no `scripts/cron/` or `scripts/production/`
+subdirectory, and nothing under `scripts/` is referenced by `package.json`
+or `vercel.json`'s `crons` array). Tests excluded per spec.
+`lib/emailBodyText.ts` excluded as the implementation under audit, not a
+call site.
+
+**Result: 14 production call sites.** 8 route through `resolveBodyText()`/
+`resolveBodyTextWithAlternate()` (both `lib/linkOrder.ts` tracking sites,
+its orderDate-fallback site, `lib/runExtraction.ts`, `lib/classify.ts`'s
+commerce gate, and three sites in `app/api/inbound/route.ts`). 5 are
+intentional raw reads with no parsing involved: `lib/emailEncryption.ts`'s
+encrypt/decrypt (content-agnostic, opaque ciphertext), the inbound route's
+raw-storage-on-ingest write, the inbound route's "Raw email" admin-debug
+dump, `lib/adminNotify.ts`'s generic notification-body passthrough (no
+conditional logic on content anywhere in that file), and the email detail
+viewer (`app/(app)/emails/[id]/page.tsx`) rendering the original body
+un-resolved, by design. 1 flagged as a structural gap (see below).
+
+**Precedent-dates correction.** The TASKS.md Item B description that spawned
+this task cited HISTORY.md's 2026-06-29 entry as one of "the two prior
+HTML-vs-text fixes that established the precedent." That entry (`d35b19e`)
+is actually "Archive + soft-delete for orders" — unrelated to body-text
+handling. The real precedent chain, confirmed by reading each entry:
+**~2026-05-28** ("Commerce gate body handling fix") and **~2026-06-01**
+("Extraction fallback to htmlBody"), both commit `ffb42be` — the second of
+which created `resolveBodyText()` itself — plus **2026-08-23** (`efd4f43`,
+H&M order-number gap), which added `resolveBodyTextWithAlternate()` without
+changing `resolveBodyText()`'s existing default. The inventory doc carries
+this corrected chain. TASKS.md's Item B description was deliberately left
+unedited — that citation is owner-scope to correct, not something this
+session touched.
+
+**Search-strategy note for any future re-run.** The task's original grep
+spec was case-sensitive for `textBody`/`htmlBody` only, which would have
+missed the Postmark webhook payload's own PascalCase fields
+(`TextBody`/`HtmlBody`) entirely — including the one flagged gap below,
+which lives in the inbound webhook handler. Re-run with a case-insensitive
+`*Body` pattern, not the literal case-sensitive spec.
+
+**Latent-gap disposition (call site #11): flagged, not fixed.**
+`extractVerificationDetails()` (`lib/gmailVerification.ts`, called from
+`app/api/inbound/route.ts:233`) reads raw `payload.TextBody ??
+payload.HtmlBody` — same structural shape as the two confirmed
+production bugs (Julia Amory / NET-A-PORTER tracking, H&M order number)
+that motivated the helper's two-pass-retry variant: it skips
+`resolveBodyText()` and would feed untouched HTML markup into a
+plain-text-shaped regex if `TextBody` ever came back empty. Consciously
+not fixed this session — the input here is a Google system email with a
+fixed template that reliably includes a real plain-text body, not a
+retailer marketing email, where the text-vs-HTML asymmetry is what
+actually bites in practice. See DECISIONS.md's 2026-09-06 entry for the
+reasoning to not re-litigate this next session.
+
+Item B moved to Done in the same commit.
+
+---
+
 ## 2026-09-04 — Outbound tracking-failure diagnostic
 
 Commit: `84050ae`

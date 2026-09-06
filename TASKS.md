@@ -79,36 +79,6 @@
       number where it previously wouldn't have — not yet observed
       against a live inbound email.
 
-- [ ] **Inventory: which email-body parsing call sites in the
-      repo go through resolveBodyText() vs. read raw fields
-      directly? — NEW 2026-09-04, follows from the history
-      check that surfaced tracking as the third call site
-      needing the wire-through and raised the question of
-      whether others also silently do.** Read-only code
-      inspection. Zero model calls, zero DB writes, zero
-      runtime. For each call site that reads email textBody
-      or htmlBody: note file/line, what it does with the
-      content, whether it uses resolveBodyText /
-      resolveBodyTextWithAlternate or raw fields, and
-      (judgment call) whether raw-field usage looks
-      intentional or looks like the same "predates the
-      helper, never revisited" pattern that tracking had.
-      Deliverable: docs/audits/2026-09-XX-body-text-callsite-
-      inventory.md. Explicit non-goal: this is NOT a
-      recommendation to sweep-and-replace. Any decision to
-      fix additional call sites remains opt-in per site,
-      per the 2026-08-23 precedent. The inventory just
-      makes those decisions data-driven instead of
-      accidental.
-      **Explicitly out of scope:** fixing anything the
-      inventory surfaces, modifying resolveBodyText,
-      recommending shared-default changes.
-      **SEQUENCING: do not start until Item A (wire
-      parseTracking() through resolveBodyText()) has shipped
-      and moved to production verification. Owner will kick
-      this off separately — do not begin in the same session
-      as Item A.**
-
 - [ ] **Expand `parseTracking()`'s known-carrier list beyond the
       current four (UPS/USPS/FedEx/DHL) — NEW 2026-09-04, follows
       from the 2026-09-04 tracking audit and a live Veho order
@@ -5656,6 +5626,11 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] Inventoried every email-body call site in the repo (14
+      total) — mapped which go through resolveBodyText() and
+      which read raw fields, flagged one structural gap in the
+      Gmail-verification path that isn't a real bug in practice.
 
 - [x] Diagnosed outbound tracking failures on 12 return-eligible
       orders; 2 fixable via HTML parsing, 4 Amazon no-box
