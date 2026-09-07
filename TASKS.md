@@ -49,6 +49,29 @@
       ingestion-diagnostic.md` — trace, verdict, scope note.
       **Out of scope:** any fix; broader ingestion audit;
       reprocessing anything.
+      **STATUS 2026-09-07: diagnostic complete, doc written.
+      Verdict: ONE bug, not two.** The self-outbound-loop guard
+      (`lib/selfOutboundGuard.ts`, commit `22be2d7`, deployed
+      2026-09-04T00:05 UTC) has an over-broad
+      `header_chain_auto_forward` condition that misfires on
+      *any* Gmail-auto-forwarded email (not just genuine
+      self-loops), because Gmail's own forwarding headers
+      always contain our domain for legitimately forwarded
+      mail too. Confirmed by replaying the real
+      `classifyForwardType`/`detectSelfOutboundLoop` functions
+      against real Postmark headers for all 3 missing emails
+      (Gap 3rd email + both eBay emails found) — all return
+      `isSelfOutbound: true`, as do the 2 already-in-DB Gap
+      emails on the same order (which only succeeded because
+      they predate the guard's deploy). Corrected the task's
+      date assumption: neither missing email is actually from
+      2026-09-02 — Gap 3rd email is 2026-09-04, eBay emails are
+      2026-09-04/09-05. Corroborating signal (not a full
+      audit): 118 `self_outbound_loop` DiscardLog rows
+      2026-09-04 through 2026-09-06, zero before the deploy.
+      **Awaiting owner review — not moved to Done per
+      instruction (diagnostic-only, no fix authorized this
+      session).**
 
 - [ ] **Fix: widen retry trigger in `extractEmailIdentity` from
       `orderNumber == null` to a body-content-dependent-fields
