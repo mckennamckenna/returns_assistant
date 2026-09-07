@@ -32,9 +32,9 @@
 
 ## 🔴 Now
 
-- [ ] **[CODE BUILT + TESTED + PUSHED, LIVE VERIFICATION PENDING]
-      Fix self-outbound guard condition 3 to match its original
-      design spec (sending-address match, not bare-domain
+- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-07, LIVE
+      VERIFICATION PENDING] Fix self-outbound guard condition 3 to
+      match its original design spec (sending-address match, not bare-domain
       match). NEW 2026-09-07, follows from the 2026-09-07
       ingestion + guard-tradeoff diagnostics and a Step 0
       verification investigation (chat-only, no doc — enumerated
@@ -75,10 +75,12 @@
       session (Step 0 investigation, fix, and verification all
       read-only against code/tests/cached data, or a pure
       code+test change).
-      **Not moved to Done** — pushed but not yet verified live in
-      production per this repo's "done means deployed" rule; needs
-      a real inbound Gmail-forwarded commerce email to arrive
-      post-deploy and confirm it's no longer discarded.
+      **Not moved to Done** — deployed (confirmed via `vercel
+      inspect app.myreturnwindow.com`, `dpl_BffUGsrmXm7ANw7U5XUQEwxthyWP`,
+      2026-09-07) but not yet verified against real traffic per
+      this repo's "done means deployed" rule; needs a real inbound
+      Gmail-forwarded commerce email to arrive post-deploy and
+      confirm it's no longer discarded.
       **Follow-ups (from the paired diagnostics, still open):**
       recovery of the ~85+ already-lost emails (content not
       retained anywhere); `DiscardLog` schema addition
