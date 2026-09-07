@@ -32,6 +32,25 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic: verify 22be2d7's original trigger + size the
+      current guard's discard composition. NEW 2026-09-07,
+      follows from the 2026-09-07 Postmark ingestion diagnostic
+      (verdict: guard over-catches Gmail-forwarded commerce
+      emails).**
+      Owner recollection: guard was added to stop the app's own
+      return-window alert emails being ingested as retailer
+      emails and rewriting real orderDates in-place. If true,
+      revert is unsafe (trades logged data-loss for silent
+      data-corruption). Verify before recommending any fix
+      direction.
+      **Deliverable:** `docs/audits/2026-09-07-guard-tradeoff-
+      diagnostic.md` — trigger verification, DiscardLog
+      composition sample, tradeoff sizing.
+      **Out of scope:** any fix; any revert; any change to
+      lib/selfOutboundGuard.ts; recovery of already-discarded
+      emails (separate follow-up).
+      **See paired Claude Code prompt.**
+
 - [ ] **Diagnostic: emails visible in Postmark but missing
       from DB — Gap 3rd email for Order 1RYJR48, plus an eBay
       order from same day (2026-09-02). NEW 2026-09-06,
