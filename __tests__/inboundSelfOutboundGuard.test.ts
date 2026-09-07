@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 // Self-email ingestion loop guard (TASKS.md 🔴 Now, 2026-09-02) — users'
@@ -172,5 +172,61 @@ describe("POST /api/inbound — self-outbound-loop guard", () => {
     expect(response.status).toBe(200);
     expect(fakeEmailTable.rows).toHaveLength(1);
     expect(mockPrisma.discardLog.create).not.toHaveBeenCalledWith({ data: { reason: "self_outbound_loop" } });
+  });
+
+  // FIX 2026-09-07 (docs/audits/2026-09-07-postmark-ingestion-diagnostic.md,
+  // 2026-09-07-guard-tradeoff-diagnostic.md): condition 3 used to match on
+  // OWN_ROOT_DOMAIN anywhere in any header, which fired on every
+  // Gmail-auto-forwarded email routed to this app — the forwarding headers
+  // (Return-Path VERP, X-Forwarded-To) always contain our domain as the
+  // forward *destination*, self-loop or not. These cases were previously
+  // (incorrectly) rejected; narrowing condition 3 to our own sending
+  // addresses fixes them without weakening the loop-catching conditions
+  // above.
+  describe("condition 3 (header_chain_auto_forward) — narrowed to sending addresses, not bare domain", () => {
+    beforeEach(() => {
+      vi.stubEnv("REMINDER_FROM_EMAIL", "reminders@myreturnwindow.com");
+      vi.stubEnv("LOGIN_FROM_EMAIL", "hello@myreturnwindow.com");
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("does NOT reject a real Gmail-auto-forwarded retailer email whose forwarding headers merely mention our domain as the destination", async () => {
+      const response = await POST(
+        makeRequest(
+          "sayhello@mail3.warbyparker.com",
+          [
+            { Name: "Return-Path", Value: "<user+caf_=tok_abc123=mail.myreturnwindow.com@gmail.com>" },
+            { Name: "X-Forwarded-For", Value: "user@gmail.com tok_abc123@mail.myreturnwindow.com" },
+            { Name: "X-Forwarded-To", Value: "tok_abc123@mail.myreturnwindow.com" },
+          ],
+          { Subject: "We received your order" },
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(fakeEmailTable.rows).toHaveLength(1);
+      expect(mockPrisma.discardLog.create).not.toHaveBeenCalledWith({ data: { reason: "self_outbound_loop" } });
+      expect(mockRunExtraction).toHaveBeenCalledTimes(1);
+    });
+
+    it("still rejects a genuine loop whose From/Return-Path got rewritten but whose header chain carries one of our own sending addresses", async () => {
+      const response = await POST(
+        makeRequest(
+          "someone@intermediary-relay.example.com",
+          [
+            { Name: "Return-Path", Value: "<someone@intermediary-relay.example.com>" },
+            { Name: "X-Forwarded-For", Value: "user@gmail.com tok_abc123@mail.myreturnwindow.com" },
+            { Name: "Received", Value: "from mta.myreturnwindow.com by relay for reminders@myreturnwindow.com" },
+          ],
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(fakeEmailTable.rows).toHaveLength(0);
+      expect(mockPrisma.discardLog.create).toHaveBeenCalledWith({ data: { reason: "self_outbound_loop" } });
+    });
   });
 });

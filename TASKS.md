@@ -32,6 +32,60 @@
 
 ## 🔴 Now
 
+- [ ] **[CODE BUILT + TESTED + PUSHED, LIVE VERIFICATION PENDING]
+      Fix self-outbound guard condition 3 to match its original
+      design spec (sending-address match, not bare-domain
+      match). NEW 2026-09-07, follows from the 2026-09-07
+      ingestion + guard-tradeoff diagnostics and a Step 0
+      verification investigation (chat-only, no doc — enumerated
+      every `sendEmail()` call site in the codebase and confirmed
+      against live production env values).**
+      **Step 0 enumeration (blocking gate, per owner's
+      instruction):** exactly `reminders@myreturnwindow.com`
+      (`REMINDER_FROM_EMAIL` — reminders, refund-check-in,
+      weekly-coverage, weekly-digest, adminNotify) and
+      `hello@myreturnwindow.com` (`LOGIN_FROM_EMAIL`, falling
+      back to `REMINDER_FROM_EMAIL` — magic-link login). Confirmed
+      `lib/postmark.ts` is the sole Postmark-send choke point
+      (no other file calls the Postmark API directly). A third
+      env var, `REMINDER_EMAIL`, exists in production but is
+      unused as a `from` address anywhere — only read in
+      `scripts/backfill-owner-user.ts` to identify the owner's
+      own recipient email, not a sending address. Matched the
+      owner's recollection exactly — proceeded with the fix per
+      the owner's own decision rule.
+      **Fix:** `lib/selfOutboundGuard.ts`'s condition 3
+      (`header_chain_auto_forward`) narrowed from "any header
+      contains `OWN_ROOT_DOMAIN`" to "any header contains one of
+      our own sending addresses" (`ownSendingAddresses()`, reads
+      `REMINDER_FROM_EMAIL`/`LOGIN_FROM_EMAIL` from env, not
+      hardcoded). Conditions 1/2 (`from_domain`,
+      `return_path_domain`) untouched — not in question.
+      **Verification:** 824/824 tests passing (2 new cases added
+      to `__tests__/inboundSelfOutboundGuard.test.ts` — a real
+      Gmail-forwarded retailer email no longer rejected; a
+      hypothetical rewritten-From loop still caught via a sending
+      address elsewhere in the header chain). `npm run build`
+      clean. Replayed the real, deployed
+      `detectSelfOutboundLoop()` against the guard-tradeoff
+      diagnostic's cached 87-message pool (real Postmark
+      payloads, real production env values): **85/85 misfires
+      fixed, 2/2 genuine loops still caught, 0 regressions.**
+      Zero Anthropic API calls, zero DB writes throughout this
+      session (Step 0 investigation, fix, and verification all
+      read-only against code/tests/cached data, or a pure
+      code+test change).
+      **Not moved to Done** — pushed but not yet verified live in
+      production per this repo's "done means deployed" rule; needs
+      a real inbound Gmail-forwarded commerce email to arrive
+      post-deploy and confirm it's no longer discarded.
+      **Follow-ups (from the paired diagnostics, still open):**
+      recovery of the ~85+ already-lost emails (content not
+      retained anywhere); `DiscardLog` schema addition
+      (`messageId`) for faster future correlation; the deferred
+      `orderDate`-corruption question from the tradeoff
+      diagnostic (would need a gated model-call investigation).
+
 - [ ] **Diagnostic: verify 22be2d7's original trigger + size the
       current guard's discard composition. NEW 2026-09-07,
       follows from the 2026-09-07 Postmark ingestion diagnostic
