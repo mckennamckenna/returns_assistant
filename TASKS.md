@@ -91,46 +91,28 @@
       **Awaiting owner real-world verification — not moved to
       Done.**
 
-- [ ] **Spot-check: known Gap Inc. orders (Old Navy + additional
-      Gap orders owner knows are in the DB) to test whether the
-      2026-09-06 blast-radius census undercounted the affected
-      population. NEW 2026-09-06, follows from the 2026-09-06
-      retry-trigger blast-radius census (verdict: n=1 across 158
-      order confirmations) and owner's observation during
-      fix-scoping that additional Gap Inc. orders exist in the
-      DB that the census didn't flag.**
-      Gap Inc. brands (Gap, Banana Republic, Old Navy) share
-      email infrastructure and template style, so multiple
-      orders from these brands should plausibly hit the same
-      mechanism. Census's predicate ("all four
-      body-content-dependent fields null") may be too strict —
-      an order could hit the same mechanism but get partial
-      rescue from a fallback path, leaving at least one field
-      populated and dropping out of the census's shape.
-      **Two possibilities to distinguish:** (1) the other Gap
-      Inc. orders extracted cleanly (all fields populated) — the
-      census caught the real affected count and #1RYJR48 is a
-      template edge case even within Gap Inc.; (2) the other
-      Gap Inc. orders landed partially (some fields populated,
-      some null, orderNumber present) — the census's predicate
-      was too strict and the affected population is larger than
-      n=1.
-      **This item is the spot-check only** — no re-run of the
-      census with a wider predicate, no fix, no fix scoping.
-      Fix decisions wait on what this returns.
-      **Explicitly out of scope:** any fix; any code change;
-      any re-run of the census; any reprocessing of any email;
-      any model call; a broader predicate-widening query (that
-      would be a re-census, not a spot-check).
-      **Deliverable:** `docs/audits/2026-09-06-gap-inc-spot-
-      check.md` — for each known Gap Inc. order the owner
-      identifies: retailer, orderNumber, extraction state
-      (which fields populated, which null), extractionNotes,
-      textBody char count, and a per-order verdict (clean
-      extraction / partial with mechanism fingerprint / partial
-      from unrelated cause). Summary verdict: does the census's
-      n=1 hold, or is the affected population larger, and if
-      larger, by roughly what factor across the known set.
+- [ ] **Diagnostic: `Order.orderDate` for 1RYJR48 is set to
+      the receivedAt of its linked order confirmation, but
+      labeled `orderDateSource: "extracted"` and
+      `orderDateEstimated: false` — labels that should mean
+      "real date from email content." NEW 2026-09-06,
+      follows from owner inbox verification of the
+      2026-09-06 Order-side orderDate check.**
+      Owner confirms the confirmation email and the two
+      follow-up shipping emails all lack a stated order
+      date, yet the Order has a non-null "extracted"
+      orderDate matching the confirmation's arrival time to
+      the second. Diagnostic to trace which code path wrote
+      it and whether the labels are truthful — same
+      mechanism may explain the other 3 Gap Orders in the
+      earlier check.
+      **Deliverable:** `docs/audits/2026-09-XX-orderdate-
+      origin-diagnostic.md` — trace, verdict, scope note
+      for the fix.
+      **Out of scope:** any fix; broader census across
+      Orders (scoped to 1RYJR48).
+      **See paired Claude Code prompt for execution
+      detail.**
 
 - [ ] **Diagnostic: blast-radius census for the retry-trigger
       proxy-signal failure surfaced by the 2026-09-06 Gap
@@ -5836,6 +5818,13 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] Spot-checked the 5 known Gap Inc. orders against the
+      2026-09-06 retry-trigger blast-radius census: n=1 does
+      not hold, 4 of 5 show the mechanism fingerprint (masked
+      from the census by an unrelated returnWindowDays web-
+      lookup fallback). See docs/audits/2026-09-06-gap-inc-
+      spot-check.md. `0197ab8`
 
 - [x] Inventoried every email-body call site in the repo (14
       total) — mapped which go through resolveBodyText() and
