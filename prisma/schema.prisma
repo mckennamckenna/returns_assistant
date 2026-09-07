@@ -498,6 +498,30 @@ model DiscardLog {
   occurredAt DateTime @default(now())
 }
 
+// Cross-run cache for the 2026-09-07 self-outbound-guard recovery's dry-run
+// pass — keyed by Postmark messageId, holds the isCommerceEmail (Haiku) and
+// base extractEmailIdentity (Sonnet, including any retry pass) results so a
+// later real recovery run over the same messageIds can skip re-billing
+// those two calls. Deliberately does NOT cache finalizeExtraction's
+// policy-lookup stage — that stage's outcome depends on which Order (if
+// any) the email would match, and Order state at real-recovery time can
+// differ from the dry-run's frozen snapshot (earlier emails in the same
+// recovery pass may have already changed the relevant Order's
+// returnWindowDays) — reusing a stale policy-lookup result there risks
+// being wrong, not just redundant. Scoped to this one recovery effort, not
+// a general-purpose extraction cache — safe to drop once recovery is done.
+// NO TTL / cleanup job as of 2026-09-07 — rows persist indefinitely unless
+// someone drops them by hand. TASKS.md carries a follow-up to either drop
+// this table or add a cleanup script once the recovery effort concludes;
+// don't let this become an unexplained table months from now.
+model DryRunCache {
+  id               String   @id @default(cuid())
+  messageId        String   @unique
+  isCommerce       Boolean
+  extractionResult Json? // full RawExtraction from extractEmailIdentity, null when isCommerce is false
+  createdAt        DateTime @default(now())
+}
+
 // Fixed-window rate-limit counters (SECURITY_AUDIT.md H1). `key` encodes both
 // the scope and the identity being limited (e.g. "inbound:<inboundToken>",
 // "beta_signup_ip:<ip>", "magic_link_email:<email>") so every caller of

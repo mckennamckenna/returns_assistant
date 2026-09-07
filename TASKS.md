@@ -3809,6 +3809,19 @@
 
 ## 🟡 Next
 
+- [ ] **Follow-up: drop `DryRunCache` table (or add a cleanup
+      script) once the self-outbound-guard recovery effort
+      concludes. NEW 2026-09-07, added alongside the table itself
+      (docs/audits/2026-09-07-recovery-dryrun.md).**
+      Cross-run cache for the recovery dry-run's `isCommerceEmail`/
+      `extractEmailIdentity` results, keyed by messageId — no TTL,
+      no cleanup job. Scoped to this one recovery effort, not a
+      general-purpose cache. Left to persist indefinitely on
+      purpose (recovery may span multiple sessions), but don't let
+      it become an unexplained table months from now — drop it or
+      wire up a cleanup once recovery for all affected users is
+      done and hand-verified.
+
 - [ ] **Fix + backfill: `linkOrder.ts:771` writes
       `orderDateSource: "extracted"` when anchor came from
       `receivedAt` fallback — label is not truthful. NEW

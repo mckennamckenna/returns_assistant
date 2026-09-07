@@ -11,6 +11,18 @@ import { activeOrderFilter } from "@/lib/orderFilters";
 import { OPEN_STATUSES } from "@/lib/alerts";
 import { logActionWithRetry } from "@/lib/actionLog";
 
+// 2026-09-07 self-outbound-guard recovery dry-run support. When a sink is
+// passed to mergeEmailIntoOrder/createOrderFromEmail, the function computes
+// the exact same values it always would, but hands them to the sink instead
+// of writing them — no prisma.order.update/create call happens. Absent
+// (the default for every existing caller), behavior is unchanged. Kept as
+// a durable capability, not removed after this recovery — see
+// docs/audits/2026-09-07-recovery-dryrun.md.
+export interface DryRunSink {
+  recordMerge(orderId: string, before: Order, wouldWriteData: Record<string, unknown>): void;
+  recordNewOrder(userId: string, wouldWriteData: Record<string, unknown>): void;
+}
+
 // Narrow field sets for functions that take a full Email but only read a
 // handful of fields — lets their callers `select` instead of fetching whole
 // rows (Email carries encrypted textBody/htmlBody/rawJson, avg ~438KB/row
@@ -825,7 +837,12 @@ function resolveExtractedOrderDate(email: Pick<MergeableEmail, "emailType" | "or
 // extraction, per lib/extract.ts, but has no reliable relationship to
 // order-placement time (same reasoning that already excludes those types
 // from applyFallbackOrderDate's separate receivedAt-based fallback below).
-export async function mergeEmailIntoOrder(existing: Order, email: MergeableEmail, returnPortalUrl: string | null): Promise<string> {
+export async function mergeEmailIntoOrder(
+  existing: Order,
+  email: MergeableEmail,
+  returnPortalUrl: string | null,
+  dryRunSink?: DryRunSink,
+): Promise<string> {
   const emailLineItems = asLineItemArray(email.lineItems);
   const existingOrderDateSource = existing.orderDateSource ?? "unknown";
   const isEstablishingEmailType = ALLOWED_FALLBACK_EMAIL_TYPES.has(email.emailType ?? "");
@@ -851,33 +868,37 @@ export async function mergeEmailIntoOrder(existing: Order, email: MergeableEmail
     returnWindowStartsFrom: mergedReturnWindowStartsFrom as "order_date" | "delivery_date" | null,
   });
 
-  const updated = await prisma.order.update({
-    where: { id: existing.id },
-    data: {
-      orderDate: mergedOrderDate,
-      orderDateSource: mergedOrderDateSource,
-      // Clears whenever orderDate actually changes to a genuinely
-      // extracted value this merge (orderDateWillChange) — a real stated
-      // date, not inferred, so orderDateEstimated should read false from
-      // that point on, whether this is the FIRST time orderDate was ever
-      // set or a later correction of a fallback guess. Otherwise
-      // (orderDate isn't moving, or it's already "extracted" and staying
-      // put) the existing flag is left exactly as it was.
-      orderDateEstimated: orderDateWillChange ? false : existing.orderDateEstimated,
-      deliveryDate: mergedDeliveryDate,
-      estimatedDeliveryDate: mergedEstimatedDeliveryDate,
-      deliveredAt: mergedDeliveredAt,
-      returnWindowDays: mergedReturnWindowDays,
-      returnWindowStartsFrom: mergedReturnWindowStartsFrom,
-      returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
-      deadlineIsEstimated,
-      policySource: mapPolicySource(email.policySource) ?? existing.policySource,
-      orderTotal: mergedOrderTotal,
-      orderCurrency: email.orderCurrency ?? existing.orderCurrency,
-      lineItems: mergedLineItems as object,
-      returnPortalUrl: normalizeReturnPortalUrl(returnPortalUrl) ?? normalizeReturnPortalUrl(existing.returnPortalUrl),
-    },
-  });
+  const data = {
+    orderDate: mergedOrderDate,
+    orderDateSource: mergedOrderDateSource,
+    // Clears whenever orderDate actually changes to a genuinely
+    // extracted value this merge (orderDateWillChange) — a real stated
+    // date, not inferred, so orderDateEstimated should read false from
+    // that point on, whether this is the FIRST time orderDate was ever
+    // set or a later correction of a fallback guess. Otherwise
+    // (orderDate isn't moving, or it's already "extracted" and staying
+    // put) the existing flag is left exactly as it was.
+    orderDateEstimated: orderDateWillChange ? false : existing.orderDateEstimated,
+    deliveryDate: mergedDeliveryDate,
+    estimatedDeliveryDate: mergedEstimatedDeliveryDate,
+    deliveredAt: mergedDeliveredAt,
+    returnWindowDays: mergedReturnWindowDays,
+    returnWindowStartsFrom: mergedReturnWindowStartsFrom,
+    returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
+    deadlineIsEstimated,
+    policySource: mapPolicySource(email.policySource) ?? existing.policySource,
+    orderTotal: mergedOrderTotal,
+    orderCurrency: email.orderCurrency ?? existing.orderCurrency,
+    lineItems: mergedLineItems as object,
+    returnPortalUrl: normalizeReturnPortalUrl(returnPortalUrl) ?? normalizeReturnPortalUrl(existing.returnPortalUrl),
+  };
+
+  if (dryRunSink) {
+    dryRunSink.recordMerge(existing.id, existing, data);
+    return existing.id;
+  }
+
+  const updated = await prisma.order.update({ where: { id: existing.id }, data });
   return updated.id;
 }
 
@@ -889,42 +910,48 @@ export async function createOrderFromEmail(
   userId: string,
   email: NewOrderEmail,
   returnPortalUrl: string | null,
+  dryRunSink?: DryRunSink,
 ): Promise<string> {
   const extractedOrderDate = resolveExtractedOrderDate(email);
-  const created = await prisma.order.create({
-    data: {
-      userId,
-      retailer: email.retailer,
-      orderNumber: email.orderNumber,
-      orderDate: extractedOrderDate,
-      // TASKS.md 2026-08-27 ("orderDate write-once locks in the wrong
-      // email's date"), diagnosis commit 179389e. The triggering email's
-      // own extracted signal (AI orderDate, or — for an order_confirmation
-      // only — the forward resolver's anchorDate, per
-      // resolveExtractedOrderDate above) is authoritative ("extracted") —
-      // leave orderDateSource unset (falls to the schema default,
-      // 'unknown') when there's no extracted value yet, since
-      // applyFallbackOrderDate (called immediately after this, in
-      // linkEmailToOrder) will set both orderDate and
-      // orderDateSource:"fallback" together if its heuristic fires. Never
-      // write "fallback" here directly — that would be a lie if
-      // applyFallbackOrderDate's own allowed-type gate then declines to
-      // fire for this email's type.
-      orderDateSource: extractedOrderDate ? "extracted" : undefined,
-      deliveryDate: email.deliveryDate,
-      estimatedDeliveryDate: email.estimatedDeliveryDate,
-      deliveredAt: email.deliveredAt,
-      returnWindowDays: email.returnWindowDays,
-      returnWindowStartsFrom: email.returnWindowStartsFrom,
-      returnDeadline: email.returnDeadline,
-      deadlineIsEstimated: email.deadlineIsEstimated,
-      policySource: mapPolicySource(email.policySource),
-      orderTotal: email.orderTotal,
-      orderCurrency: email.orderCurrency,
-      lineItems: asLineItemArray(email.lineItems) as object,
-      returnPortalUrl: normalizeReturnPortalUrl(returnPortalUrl),
-    },
-  });
+  const data = {
+    userId,
+    retailer: email.retailer,
+    orderNumber: email.orderNumber,
+    orderDate: extractedOrderDate,
+    // TASKS.md 2026-08-27 ("orderDate write-once locks in the wrong
+    // email's date"), diagnosis commit 179389e. The triggering email's
+    // own extracted signal (AI orderDate, or — for an order_confirmation
+    // only — the forward resolver's anchorDate, per
+    // resolveExtractedOrderDate above) is authoritative ("extracted") —
+    // leave orderDateSource unset (falls to the schema default,
+    // 'unknown') when there's no extracted value yet, since
+    // applyFallbackOrderDate (called immediately after this, in
+    // linkEmailToOrder) will set both orderDate and
+    // orderDateSource:"fallback" together if its heuristic fires. Never
+    // write "fallback" here directly — that would be a lie if
+    // applyFallbackOrderDate's own allowed-type gate then declines to
+    // fire for this email's type.
+    orderDateSource: extractedOrderDate ? "extracted" : undefined,
+    deliveryDate: email.deliveryDate,
+    estimatedDeliveryDate: email.estimatedDeliveryDate,
+    deliveredAt: email.deliveredAt,
+    returnWindowDays: email.returnWindowDays,
+    returnWindowStartsFrom: email.returnWindowStartsFrom,
+    returnDeadline: email.returnDeadline,
+    deadlineIsEstimated: email.deadlineIsEstimated,
+    policySource: mapPolicySource(email.policySource),
+    orderTotal: email.orderTotal,
+    orderCurrency: email.orderCurrency,
+    lineItems: asLineItemArray(email.lineItems) as object,
+    returnPortalUrl: normalizeReturnPortalUrl(returnPortalUrl),
+  };
+
+  if (dryRunSink) {
+    dryRunSink.recordNewOrder(userId, data);
+    return "DRYRUN_NEW_ORDER";
+  }
+
+  const created = await prisma.order.create({ data });
   return created.id;
 }
 
