@@ -3667,6 +3667,25 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Diagnostic: emails visible in Postmark but missing
+      from DB — Gap 3rd email for Order 1RYJR48, plus an eBay
+      order from same day (2026-09-02). NEW 2026-09-06,
+      surfaced during 2026-09-06 orderDate origin diagnostic
+      (Gap discrepancy noted) and owner inbox review (eBay
+      order missing entirely).**
+      Two instances, same day, different retailers — could be
+      one ingestion bug or two independent ones. High-stakes:
+      the app's core promise depends on Postmark → DB
+      ingestion working. Diagnostic to trace what happened at
+      Postmark receipt time for both, before recommending
+      anything.
+      **Deliverable:** `docs/audits/2026-09-XX-postmark-
+      ingestion-diagnostic.md` — trace, verdict, scope note.
+      **Out of scope:** any fix; broader ingestion audit;
+      reprocessing anything.
+      **See paired Claude Code prompt (to be drafted
+      tomorrow).**
+
 - [ ] **Fix + backfill: `linkOrder.ts:771` writes
       `orderDateSource: "extracted"` when anchor came from
       `receivedAt` fallback — label is not truthful. NEW
