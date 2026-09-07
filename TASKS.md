@@ -50,6 +50,31 @@
       lib/selfOutboundGuard.ts; recovery of already-discarded
       emails (separate follow-up).
       **See paired Claude Code prompt.**
+      **STATUS 2026-09-07: diagnostic complete, doc written.**
+      Trigger verification: documented (commit 22be2d7 +
+      TASKS.md + investigations/2026-09-02-extraction-root-
+      cause/) as `returnPortalUrl` corruption only (3 orders,
+      90-day lookback), all 3 caught via the guard's
+      `from_domain` check — never via `header_chain_auto_forward`,
+      which the commit's own comment calls speculative/"not
+      expected to fire." **No documented link to `orderDate`
+      found anywhere** — owner's recollection doesn't match the
+      written record; a separate, unrelated `orderDate`
+      write-once bug (TASKS.md ~line 6631, 2026-08-16) may be
+      what's being recalled instead. DiscardLog composition:
+      of 87 uniquely-matched `self_outbound_loop` discards
+      (2026-09-04–09-06), **85 (97.7%) are misfires** (real
+      retailer commerce mail caught by `header_chain_auto_
+      forward`), **2 (2.3%) are genuine loops** (both
+      `reminders@myreturnwindow.com`, caught by `from_domain`,
+      the check not in question). Zero orders currently show
+      self-domain `returnPortalUrl` corruption (regression
+      check clean). Net: the guard's confirmed value is fully
+      covered by its first condition; its third condition's
+      demonstrated cost (85+ real emails lost in 3 days) isn't
+      offset by any confirmed unique catch. No fix direction
+      recommended — numbers only, per scope.
+      **Awaiting owner review — not moved to Done.**
 
 - [ ] **Diagnostic: emails visible in Postmark but missing
       from DB — Gap 3rd email for Order 1RYJR48, plus an eBay
