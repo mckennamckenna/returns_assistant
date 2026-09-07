@@ -91,111 +91,6 @@
       **Awaiting owner real-world verification — not moved to
       Done.**
 
-- [ ] **Diagnostic: `Order.orderDate` for 1RYJR48 is set to
-      the receivedAt of its linked order confirmation, but
-      labeled `orderDateSource: "extracted"` and
-      `orderDateEstimated: false` — labels that should mean
-      "real date from email content." NEW 2026-09-06,
-      follows from owner inbox verification of the
-      2026-09-06 Order-side orderDate check.**
-      Owner confirms the confirmation email and the two
-      follow-up shipping emails all lack a stated order
-      date, yet the Order has a non-null "extracted"
-      orderDate matching the confirmation's arrival time to
-      the second. Diagnostic to trace which code path wrote
-      it and whether the labels are truthful — same
-      mechanism may explain the other 3 Gap Orders in the
-      earlier check.
-      **Deliverable:** `docs/audits/2026-09-XX-orderdate-
-      origin-diagnostic.md` — trace, verdict, scope note
-      for the fix.
-      **Out of scope:** any fix; broader census across
-      Orders (scoped to 1RYJR48).
-      **See paired Claude Code prompt for execution
-      detail.**
-
-- [ ] **Diagnostic: blast-radius census for the retry-trigger
-      proxy-signal failure surfaced by the 2026-09-06 Gap
-      extraction diagnostic. NEW 2026-09-06, follows from the
-      2026-09-06 Gap diagnostic (verdict: retry trigger gates
-      on `orderNumber == null`, which a subject-line-sourced
-      order number silently satisfies without the body pass
-      having usable content).**
-      Gap surfaced this loudly because its `textBody` is pure
-      branding AND its subject line contains the order number.
-      Theoretically the same failure mode can hit any retailer
-      that (a) supplies `orderNumber`, `retailer`, or
-      `emailType` from a non-body source (subject line, sender
-      domain, Haiku classifier) and (b) has a body pass 1 saw
-      that was thin enough to yield no other fields. The
-      visible population is probably smaller than the actual
-      affected population — orders that got `orderNumber` from
-      subject and lost every body-content-dependent field may
-      not be tripping `needsReview` reliably, which means the
-      coverage-check net wouldn't surface them either.
-      **Census question (broader than "Gap-shape"):** how many
-      existing orders show the pattern "gate-signal field
-      present + body-content-dependent fields all null" —
-      across all retailers, both inside and outside
-      `needsReview`. Also: retailer distribution (Gap-only or
-      systemic?) and the silent-slice count (orders in the
-      shape but NOT flagged for review).
-      **This item is the census only** — no fix, no fix
-      scoping. Fix scoping is a separate follow-up item after
-      the census lands.
-      **Explicitly out of scope:** any fix; any code change to
-      `resolveBodyText`, `resolveBodyTextWithAlternate`,
-      `runExtraction.ts`, `extractEmailIdentity`, or the H&M
-      retry trigger; reprocessing any email; any model call;
-      backfill of any kind.
-      **Deliverable:** `docs/audits/2026-09-06-retry-trigger-
-      blast-radius-census.md` — baseline population,
-      pattern-match count with retailer breakdown, split by
-      `needsReview` state, silent-slice count and its retailer
-      distribution, and a spot-check of 3–5 non-Gap examples
-      confirming the shape holds (or doesn't) beyond Gap. No
-      fix framing — that's the next item.
-
-- [ ] **Diagnostic: Gap order confirmation (#1RYJR48, forwarded
-      2026-09-02) — extraction came back nearly-blank (order date,
-      items, prices, totals, return policy all missing; confidence
-      low; "Needs Review") despite the viewer showing full order
-      data. NEW 2026-09-06, follows from the 2026-09-06 body-text
-      call-site inventory (call site #5, AI extraction path,
-      marked "helper = safe" — this case suggests that verdict
-      was too quick).**
-      Same shape as the three prior HTML-vs-text bugs (commerce
-      classification ~2026-05-28, H&M order-number 2026-08-23,
-      tracking 2026-09-04). But the AI extraction call site already
-      routes through `resolveBodyTextWithAlternate()` — the
-      two-pass retry added by `efd4f43` specifically to fix the
-      H&M case — so the mechanism that's supposed to catch this
-      shape isn't catching Gap.
-      **Four hypotheses on the table:** (1) both passes ran but
-      html→text conversion stripped the real data down to
-      boilerplate-looking output; (2) retry didn't trigger — the
-      "pass 1 insufficient" signal doesn't fire for this email
-      shape; (3) `textBody` and `htmlBody` were both near-empty
-      at ingestion and the viewer is rendering from a different
-      source than the extractor saw; (4) the H&M fix is narrower
-      than the inventory treated it as (scoped to a specific
-      field/condition Gap-shaped data doesn't hit).
-      **This item is the diagnostic only** — determine which
-      hypothesis is right, produce a written finding, stop. A fix
-      is a separate follow-up item, to be scoped after the
-      diagnostic lands.
-      **Explicitly out of scope:** any fix; any code change to
-      `resolveBodyText`, `resolveBodyTextWithAlternate`, or
-      `runExtraction.ts`; reprocessing #1RYJR48 or any other
-      email; any model call. Read-only means no DB writes AND
-      zero billed API calls here.
-      **Deliverable:** `docs/audits/2026-09-06-gap-extraction-
-      diagnostic.md` — one-paragraph summary, one section per
-      diagnostic step with raw findings, verdict on which
-      hypothesis (or "something else"), and a one-paragraph
-      scope note framing what a fix would need to address
-      (framing only, not a fix recommendation).
-
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-05, LIVE
       VERIFICATION PENDING] Wire parseTracking() call sites through
       resolveBodyText() to close the HTML-only tracking
@@ -3772,6 +3667,36 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+- [ ] **Fix + backfill: `linkOrder.ts:771` writes
+      `orderDateSource: "extracted"` when anchor came from
+      `receivedAt` fallback — label is not truthful. NEW
+      2026-09-06, follows from 2026-09-06 orderDate origin
+      diagnostic. Slated as tomorrow's 🔴 Now.**
+      Two-layer bug: anchor resolver honestly falls back to
+      `receivedAt` (labels source correctly), then linkOrder
+      launders it as "extracted" without checking `anchorSource`.
+      Same signal-as-proxy shape as prior mechanism bugs this
+      week (see Decisions log, 2026-09-06). Fix needs a small
+      downstream-readers census (who reads `orderDateSource` /
+      `orderDateEstimated` as a trust signal) before locking in
+      label/estimated behavior. Mechanism is retailer-agnostic;
+      blast-radius likely wider than the 4 Gap Orders.
+      **Deliverable:** fix in `lib/linkOrder.ts` + backfill of
+      mislabeled Orders + audit doc.
+      **Out of scope:** any change to extraction, anchor
+      resolver, or `applyFallbackOrderDate`.
+      **See paired Claude Code prompt (to be drafted
+      tomorrow).**
+
+- [ ] **Diagnostic: DB shows 2 linked emails for Order
+      1RYJR48, owner recalls 3 in inbox (confirmation + 2
+      shipping). NEW 2026-09-06, follows from 2026-09-06
+      orderDate origin diagnostic (noted, not chased).**
+      Could be a linking failure, an ingestion failure, or
+      an inbox miscount. Small check.
+      **Deliverable:** short written finding.
+      **Out of scope:** any fix; broader linking audit.
+
 - [ ] **Diagnostic: Monos order shows `needsReview: true` in DB
       but Kept/Archive in the app UI — states shouldn't
       disagree for the same order. NEW 2026-09-06, surfaced
@@ -5818,6 +5743,22 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Diagnostic: Gap extraction #1RYJR48 — retry didn't
+      fire because orderNumber came from subject line,
+      satisfying the gate before the retry could see the
+      thin body. 2026-09-06.** See
+      `docs/audits/2026-09-06-gap-extraction-diagnostic.md`.
+
+- [x] **Diagnostic: blast-radius census for retry-trigger
+      failure — n=1 in initial census, corrected by Gap Inc.
+      spot-check. 2026-09-06.** See
+      `docs/audits/2026-09-06-retry-trigger-blast-radius-census.md`.
+
+- [x] **Diagnostic: `Order.orderDate` for 1RYJR48 — "extracted"
+      label not truthful, value is receivedAt fallback laundered
+      through `linkOrder.ts:771`. 2026-09-06.** See
+      `docs/audits/2026-09-06-orderdate-origin-diagnostic.md`.
 
 - [x] Spot-checked the 5 known Gap Inc. orders against the
       2026-09-06 retry-trigger blast-radius census: n=1 does

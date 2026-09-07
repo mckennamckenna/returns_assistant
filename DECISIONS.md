@@ -697,3 +697,57 @@ in `TASKS.md`'s Watching section the same day as this decision.
 OAuth remains the suspected real fix, per the 2026-07-21 carrier-link-resolve
 probe close-out — tracked as its own future initiative, not a revival of this
 mechanism.
+
+---
+
+## 2026-09-06 — Signal-as-proxy is a recurring failure shape in this codebase, not a coincidence
+
+Documenting so we recognize it earlier.
+
+Pattern: a predicate gates behavior on presence/absence of a signal (field
+being null, order number appearing, flag being set). The gate assumes the
+signal correlates with a semantic condition (body was extracted, mechanism
+fired, work was intentional). Fails silently whenever an independent path can
+satisfy the signal without the semantic condition holding.
+
+Five instances this week:
+1. Extraction retry gate: `orderNumber != null` as proxy for "body was
+   usable." Broken by subject line supplying orderNumber independently
+   (Gap).
+2. Blast-radius census predicate: all four body-content fields null as
+   proxy for "mechanism-affected." Broken by web-lookup independently
+   populating returnWindowDays.
+3. Claude Code session-warm heuristic: rich text pasted as proxy for
+   "owner intended to execute." Broken by wrong-window paste of a rich Now
+   entry.
+4. TASKS.md Now entry verbosity as proxy for scope discipline. Broken by
+   the paired Claude Code prompt actually being where scope discipline
+   lives.
+5. `linkOrder.ts:771` orderDate mislabel: presence of `anchorDate` for
+   `order_confirmation` as proxy for "real extracted date." Broken by
+   `anchorDate` being a `received_at` fallback, unchecked because
+   `anchorSource` isn't read.
+
+Heuristic: when writing a predicate that gates behavior on a field, ask
+"what other paths could set this field?" and "does my gate hold if those
+paths set it?" If either answer is uncertain, the predicate needs to check
+the source of the signal, not just its presence.
+
+---
+
+## 2026-09-06 — `linkOrder.ts` nullish-coalescing merge is a load-bearing property, not an implementation detail
+
+The merge in `linkOrder.ts` uses nullish-coalescing semantics so that
+reprocessing an `Email` row can never overwrite a resolved `Order` field
+with a fresh `null`. This was surfaced during the 2026-09-06 Gap Inc.
+extraction fix backfill: reprocessing correctly dropped `returnWindowDays`
+back to `null` on 3 of 4 `Email` rows (retry couldn't recover it from Gap's
+alternate body), but the linked `Order` records still show the correct
+`returnWindowDays: 30` and `returnDeadline` because `linkOrder.ts`'s merge
+refused to overwrite the existing good value.
+
+Any change to this merge semantic — e.g., "cleaning up" the
+nullish-coalescing to strict equality or to unconditional overwrite — must
+consider impact on every backfill and reprocess path in the codebase, not
+just the one currently being touched. Reprocess safety is a codebase-wide
+invariant that lives here.
