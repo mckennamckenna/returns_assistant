@@ -87,6 +87,19 @@
       (`messageId`) for faster future correlation; the deferred
       `orderDate`-corruption question from the tradeoff
       diagnostic (would need a gated model-call investigation).
+      **Recovery progress 2026-09-07/08:** founder (owner) pilot —
+      21 rows attempted for real, 9 Email rows created, 2 merges
+      into existing Orders (Gap #1RYJR48, Zara — the latter
+      unflagged in advance, surfaced the need for a broader dry-run).
+      Dry-run infra added (`dryRunSink` param on
+      `mergeEmailIntoOrder`/`createOrderFromEmail`, `DryRunCache`
+      table, commit `b5a67c4`) and run against the remaining 106
+      eligible discards — see `docs/audits/2026-09-07-recovery-
+      dryrun.md`: 20 would create new Orders, 8 would merge (7 with
+      at least one field overwrite), 190 billed calls actual. **Real
+      recovery for the 106 (or any subset) is a separate,
+      not-yet-requested approval** — the dry-run doc is data only,
+      no recovery-approach recommendation made.
 
 - [ ] **Diagnostic: verify 22be2d7's original trigger + size the
       current guard's discard composition. NEW 2026-09-07,

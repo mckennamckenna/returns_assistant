@@ -86,6 +86,20 @@ function classify(before: unknown, after: unknown): string {
   return "OVERWRITE";
 }
 
+// Durable, append-only per-row output — survives a crash mid-run (Neon
+// dropped the connection partway through the first attempt at this run,
+// 2026-09-07/08). Overwritten fresh at the start of each invocation, since
+// re-running from the top is cheap: DryRunCache absorbs the classify/
+// extract cost for any messageId already processed.
+const jsonlPath =
+  "/private/tmp/claude-501/-Users-mckennasweazey/52f59ad2-5931-465e-ac32-589219f4c846/scratchpad/dryrun_results.jsonl";
+fs.writeFileSync(jsonlPath, "");
+
+function pushAndSave(results: RowResult[], row: RowResult) {
+  results.push(row);
+  fs.appendFileSync(jsonlPath, JSON.stringify(row) + "\n");
+}
+
 async function main() {
   const results: RowResult[] = [];
 
@@ -94,12 +108,9 @@ async function main() {
     const file = `${dir}/${messageId}.json`;
     const payload = JSON.parse(fs.readFileSync(file, "utf8"));
 
-    const user = await prisma.user.findUnique({ where: { inboundToken: item.token }, select: { id: true } });
-    const userId = user?.id ?? null;
-
     const row: RowResult = {
       messageId,
-      userId,
+      userId: null,
       receivedAt: payload.Date,
       from: payload.FromFull?.Email ?? "",
       subject: (payload.Subject ?? "").slice(0, 60),
@@ -117,7 +128,15 @@ async function main() {
       errorMsg: null,
     };
 
+    // Everything for this row — including the user lookup, which used to
+    // sit outside this block and crashed the whole run on a transient
+    // connection drop (P1017) — is now inside one try/catch. Any failure
+    // for this one row records an ERROR outcome and the loop moves on; no
+    // single row's failure can kill the run.
     try {
+      const user = await prisma.user.findUnique({ where: { inboundToken: item.token }, select: { id: true } });
+      row.userId = user?.id ?? null;
+      const userId = row.userId;
       if (!userId) throw new Error(`no user found for token ${item.token}`);
 
       // Dedup check (real read, same as app/api/inbound/route.ts) — should
@@ -125,7 +144,7 @@ async function main() {
       const existingEmail = await prisma.email.findFirst({ where: { userId, messageId }, select: { id: true } });
       if (existingEmail) {
         row.outcome = "SKIPPED_DUPLICATE";
-        results.push(row);
+        pushAndSave(results, row);
         continue;
       }
 
@@ -141,7 +160,7 @@ async function main() {
       const selfOutbound = detectSelfOutboundLoop({ fromEmail: payload.FromFull?.Email, headers: payload.Headers, forwardType });
       if (selfOutbound.isSelfOutbound) {
         row.outcome = "SKIPPED_SELF_OUTBOUND";
-        results.push(row);
+        pushAndSave(results, row);
         continue;
       }
 
@@ -152,7 +171,7 @@ async function main() {
       if (fromDomain && (isFoodGroceryDomain(fromDomain) || isUspsCarrierDomain(fromDomain))) {
         row.commerceResult = "non_commerce"; // pre-junk skip, never reaches the classifier
         row.outcome = "NO_LINK";
-        results.push(row);
+        pushAndSave(results, row);
         continue;
       }
 
@@ -186,7 +205,7 @@ async function main() {
 
       if (!isCommerce || !parsed) {
         row.outcome = "NO_LINK";
-        results.push(row);
+        pushAndSave(results, row);
         continue;
       }
 
@@ -238,13 +257,13 @@ async function main() {
 
       if (finalRetailer && isFoodGroceryRetailer(finalRetailer)) {
         row.outcome = "NO_LINK";
-        results.push(row);
+        pushAndSave(results, row);
         continue;
       }
 
       if (!finalRetailer || (!result.orderNumber && !isOrphanedRefund)) {
         row.outcome = "NO_LINK";
-        results.push(row);
+        pushAndSave(results, row);
         continue;
       }
 
@@ -306,7 +325,7 @@ async function main() {
       row.outcome = "ERROR";
     }
 
-    results.push(row);
+    pushAndSave(results, row);
     console.log(`[${results.length}/106] ${row.messageId} ${row.commerceResult} ${row.outcome}`);
   }
 
