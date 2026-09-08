@@ -101,13 +101,15 @@ billed work, only the report of it):
 | `email_extraction_retry` | **3** (included in the 66) |
 | `policy_lookup` (web search) | **14** |
 
-**Total: 190.** One known double-bill is included in this total: the item
-whose `DryRunCache` write failed mid-transaction during the first crashed
-attempt was re-classified and re-extracted on resume (no cache row existed
-to short-circuit it) — a direct, disclosed consequence of the Neon
-connection instability, not a driver bug. Estimated pre-run range was
-198-214 for a clean single pass; 190 actual (with one item paying twice)
-is consistent with that range.
+**Total: 187** (107 + 66 + 14 — `email_extraction_retry`'s 3 is a subset of
+the 66, not additional). *Corrected 2026-09-08: this section originally
+stated 190, an arithmetic error caught during session close-out.* One known
+double-bill is included in the 187: the item whose `DryRunCache` write
+failed mid-transaction during the first crashed attempt was re-classified
+and re-extracted on resume (no cache row existed to short-circuit it) — a
+direct, disclosed consequence of the Neon connection instability, not a
+driver bug. Estimated pre-run range was 198-214 for a clean single pass;
+187 actual (with one item paying twice) is consistent with that range.
 
 ## Full row-level table (106 rows)
 
