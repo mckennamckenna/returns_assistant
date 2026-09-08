@@ -67,6 +67,23 @@
       **Pre-flight checkpoint required before any real write** —
       exact row/cost/write-outcome counts reported and explicit
       owner "go" obtained before proceeding.
+      **STATUS 2026-09-08: run complete, 0 errors, 0 crashes.** All
+      106 processed: 12 new Orders, 16 merges (8 as pre-approved by
+      the dry-run, 8 additional — shipping/tracking emails that
+      correctly merged into orders their own order-confirmation
+      created earlier in this same sequential run, a strictly
+      better outcome than the dry-run's isolated-per-row estimate
+      of 20 new/8 merge), 37 commerce orphans, 41 non-commerce
+      (real `DiscardLog` rows, verified count). 9 billed calls
+      total (1 Haiku + 1 Sonnet extraction + 7 policy_lookup) —
+      cache paid off exactly as designed. Full detail:
+      `docs/audits/2026-09-08-recovery-run.md`. One already-known,
+      separately-filed issue surfaced as anticipated (Crate &
+      Barrel order created with no `order_confirmation` on file,
+      root-caused to the founder pilot's classifier miss, not this
+      run). **Not moved to Done** — data-only, no deploy applies;
+      owner hand-verification of the 12 new orders + 16 merges
+      against the app UI is the remaining step before Done.
 
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-07, LIVE
       VERIFICATION PENDING] Fix self-outbound guard condition 3 to
