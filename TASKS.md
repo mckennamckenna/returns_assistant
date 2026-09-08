@@ -85,61 +85,6 @@
       owner hand-verification of the 12 new orders + 16 merges
       against the app UI is the remaining step before Done.
 
-- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-07, LIVE
-      VERIFICATION PENDING] Fix self-outbound guard condition 3 to
-      match its original design spec (sending-address match, not bare-domain
-      match). NEW 2026-09-07, follows from the 2026-09-07
-      ingestion + guard-tradeoff diagnostics and a Step 0
-      verification investigation (chat-only, no doc — enumerated
-      every `sendEmail()` call site in the codebase and confirmed
-      against live production env values).**
-      **Step 0 enumeration (blocking gate, per owner's
-      instruction):** exactly `reminders@myreturnwindow.com`
-      (`REMINDER_FROM_EMAIL` — reminders, refund-check-in,
-      weekly-coverage, weekly-digest, adminNotify) and
-      `hello@myreturnwindow.com` (`LOGIN_FROM_EMAIL`, falling
-      back to `REMINDER_FROM_EMAIL` — magic-link login). Confirmed
-      `lib/postmark.ts` is the sole Postmark-send choke point
-      (no other file calls the Postmark API directly). A third
-      env var, `REMINDER_EMAIL`, exists in production but is
-      unused as a `from` address anywhere — only read in
-      `scripts/backfill-owner-user.ts` to identify the owner's
-      own recipient email, not a sending address. Matched the
-      owner's recollection exactly — proceeded with the fix per
-      the owner's own decision rule.
-      **Fix:** `lib/selfOutboundGuard.ts`'s condition 3
-      (`header_chain_auto_forward`) narrowed from "any header
-      contains `OWN_ROOT_DOMAIN`" to "any header contains one of
-      our own sending addresses" (`ownSendingAddresses()`, reads
-      `REMINDER_FROM_EMAIL`/`LOGIN_FROM_EMAIL` from env, not
-      hardcoded). Conditions 1/2 (`from_domain`,
-      `return_path_domain`) untouched — not in question.
-      **Verification:** 824/824 tests passing (2 new cases added
-      to `__tests__/inboundSelfOutboundGuard.test.ts` — a real
-      Gmail-forwarded retailer email no longer rejected; a
-      hypothetical rewritten-From loop still caught via a sending
-      address elsewhere in the header chain). `npm run build`
-      clean. Replayed the real, deployed
-      `detectSelfOutboundLoop()` against the guard-tradeoff
-      diagnostic's cached 87-message pool (real Postmark
-      payloads, real production env values): **85/85 misfires
-      fixed, 2/2 genuine loops still caught, 0 regressions.**
-      Zero Anthropic API calls, zero DB writes throughout this
-      session (Step 0 investigation, fix, and verification all
-      read-only against code/tests/cached data, or a pure
-      code+test change).
-      **Not moved to Done** — deployed (confirmed via `vercel
-      inspect app.myreturnwindow.com`, `dpl_BffUGsrmXm7ANw7U5XUQEwxthyWP`,
-      2026-09-07) but not yet verified against real traffic per
-      this repo's "done means deployed" rule; needs a real inbound
-      Gmail-forwarded commerce email to arrive post-deploy and
-      confirm it's no longer discarded.
-      **Follow-ups (from the paired diagnostics, still open):**
-      recovery of the ~85+ already-lost emails (content not
-      retained anywhere); `DiscardLog` schema addition
-      (`messageId`) for faster future correlation; the deferred
-      `orderDate`-corruption question from the tradeoff
-      diagnostic (would need a gated model-call investigation).
 - [ ] **Recovery of the 106 self_outbound_loop discards eligible after
       guard fix. NEW 2026-09-07, follows from the 2026-09-07 dry-run
       (docs/audits/2026-09-07-recovery-dryrun.md).**
@@ -160,91 +105,6 @@
       confirmed; Bloomingdale's/adidas/Amazon require alpha-user
       notification round to close. Not moved to Done until then per
       repo rule.
-
-- [ ] **Diagnostic: verify 22be2d7's original trigger + size the
-      current guard's discard composition. NEW 2026-09-07,
-      follows from the 2026-09-07 Postmark ingestion diagnostic
-      (verdict: guard over-catches Gmail-forwarded commerce
-      emails).**
-      Owner recollection: guard was added to stop the app's own
-      return-window alert emails being ingested as retailer
-      emails and rewriting real orderDates in-place. If true,
-      revert is unsafe (trades logged data-loss for silent
-      data-corruption). Verify before recommending any fix
-      direction.
-      **Deliverable:** `docs/audits/2026-09-07-guard-tradeoff-
-      diagnostic.md` — trigger verification, DiscardLog
-      composition sample, tradeoff sizing.
-      **Out of scope:** any fix; any revert; any change to
-      lib/selfOutboundGuard.ts; recovery of already-discarded
-      emails (separate follow-up).
-      **See paired Claude Code prompt.**
-      **STATUS 2026-09-07: diagnostic complete, doc written.**
-      Trigger verification: documented (commit 22be2d7 +
-      TASKS.md + investigations/2026-09-02-extraction-root-
-      cause/) as `returnPortalUrl` corruption only (3 orders,
-      90-day lookback), all 3 caught via the guard's
-      `from_domain` check — never via `header_chain_auto_forward`,
-      which the commit's own comment calls speculative/"not
-      expected to fire." **No documented link to `orderDate`
-      found anywhere** — owner's recollection doesn't match the
-      written record; a separate, unrelated `orderDate`
-      write-once bug (TASKS.md ~line 6631, 2026-08-16) may be
-      what's being recalled instead. DiscardLog composition:
-      of 87 uniquely-matched `self_outbound_loop` discards
-      (2026-09-04–09-06), **85 (97.7%) are misfires** (real
-      retailer commerce mail caught by `header_chain_auto_
-      forward`), **2 (2.3%) are genuine loops** (both
-      `reminders@myreturnwindow.com`, caught by `from_domain`,
-      the check not in question). Zero orders currently show
-      self-domain `returnPortalUrl` corruption (regression
-      check clean). Net: the guard's confirmed value is fully
-      covered by its first condition; its third condition's
-      demonstrated cost (85+ real emails lost in 3 days) isn't
-      offset by any confirmed unique catch. No fix direction
-      recommended — numbers only, per scope.
-      **Awaiting owner review — not moved to Done.**
-
-- [ ] **Diagnostic: emails visible in Postmark but missing
-      from DB — Gap 3rd email for Order 1RYJR48, plus an eBay
-      order from same day (2026-09-02). NEW 2026-09-06,
-      surfaced during 2026-09-06 orderDate origin diagnostic
-      (Gap discrepancy noted) and owner inbox review (eBay
-      order missing entirely). MOVED FROM 🟡 Next 2026-09-07 to
-      run as today's diagnostic session.**
-      Two instances, same day, different retailers — could be
-      one ingestion bug or two independent ones. High-stakes:
-      the app's core promise depends on Postmark → DB
-      ingestion working. Diagnostic to trace what happened at
-      Postmark receipt time for both, before recommending
-      anything.
-      **Deliverable:** `docs/audits/2026-09-07-postmark-
-      ingestion-diagnostic.md` — trace, verdict, scope note.
-      **Out of scope:** any fix; broader ingestion audit;
-      reprocessing anything.
-      **STATUS 2026-09-07: diagnostic complete, doc written.
-      Verdict: ONE bug, not two.** The self-outbound-loop guard
-      (`lib/selfOutboundGuard.ts`, commit `22be2d7`, deployed
-      2026-09-04T00:05 UTC) has an over-broad
-      `header_chain_auto_forward` condition that misfires on
-      *any* Gmail-auto-forwarded email (not just genuine
-      self-loops), because Gmail's own forwarding headers
-      always contain our domain for legitimately forwarded
-      mail too. Confirmed by replaying the real
-      `classifyForwardType`/`detectSelfOutboundLoop` functions
-      against real Postmark headers for all 3 missing emails
-      (Gap 3rd email + both eBay emails found) — all return
-      `isSelfOutbound: true`, as do the 2 already-in-DB Gap
-      emails on the same order (which only succeeded because
-      they predate the guard's deploy). Corrected the task's
-      date assumption: neither missing email is actually from
-      2026-09-02 — Gap 3rd email is 2026-09-04, eBay emails are
-      2026-09-04/09-05. Corroborating signal (not a full
-      audit): 118 `self_outbound_loop` DiscardLog rows
-      2026-09-04 through 2026-09-06, zero before the deploy.
-      **Awaiting owner review — not moved to Done per
-      instruction (diagnostic-only, no fix authorized this
-      session).**
 
 - [ ] **Fix: widen retry trigger in `extractEmailIdentity` from
       `orderNumber == null` to a body-content-dependent-fields
@@ -6055,6 +5915,24 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Fix self-outbound guard condition 3 (bare-domain match →
+      sending-address match). Deployed, live-verified via a clean
+      106-row real recovery run with zero regressions.
+      2026-09-07/08.** See HISTORY.md same date. `b316416` (fix),
+      `1e51fe2` (recovery run).
+
+- [x] **Guard tradeoff diagnostic — sized the guard's discard
+      composition (85/87 misfires, 2/87 genuine loops) and
+      verified its documented trigger. 2026-09-07.** See
+      `docs/audits/2026-09-07-guard-tradeoff-diagnostic.md`.
+      `548e6fd`.
+
+- [x] **Postmark ingestion diagnostic — traced the Gap 3rd
+      email + eBay order gap to one bug (guard over-catching
+      Gmail-forwarded mail), not two. 2026-09-07.** See
+      `docs/audits/2026-09-07-postmark-ingestion-diagnostic.md`.
+      `fe6d275`.
 
 - [x] **Diagnostic: Gap extraction #1RYJR48 — retry didn't
       fire because orderNumber came from subject line,
