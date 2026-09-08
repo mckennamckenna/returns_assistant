@@ -32,63 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Real recovery of the 106 eligible self_outbound_loop discards
-      from `docs/audits/2026-09-07-recovery-dryrun.md`. NEW
-      2026-09-08 — owner approval granted for the full 106,
-      superseding the "separate, not-yet-requested approval" note
-      on the guard-fix entry below.**
-      Scope: exactly the 106 messageIds the dry-run accounted for
-      (105 in `DryRunCache` + the 1 `ERROR` row,
-      `641077e7-56c5-4523-bf29-f90259a840dd`, whose cache write
-      failed mid-run). Real classify/extract (cache-served where
-      available, real billed call on cache miss — expected only
-      for the ERROR row), real `linkEmailToOrder` with real writes
-      and the full cascade (`applyFallbackOrderDate`,
-      `recomputeOrderStatus`, tracking, `recomputeDisplayStatus`).
-      The founder pilot's 9 already-written Email rows are
-      untouched — skipped by messageId before any classify/extract
-      call. All 8 dry-run-identified MERGE candidates pre-approved,
-      not re-gated, unless a row's cached classify/extract result
-      or matching decision has changed since the dry-run, in which
-      case that one row stops and reports rather than proceeding.
-      **Out of scope:** any change to `lib/selfOutboundGuard.ts` or
-      `lib/linkOrder.ts`'s merge semantics; making the dry-run
-      driver mutable/writable; any of the separately-filed
-      follow-ups (DiscardLog schema, Email state-change audit,
-      cond2 ungated check, notification-jobs audit, Shopbop ghost,
-      Warby orderTotal, Gap UPS tracking, Crate & Barrel classifier
-      miss, Shutterfly null-emailType row, DryRunCache cleanup,
-      3-day outage post-mortem, alpha user notification).
-      **Deliverable:** new recovery-run script (reusing/importing
-      the dry-run driver's shared helpers, never modifying it), a
-      final JSONL of all row outcomes, and
-      `docs/audits/2026-09-0X-recovery-run.md` in the same summary
-      shape as the dry-run report.
-      **Pre-flight checkpoint required before any real write** —
-      exact row/cost/write-outcome counts reported and explicit
-      owner "go" obtained before proceeding.
-      **STATUS 2026-09-08: run complete, 0 errors, 0 crashes.
-      Commit `1e51fe2`. Deployed: N/A (data-only).** All 106
-      processed: 12 new Orders, 16 merges (8 as pre-approved by
-      the dry-run, 8 additional — shipping/tracking emails that
-      correctly merged into orders their own order-confirmation
-      created earlier in this same sequential run, a strictly
-      better outcome than the dry-run's isolated-per-row estimate
-      of 20 new/8 merge), 37 commerce orphans, 41 non-commerce
-      (real `DiscardLog` rows, verified count). 9 billed calls
-      total (1 Haiku + 1 Sonnet extraction + 7 policy_lookup) —
-      cache paid off exactly as designed. Full detail:
-      `docs/audits/2026-09-08-recovery-run.md`. One already-known,
-      separately-filed issue surfaced as anticipated (Crate &
-      Barrel order created with no `order_confirmation` on file,
-      root-caused to the founder pilot's classifier miss, not this
-      run). **Not moved to Done** — data-only, no deploy applies;
-      owner hand-verification of the 12 new orders + 16 merges
-      against the app UI is the remaining step before Done.
-      Owner-verifiable orders (eBay) confirmed already;
-      Bloomingdale's/adidas/Amazon require the alpha-user
-      notification round (separate 🟡 Next item) to close.
-
 - [ ] **Fix: widen retry trigger in `extractEmailIdentity` from
       `orderNumber == null` to a body-content-dependent-fields
       predicate; expand pass 2 write-scope to gap-fill full field
@@ -3725,6 +3668,50 @@
 
 ## 🟡 Next
 
+- [ ] **Diagnostic: Bloomingdale's #781160797 (cmts5rxus001yw9hv736f6gqj)
+      created from an order_confirmation email but orderTotal +
+      returnWindowDays wrote null. NEW 2026-09-08, surfaced during
+      shape-check of the 2026-09-08 recovery run.**
+      **Owner hypothesis (unverified):** when the subject line contains
+      the order number, the extractor short-circuits — takes the
+      orderNumber from the subject, never triggers HTML body parsing,
+      and reports "no plain text info," leaving other fields null.
+      Distinct mechanism from the Gap retry-fix (534be8d) — that fix
+      widened `extractEmailIdentity`'s retry trigger but explicitly
+      out-of-scoped any change to `resolveBodyText` /
+      `resolveBodyTextWithAlternate`, which is where this hypothesis
+      lives. Same-family bug, different code layer.
+      **Deliverable:** trace what `resolveBodyText` returned for this
+      specific email (was an HTML body present and skipped?); if the
+      subject-shortcircuit hypothesis holds, read-only query for other
+      rows where extraction wrote orderNumber + retailer only, with
+      null orderTotal AND null returnWindowDays, AND subject contains
+      a numeric match for orderNumber. Chat report OK unless the
+      systemic query surfaces a broader population.
+      **Out of scope:** any fix; repair of this row or any others found;
+      any change to `resolveBodyText` even if hypothesis confirmed
+      (fix is its own future entry).
+
+- [ ] **Diagnostic: adidas #AD962505056 (cmts5sz3p002dw9hvg6u52y2r)
+      orderDate wrote as 2025-09-05 — a full year before receivedAt.
+      Alpha user (Alex) confirmed the order is current (2026), so the
+      2025 in DB is genuinely wrong data, not a benign backdated order.
+      NEW 2026-09-08, surfaced during shape-check of the 2026-09-08
+      recovery run.**
+      Year-off-by-one bugs propagate silently — users don't spot "Sep 5"
+      vs "Sep 5 last year" the way they spot a wrong total. Same
+      mechanism could produce stale `returnDeadline`, wrong reminder
+      timing, and wrong "due in 7 days" placement on any retailer whose
+      date format shares the parser path.
+      **Deliverable:** trace what extraction produced for this row;
+      read-only systemic query for other rows in DB with
+      `orderDate < receivedAt - 300 days` (catches year-off signature
+      without false-positives from real backdated orders). Chat report
+      OK unless systemic query finds a real population, in which case
+      escalate to full audit doc.
+      **Out of scope:** any fix; correction of this specific row; any
+      change to the Anchor resolver; broader date-parsing audit.
+
 - [ ] **3-day outage post-mortem. NEW 2026-09-07.**
       **STATUS 2026-09-07: doc delivered.** See
       `docs/audits/2026-09-07-postmortem-self-outbound-guard.md`
@@ -6052,6 +6039,19 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Real recovery of the 106 eligible self_outbound_loop discards —
+      run executed cleanly. 2026-09-08.** `1e51fe2`. 0 errors, 0
+      crashes; 12 new Orders, 16 merges, 37 commerce orphans, 41
+      non-commerce discards, 9 billed calls, all matching the
+      pre-flight plan. Full detail: `docs/audits/2026-09-08-recovery-
+      run.md`. **Scope note:** Done here means "script ran correctly,"
+      not "every row hand-verified" — those are split out, tracked
+      separately: alpha-user notification round (🟡 Next) and two
+      row-level diagnostics surfaced by the same-day shape-check
+      (Bloomingdale's #781160797 null orderTotal/returnWindowDays,
+      adidas #AD962505056 orderDate year-off, alpha-confirmed as a
+      real bug) — both 🟡 Next.
 
 - [x] **Fix self-outbound guard condition 3 (bare-domain match →
       sending-address match). Deployed, live-verified via a clean
