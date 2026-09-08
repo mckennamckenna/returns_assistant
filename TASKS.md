@@ -32,6 +32,42 @@
 
 ## 🔴 Now
 
+- [ ] **Real recovery of the 106 eligible self_outbound_loop discards
+      from `docs/audits/2026-09-07-recovery-dryrun.md`. NEW
+      2026-09-08 — owner approval granted for the full 106,
+      superseding the "separate, not-yet-requested approval" note
+      on the guard-fix entry below.**
+      Scope: exactly the 106 messageIds the dry-run accounted for
+      (105 in `DryRunCache` + the 1 `ERROR` row,
+      `641077e7-56c5-4523-bf29-f90259a840dd`, whose cache write
+      failed mid-run). Real classify/extract (cache-served where
+      available, real billed call on cache miss — expected only
+      for the ERROR row), real `linkEmailToOrder` with real writes
+      and the full cascade (`applyFallbackOrderDate`,
+      `recomputeOrderStatus`, tracking, `recomputeDisplayStatus`).
+      The founder pilot's 9 already-written Email rows are
+      untouched — skipped by messageId before any classify/extract
+      call. All 8 dry-run-identified MERGE candidates pre-approved,
+      not re-gated, unless a row's cached classify/extract result
+      or matching decision has changed since the dry-run, in which
+      case that one row stops and reports rather than proceeding.
+      **Out of scope:** any change to `lib/selfOutboundGuard.ts` or
+      `lib/linkOrder.ts`'s merge semantics; making the dry-run
+      driver mutable/writable; any of the separately-filed
+      follow-ups (DiscardLog schema, Email state-change audit,
+      cond2 ungated check, notification-jobs audit, Shopbop ghost,
+      Warby orderTotal, Gap UPS tracking, Crate & Barrel classifier
+      miss, Shutterfly null-emailType row, DryRunCache cleanup,
+      3-day outage post-mortem, alpha user notification).
+      **Deliverable:** new recovery-run script (reusing/importing
+      the dry-run driver's shared helpers, never modifying it), a
+      final JSONL of all row outcomes, and
+      `docs/audits/2026-09-0X-recovery-run.md` in the same summary
+      shape as the dry-run report.
+      **Pre-flight checkpoint required before any real write** —
+      exact row/cost/write-outcome counts reported and explicit
+      owner "go" obtained before proceeding.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-07, LIVE
       VERIFICATION PENDING] Fix self-outbound guard condition 3 to
       match its original design spec (sending-address match, not bare-domain
