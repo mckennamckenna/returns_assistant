@@ -140,19 +140,26 @@
       (`messageId`) for faster future correlation; the deferred
       `orderDate`-corruption question from the tradeoff
       diagnostic (would need a gated model-call investigation).
-      **Recovery progress 2026-09-07/08:** founder (owner) pilot —
-      21 rows attempted for real, 9 Email rows created, 2 merges
-      into existing Orders (Gap #1RYJR48, Zara — the latter
-      unflagged in advance, surfaced the need for a broader dry-run).
-      Dry-run infra added (`dryRunSink` param on
-      `mergeEmailIntoOrder`/`createOrderFromEmail`, `DryRunCache`
-      table, commit `b5a67c4`) and run against the remaining 106
-      eligible discards — see `docs/audits/2026-09-07-recovery-
-      dryrun.md`: 20 would create new Orders, 8 would merge (7 with
-      at least one field overwrite), 190 billed calls actual. **Real
-      recovery for the 106 (or any subset) is a separate,
-      not-yet-requested approval** — the dry-run doc is data only,
-      no recovery-approach recommendation made.
+- [ ] **Recovery of the 106 self_outbound_loop discards eligible after
+      guard fix. NEW 2026-09-07, follows from the 2026-09-07 dry-run
+      (docs/audits/2026-09-07-recovery-dryrun.md).**
+      Ran clean: 106/106 processed, zero errors, zero crashes. 12 new
+      Orders, 16 merges (8 pre-approved from dry-run + 8 that emerged
+      from sequential real processing — shipping/tracking emails
+      merging into orders their own confirmations created earlier in
+      the same run, a strictly better outcome than dry-run's isolated-
+      per-row estimate). 37 commerce orphans, 41 non-commerce
+      (DiscardLog rows unchanged). 9 billed calls total (1 Haiku + 1
+      Sonnet extraction + 7 policy_lookup) vs. ~15-16 estimate — cache
+      did its job, sequential processing resolved several
+      returnWindowDays lookups before later rows needed them. One
+      classifier/extraction disagreement on the former ERROR row
+      correctly landed as orphan.
+      **Commit:** `1e51fe2`. **Deployed:** N/A (data-only).
+      **Awaiting hand-verification** — owner-verifiable orders (eBay)
+      confirmed; Bloomingdale's/adidas/Amazon require alpha-user
+      notification round to close. Not moved to Done until then per
+      repo rule.
 
 - [ ] **Diagnostic: verify 22be2d7's original trigger + size the
       current guard's discard composition. NEW 2026-09-07,
