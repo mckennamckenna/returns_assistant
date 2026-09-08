@@ -3875,6 +3875,90 @@
 
 ## 🟡 Next
 
+- [ ] 3-day outage post-mortem. NEW 2026-09-07. Recovery is landed;
+      root-cause + timeline + prevention still owed. Guard added
+      2026-09-03, deployed 2026-09-04, 118 self_outbound_loop
+      discards through 2026-09-06 before ingestion diagnostic
+      caught it 2026-09-07. Post-mortem covers: how the third
+      guard condition shipped without a "does this fire on real
+      forwarded mail" check; why the discard-rate spike from zero
+      to constant went unnoticed for 3 days; what alerting or
+      review would have caught it faster.
+
+- [ ] Alpha user notification round for the 12 new orders + 16
+      merges recovered 2026-09-07. Personal, by owner. Also closes
+      out the recovery Now entry (converts to hand-verified).
+
+- [ ] **Diagnostic: Gap shipping_confirmation email for Order 1RYJR48
+      contained a UPS tracking number that did not get extracted
+      into the DB. NEW 2026-09-07, surfaced during 2026-09-07
+      recovery pilot when the founder confirmed the email had UPS
+      tracking but the recovered Email row has no tracking data.**
+      Same order (1RYJR48) that started this session — its
+      order-confirmation email extraction issues were addressed by
+      the 2026-09-06 retry-fix (534be8d). The shipping-confirmation
+      email is a separate case: extraction produced nothing to merge
+      into the existing Order, which is why the merge was "clean"
+      but also uninformative for the merge-safety pilot. Likely
+      connects to the pending parseTracking() → resolveBodyText()
+      wire-up work (in-flight Now entry from 2026-09-04). Verify
+      whether that in-flight fix would have caught this case, or
+      whether the tracking-extraction gap is separate from the
+      HTML-only tracking gap that work addresses.
+      **Deliverable:** trace, verdict, connection to in-flight
+      parseTracking() work. Chat report OK — no full audit doc
+      needed unless the trace reveals more than one root cause.
+      **Out of scope:** any fix; broader tracking-extraction audit;
+      re-processing the recovered Gap email.
+      **See paired Claude Code prompt (to be drafted).**
+
+- [ ] **Diagnostic: isCommerceEmail (Haiku classifier) returned
+      non_commerce on two unambiguous Crate & Barrel order emails —
+      "Your order confirmation is 359173100" and "Ready for pickup!
+      Your order 359173100." NEW 2026-09-07, surfaced during
+      2026-09-07 recovery pilot.**
+      Founder hypothesis: both are pickup-IRL orders (not shipped),
+      possibly the same root cause as the Shutterfly anomaly.
+      Classifier misfire on order emails is a general ingestion
+      accuracy problem beyond this incident — every pickup order
+      that fails classification is silently lost regardless of the
+      guard fix. Predates the guard work; unrelated to recovery,
+      just surfaced by it.
+      **Deliverable:** trace the classifier's input for each email,
+      determine whether the misfire is prompt-shape, body-content,
+      or a systematic pickup-vs-shipped bias. Chat report OK unless
+      the fix path becomes obvious mid-diagnostic.
+      **Out of scope:** any fix; classifier retraining or prompt
+      changes; audit of historical misclassifications beyond the
+      three specific pilot cases (2 Crate & Barrel + reproduce with
+      the Shutterfly if related).
+      **See paired Claude Code prompt (to be drafted).**
+
+- [ ] **Diagnostic: Shutterfly "We've received your Shutterfly order!"
+      email produced an anomalous Email row (emailType: null,
+      needsReview: false, extractionNotes: null, orderId: null) that
+      doesn't match any documented failure signature — route.ts's
+      own comment states extraction failures should leave
+      needsReview: true. NEW 2026-09-07, surfaced during 2026-09-07
+      recovery pilot.**
+      Founder hypothesis: pickup-IRL order, possibly same root cause
+      as the Crate & Barrel classifier misfire. This is a write-path
+      bug not a classification bug (the row exists but is in an
+      impossible state per the documented invariants). Whatever code
+      path allowed this write may have created other silently-broken
+      rows in production over time — the anomaly detection question
+      is potentially bigger than the one row.
+      **Deliverable:** trace the specific code path that produced
+      this row's field combination; determine whether other Email
+      rows in the DB share the same null-emailType + needsReview:
+      false + orderId: null signature (read-only query, no fix).
+      Chat report OK unless the trace reveals a broader silent-bug
+      population, in which case escalate to full audit doc.
+      **Out of scope:** any fix; repair of the specific Shutterfly
+      row (leave it, decide after diagnostic); repair of any other
+      rows discovered to share the signature.
+      **See paired Claude Code prompt (to be drafted).**
+
 - [ ] **Follow-up: drop `DryRunCache` table (or add a cleanup
       script) once the self-outbound-guard recovery effort
       concludes. NEW 2026-09-07, added alongside the table itself
