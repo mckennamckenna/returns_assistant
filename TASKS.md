@@ -67,8 +67,9 @@
       **Pre-flight checkpoint required before any real write** —
       exact row/cost/write-outcome counts reported and explicit
       owner "go" obtained before proceeding.
-      **STATUS 2026-09-08: run complete, 0 errors, 0 crashes.** All
-      106 processed: 12 new Orders, 16 merges (8 as pre-approved by
+      **STATUS 2026-09-08: run complete, 0 errors, 0 crashes.
+      Commit `1e51fe2`. Deployed: N/A (data-only).** All 106
+      processed: 12 new Orders, 16 merges (8 as pre-approved by
       the dry-run, 8 additional — shipping/tracking emails that
       correctly merged into orders their own order-confirmation
       created earlier in this same sequential run, a strictly
@@ -84,27 +85,9 @@
       run). **Not moved to Done** — data-only, no deploy applies;
       owner hand-verification of the 12 new orders + 16 merges
       against the app UI is the remaining step before Done.
-
-- [ ] **Recovery of the 106 self_outbound_loop discards eligible after
-      guard fix. NEW 2026-09-07, follows from the 2026-09-07 dry-run
-      (docs/audits/2026-09-07-recovery-dryrun.md).**
-      Ran clean: 106/106 processed, zero errors, zero crashes. 12 new
-      Orders, 16 merges (8 pre-approved from dry-run + 8 that emerged
-      from sequential real processing — shipping/tracking emails
-      merging into orders their own confirmations created earlier in
-      the same run, a strictly better outcome than dry-run's isolated-
-      per-row estimate). 37 commerce orphans, 41 non-commerce
-      (DiscardLog rows unchanged). 9 billed calls total (1 Haiku + 1
-      Sonnet extraction + 7 policy_lookup) vs. ~15-16 estimate — cache
-      did its job, sequential processing resolved several
-      returnWindowDays lookups before later rows needed them. One
-      classifier/extraction disagreement on the former ERROR row
-      correctly landed as orphan.
-      **Commit:** `1e51fe2`. **Deployed:** N/A (data-only).
-      **Awaiting hand-verification** — owner-verifiable orders (eBay)
-      confirmed; Bloomingdale's/adidas/Amazon require alpha-user
-      notification round to close. Not moved to Done until then per
-      repo rule.
+      Owner-verifiable orders (eBay) confirmed already;
+      Bloomingdale's/adidas/Amazon require the alpha-user
+      notification round (separate 🟡 Next item) to close.
 
 - [ ] **Fix: widen retry trigger in `extractEmailIdentity` from
       `orderNumber == null` to a body-content-dependent-fields
@@ -3742,19 +3725,173 @@
 
 ## 🟡 Next
 
-- [ ] 3-day outage post-mortem. NEW 2026-09-07. Recovery is landed;
-      root-cause + timeline + prevention still owed. Guard added
-      2026-09-03, deployed 2026-09-04, 118 self_outbound_loop
-      discards through 2026-09-06 before ingestion diagnostic
-      caught it 2026-09-07. Post-mortem covers: how the third
-      guard condition shipped without a "does this fire on real
-      forwarded mail" check; why the discard-rate spike from zero
-      to constant went unnoticed for 3 days; what alerting or
-      review would have caught it faster.
+- [ ] **3-day outage post-mortem. NEW 2026-09-07.**
+      **STATUS 2026-09-07: doc delivered.** See
+      `docs/audits/2026-09-07-postmortem-self-outbound-guard.md`
+      — root cause (condition 3 shipped speculative, never
+      verified against real forwarded mail), timeline (deploy
+      2026-09-04T00:05 UTC → first false-positive 17 min later →
+      118 discards over 3 days → caught 2026-09-07 via an
+      unrelated diagnostic's side-noticed discrepancy), and
+      prevention (ship-time verification for any new
+      discard/reject condition; `DiscardLog` reason-distribution
+      observability; `DiscardLog.messageId`; treat a code
+      comment's own "not expected to fire" as a flag requiring
+      verification, not a reason to ship as-is). Smaller follow-ups
+      surfaced during the incident filed as their own items below,
+      not duplicated here. **Awaiting owner review — not moved to
+      Done.**
 
 - [ ] Alpha user notification round for the 12 new orders + 16
       merges recovered 2026-09-07. Personal, by owner. Also closes
       out the recovery Now entry (converts to hand-verified).
+
+- [ ] **`DiscardLog` schema: add `messageId` (nullable). NEW
+      2026-09-07, from the outage post-mortem's prevention list
+      (`docs/audits/2026-09-07-postmortem-self-outbound-guard.md`).**
+      Every correlation exercise across the 2026-09-07 diagnostics
+      (which messages were discarded, which users affected, how
+      many recoverable) had to reconstruct identity by matching
+      `DiscardLog.occurredAt` timestamps against Postmark's API
+      after the fact — capped at ~76-90% match rate depending on
+      sampling window, never exact. A direct FK removes that whole
+      class of estimation for any future incident.
+      **Out of scope:** backfilling existing rows (pre-dates the
+      field, same "null means arrived before this existed"
+      convention as `Email.messageId`).
+
+- [ ] **Email state-change audit trail (more than just
+      `updatedAt`). NEW 2026-09-07, from the outage post-mortem.**
+      The recovery run's cascade effects (status transitions,
+      auto-archive-on-refunded, tracking writes) are only
+      inferable from a single `updatedAt` timestamp per row today
+      — real changes happened (e.g. the founder pilot's Zara
+      order auto-archiving on a recovered refund email) with no
+      way to see the actual before/after or which write caused it,
+      after the fact. Needs a real design pass (a full audit-log
+      table? denormalized on Order/Email? scoped to which fields?)
+      before any implementation — this entry is the "worth having"
+      flag, not a spec.
+
+- [ ] **Verify condition 2 (`return_path_domain`) can't misfire
+      the same way condition 3 did. NEW 2026-09-07, from the
+      outage post-mortem.** Condition 3
+      (`header_chain_auto_forward`) was over-broad and shipped
+      unverified; condition 2 is structurally different (matches
+      the `Return-Path` header's own domain, not "any header
+      contains our domain") but was never specifically tested
+      against real forwarded mail either, and — unlike condition
+      3 — isn't gated by `forwardType`. Same verification method
+      as the post-mortem's prevention #1: replay
+      `detectSelfOutboundLoop()` against a real sample and confirm
+      condition 2 only fires on genuine loops.
+      **Out of scope:** any change to condition 2 unless the
+      verification finds a real problem.
+
+- [ ] **`linkOrder` chronology-aware merge fix — general case, not
+      just `orderDate`. NEW 2026-09-07, from the outage
+      post-mortem. Concrete evidence: the 2026-09-08 real recovery
+      run itself.** `mergeEmailIntoOrder`'s "newer non-null wins"
+      semantics have real chronology awareness for exactly one
+      field (`orderDate`, fixed 2026-08-27) — every other merged
+      field (`deliveryDate`, `returnWindowDays`, `orderTotal`,
+      `returnPortalUrl`, etc.) just takes whichever value was
+      written most recently in processing order, correct or not.
+      **The recovery run is the concrete case, not a hypothetical:**
+      16 of its merges came out correct, but only because message
+      processing order happened to be favorable that run (8 of
+      those 16 were shipping/tracking emails that merged cleanly
+      only because their own order-confirmation email had already
+      been processed moments earlier in the same sequential run —
+      see `docs/audits/2026-09-08-recovery-run.md`). A differently-
+      ordered batch — a different day's cron schedule, a retry,
+      concurrent inbound webhooks — could silently let a stale
+      shipping-fragment total overwrite a correct order total, or
+      vice versa, with no error and no signal. Related to, but
+      distinct from, the earlier-documented Zara/Shopbop
+      `orderDate` out-of-order-extraction bug (TASKS.md ~line
+      2401, `orderDate`-specific, already understood as one
+      instance of a more general gap) — this item is the general
+      fix, not a re-diagnosis of that one field.
+      **Out of scope:** implementing the fix in this entry — needs
+      its own design pass on what "chronology-aware" means per
+      field (receivedAt-based? emailType-priority-based?).
+
+- [ ] **Delayed-notification-jobs audit: did any reminder or
+      digest cron fire against silently-broken data during the
+      guard outage window (2026-09-04–09-07)? NEW 2026-09-07,
+      from the outage post-mortem.** Not checked as part of the
+      post-mortem or either diagnostic — the outage dropped real
+      commerce email silently, which means any order that should
+      have existed but didn't (or existed with stale data because
+      its updating email got dropped) was invisible to
+      `app/api/cron/route.ts`'s reminder logic and the weekly-
+      coverage/digest crons the same way it was invisible to the
+      dashboard. Whether any user-facing reminder/digest send
+      during that window was therefore wrong (missing an order,
+      showing a stale deadline) is unknown.
+      **Deliverable:** read-only query of `Reminder`/send-log
+      records against the guard outage window, cross-referenced
+      against the 106 recovered messageIds' `receivedAt` dates, to
+      see if any send predates a recovery that would have changed
+      its content. Chat report OK.
+      **Out of scope:** any resend, correction email, or user
+      notification about a possibly-wrong past send (a decision
+      for the owner once the diagnostic answers whether it
+      happened at all).
+
+- [ ] **"Shopbop ghost" — orphan row `cmsk57xhb0001js04chzva2hz`
+      got `junkedAt` set on 2026-09-07 with no identified code
+      path. NEW 2026-09-07 (both investigations chat-only, no
+      doc — this entry is the durable record).**
+      Investigated twice, both times as read-only chat-report
+      diagnostics with no file produced (checked: no doc exists in
+      `docs/audits/` or `investigations/`, no mention of this row's
+      id anywhere in the repo — this entry carries the full
+      context since there's nothing else to cite). **What's
+      established:** the row (Shopbop, order #137553867, $2371.26,
+      manually self-forwarded — `fromEmail` is the owner's own
+      Gmail address, not Shopbop's — "Fwd: Your order #137553867 is
+      confirmed") was created 2026-08-08, orphaned (`orderId: null`)
+      and `needsReview: true` continuously since. It surfaced in the
+      Needs Review dashboard, then had `junkedAt` set to
+      `2026-09-07T18:13:05.066Z`, causing it to vanish from the
+      dashboard. **The visibility filter itself is understood:**
+      the dashboard's email-kind Needs Review population is
+      `orderId: null AND userId AND junkedAt: null` — the row's own
+      `needsReview` boolean is never checked — plus the dashboard's
+      inline bucket additionally caps the collapsed view to the
+      first 5 rows (`NeedsReviewBucket.tsx`'s
+      `INLINE_OVERFLOW_LIMIT`). Since this row's `orderId`/
+      `junkedAt` were provably unchanged from Aug 8 until the
+      2026-09-07 write (no `EmailRescue` row ever existed for it,
+      and `rescueEmail()` is the only code path that clears
+      `junkedAt` and always logs one), the row should have been
+      visible on the uncapped `/needs-review` page continuously —
+      the dashboard cap fluctuating day-to-day (as unrelated rows
+      get linked/junked) is the only mechanism found that explains
+      it appearing when it did, IF the owner's earlier "not visible"
+      observation was of the capped dashboard view rather than the
+      uncapped page — not confirmed either way.
+      **What's genuinely unresolved:** no code path was found that
+      could have set `junkedAt` on this row. The one UI action that
+      does (`archiveOrphanedEmail`, "Not a purchase") was confirmed
+      NOT clicked by the owner. `lib/linkOrder.ts`'s own
+      auto-junk-on-orphan branch only fires for `emailType ===
+      "other"` (this row is `order_confirmation`). The
+      2026-09-07/08 guard-fix deploy and recovery run were
+      independently ruled out (git history confirms neither the
+      dashboard query files nor any schema touching this row's
+      fields changed in that window; exactly one row — this one —
+      got `junkedAt` set in the relevant time range, ruling out a
+      batch job).
+      **Deliverable:** a fresh diagnostic pass, since the prior two
+      exhausted the obvious code-path search without an answer —
+      possible next steps: Vercel request logs for that timestamp
+      if retention allows, or accepting "unresolved" and moving on.
+      Chat report OK.
+      **Out of scope:** any fix, any state change to this row,
+      re-litigating what's already established above from scratch.
 
 - [ ] **Diagnostic: Gap shipping_confirmation email for Order 1RYJR48
       contained a UPS tracking number that did not get extracted
