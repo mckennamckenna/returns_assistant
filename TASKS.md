@@ -3620,22 +3620,30 @@
       AND junkedAt: null`, does not read `needsReview`) — that
       assessment was scoped to email-kind rows only, and holds; it
       was never a claim about order-kind rows.
-      **CORRECTION 2026-09-09 — NOT cosmetic for order-kind rows,
-      confirmed live-visible:** the order-kind half of the Needs
-      Review dashboard filters directly on `Order.needsReview: true`
-      (`app/(app)/page.tsx` / `app/(app)/needs-review/page.tsx`).
-      Alexandra's Ancient Greek Sandals order (#84963,
-      `cmrwa20650003jt04wu1gj5eu`) — fully returned, `displayStatus:
-      "returned"`, lifecycle complete — still carries `needsReview:
-      true` after tonight's reprocess merged its final return-transit
-      email in, and Alexandra confirmed via screenshot she can still
-      see it in her visible Needs Review pile. Same pattern also
-      present on her Row Works Clothing Co. order (#12526,
-      `cmtthurcb0001w9i6mafwjdbu`, `needsReview: true` for a different,
-      legitimate reason — no resolvable return policy — so that one's
-      flag is arguably correct, unlike the Ancient Greek Sandals one).
-      This raises the severity from "silent state debt" to "actively
-      visible incorrect UI state for at least one real user."
+      **CORRECTION 2026-09-09, then RETRACTED same session:** briefly
+      logged Alexandra's Ancient Greek Sandals order (#84963,
+      `cmrwa20650003jt04wu1gj5eu`, Alexandra confirmed via screenshot
+      she can see it in her visible Needs Review pile) as a confirmed
+      live instance of this bug. Checked further and that's wrong —
+      its `needsReview: true` is a **different, intentional mechanism**
+      (M2 portal-trust tier, `linkOrder.ts:1186-1199`): the merge's
+      `returnPortalUrl` (a DHL tracking link, not a real retailer
+      return portal) classified as `"unknown-unverified"`, which
+      deliberately forces `Order.needsReview: true` as a review signal
+      — confirmed via the `[M2 portal-trust tier] unknown-unverified`
+      console line from that reprocess run, and `userNote: null` on
+      the order (matches this path exactly: portal-untrust alone
+      attaches no note, unlike the prefix-match/refund-fallback/
+      kept-conflict paths). So this order's flag is arguably correct
+      (an unverified return portal genuinely is worth a look), just
+      unfortunate UX on an order whose return is already complete —
+      not the stale-merge bug this item is about. The order-kind
+      dashboard DOES filter on `Order.needsReview: true` directly
+      (`app/(app)/page.tsx` / `app/(app)/needs-review/page.tsx`, so
+      the "not cosmetic for order-kind rows" correction itself still
+      stands), but no confirmed live instance of *this specific bug*
+      (merge failing to clear a stale flag) has been found yet —
+      back to "silent state debt," not yet "confirmed visible."
       **Deliverable:** read-only count query for rows in the state
       `orderId IS NOT NULL AND needsReview = true` across all
       users; identify which merge code paths (in `linkOrder.ts`
@@ -3644,6 +3652,11 @@
       **Out of scope:** any fix; any state change to any row;
       broader audit of other stale row-level flags beyond
       `needsReview`; any UI or dashboard changes.
+      **Fixability assessment, 2026-09-09 (not started):** likely
+      fixable, but the census (this item's own deliverable) hasn't
+      been run yet, so the fix's actual shape — one merge branch
+      missing a `needsReview: false` write, or several — isn't known.
+      Run the census before scoping a fix.
 
 - [ ] **Diagnostic: Bloomingdale's #781160797 (cmts5rxus001yw9hv736f6gqj)
       created from an order_confirmation email but orderTotal +
@@ -3698,6 +3711,15 @@
       would have solved everything." Still diagnostic-only — no fix
       applied, per this item's own out-of-scope. Systemic query (other
       rows with the same shape) not yet run.
+      **Fixability assessment, 2026-09-09 (not started):** likely
+      fixable, moderate complexity, low-to-moderate risk. The retry
+      gate in `lib/extract.ts` needs widening to also fire when
+      `parsed.retailer == null` (today it requires retailer non-null
+      before ever trying the alternate body) — same file, same shape
+      of change as the 2026-09-06 Gap fix already shipped there. Main
+      pre-ship check: confirm it doesn't fire on genuinely
+      unparseable junk mail (the existing `emailType !== "other"`
+      guard already covers most of that).
 
 - [ ] **Diagnostic: adidas #AD962505056 (cmts5sz3p002dw9hvg6u52y2r)
       orderDate wrote as 2025-09-05 — a full year before receivedAt.
