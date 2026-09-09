@@ -5,6 +5,79 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-08/09 — Junked 20 pre-dedup-guard MessageID-redelivery duplicates
+
+**Data-only, no code change.** Surfaced during the 2026-09-08 cross-user Needs
+Review population diagnostic: one alpha user's account held 20 orphaned Email
+rows, all `messageId: null`, all `receivedAt` between 2026-07-21 and 2026-07-23 —
+predating the 2026-07-26 MessageID dedup guard (`20260726042035_add_email_
+messageid_dedup`). Three identical-subject/identical-timestamp clusters, each a
+single real shipment event Postmark redelivered multiple times: 6× "Your
+shipment is out for delivery today 522569099412" (2026-07-21T15:59:22Z), 8×
+"Your shipment was delivered 522569099412" (2026-07-21T19:11:20Z, retailer ACE
+VISALIA RSC on 6 of the 8), and 6× "DHL On Demand Delivery" (retailer GLOBAL-E
+NL B.V, 2026-07-23). Same root cause as the already-documented ACE VISALIA
+RSC/GLOBAL-E NL B.V duplicate-MessageID population (TASKS.md, 2026-07-26
+investigation) — this is that population's instance in this particular account.
+
+**Owner-confirmed:** all 20 pre-date the dedup guard; owner approved archiving
+"most... due to time" after reviewing the full row list, then confirmed
+archiving all 20 (no single copy is more "correct" than another — pure
+redelivery noise, not distinct events).
+
+**Action:** read-only precondition check immediately before write (re-confirmed
+`orderId: null`, `junkedAt: null`, same `userId` for all 20 ids), then
+`prisma.email.updateMany` set `junkedAt: 2026-09-09T01:58:45.960Z` on all 20.
+Verified post-write. Reversible via `rescueEmail()` — soft state, no delete.
+
+---
+
+## 2026-09-09 — Same account's `emailType: null` rows: 3 junked, 2 reprocessed
+
+**Data-only, no code change.** Follow-on to the above — the same alpha
+account's remaining Needs Review orphans included 5 rows with `emailType:
+null` (the `runExtraction.ts` catch-block/never-ran fingerprint: 3 with
+`extractedAt: null, needsReview: false`, matching the exact state TASKS.md's
+2026-08-08 investigation traced to a re-fetch race in `runExtraction`; 2 with
+`extractedAt` set, `needsReview: true`, everything else null, matching the
+catch block's own designed recovery write after a thrown exception).
+
+**Checked whether either of two recent fixes explained these** (owner
+question): (a) the 2026-09-06 `extractEmailIdentity` retry-trigger widening
+(`534be8d`) — doesn't apply; that fix only fires after a primary extraction
+call already succeeded, never reached by a row that threw or never ran. (b)
+the Bloomingdale's "order number in subject short-circuits HTML parsing"
+hypothesis (open diagnostic, TASKS.md) — also doesn't apply, confirmed by
+reading `lib/emailBodyText.ts`'s `resolveBodyTextWithAlternate` directly: it
+selects primary/alternate body purely on `textBody`/`htmlBody` length and
+never reads the subject at all; even if that hypothesis holds elsewhere, it
+would produce a shallow-but-successful extraction, not the fully-null
+`emailType` these rows show.
+
+**Action, 3 rows (all `receivedAt` in July 2026):** "The wait is over!"
+(07-21), "Your order was delivered!" (07-28), "Your shipment was delivered
+532567025794" (07-31) — precondition-checked, then junked
+(`junkedAt: 2026-09-09T02:37:19.640Z`). Owner instruction: "anything from
+July junk."
+
+**Action, 2 rows (August 2026) — reprocessed via `runExtraction`, not
+junked:**
+- "Return shipment in transit - RMA11947929" → resolved to retailer "Ancient
+  Greek Sandals", `orderNumber: 84963`, `emailType: return_label`, merged
+  into an existing Order. `needsReview` cleared.
+- "UPS Ship Notification, Tracking Number 1Z06W0750366993334" → resolved to
+  retailer "Row Works Clothing Co." (identified from body text — sender was
+  the generic `pkginfo@ups.com`, not the retailer), `orderNumber: 12526`,
+  `emailType: shipping_confirmation`, linked to an Order. `needsReview`
+  stayed `true` — no return policy resolvable (retailer's own domain,
+  rowworksclothing.com, has no DNS record); this one still needs a look, not
+  a data-recovery problem.
+
+**Cost:** 4 billed calls (2× `email_extraction`, 1× `email_extraction_retry`,
+1× `policy_lookup` — 3 web searches, retailer site unreachable).
+
+---
+
 ## 2026-09-08 — `extractEmailIdentity` retry-fix verified
 
 **Commit:** `534be8d` (built + tested + pushed + deployed 2026-09-06,
