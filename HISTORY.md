@@ -5,6 +5,48 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-08 — `extractEmailIdentity` retry-fix verified
+
+**Commit:** `534be8d` (built + tested + pushed + deployed 2026-09-06,
+`dpl_Fd3ZXZdzQPLMD8ePs4MUPRyxWuXa` per `vercel inspect`)
+
+**Scope shipped:**
+- Widened `extractEmailIdentity`'s retry trigger from `orderNumber == null` to a
+  body-content-dependent-fields predicate (Shape B, retailer-agnostic).
+- Expanded pass 2 write-scope to gap-fill the full field set, never overwrite (B2
+  over B1).
+- Explicitly out of scope: any refactor of `extractEmailIdentity` beyond these two
+  changes; any cleanup of `resolveBodyText` / `resolveBodyTextWithAlternate`; Haiku
+  classifier / `emailType` gating changes; other call site audits.
+
+**Backfill:** 4 of 10 mechanism-fingerprint-matched rows reprocessed (Amazon×3,
+Amazon Haul, Whole Foods, Monos excluded per owner instruction, exclusions baked
+into `scripts/audits/2026-09-06-retry-fix-backfill-count.ts`'s WHERE clause). All 4
+gap-filled `orderTotal` + `lineItems`. `orderDate` / `returnWindowDays` not
+recoverable from alternate body either — stayed null on Email rows; linked Order's
+own `returnWindowDays` (30, via original web-lookup) confirmed unaffected via direct
+query, per `linkOrder.ts`'s nullish-coalescing merge (`email.returnWindowDays ??
+existing.returnWindowDays`).
+
+**Cost:** 8 billed model calls total (4× `email_extraction` + 4×
+`email_extraction_retry`; no policy web-search fired, since each linked Order
+already had a resolved window).
+
+**Owner verification 2026-09-08:** Gap Order #1RYJR48 verified in production. Order
+created and populated correctly: `orderNumber` 1RYJR48, `orderDate` Sep 2,
+`deliveryDate` Sep 8, `returnDeadline` Oct 8, `orderTotal` $254.14,
+`returnWindowDays` 30, 4 line items. 6 emails linked into this Order across the
+full lifecycle (order_confirmation, 3× shipping_confirmation, arrival). "Some
+dates on this order are estimated" banner correctly reflects `orderDateEstimated:
+true`.
+
+**Residual, filed separately:** `Email.needsReview` flag not cleared on successful
+merge — cosmetic on the row (dashboard uses `orderId`, not `needsReview`, for
+email-kind bucket) but potential silent state debt across the DB. Filed as a
+separate diagnostic Next entry.
+
+---
+
 ## 2026-09-07/08 — Self-outbound guard condition 3 fix, deployed and recovery-verified
 
 Commits: `b316416` (fix), `6b91310` (dry-run over 106), `1e51fe2` (real recovery run)

@@ -32,65 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Fix: widen retry trigger in `extractEmailIdentity` from
-      `orderNumber == null` to a body-content-dependent-fields
-      predicate; expand pass 2 write-scope to gap-fill full field
-      set. NEW 2026-09-06, follows from the 2026-09-06 Gap
-      diagnostic (mechanism), blast-radius census (initial n=1),
-      and Gap Inc. spot-check (corrected finding: 4 of 5 known
-      Gap Inc. orders show the mechanism; census predicate had a
-      hidden dependency on `returnWindowDays IS NULL` that public-
-      policy web lookup was independently satisfying).**
-      Shape B (retailer-agnostic predicate-widening) chosen over
-      retailer-specific bypass, per owner's maintenance-cost
-      argument. Pass 2 write-scope B2 (gap-fill full field set,
-      never overwrite) chosen over B1 (two-branch), given the
-      spot-check's confirmed 4x undercount and the safety of
-      gap-fill semantics.
-      **Includes as final step:** run the corrected mechanism-
-      fingerprint query against the full 158-row `order_
-      confirmation` baseline, reprocess every matched row
-      (including #1RYJR48). Backfill count discovered as part
-      of the fix, not gated on a prior re-census.
-      **Explicitly out of scope:** any refactor of
-      `extractEmailIdentity` beyond the two changes above; any
-      cleanup of `resolveBodyText` or `resolveBodyTextWithAlternate`;
-      any change to the Haiku classifier or `emailType` gating;
-      auditing other call sites; retailer- or emailType-sourced
-      variants of the mechanism (unconfirmed, deferred as future
-      mechanism trace).
-      **See paired Claude Code prompt for execution detail** —
-      this Now entry alone is not an executable spec; do not
-      paste this into Claude Code.
-      **STATUS 2026-09-06: code+tests built, committed (`534be8d`),
-      pushed, deployed, verified live via `vercel inspect`
-      (`dpl_Fd3ZXZdzQPLMD8ePs4MUPRyxWuXa`). Backfill run: 4 of
-      the original 10 matched rows reprocessed** — Amazon (3),
-      Amazon Haul (1), Whole Foods Market (1), and Monos (1)
-      excluded by owner instruction (Amazon bound to
-      `AMAZON_HANDLING.md` spec pass; grocery blocked by policy
-      and prior spot-check already found the Whole Foods row a
-      different-cause no-op; Monos' `needsReview: true` disagreed
-      with its Kept/Archive UI state, so "safe reprocess" didn't
-      hold — not investigated, owner to decide if it's its own
-      item, possibly related to the null-orderNumber-orders
-      duplicate bug). All 4 exclusions are baked into
-      `scripts/audits/2026-09-06-retry-fix-backfill-count.ts`'s
-      WHERE clause, not just this note. The 4 reprocessed Gap
-      rows (incl. `1RYJR48`) each gap-filled `orderTotal` +
-      `lineItems`; `orderDate`/`returnWindowDays` weren't
-      recoverable from the alternate body either, so stayed null
-      on the Email row post-reprocess — the linked Order's own
-      `returnWindowDays` (30, from the original web-lookup) was
-      unaffected, confirmed via direct query, because
-      `linkOrder.ts`'s merge is nullish-coalescing
-      (`email.returnWindowDays ?? existing.returnWindowDays`).
-      8 billed model calls total (4× `email_extraction` + 4×
-      `email_extraction_retry`; no policy web-search fired, since
-      each linked Order already had a resolved window).
-      **Awaiting owner real-world verification — not moved to
-      Done.**
-
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-05, LIVE
       VERIFICATION PENDING] Wire parseTracking() call sites through
       resolveBodyText() to close the HTML-only tracking
@@ -3668,6 +3609,27 @@
 
 ## 🟡 Next
 
+- [ ] **Diagnostic: `Email.needsReview` not cleared on successful merge
+      into an Order. NEW 2026-09-08, surfaced during hand-verification
+      of the 2026-09-06 retry-fix (Gap #1RYJR48).**
+      The Gap order_confirmation Email row for #1RYJR48 correctly
+      merged into its Order (Order populated end-to-end, 6 emails
+      linked), but the Email row's own `needsReview` flag is still
+      `true` post-merge. Cosmetic in the current UI (email-kind
+      Needs Review dashboard filters on `orderId: null AND
+      junkedAt: null`, does not read `needsReview`), but the flag
+      is stale — misleading if any cron, report, or future
+      dashboard filters on `needsReview: true`, and silent state
+      debt if it's happening across the DB.
+      **Deliverable:** read-only count query for rows in the state
+      `orderId IS NOT NULL AND needsReview = true` across all
+      users; identify which merge code paths (in `linkOrder.ts`
+      and any callers) should be clearing `needsReview` and
+      aren't. Chat report OK. Zero model calls.
+      **Out of scope:** any fix; any state change to any row;
+      broader audit of other stale row-level flags beyond
+      `needsReview`; any UI or dashboard changes.
+
 - [ ] **Diagnostic: Bloomingdale's #781160797 (cmts5rxus001yw9hv736f6gqj)
       created from an order_confirmation email but orderTotal +
       returnWindowDays wrote null. NEW 2026-09-08, surfaced during
@@ -6039,6 +6001,12 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **`extractEmailIdentity` retry-fix: widened retry trigger + full
+      field-set gap-fill on pass 2 — shipped 2026-09-06, verified
+      end-to-end 2026-09-08 (Gap Order #1RYJR48 correctly linked in
+      production with 6 emails, $254.14, return deadline Oct 8).
+      HISTORY.md 2026-09-08.** `534be8d`.
 
 - [x] **Real recovery of the 106 eligible self_outbound_loop discards —
       run executed cleanly. 2026-09-08.** `1e51fe2`. 0 errors, 0
