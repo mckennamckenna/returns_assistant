@@ -3615,12 +3615,27 @@
       The Gap order_confirmation Email row for #1RYJR48 correctly
       merged into its Order (Order populated end-to-end, 6 emails
       linked), but the Email row's own `needsReview` flag is still
-      `true` post-merge. Cosmetic in the current UI (email-kind
-      Needs Review dashboard filters on `orderId: null AND
-      junkedAt: null`, does not read `needsReview`), but the flag
-      is stale — misleading if any cron, report, or future
-      dashboard filters on `needsReview: true`, and silent state
-      debt if it's happening across the DB.
+      `true` post-merge. Originally assessed cosmetic in the current
+      UI (email-kind Needs Review dashboard filters on `orderId: null
+      AND junkedAt: null`, does not read `needsReview`) — that
+      assessment was scoped to email-kind rows only, and holds; it
+      was never a claim about order-kind rows.
+      **CORRECTION 2026-09-09 — NOT cosmetic for order-kind rows,
+      confirmed live-visible:** the order-kind half of the Needs
+      Review dashboard filters directly on `Order.needsReview: true`
+      (`app/(app)/page.tsx` / `app/(app)/needs-review/page.tsx`).
+      Alexandra's Ancient Greek Sandals order (#84963,
+      `cmrwa20650003jt04wu1gj5eu`) — fully returned, `displayStatus:
+      "returned"`, lifecycle complete — still carries `needsReview:
+      true` after tonight's reprocess merged its final return-transit
+      email in, and Alexandra confirmed via screenshot she can still
+      see it in her visible Needs Review pile. Same pattern also
+      present on her Row Works Clothing Co. order (#12526,
+      `cmtthurcb0001w9i6mafwjdbu`, `needsReview: true` for a different,
+      legitimate reason — no resolvable return policy — so that one's
+      flag is arguably correct, unlike the Ancient Greek Sandals one).
+      This raises the severity from "silent state debt" to "actively
+      visible incorrect UI state for at least one real user."
       **Deliverable:** read-only count query for rows in the state
       `orderId IS NOT NULL AND needsReview = true` across all
       users; identify which merge code paths (in `linkOrder.ts`
@@ -3653,6 +3668,36 @@
       **Out of scope:** any fix; repair of this row or any others found;
       any change to `resolveBodyText` even if hypothesis confirmed
       (fix is its own future entry).
+      **STATUS 2026-09-08/09: root cause traced, hypothesis refined —
+      not the subject line.** Ran `resolveBodyTextWithAlternate` directly
+      against this email's actual (decrypted) bodies: `textBody` decrypts
+      to 40 characters of pure boilerplate ("We'll let you know when your
+      items ship.") — just long enough to clear the 20-char
+      "substantial" threshold, so it became `primary`, while `htmlBody`
+      (2,544 chars converted) — the `alternate` — has everything: order
+      number, address, line items, retailer branding. `resolveBodyText`
+      itself never reads the subject line at all (confirmed by reading
+      `lib/emailBodyText.ts`) — subject plays no role at this layer.
+      The real gate: primary-pass extraction on that 40-char textBody
+      came back with `retailer: null` too (own extraction note: "retailer
+      could not be identified from the body") — not just missing totals.
+      The 2026-09-06 retry gate (`lib/extract.ts`) requires
+      `parsed.retailer != null` **from the primary pass** before it will
+      even attempt the alternate body. Confirmed via direct replay:
+      `hasNoBodyContent: true`, `alternateDiffersFromPrimary: true`, but
+      retailer-null on pass 1 blocked the retry outright — even though
+      the alternate body would have resolved retailer AND every missing
+      field. The row's final `retailer: "Bloomingdale's"` only got filled
+      by a separate sender-domain fallback that runs strictly downstream
+      of this retry decision, so it looks resolved in the DB but wasn't
+      resolved at the point that mattered. **Gap in the Gap-fix's own
+      gate**, not a new/different bug: that fix assumed the primary pass
+      always at least identifies the retailer and only guards missing
+      totals/dates/lineItems; it doesn't handle "primary pass fails so
+      completely it can't name the retailer, but the alternate body
+      would have solved everything." Still diagnostic-only — no fix
+      applied, per this item's own out-of-scope. Systemic query (other
+      rows with the same shape) not yet run.
 
 - [ ] **Diagnostic: adidas #AD962505056 (cmts5sz3p002dw9hvg6u52y2r)
       orderDate wrote as 2025-09-05 — a full year before receivedAt.
