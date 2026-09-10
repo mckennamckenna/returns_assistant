@@ -32,6 +32,39 @@
 
 ## 🔴 Now
 
+- [ ] **Build: cross-user admin orders table (dashboard V1 step 1). NEW
+      2026-09-06, follows from the 2026-09-06 dashboard audit (findings
+      returned in-session, not committed as a doc per read-only session
+      constraint).** The current admin has a per-user orders table
+      (app/admin/users/[forwardingAddress]/page.tsx) but no cross-user
+      view — you can't see all orders across all users in one place,
+      filter by needs-review / state / retailer, or spot-check volume.
+      The audit classified this [EASY]: the query pattern already
+      exists, only the userId scope has to be lifted, plus a user
+      column added and filter params wired. No schema change, no
+      backfill, no extractor or state-recompute code touched.
+      **Scope:** new page at app/admin/orders, adapting the existing
+      per-user table's query. Columns: user email, retailer, order
+      number, displayStatus, return deadline, needs-review flag,
+      updated_at. Filters (URL query params, linkable): needsReview,
+      displayStatus, retailer contains, user, missingDeadline
+      (returnDeadline null), lowConfidence (via emails.some
+      confidence:"low"). Rows click-through to the existing per-order
+      detail page. Read-only — no inline edit, no row-level actions
+      beyond click-through.
+      **Explicitly out of scope:** any Prisma schema change; any
+      backfill; the anomalies queue (step 3); health tiles (step 3);
+      triage-note-on-Approve (step 4); editing extracted field values
+      (indefinitely deferred — wrong values get fixed at the
+      extractor, not the row); state-transition history (deferred,
+      HEAVY); reminder open/click tracking (deferred, HEAVY); sorting
+      UI, CSV export, bulk actions, cursor pagination.
+      **Deliverable:** new page live in prod at the admin route,
+      loading all orders across all users (simple limit/offset
+      pagination), filterable by the six filters listed, each row
+      click-throughing to the existing order detail page. Owner
+      hand-verifies in prod before ✅
+
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
       (`receivedAt`), no modify-time signal — blocked diagnosis of a
@@ -3625,6 +3658,47 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+
+- [ ] **Diagnostic: extractor ingesting our own outbound reminder emails
+      as retailer emails, then reading retailer/orderNumber/orderTotal
+      from the reminder body. NEW 2026-09-06, surfaced by needs-review
+      triage of two users' orders (a retailer with two flagged orders
+      in the low thousands of dollars each; a second retailer's single
+      flagged order for a separate user) — all three flagged with
+      needsReview notes explicitly identifying the source email as a
+      myreturnwindow.com reminder.**
+      Same failure shape across three orders across two users in a
+      single admin screenshot, so the visible population is almost
+      certainly an undercount. The reminder emails restate retailer
+      name, order number, and order total in their body (that's the
+      point of the reminder), which means the extractor sees a
+      plausible-looking commerce email and fires. The correct behavior
+      is to discard any inbound email whose sender is our own outbound
+      sending domain(s) before extraction ever runs.
+      **Census question:** how many existing orders have at least one
+      associated email whose sender domain matches our outbound
+      sending domain(s), and of those, how many have orderTotal /
+      orderNumber / retailer values that trace to that
+      inbound-reminder email rather than a real retailer email.
+      Silent-slice matters: orders that got wrong totals from this
+      path but never tripped needsReview.
+      **This item is the diagnostic + census only** — no fix, no fix
+      scoping, no backfill, no reprocessing. Fix and any per-order
+      correction are separate follow-ups after the census lands.
+      **Explicitly out of scope:** any code change to the ingest
+      classifier or extractor; reprocessing any email; any model call;
+      backfill; per-user correction of the affected orders is
+      deferred — when the dashboard V1 step-4 triage-note flow ships,
+      those orders can be Approved with a note pointing to this
+      diagnostic.
+      **Deliverable:** `docs/audits/2026-09-06-self-reminder-
+      ingestion-diagnostic.md` — one-paragraph summary; list of
+      outbound sending domains the extractor should be treating as
+      discard-on-sight; count of affected orders broken down by (a)
+      currently in needsReview and (b) silent slice; retailer
+      distribution of the affected orders; and a one-paragraph scope
+      note framing what a fix would need to change (framing only, not
+      a fix recommendation).
 
 - [ ] **Diagnostic: `Email.needsReview` not cleared on successful merge
       into an Order. NEW 2026-09-08, surfaced during hand-verification
