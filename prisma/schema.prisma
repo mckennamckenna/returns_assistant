@@ -98,6 +98,13 @@ model Email {
   textBody    String?  @db.Text // encrypted at rest
   htmlBody    String?  @db.Text // encrypted at rest
   receivedAt  DateTime @default(now())
+  // Modify-time signal, added 2026-09-09 — Email previously had only
+  // receivedAt (create-time). null means "never modified since creation
+  // (or predates this field)"; Prisma sets it automatically on any
+  // update from here forward, no write-path changes needed. Also the
+  // ground-truth signal the planned mutation-audit build will check
+  // against, to verify the audit log isn't silently missing writes.
+  updatedAt   DateTime? @updatedAt
   rawJson     String   @db.Text // encrypted at rest — whole Postmark payload, JSON-stringified then encrypted
   // Postmark's own MessageID for this inbound delivery — the same
   // identifier used to confirm the ACE VISALIA/GLOBAL-E redelivery

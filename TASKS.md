@@ -32,6 +32,23 @@
 
 ## 🔴 Now
 
+- [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
+      currently only has `extractedAt`-style create-time signals
+      (`receivedAt`), no modify-time signal — blocked diagnosis of a
+      ghost-bug (a row reappearing in Needs Review, unable to verify
+      "state consistent with never changed"). Also a prerequisite for
+      a mutation-audit build planned later this month, but that build
+      is explicitly not part of this task.
+      **Scope:** add the field to the Prisma schema, backfill
+      existing rows as null (matching the `messageId` /
+      `retailerSource` nullable-field-addition convention), generate
+      the migration. Schema diff + migration shown to owner for
+      approval before applying (per CLAUDE.md's migration sign-off
+      rule).
+      **Explicitly out of scope:** Order model, AuditLog /
+      mutation-logging work, Prisma middleware or client extensions,
+      any other Email field, refactoring existing Email write paths.
+
 - [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-05, LIVE
       VERIFICATION PENDING] Wire parseTracking() call sites through
       resolveBodyText() to close the HTML-only tracking
