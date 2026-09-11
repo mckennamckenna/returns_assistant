@@ -1,17 +1,38 @@
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { NextRequest } from "next/server";
 
 // Pure-function smoke coverage for the alpha weekly-url-review job's
-// scoring heuristics and search-subject priority order. Full-route
-// behavior (auth, per-order try/catch, self-healing on failure) is not
-// exercised here — this is alpha infra, smoke coverage only, per the
-// build spec's non-goals.
+// scoring heuristics and search-subject priority order, plus one
+// directed route-level test for the DB-before-Sheet write ordering
+// (2026-09-11 ghost-Sheet-row fix) below. Full-route behavior beyond
+// that (auth, notifyAdmin summary shape, etc.) is not exercised here —
+// this is alpha infra, smoke coverage only, per the build spec's
+// non-goals.
 
-vi.mock("@/lib/db", () => ({ prisma: {} }));
+const { mockPrisma } = vi.hoisted(() => ({
+  mockPrisma: {
+    returnUrlReview: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    order: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  },
+}));
+
+vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/adminNotify", () => ({ notifyAdmin: vi.fn() }));
 vi.mock("@/lib/search", () => ({ searchWeb: vi.fn() }));
-vi.mock("@/lib/sheets", () => ({ ensureSheetHeaders: vi.fn(), appendReviewRow: vi.fn() }));
+vi.mock("@/lib/sheets", () => ({
+  ensureSheetHeaders: vi.fn().mockResolvedValue(undefined),
+  appendReviewRow: vi.fn(),
+}));
 
-import { scoreResult, resolveSearchSubject } from "@/app/api/cron/weekly-url-review/route";
+import { scoreResult, resolveSearchSubject, GET } from "@/app/api/cron/weekly-url-review/route";
+import { searchWeb } from "@/lib/search";
+import { appendReviewRow } from "@/lib/sheets";
 
 const APP_DOMAIN = "myreturnwindow.com";
 
@@ -100,5 +121,74 @@ describe("resolveSearchSubject", () => {
     const result = resolveSearchSubject({ retailer: "Gap Inc.", returnPortalUrl: null }, new Map(), APP_DOMAIN);
     expect(result.subject).toBe("gap");
     expect(result.knownDomain).toBeNull();
+  });
+});
+
+describe("GET (write ordering)", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CRON_SECRET = "test-secret";
+    process.env.APP_DOMAIN = APP_DOMAIN;
+    mockPrisma.returnUrlReview.findMany.mockResolvedValue([]);
+    mockPrisma.order.findMany.mockResolvedValue([
+      { id: "order-1", retailer: "Some Retailer", returnPortalUrl: null },
+    ]);
+    vi.mocked(searchWeb).mockResolvedValue([
+      { title: "Returns", url: "https://someretailer.com/returns", snippet: "" },
+    ]);
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  function makeRequest() {
+    return new NextRequest("https://example.com/api/cron/weekly-url-review?secret=test-secret");
+  }
+
+  // 2026-09-11 ghost-Sheet-row fix: under concurrent invocations, the old
+  // write order (Sheet append, then DB create) let a losing invocation's
+  // DB create fail on the orderId unique constraint AFTER it had already
+  // written a Sheet row for that order — a ghost row with no DB record
+  // behind it. DB-create-first means a losing invocation never reaches
+  // appendReviewRow() at all.
+  it("does not call appendReviewRow when the DB write fails", async () => {
+    mockPrisma.returnUrlReview.create.mockRejectedValue(
+      new Error("Unique constraint failed on the fields: (`orderId`)"),
+    );
+
+    const response = await GET(makeRequest());
+    const body = await response.json();
+
+    expect(mockPrisma.returnUrlReview.create).toHaveBeenCalled();
+    expect(appendReviewRow).not.toHaveBeenCalled();
+    expect(body.queued).toEqual([]);
+    expect(body.failed).toEqual([
+      {
+        orderId: "order-1",
+        retailer: "Some Retailer",
+        error: "Unique constraint failed on the fields: (`orderId`)",
+      },
+    ]);
+  });
+
+  it("calls appendReviewRow and attaches sheetRowId after a successful DB write", async () => {
+    mockPrisma.returnUrlReview.create.mockResolvedValue({});
+    vi.mocked(appendReviewRow).mockResolvedValue("7");
+    mockPrisma.returnUrlReview.update.mockResolvedValue({});
+
+    const response = await GET(makeRequest());
+    const body = await response.json();
+
+    const createOrder = mockPrisma.returnUrlReview.create.mock.invocationCallOrder[0];
+    const appendOrder = vi.mocked(appendReviewRow).mock.invocationCallOrder[0];
+    expect(createOrder).toBeLessThan(appendOrder);
+    expect(mockPrisma.returnUrlReview.update).toHaveBeenCalledWith({
+      where: { orderId: "order-1" },
+      data: { sheetRowId: "7" },
+    });
+    expect(body.queued).toEqual([{ orderId: "order-1", retailer: "Some Retailer", candidateUrl: "https://someretailer.com/returns" }]);
   });
 });

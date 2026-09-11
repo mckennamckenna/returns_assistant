@@ -203,6 +203,30 @@ export async function GET(request: NextRequest) {
       const alternative2 = scored[2]?.result.url ?? "";
       const allNegative = scored.length > 0 && scored.every((s) => s.score < 0);
 
+      // DB write before Sheet write — the reverse of this job's original
+      // order. Under concurrent invocations of this route (2026-09-11
+      // incident: 3 near-simultaneous manual triggers), every invocation
+      // reads the same `returnUrlReview: null` candidate list before any
+      // of them commits, so more than one can search + append a Sheet row
+      // for the same order before hitting this table's unique constraint
+      // on orderId — the constraint reliably rejects every loser, but the
+      // old order already wrote that loser's Sheet row by then, leaving a
+      // ghost row with no DB record behind it. Writing to Postgres first
+      // means a losing invocation fails here, before ever calling
+      // appendReviewRow() — no ghost row gets written. `sheetRowId` is
+      // attached in a follow-up update() once the Sheet append succeeds.
+      await prisma.returnUrlReview.create({
+        data: {
+          orderId: order.id,
+          rawRetailer: order.retailer ?? "",
+          queryUsed: query,
+          candidateUrl: candidateUrl || null,
+          alternativeUrls: [alternative1, alternative2].filter(Boolean),
+          candidateSource: "SEARCH",
+          status: "PENDING",
+        },
+      });
+
       const sheetRowId = await appendReviewRow({
         orderId: order.id,
         rawRetailer: order.retailer ?? "",
@@ -216,24 +240,24 @@ export async function GET(request: NextRequest) {
         urlNotesPrefill: allNegative ? "all candidates scored negatively, likely no good page exists" : undefined,
       });
 
-      await prisma.returnUrlReview.create({
-        data: {
-          orderId: order.id,
-          rawRetailer: order.retailer ?? "",
-          queryUsed: query,
-          candidateUrl: candidateUrl || null,
-          alternativeUrls: [alternative1, alternative2].filter(Boolean),
-          candidateSource: "SEARCH",
-          status: "PENDING",
-          sheetRowId,
-        },
+      await prisma.returnUrlReview.update({
+        where: { orderId: order.id },
+        data: { sheetRowId },
       });
 
       queued.push({ orderId: order.id, retailer: order.retailer, candidateUrl: candidateUrl || null });
     } catch (error) {
-      // No ReturnUrlReview row is created on failure — this is what makes
-      // the job self-heal: the order still has no review row, so next
-      // week's query picks it up again automatically.
+      // Self-heal still holds for the common case: if prisma.create()
+      // itself throws (including the unique-constraint race described
+      // above), no ReturnUrlReview row exists, so next run's candidate
+      // query picks the order up again automatically. The one edge case
+      // this doesn't self-heal: create() succeeds but the Sheet append or
+      // the sheetRowId update after it throws (a Sheets API outage) — the
+      // DB row now exists (with sheetRowId still null), so the order
+      // won't be re-queued next run even though it never reached the
+      // Sheet. Accepted tradeoff over the ghost-row bug this fixes;
+      // a row stuck with sheetRowId: null is a visible, queryable signal
+      // if it ever happens, unlike a ghost Sheet row with no DB trace.
       console.error("Weekly URL review failed for order", order.id, error);
       failed.push({
         orderId: order.id,
