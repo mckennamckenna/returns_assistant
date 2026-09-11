@@ -3465,6 +3465,14 @@
 
 ## 🟡 Next
 
+- [ ] **Apply-approvals cron heartbeat log.** The daily apply-url-reviews
+      cron currently emits no output when zero rows are actionable, which
+      is the normal case until owner starts approving. Result: no positive
+      confirmation the cron is actually firing on schedule. Add a
+      heartbeat log line (or equivalent — health-check row, single-log-
+      per-run) so daily execution is observable even on no-op runs. Small,
+      not blocking; unblocks trusting the daily cadence long-term.
+
 - [ ] **Diagnostic: extractor ingesting our own outbound reminder emails
       as retailer emails, then reading retailer/orderNumber/orderTotal
       from the reminder body. NEW 2026-09-06, surfaced by needs-review
