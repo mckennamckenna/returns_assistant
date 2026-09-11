@@ -32,45 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Build: cross-user admin orders table (dashboard V1 step 1). NEW
-      2026-09-06, follows from the 2026-09-06 dashboard audit (findings
-      returned in-session, not committed as a doc per read-only session
-      constraint).** The current admin has a per-user orders table
-      (app/admin/users/[forwardingAddress]/page.tsx) but no cross-user
-      view — you can't see all orders across all users in one place,
-      filter by needs-review / state / retailer, or spot-check volume.
-      The audit classified this [EASY]: the query pattern already
-      exists, only the userId scope has to be lifted, plus a user
-      column added and filter params wired. No schema change, no
-      backfill, no extractor or state-recompute code touched.
-      **Scope:** new page at app/admin/orders, adapting the existing
-      per-user table's query. Columns: user email, retailer, order
-      number, displayStatus, return deadline, needs-review flag,
-      updated_at. Filters (URL query params, linkable): needsReview,
-      displayStatus, retailer contains, user, missingDeadline
-      (returnDeadline null), lowConfidence (via emails.some
-      confidence:"low"). Rows click-through to the existing per-order
-      detail page. Read-only — no inline edit, no row-level actions
-      beyond click-through.
-      **Explicitly out of scope:** any Prisma schema change; any
-      backfill; the anomalies queue (step 3); health tiles (step 3);
-      triage-note-on-Approve (step 4); editing extracted field values
-      (indefinitely deferred — wrong values get fixed at the
-      extractor, not the row); state-transition history (deferred,
-      HEAVY); reminder open/click tracking (deferred, HEAVY); sorting
-      UI, CSV export, bulk actions, cursor pagination.
-      **Deliverable:** new page live in prod at the admin route,
-      loading all orders across all users (simple limit/offset
-      pagination), filterable by the six filters listed, each row
-      click-throughing to the existing order detail page. Owner
-      hand-verifies in prod before ✅
-      **Follow-up fix, 2026-09-10:** order # column now also links to
-      the same order-detail page (retailer-name link was the only
-      click-through; owner correctly flagged order # as the
-      conventional row identifier). Retailer-name link left in place
-      unchanged — both now point at the same target. No other change
-      to the page.
-
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
       (`receivedAt`), no modify-time signal — blocked diagnosis of a
@@ -6165,6 +6126,10 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Cross-user admin orders table (dashboard V1 step 1) shipped and
+      verified in prod — both retailer-name and order # link through to
+      the per-order detail page. HISTORY.md 2026-09-10.**
 
 - [x] **`extractEmailIdentity` retry-fix: widened retry trigger + full
       field-set gap-fill on pass 2 — shipped 2026-09-06, verified

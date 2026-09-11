@@ -5,6 +5,48 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-10 — Dashboard V1 step 1: cross-user admin orders table shipped
+
+**Follows from the 2026-09-06 dashboard audit** (findings returned in-session,
+not committed as a doc, per that session's read-only constraint). The admin
+surface had a per-user orders table (`app/admin/users/[forwardingAddress]/
+page.tsx`) but no cross-user view — no way to see all orders across all users
+in one place, filter by needs-review / state / retailer, or spot-check
+volume.
+
+**Shipped:** new read-only page at `/admin/orders`, adapting the existing
+per-user table's query with the `userId` scope lifted. Columns: user email,
+retailer, order number, displayStatus, return deadline, needs-review flag,
+updated_at. Filters via URL query params (linkable): `needsReview`,
+`displayStatus`, `retailer` (contains), `user` (email contains),
+`missingDeadline`, `lowConfidence` (via `emails.some({confidence:"low"})`).
+Sort fixed at `updatedAt desc`, no sort UI. Limit/offset pagination, 50 rows
+per page. Same stateless `ADMIN_SECRET` gate as `app/admin/page.tsx` — no new
+auth check introduced. No Prisma schema change, no backfill, no code touched
+in `lib/linkOrder.ts` or `lib/extract.ts`. Commit `84b678e`.
+
+**Follow-up fix, same day:** the order # column had no click-through — only
+the retailer name linked to the per-order detail page, and order # is the
+conventional row-level identifier. Added the same click-through to the order
+# column; retailer-name link left unchanged, so both now point at the
+existing per-order detail page (`app/admin/users/[forwardingAddress]/orders/
+[orderId]`). No other change to the page (styling, filters, auth, sort,
+pagination all untouched). Commit `54019bd`.
+
+**Verified in prod:** owner hand-verified both the retailer-name link and
+the order # link live at `/admin/orders`, confirming both open the correct
+per-order detail page.
+
+**Deferred (not part of this entry):** state-transition history and
+field-level provenance/confidence (both classified HEAVY in the 2026-09-06
+audit — real schema/design work, not queued as dashboard V1 steps at all
+yet). Health tiles, the anomalies queue, and triage-note-on-Approve are
+dashboard V1 steps 2–4, tracked separately, not built here. Editing extracted
+field values from Needs Review is indefinitely deferred (owner decision:
+wrong values get fixed at the extractor, not the row).
+
+---
+
 ## 2026-09-08/09 — Junked 20 pre-dedup-guard MessageID-redelivery duplicates
 
 **Data-only, no code change.** Surfaced during the 2026-09-08 cross-user Needs
