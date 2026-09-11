@@ -144,78 +144,6 @@
       value like "partially_delivered". Awaiting a real multi-shipment
       email to hand-verify against production.
 
-- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
-      VERIFICATION PENDING] Dev-send guard: fix env-var check
-      (VERCEL_ENV not NODE_ENV).** Guard shipped in 75861d5
-      checks NODE_ENV === "production", which is true in every
-      Vercel deploy including previews — providing zero
-      protection on preview deploys with real Postmark
-      credentials (REMINDER_FROM_EMAIL, LOGIN_FROM_EMAIL,
-      POSTMARK_SERVER_TOKEN all present in Preview env with
-      real values). Any send path hittable via a preview URL
-      (magic link, admin notify, refund check-in) currently
-      sends real emails to real users. Fix: one-line swap in
-      lib/postmark.ts shouldActuallySend() from NODE_ENV to
-      VERCEL_ENV. VERCEL_ENV is undefined locally (correctly
-      falsy), and distinguishes preview/production/development
-      on Vercel infra. Discovered as follow-up to 75861d5
-      during preview-deploy sanity-check.
-      **Built 2026-09-03:** straight swap, both checks in
-      `shouldActuallySend()` (the send gate and the warn-log
-      condition) now read `VERCEL_ENV` instead of `NODE_ENV`. No
-      caller changes. **Tests:** `__tests__/postmarkDevSendGuard.test.ts`
-      updated to stub `VERCEL_ENV` instead of `NODE_ENV` across
-      all cases, plus one new case for the exact gap this closes
-      — `VERCEL_ENV=preview`, no override → logs-and-skips (the
-      original guard would have sent for real here). **773/773
-      tests passing, `npm run build` clean.** Zero Anthropic API
-      calls, zero DB access. Committed and pushed to `main`;
-      Vercel auto-deploys on push. Production behavior unchanged
-      (Vercel always sets `VERCEL_ENV=production` there, same as
-      it always set `NODE_ENV=production`).
-
-- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
-      VERIFICATION PENDING] Guard local dev from sending real
-      emails.** lib/postmark.ts sendEmail() has no environment
-      check; local dev with POSTMARK_SERVER_TOKEN set fires real
-      Postmark sends from whatever REMINDER_FROM_EMAIL/
-      LOGIN_FROM_EMAIL is in .env. Local .env currently has
-      stale mckenna@metaxmoda.com (owner's pre-migration personal
-      domain), so any local dev run hitting a send path
-      (reminder cron, refund check-in, admin notify, magic link)
-      silently emails real users from a personal domain. Fix:
-      add opt-out guard in sendEmail() — default behavior in
-      non-production is "log intended send, do not call Postmark
-      API"; explicit ALLOW_REAL_EMAIL_IN_DEV=true env var
-      overrides for intentional testing. Also update stale
-      .env value to reminders@myreturnwindow.com. Discovered
-      by CC during self-email loop fix session, commit 22be2d7.
-      **Built 2026-09-03:** `shouldActuallySend()` in
-      `lib/postmark.ts` — `NODE_ENV === "production"` → send
-      normally, unchanged from before; otherwise only sends when
-      `ALLOW_REAL_EMAIL_IN_DEV === "true"` exactly (a stray
-      truthy-but-not-`"true"` value like `"1"` does NOT bypass —
-      tested explicitly), and logs a WARN noting the override is
-      active; the true default (non-production, no override) logs
-      `to`/`from`/`subject` at INFO and returns without calling
-      Postmark — no body/template content in the log, per this
-      repo's PII-minimization convention. Single choke point, no
-      caller changes (adminNotify/refundCheckin/magicLinkRateLimit/
-      cron route all untouched, as scoped). Local `.env`'s
-      `REMINDER_FROM_EMAIL` updated to
-      `reminders@myreturnwindow.com`; `LOGIN_FROM_EMAIL` and other
-      `*_FROM_EMAIL` vars checked — none other present locally
-      (falls back to `REMINDER_FROM_EMAIL` per existing code).
-      **Tests:** `__tests__/postmarkDevSendGuard.test.ts`, 4 cases
-      covering all three branches plus the truthy-string-bypass
-      guard. **772/772 tests passing, `npm run build` clean.**
-      Zero Anthropic API calls, zero DB access. Production
-      behavior unchanged (still hits the same unconditional send
-      path as before). Committed and pushed to `main`; Vercel
-      auto-deploys on push — deploy is safe/inert for production
-      traffic since the guard only changes non-production
-      behavior.
-
 - [ ] **INVESTIGATION IN FLIGHT 2026-09-02 — retailer-name
       normalisation current state.** Read-only audit of how
       retailer names/identities are stored, derived, and
@@ -224,95 +152,6 @@
       names silently poison search quality (Gap Inc. vs. GAP vs.
       Gap return different results). Read-only, no code, no
       Anthropic calls.
-
-- [ ] **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-03, LIVE
-      VERIFICATION PENDING] Self-email ingestion loop fix.** Reject
-      own outbound reminder/digest/refund-check-in emails at the
-      inbound webhook so they never reach the extraction pipeline
-      and clobber good returnPortalUrl values with self-domain
-      URLs. Absorbs the null-out cleanup for the 3 affected rows
-      (previously scoped inside the closed self-domain
-      correctness bug item). Scope: webhook-level filter only,
-      not merge-logic changes. Investigation-one confirmed
-      generic merge-logic behaviour ("last non-null wins") is
-      acceptable when extraction is well-behaved and the alpha
-      review flow catches the rest — no code fix warranted at
-      merge layer.
-      **Investigation detail (absorbed from the closed 🟡 Next
-      item "Self-email ingestion loop — reject own outbound at
-      inbound webhook," investigation completed 2026-09-01):**
-      users' Gmail auto-forward rules — the same kind of rule our
-      onboarding sets up — route our own outbound reminders/
-      digest/refund-check-in emails back into our own inbound
-      pipeline. 27 self-emails ingested across 5 users in the
-      last 90 days; 3-4 corrupted an Order's `returnPortalUrl`.
-      Loop is structural (a product feature colliding with
-      itself), won't self-resolve on its own, though the
-      boomerang rate is inconsistent per user (4%-57% of sends,
-      not every send — confirmed via a precise Reminder-table
-      comparison, not blanket forwarding). **Fix shape from
-      investigation:** an ingestion guard rejecting any email
-      whose (a) From: / Return-Path / envelope sender matches our
-      own sending addresses/domain, OR (b) `classifyForwardType()`
-      returns `"auto"` AND the header chain contains our own
-      sending address/domain/inbound token. The signal is already
-      computed in `classifyForwardType` at ingestion — just not
-      currently acted on. **Deferred concerns from investigation
-      — do NOT fold in when picked up, separate work:** audit of
-      whether the 23 self-emails that didn't corrupt
-      `returnPortalUrl` silently corrupted other fields; the
-      merge-side trust hierarchy in `resolveReturnPortalUrlForWrite`
-      (always prefers email-stated URL over an existing good
-      value); fancier self-email detection via subject/content
-      fingerprinting.
-      **Built 2026-09-03:** `lib/selfOutboundGuard.ts`
-      (`detectSelfOutboundLoop`) — checked at the inbound webhook
-      (`app/api/inbound/route.ts`), right after the Gmail-
-      forwarding-verification branch and before dedup/pre-junk/
-      classification, so a looped-back send costs nothing beyond
-      one pure check. Detection confirmed against real data first
-      (all 3 known self-domain rows' corrupting email had
-      `fromEmail: reminders@myreturnwindow.com`, `forwardType:
-      "auto"`, verified via a read-only decrypt query before
-      writing any code): (a) From/Return-Path domain matches
-      `myreturnwindow.com` or any subdomain — the signal that
-      actually fires on every real case, and which a genuine user
-      reply can never match (a reply always carries the replying
-      user's own address as From, never ours, so no explicit
-      reply-vs-loop differentiation logic was needed — the domain
-      check already can't false-positive on a reply); (b)
-      belt-and-suspenders fallback: `forwardType === "auto"` AND
-      any header in the chain otherwise mentions
-      `myreturnwindow.com` (not expected to fire given (a), kept
-      for a forwarding path that might someday rewrite From/
-      Return-Path). Rejected mail creates no Email/Order row, logs
-      structured context (messageId, sender, originalFrom header,
-      detectedReason), and records `DiscardLog{reason:
-      "self_outbound_loop"}` (new reason value on the existing
-      String field, no migration). **Note on the send-side
-      domain:** local `.env`'s `REMINDER_FROM_EMAIL` is a stale
-      personal-domain value (`mckenna@metaxmoda.com`) that does
-      NOT match production — pulled the real production env vars
-      directly to confirm before building (`reminders@` /
-      `hello@myreturnwindow.com`), so the guard is built against
-      what's actually live, not what local `.env` implied.
-      **Null-out cleanup:** dry-run query found exactly 3 orders
-      (Ruti — archived — plus both known active RealReal orders),
-      matching the earlier investigation's count precisely;
-      executed and verified post-update, all 3 now
-      `returnPortalUrl: null`.
-      **Tests:** `__tests__/inboundSelfOutboundGuard.test.ts`, 6
-      cases — self-loop rejected (with and without Gmail
-      auto-forward headers), genuine user reply NOT filtered
-      (record created normally, extraction runs), ordinary
-      retailer email unaffected, case-insensitive + subdomain
-      matching, dot-boundary matching (a domain that merely ends
-      in similar characters without a real subdomain boundary does
-      NOT false-positive). **768/768 tests passing, `npm run
-      build` clean** (typecheck + lint). Zero Anthropic API calls
-      — pure header/string logic plus read-only/one UPDATE DB
-      queries only, no extraction call sites touched. Committed
-      and pushed to `main`; Vercel auto-deploys on push.
 
 - [ ] **NEW 2026-09-02 — Alpha weekly search-and-verify for
       returnPortalUrl.** Weekly batch job runs a search (retailer
@@ -6126,6 +5965,39 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Self-email ingestion loop fix — guard shipped, misfired for 3 days,
+      fixed, recovered, live-verified. 2026-09-11.** `22be2d7` (original
+      guard, deployed 2026-09-04, all 3 conditions), `b316416` (2026-09-07
+      refinement narrowing condition 3 from bare-domain to sending-address
+      match — see its own Done entry below for that fix's detail). Closed
+      today after a live-traffic diagnostic: 158 total `self_outbound_loop`
+      discards across 2026-09-04–07 (the misfire window, root-caused and
+      recovered per `docs/audits/2026-09-07-postmortem-self-outbound-guard.md`),
+      zero since the `b316416` fix deployed. Current guard code on `main`
+      confirmed unchanged since `b316416` (no further commits touch
+      `lib/selfOutboundGuard.ts`). Residual open risk noted in the
+      post-mortem, not part of this closure: condition 2
+      (`return_path_domain`) is ungated by `forwardType` and was never
+      separately verified — tracked in 🟡 Next / the post-mortem's
+      follow-ups.
+
+- [x] **Guard local dev from sending real emails + dev-send guard env-var
+      fix (VERCEL_ENV not NODE_ENV) — both shipped and confirmed inert for
+      production traffic. 2026-09-11.** `75861d5` (original guard: non-
+      production `sendEmail()` calls log-and-skip unless
+      `ALLOW_REAL_EMAIL_IN_DEV=true`; also corrected stale local `.env`
+      `REMINDER_FROM_EMAIL` from `mckenna@metaxmoda.com` to
+      `reminders@myreturnwindow.com`), `f96e9a6` (same-day follow-up:
+      `shouldActuallySend()` checked `NODE_ENV`, which is `"production"`
+      on every Vercel deploy including Preview — swapped to `VERCEL_ENV`,
+      which Vercel only sets to `"production"` in actual production).
+      Both built with passing test suites at ship time
+      (`__tests__/postmarkDevSendGuard.test.ts`) and deployed same day;
+      closed today on review — production behavior is provably unchanged
+      by either commit (same unconditional/VERCEL_ENV=production send path
+      as before), so live-traffic risk from this pair is nil by
+      construction, not something that needed separate hand-verification.
 
 - [x] **Cross-user admin orders table (dashboard V1 step 1) shipped and
       verified in prod — both retailer-name and order # link through to
