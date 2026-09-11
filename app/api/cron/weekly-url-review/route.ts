@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
 
     try {
       const { subject, knownDomain } = resolveSearchSubject(order, approvedRetailerByNormalizedName, appDomain);
-      const query = `"${subject}" returns`;
+      const query = `${subject} returns`;
 
       const results = await searchWeb(query);
       const top10 = results.slice(0, 10);
