@@ -24,6 +24,23 @@ export const dynamic = "force-dynamic";
 const KNOWN_CARRIER_DOMAINS = ["ups.com", "fedex.com", "usps.com", "dhl.com"];
 // Illustrative, not exhaustive — extend as bad matches surface in review.
 const KNOWN_MARKETING_DOMAINS = ["bit.ly", "sendgrid.net", "mailchimp.com", "klaviyo.com", "list-manage.com"];
+// General aggregator/forum/review sites that can genuinely contain "return"
+// in the path (a Reddit thread titled "how do I return X") and outscore a
+// retailer's own policy page under the path-keyword bonus below.
+// Illustrative, not exhaustive — extend as bad matches surface in review.
+const KNOWN_AGGREGATOR_DOMAINS = [
+  "reddit.com",
+  "quora.com",
+  "pissedconsumer.com",
+  "gobankingrates.com",
+  "wirecutter.com",
+  "top10.com",
+  "forbes.com",
+  "cnet.com",
+  "thewirecutter.com",
+  "slickdeals.net",
+  "retailmenot.com",
+];
 
 const BAD_PATH_KEYWORDS = ["contact", "help", "support", "track", "login", "signin", "account"];
 const GOOD_PATH_KEYWORDS_STRONG = ["return", "returns"];
@@ -47,6 +64,10 @@ function isCarrierOrMarketingDomain(domain: string): boolean {
   );
 }
 
+function isAggregatorDomain(domain: string): boolean {
+  return KNOWN_AGGREGATOR_DOMAINS.some((known) => domainMatchesOrIsSubdomainOf(domain, known));
+}
+
 // Exported for tests. knownDomain is the retailer's own domain when it was
 // derivable (search-subject priority (2): an existing returnPortalUrl that
 // already looked like a real domain) — null when the search subject came
@@ -67,6 +88,7 @@ export function scoreResult(result: SerperResult, knownDomain: string | null, ap
   if (GOOD_PATH_KEYWORDS_WEAK.some((kw) => path.includes(kw))) score += 2;
   if (BAD_PATH_KEYWORDS.some((kw) => path.includes(kw))) score -= 3;
   if (isCarrierOrMarketingDomain(domain)) score -= 5;
+  if (isAggregatorDomain(domain)) score -= 5;
   if (domainMatchesOrIsSubdomainOf(domain, appDomain)) score -= 10;
 
   return score;

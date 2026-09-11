@@ -38,6 +38,15 @@ describe("scoreResult", () => {
     expect(score).toBeLessThan(0);
   });
 
+  it("penalizes known aggregator/forum/review domains even with a return-y path", () => {
+    const score = scoreResult(
+      { title: "", url: "https://www.reddit.com/r/target/comments/xyz/how_do_i_return", snippet: "" },
+      null,
+      APP_DOMAIN,
+    );
+    expect(score).toBeLessThan(0);
+  });
+
   it("heavily penalizes our own app domain (self-domain loop)", () => {
     const score = scoreResult(
       { title: "", url: "https://app.myreturnwindow.com/orders/123", snippet: "" },
