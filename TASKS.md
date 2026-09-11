@@ -64,6 +64,12 @@
       pagination), filterable by the six filters listed, each row
       click-throughing to the existing order detail page. Owner
       hand-verifies in prod before ✅
+      **Follow-up fix, 2026-09-10:** order # column now also links to
+      the same order-detail page (retailer-name link was the only
+      click-through; owner correctly flagged order # as the
+      conventional row identifier). Retailer-name link left in place
+      unchanged — both now point at the same target. No other change
+      to the page.
 
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals

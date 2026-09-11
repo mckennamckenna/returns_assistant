@@ -171,7 +171,14 @@ export default async function AdminOrdersPage({
                       {order.retailer || "Unknown retailer"}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4 text-secondary">{order.orderNumber || "—"}</td>
+                  <td className="py-2 pr-4 text-secondary">
+                    <Link
+                      href={`/admin/users/${encodeURIComponent(forwardingAddress)}/orders/${order.id}`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {order.orderNumber || "—"}
+                    </Link>
+                  </td>
                   <td className="py-2 pr-4 text-secondary">{order.displayStatus}</td>
                   <td className="py-2 pr-4 text-secondary">{formatDate(order.returnDeadline)}</td>
                   <td className="py-2 pr-4 text-secondary">{order.needsReview ? "yes" : "—"}</td>
