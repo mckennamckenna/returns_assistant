@@ -3473,6 +3473,15 @@
       per-run) so daily execution is observable even on no-op runs. Small,
       not blocking; unblocks trusting the daily cadence long-term.
 
+- [ ] **duplicate-ghost-report tool matches on stored sheetRowId, which
+      goes stale after any Sheet sort; either rework it to match on
+      orderId + candidateUrl content or retire it. Currently misleading
+      output post-sort. Not a safety issue.** (2026-09-11: owner sorted
+      the review Sheet by retailer name, which reordered rows and
+      invalidated the tool's row-number-based canonical/ghost detection
+      — confirmed apply-url-reviews itself is unaffected, since it
+      matches on each row's own orderId column, not sheetRowId.)
+
 - [ ] **Diagnostic: extractor ingesting our own outbound reminder emails
       as retailer emails, then reading retailer/orderNumber/orderTotal
       from the reminder body. NEW 2026-09-06, surfaced by needs-review
