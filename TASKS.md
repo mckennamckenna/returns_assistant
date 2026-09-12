@@ -32,6 +32,72 @@
 
 ## 🔴 Now
 
+- [ ] **Fix: runExtraction ordering — sender-fallback retailer must
+      resolve BEFORE the lookupReturnPolicy gate check. NEW
+      2026-09-11, promoted from tonight's Zara diagnostic (see
+      ✅ Done). Includes retroactive backfill of 15 census orders.**
+      `runExtraction.ts:66` gates the billed `lookupReturnPolicy()`
+      call on `parsed.retailer` being truthy; `runExtraction.ts:
+      98-105` runs the sender-fallback (2026-08-25 fix) that would
+      resolve `retailer` from `fromName`/`fromEmail`. Order is
+      wrong: the lookup gate sees the pre-fallback null and skips,
+      so `returnWindowDays` never populates, so `computeDeadline()`
+      returns null on its first check, so `returnDeadline` stays
+      null, so `needsReview` fires (`linkOrder.ts:269`). Affects
+      any email where AI body extraction returns retailer:null but
+      sender-fallback would resolve it — Zara ships to this
+      population by design (see HTML parsing gap notes in the
+      2026-08-25 Done entry).
+      **Scope (code fix):** swap ordering in `runExtraction.ts` so
+      sender-fallback runs before the `lookupReturnPolicy` gate.
+      Mechanical. Schema diff N/A (no schema changes).
+      **Pre-flight checks BEFORE the swap ships (both required):**
+      (a) Grep for downstream consumers of `parsed.retailer` between
+      current gate line (66) and current fallback lines (98-105).
+      Any code that depends on `retailer` reflecting body-extraction-
+      only at that point would silently change behavior — needs to
+      be identified and reasoned through before swap.
+      (b) Cost estimate: `lookupReturnPolicy` is a billed call. This
+      fix widens the population that triggers it — 15 known current
+      orders + unknown steady-state going forward. Size the expected
+      billed-call impact against recent monthly lookup volume before
+      shipping, per header cost discipline.
+      **Scope (backfill):** the 15 census orders identified in
+      tonight's Trace 5 will not self-heal from the code fix — they
+      need targeted re-extract to populate `returnPolicy` /
+      `returnDeadline` from the newly-firing lookup. Scoped
+      alongside the code fix, same session, not deferred (avoids
+      the "code fix without backfill leaves visible symptom on
+      existing users" gap this project has hit before). Backfill
+      script must:
+      - Enumerate exactly those 15 orders (list captured in
+        tonight's diagnostic run, re-verify against production
+        before triggering).
+      - State billed-call estimate BEFORE running (15
+        lookupReturnPolicy calls minimum, more if the re-extract
+        chain fires additional calls — Claude Code to size).
+      - Read-verify gate: dry-run first, show which 15 rows will
+        change and how, then owner approves before real run.
+      **Explicitly out of scope:**
+      - Any change to lookupReturnPolicy itself, the sender-fallback
+        logic, or `computeDeadline`.
+      - Any change to how `needsReview` is derived (`linkOrder.ts:
+        269` fires correctly given null returnDeadline — the fix
+        is upstream of that, not at it).
+      - The 89% estimated-dates banner question (separate ⚪ Someday
+        entry — product decision, not a bug).
+      - The page.tsx:369 stray toLocaleDateString (separate Known
+        Issues note — not part of this fix).
+      - The Shutterfly runExtraction hardening (separate 🟡 Next
+        entry).
+      - Broader audit of other gate/fallback ordering seams
+        elsewhere in `runExtraction` — could be a good idea, but
+        would widen tonight's scope; note as a candidate follow-up
+        instead.
+      **Fixability assessment 2026-09-11 (not started):** small and
+      scoped, but has two pre-flight checks (a/b above) that must
+      pass before the swap ships. Not a one-line silent change.
+
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
       (`receivedAt`), no modify-time signal — blocked diagnosis of a
@@ -1602,86 +1668,6 @@
 
 ## 🙋 Waiting on Owner
 
-- **DIAGNOSTIC COMPLETE 2026-09-12 — Zara #54858811380 (Return Deadline/
-  Policy blank, estimated-dates banner, Needs Review). Read-only, zero
-  billed calls. Awaiting owner scoping decision — no fix applied.**
-  **Root cause (Traces 1+2, same null):** all 3 linked emails (2
-  shipping_confirmation + 1 delivery, no order_confirmation) had AI body
-  extraction return `retailer: null` ("no brand name/logo/sender identity
-  present"). `runExtraction.ts` calls `finalizeExtraction()` — which gates
-  the billed `lookupReturnPolicy()` call on `parsed.retailer` truthy — at
-  line 66, **before** the sender-derived retailer fallback
-  (`resolveRetailerFallback`, ZARA_RETAILER_FALLBACK 2026-08-25) runs at
-  line 98-105. So `retailer` is null at the exact moment the policy-lookup
-  gate is checked, even though it resolves to "Zara" moments later for
-  storage/display. Lookup never fires → `returnWindowDays` stays null →
-  `computeDeadline()` short-circuits at its first null check →
-  `returnDeadline` stays null. **This is a previously-undiscovered gap
-  between the 2026-08-24 policy-lookup gate and the 2026-08-25
-  sender-fallback fix — the two features never got wired to each other.**
-  Not the 2026-08-24 widened-skip firing wrongly (that skip requires an
-  already-resolved `existingOrder.returnWindowDays`, never reached here —
-  `findMatchingOrder` itself is gated on `parsed.retailer` truthy too, so
-  it wasn't even called).
-  **Trace 3 (banner, confirmed independent):** driven by
-  `order.orderDateEstimated: true` (`orderDateSource: "fallback"`) —
-  no order_confirmation email exists for this order, so `orderDate` came
-  from the earliest-linked-email fallback heuristic, not a stated date.
-  `deliveryIsEstimated` is false here (deliveredAt is populated) and
-  `deadlineIsEstimated` is false (returnDeadline is null, so its guard
-  clause never evaluates true). Unrelated mechanism to Trace 1/2.
-  **Trace 4:** only the returnDeadline-null signal drives `needsReview`
-  (`lib/linkOrder.ts:269`, boolean-only, no reason codes at that layer).
-  `orderDateEstimated` never feeds `needsReview`. The two banners
-  appearing together on this order is coincidence, not shared cause. The
-  review-reason text shown (`computeOrderReviewReason`) falls through to
-  the generic "uncertain_details" sentence, since orderDate/orderTotal
-  are both populated — expected per the 2026-08-21 cheap-version design,
-  not a bug.
-  **Trace 5 (census, read-only count):** 15 orders currently have
-  `retailer NOT NULL AND orderNumber NOT NULL AND returnDeadline NULL AND
-  returnWindowDays NULL` (up from the 2026-07-25 snapshot's 7). Retailers:
-  ACE VISALIA RSC, Anthropic PBC, Bloomingdale's(2), Etsy, Five Marys
-  Ranch, Nordstrom(2), Rowing Pad, SCRIBE, Shutterfly, VPL Bike, Zara,
-  nmjlmajong, row works clothing. Overlaps the old list on Nordstrom/VPL
-  Bike/Etsy/Anthropic PBC/ACE VISALIA RSC (suggests a still-unresolved,
-  possibly retailer-name-extraction-driven recurring gap for those) but
-  is not a subset — 8 retailers are new since 2026-07-25, and Amazon
-  dropped off (consistent with the Amazon-default-window short-circuit).
-  ~2.1x the old count — below the 3x STOP threshold, but flagging the
-  non-overlap as worth a closer look.
-  **Trace 6 (census) — STOPPED PER GUARDRAIL, OWNER CALL NEEDED: 91 of
-  102 non-archived/non-deleted orders (89%) currently render the
-  "Some dates on this order are estimated" banner.** Far above the >5
-  threshold and the "materially larger" stop condition. Spans nearly
-  every active retailer (Amazon alone: 48). This may simply reflect that
-  most in-flight orders legitimately have *some* estimated field
-  (pre-delivery orders, or the very-common orderDate-fallback case above)
-  rather than a bug — but the population is large enough that this
-  needs an explicit owner read before any follow-up is scoped. Per the
-  task's guardrail, no further investigation was done past confirming
-  the count and its retailer breakdown.
-  **Trace 7 (timezone sanity check):** confirmed clean for the banner
-  itself — `formatDate` in `app/(app)/orders/[id]/page.tsx` is a direct
-  alias for `lib/dateDisplay.ts`'s `formatCalendarDate`, and every
-  orderDate/deliveryDate/returnDeadline render on the page goes through
-  it. **One unrelated finding surfaced:** line 369 of that same file
-  (`email.receivedAt.toLocaleDateString()`, the linked-emails list) is a
-  raw `toLocaleDateString` call that does not go through
-  `lib/dateDisplay.ts` — a regression against the 2026-08-27 "audited
-  render site" completeness claim, though it affects only the
-  linked-email received-date list, not the estimated-dates banner or any
-  of the three banner-driving fields. Logged separately below under
-  Known issues.
-  **Not fixed — no code changed, no DB writes, zero billed Anthropic
-  calls this session.** Two candidate fixes are visible but NOT applied
-  (owner decides scope): (a) reorder `runExtraction.ts` so the sender-
-  fallback resolution runs before `finalizeExtraction()`'s policy-lookup
-  gate, or pass the fallback-resolved retailer into `finalizeExtraction`
-  when body extraction returns null; (b) decide whether the Trace 6
-  89% banner rate is expected behavior or too noisy for users, given how
-  broadly `orderDateEstimated`/`deliveryIsEstimated` fire.
-
 - **RESOLVED 2026-07-29 — Part 5 signed off, build UNBLOCKED.** All 9
   open questions answered by the owner — `CARD_SPEC_Part5_signoff.md`
   (the 9 decisions, wins over `CARD_SPEC.md`'s own still-blank inline
@@ -3017,6 +3003,17 @@
       most, not blocking.
 
 ### Cosmetic
+- [ ] **[Low] Stray toLocaleDateString at `app/(app)/orders/[id]/
+      page.tsx:369` — linked-emails list only, not the estimated-
+      dates banner. NEW 2026-09-11, surfaced by Trace 7 of the Zara
+      #54858811380 diagnostic.** The 2026-08-27 timezone shared fix
+      audit missed this one call site because it's in the linked-
+      emails list rendering, not the primary date-display surfaces
+      audited that session. Cosmetic — displays a linked email's
+      received-at date in server-local timezone rather than the
+      shared-helper UTC-components approach. Fix is mechanical:
+      route through `lib/dateDisplay.ts`'s helpers like the rest of
+      the file. Not urgent.
 - **RESOLVED 2026-07-20 (see 🔴 Now):** ~~Sidebar account email truncates
   with no `title` fallback~~ — e.g. `mckenna.sweazey@g…`, no way to see the
   full address without editing the DOM. Surfaced by trust audit
@@ -5853,6 +5850,55 @@
       here or in a separate recruiting doc — logged here for now since no
       such doc exists yet.
 ## ⚪ Someday
+- [ ] **Product decision: what should the "Some dates on this order are
+      estimated" banner mean, given it fires on 89% of active orders?
+      NEW 2026-09-11, surfaced by Trace 6 of the Zara #54858811380
+      diagnostic (any-order census).**
+      Current behavior is working as designed: `orderDateEstimated`,
+      `deliveryIsEstimated`, and `deadlineIsEstimated` each flip true
+      when their respective field came from a fallback rather than a
+      confirmed source. Any one of the three firing surfaces the
+      banner. On a 102-order active corpus, 91 orders (89%) fire it.
+      **Why this is a question, not a bug:** the field-level flags
+      are correct — an order date derived from a fallback anchor
+      genuinely is estimated. The problem is that a signal firing on
+      89% of the surface trains users to ignore it, which defeats
+      the purpose on the 11% where the estimate carries real
+      uncertainty (e.g. a wide anchor-date fallback gap).
+      **Underlying design tension:** the banner treats "we used a
+      fallback path" and "we're actually uncertain about this date"
+      as the same event. They usually aren't. A perfectly reliable
+      fallback (sender timestamp + retailer-typical ship time, for
+      example) produces an "estimated" date that's still trustworthy;
+      a wide-window guess is genuinely uncertain. The current
+      binary flag can't distinguish those.
+      **Candidate directions (none evaluated, listed for framing —
+      NOT for a coding agent to pick):**
+      (a) Raise the bar: only flip the flag when the fallback's
+      confidence is low (e.g. anchor-date gap > N days, retailer
+      not in a "reliable fallback" list, etc). Would require
+      defining "low confidence" — a real design decision.
+      (b) Change the language: the banner today says "estimated" —
+      swap to something honest about the mechanism ("Order date
+      inferred from shipping — actual order date may differ by a
+      day or two"). Doesn't reduce the 89%, but rescales the
+      user's read of it from "something's wrong" to "here's
+      how we know this."
+      (c) Show the banner only when the user needs to act on the
+      estimate — e.g. suppress on delivered orders, only show on
+      orders with an upcoming return deadline. Reduces surface
+      area without changing the underlying flag semantics.
+      (d) Some combination — probably where the answer lives.
+      **Not urgent — no immediate user report on this.** The 89%
+      number is the reason to look at it, but no one has complained.
+      Sits in Someday until the owner has time for a proper product
+      pass on it — not a coding agent's call, not a hotfix, not
+      part of any current 🔴 Now.
+      **Explicitly not scoped as a bug fix:** if this ever moves out
+      of Someday, it moves as a product-decision entry with an
+      owner-approved spec, not as a "swap the threshold" code
+      change.
+
 - [ ] **Middleware (`proxy.ts`) serverless bundle still ~32.5 MB — NEW
       2026-09-04, out of scope for the Prisma bundle-size fix above.**
       `outputFileTracingExcludes` (added in `1835d00`) doesn't reach
@@ -5977,6 +6023,28 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Diagnostic: Zara #54858811380 return-policy / estimated-dates
+      / Needs Review anomaly + any-order census. Report received
+      2026-09-11.**
+      Root cause on the null-return-deadline half: order-of-operations
+      seam between the 2026-08-24 lookup-skip gate and the 2026-08-25
+      sender-fallback fix — both individually correct, together create
+      a gap where any email with AI body extraction returning
+      retailer:null but sender-fallback would resolve it silently loses
+      the return-policy lookup. Trace 5 census: 15 orders currently in
+      this state (up from 7 on 2026-07-25, ~2.1x, below 3x stop
+      threshold). Trace 3/4: the estimated-dates banner is independent
+      (orderDateEstimated: true, driven by fallback anchor when no
+      order_confirmation exists) — coincidence that both banners fire
+      together on Zara #54858811380. Trace 6 STOPPED per guardrail:
+      89% of active orders show the estimated-dates banner —
+      product-decision question, not a bug (spawned entry in
+      ⚪ Someday). Trace 7: 2026-08-27 timezone fix confirmed
+      holding; one stray toLocaleDateString on page.tsx:369 (linked-
+      emails list, not the banner) logged separately. Zero billed
+      calls, zero DB writes. Full paper trail → HISTORY.md
+      2026-09-11 (Zara diagnostic).
 
 - [x] **Diagnostic: pickup-order write-path / classifier anomaly —
       Shutterfly + Crate & Barrel. Report received 2026-09-11.**

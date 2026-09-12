@@ -5,6 +5,158 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-11 — Zara #54858811380 return-policy / estimated-dates / Needs Review diagnostic
+
+Owner-observed via dashboard + detail page screenshots: Zara order
+#54858811380 (a Sep 10-11 order, distinct from the older #54421192781
+whose three bugs all closed 2026-08-25 through 2026-08-27) rendered with
+Return Deadline blank, Return Policy blank, the "Some dates on this order
+are estimated" banner, and a "Needs Review" tag — despite retailer,
+orderNumber, orderDate, deliveryDate, orderTotal, and line items all
+populated. **Read-only diagnostic — zero billed Anthropic calls, zero DB
+writes.** Two throwaway scripts written to `.scratch/` (per repo
+convention) and deleted after use; no scripts committed.
+
+**Order row at time of diagnosis** (`cmtuw46490003jn04v8anfdbx`):
+`retailer: "Zara"`, `orderNumber: "54858811380"`, `orderDate:
+2026-09-10T02:10:11Z` (`orderDateEstimated: true`, `orderDateSource:
+"fallback"`), `deliveryDate`/`estimatedDeliveryDate: 2026-09-10`,
+`deliveredAt: 2026-09-11T02:02:07Z`, `returnDeadline: null`,
+`deadlineIsEstimated: false`, `policySource: null`, `returnWindowDays:
+null`, `returnWindowStartsFrom: null`, `status: "returnable"`,
+`needsReview: true`, `displayStatus: "delivered"`. Three linked emails,
+all `shipping_confirmation`/`shipping_confirmation`/`delivery` — **no
+`order_confirmation` email exists for this order.** All three emails'
+own `retailer` field is `"Zara"` with `retailerSource: "sender_fallback"`
+— but each email's `extractionNotes` independently states AI body
+extraction could not identify a retailer at all ("no brand name, logo
+description, or sender identity is present").
+
+**Trace 1 — did `lookupReturnPolicy` run?** No. `lib/extract.ts`'s
+`finalizeExtraction()` gates the billed `lookupReturnPolicy()` call
+(line ~757) on `parsed.retailer` being truthy. For all three emails on
+this order, the AI extraction pass returned `retailer: null` — so the
+gate condition failed and the lookup never fired, for a reason
+unrelated to the 2026-08-24 widened skip (that skip only applies when
+`existingOrder.returnWindowDays` is already resolved; it was never even
+reached here, because `runExtraction.ts`'s own pre-check
+(`mayTriggerPolicyLookup && parsed.retailer && parsed.orderNumber`,
+line ~59) also requires `parsed.retailer` truthy before calling
+`findMatchingOrder`, so `existingOrder` stayed `null` throughout).
+Confirmed the 2026-08-24 skip did NOT fire wrongly.
+
+**Root cause — an order-of-operations seam between two independently
+correct fixes.** `runExtraction.ts` calls `finalizeExtraction(parsed,
+emailId, existingOrder)` at line 66 — the exact point the policy-lookup
+gate above is evaluated, using the AI's raw (null) `retailer`. Only
+afterward, at lines 98-105, does `runExtraction.ts` run the
+sender-derived retailer fallback (`resolveRetailerFallback`,
+ZARA_RETAILER_FALLBACK, 2026-08-25) that resolves `retailer` to "Zara"
+from `fromName`/`fromEmail` for storage and display. By the time that
+fallback resolves, `finalizeExtraction` has already returned with the
+lookup skipped. Both the 2026-08-24 gate and the 2026-08-25 fallback are
+individually correct in isolation; nobody wired the fallback's output
+back into the lookup gate's input. Net effect: any email whose AI body
+extraction returns `retailer: null` but whose sender-fallback would
+resolve a retailer silently and permanently loses its return-policy
+lookup, with no error, retry, or review flag pointing at this specific
+mechanism — it just presents as "Needs Review" via the generic
+data-completeness path below.
+
+**Trace 2 — are the two nulls (`returnPolicy`, i.e. `returnWindowDays`,
+and `returnDeadline`) the same null?** Yes. `computeDeadline()`
+(`lib/extract.ts`) checks `returnWindowDays == null` as its very first
+condition and returns `{ returnDeadline: null, deadlineIsEstimated:
+false }` immediately when true — no downstream computation is ever
+attempted. `returnDeadline` is null purely because `returnWindowDays`
+is null, which is purely because the lookup in Trace 1 never ran. One
+root cause, one null, surfaced as two blank fields.
+
+**Trace 3 — the estimated-dates banner.** Independent of Traces 1/2.
+`app/(app)/orders/[id]/page.tsx` computes `hasEstimatedField =
+order.orderDateEstimated || deliveryIsEstimated || deadlineIsEstimated`.
+For this order: `orderDateEstimated` is `true` (no `order_confirmation`
+email exists to state a real order date, so `orderDate` came from
+`lib/linkOrder.ts`'s `applyFallbackOrderDate` heuristic — earliest
+linked email's `receivedAt`, per the 2026-08-27 orderDate-provenance
+work); `deliveryIsEstimated` (`!order.deliveredAt && (...)`) is `false`
+because `deliveredAt` is actually populated; `deadlineIsEstimated`
+(`order.returnDeadline != null && ...`) is `false` because
+`returnDeadline` is null, so its own guard clause never evaluates true.
+The banner fires solely on the `orderDateEstimated` flag.
+
+**Trace 4 — which drives "Needs Review"?** Only Trace 2's null
+`returnDeadline`. `lib/linkOrder.ts:269`:
+`needsReview = looksLikeRealOrder && returnDeadline == null` — a pure
+boolean with no reason codes at that layer. `orderDateEstimated` never
+enters this computation. The page's shown review-reason text comes from
+`computeOrderReviewReason()` (`lib/orderReview.ts`), which checks (in
+order) duplicate-merge note, belongs-to-another-order mismatch, missing
+orderDate, missing orderTotal — all pass on this order (orderDate and
+orderTotal are both populated) — so it falls through to the generic
+`"uncertain_details"` sentence ("We're not certain about some details on
+this order"), by design per the 2026-08-21 cheap-version scope decision,
+not a bug. The banner and the "Needs Review" tag appearing together on
+this order is coincidence, not a shared cause.
+
+**Trace 5 — any-order census #1.** Read-only count:
+`retailer IS NOT NULL AND orderNumber IS NOT NULL AND returnDeadline IS
+NULL AND returnWindowDays IS NULL` → **15 orders**, by retailer: ACE
+VISALIA RSC (1), Anthropic PBC (1), Bloomingdale's (2), Etsy (1), Five
+Marys Ranch (1), Nordstrom (2), Rowing Pad (1), SCRIBE (1), Shutterfly
+(1), VPL Bike (1), Zara (1), nmjlmajong (1), row works clothing (1).
+Cross-referenced against the 2026-07-25 anchor-resolver snapshot (7
+orders: Nordstrom #1048279668, VPL Bike #3267, Etsy #4120342614,
+Anthropic PBC #2532-4693-8394, ACE VISALIA RSC #001352978, Amazon
+#113-5215249-6165864, plus one more). Overlap on retailer name for
+Nordstrom/VPL Bike/Etsy/Anthropic PBC/ACE VISALIA RSC (worth checking
+whether these are the *same* rows recurring or a retailer-shaped
+extraction gap recurring on new orders); Amazon dropped out of the
+current population entirely, consistent with the Amazon-default-window
+short-circuit in `finalizeExtraction` bypassing the lookup path
+altogether; 8 of the 15 current retailers are new since 2026-07-25.
+~2.1x the old count — below the task's 3x STOP threshold, so
+proceeded rather than halting, per instructions.
+
+**Trace 6 — any-order census #2, STOPPED per guardrail.** Read-only
+scan of all 102 non-archived/non-deleted orders, evaluating the same
+`hasEstimatedField` expression as the live page: **91 orders (89%)**
+currently render the estimated-dates banner, spanning nearly every
+active retailer (Amazon alone: 48; the remaining 43 spread across 36
+other retailers, mostly 1-2 each). Far past the task's ">5 → group and
+flag" and "materially larger → STOP" thresholds. Per the task's explicit
+instruction, no further investigation was performed past confirming the
+count and its retailer breakdown — this is reported as an open question,
+not diagnosed further, and a dedicated product-decision entry was
+opened in TASKS.md `⚪ Someday` rather than treated as a bug to fix.
+
+**Trace 7 — timezone sanity check.** Clean for the banner itself:
+`app/(app)/orders/[id]/page.tsx`'s `formatDate` is `const formatDate =
+formatCalendarDate` (direct alias, `lib/dateDisplay.ts`), and all three
+banner-relevant renders (`Order date`, `Delivery date`, `Return
+deadline`) call it — no raw `toLocaleDateString` on any of those three
+fields. One unrelated call site found: line 369,
+`email.receivedAt.toLocaleDateString()`, in the linked-emails list
+rendering — this is a real gap against the 2026-08-27 "audited render
+site" completeness claim for this file, but it only affects the
+per-email received-date shown in that list, not any of the three
+banner-driving fields or the banner itself. Logged as its own low-
+priority Cosmetic bug entry rather than folded into this diagnostic's
+root-cause fix, since it's an unrelated call site with an unrelated fix.
+
+**Disposition:** no code changed, no schema changes, no DB writes, zero
+billed Anthropic API calls this session (confirmed: no calls to
+`lookupReturnPolicy`, the extractor, or `isCommerceEmail` were made —
+all seven traces were code reads plus read-only Prisma queries).
+Promoted to TASKS.md `🔴 Now` as a scoped fix-plus-backfill entry
+(runExtraction ordering swap + retroactive backfill of the 15 Trace-5
+orders, with owner-required pre-flight checks on downstream
+`parsed.retailer` consumers and billed-call cost before shipping); the
+page.tsx:369 stray `toLocaleDateString` filed separately under Bugs /
+Cosmetic; the Trace 6 89%-banner-rate question filed separately as a
+product-decision entry under `⚪ Someday`, explicitly not scoped as a
+code fix.
+
 ## 2026-09-11 — Pickup-order write-path / classifier anomaly diagnostic
 
 **Follows from the 2026-09-07 pilot findings**, promoted to a combined 🔴 Now
