@@ -1602,6 +1602,86 @@
 
 ## 🙋 Waiting on Owner
 
+- **DIAGNOSTIC COMPLETE 2026-09-12 — Zara #54858811380 (Return Deadline/
+  Policy blank, estimated-dates banner, Needs Review). Read-only, zero
+  billed calls. Awaiting owner scoping decision — no fix applied.**
+  **Root cause (Traces 1+2, same null):** all 3 linked emails (2
+  shipping_confirmation + 1 delivery, no order_confirmation) had AI body
+  extraction return `retailer: null` ("no brand name/logo/sender identity
+  present"). `runExtraction.ts` calls `finalizeExtraction()` — which gates
+  the billed `lookupReturnPolicy()` call on `parsed.retailer` truthy — at
+  line 66, **before** the sender-derived retailer fallback
+  (`resolveRetailerFallback`, ZARA_RETAILER_FALLBACK 2026-08-25) runs at
+  line 98-105. So `retailer` is null at the exact moment the policy-lookup
+  gate is checked, even though it resolves to "Zara" moments later for
+  storage/display. Lookup never fires → `returnWindowDays` stays null →
+  `computeDeadline()` short-circuits at its first null check →
+  `returnDeadline` stays null. **This is a previously-undiscovered gap
+  between the 2026-08-24 policy-lookup gate and the 2026-08-25
+  sender-fallback fix — the two features never got wired to each other.**
+  Not the 2026-08-24 widened-skip firing wrongly (that skip requires an
+  already-resolved `existingOrder.returnWindowDays`, never reached here —
+  `findMatchingOrder` itself is gated on `parsed.retailer` truthy too, so
+  it wasn't even called).
+  **Trace 3 (banner, confirmed independent):** driven by
+  `order.orderDateEstimated: true` (`orderDateSource: "fallback"`) —
+  no order_confirmation email exists for this order, so `orderDate` came
+  from the earliest-linked-email fallback heuristic, not a stated date.
+  `deliveryIsEstimated` is false here (deliveredAt is populated) and
+  `deadlineIsEstimated` is false (returnDeadline is null, so its guard
+  clause never evaluates true). Unrelated mechanism to Trace 1/2.
+  **Trace 4:** only the returnDeadline-null signal drives `needsReview`
+  (`lib/linkOrder.ts:269`, boolean-only, no reason codes at that layer).
+  `orderDateEstimated` never feeds `needsReview`. The two banners
+  appearing together on this order is coincidence, not shared cause. The
+  review-reason text shown (`computeOrderReviewReason`) falls through to
+  the generic "uncertain_details" sentence, since orderDate/orderTotal
+  are both populated — expected per the 2026-08-21 cheap-version design,
+  not a bug.
+  **Trace 5 (census, read-only count):** 15 orders currently have
+  `retailer NOT NULL AND orderNumber NOT NULL AND returnDeadline NULL AND
+  returnWindowDays NULL` (up from the 2026-07-25 snapshot's 7). Retailers:
+  ACE VISALIA RSC, Anthropic PBC, Bloomingdale's(2), Etsy, Five Marys
+  Ranch, Nordstrom(2), Rowing Pad, SCRIBE, Shutterfly, VPL Bike, Zara,
+  nmjlmajong, row works clothing. Overlaps the old list on Nordstrom/VPL
+  Bike/Etsy/Anthropic PBC/ACE VISALIA RSC (suggests a still-unresolved,
+  possibly retailer-name-extraction-driven recurring gap for those) but
+  is not a subset — 8 retailers are new since 2026-07-25, and Amazon
+  dropped off (consistent with the Amazon-default-window short-circuit).
+  ~2.1x the old count — below the 3x STOP threshold, but flagging the
+  non-overlap as worth a closer look.
+  **Trace 6 (census) — STOPPED PER GUARDRAIL, OWNER CALL NEEDED: 91 of
+  102 non-archived/non-deleted orders (89%) currently render the
+  "Some dates on this order are estimated" banner.** Far above the >5
+  threshold and the "materially larger" stop condition. Spans nearly
+  every active retailer (Amazon alone: 48). This may simply reflect that
+  most in-flight orders legitimately have *some* estimated field
+  (pre-delivery orders, or the very-common orderDate-fallback case above)
+  rather than a bug — but the population is large enough that this
+  needs an explicit owner read before any follow-up is scoped. Per the
+  task's guardrail, no further investigation was done past confirming
+  the count and its retailer breakdown.
+  **Trace 7 (timezone sanity check):** confirmed clean for the banner
+  itself — `formatDate` in `app/(app)/orders/[id]/page.tsx` is a direct
+  alias for `lib/dateDisplay.ts`'s `formatCalendarDate`, and every
+  orderDate/deliveryDate/returnDeadline render on the page goes through
+  it. **One unrelated finding surfaced:** line 369 of that same file
+  (`email.receivedAt.toLocaleDateString()`, the linked-emails list) is a
+  raw `toLocaleDateString` call that does not go through
+  `lib/dateDisplay.ts` — a regression against the 2026-08-27 "audited
+  render site" completeness claim, though it affects only the
+  linked-email received-date list, not the estimated-dates banner or any
+  of the three banner-driving fields. Logged separately below under
+  Known issues.
+  **Not fixed — no code changed, no DB writes, zero billed Anthropic
+  calls this session.** Two candidate fixes are visible but NOT applied
+  (owner decides scope): (a) reorder `runExtraction.ts` so the sender-
+  fallback resolution runs before `finalizeExtraction()`'s policy-lookup
+  gate, or pass the fallback-resolved retailer into `finalizeExtraction`
+  when body extraction returns null; (b) decide whether the Trace 6
+  89% banner rate is expected behavior or too noisy for users, given how
+  broadly `orderDateEstimated`/`deliveryIsEstimated` fire.
+
 - **RESOLVED 2026-07-29 — Part 5 signed off, build UNBLOCKED.** All 9
   open questions answered by the owner — `CARD_SPEC_Part5_signoff.md`
   (the 9 decisions, wins over `CARD_SPEC.md`'s own still-blank inline
@@ -7949,6 +8029,17 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`app/(app)/orders/[id]/page.tsx:369` uses a raw
+  `email.receivedAt.toLocaleDateString()` for the linked-emails list,
+  not routed through `lib/dateDisplay.ts`.** Found 2026-09-12 during the
+  Zara #54858811380 diagnostic's Trace 7 timezone sanity check — this
+  file is on the 2026-08-27 shared-timezone-fix "audited render site"
+  list, so this call is a gap against that completeness claim. Doesn't
+  affect the estimated-dates banner or any of orderDate/deliveryDate/
+  returnDeadline (all three correctly go through `formatCalendarDate`
+  via the page's `formatDate` alias) — only the received-date shown per
+  linked email in the emails list. Not fixed this session (diagnostic
+  was read-only/no-fix by design).
 - **Un-keep's `status` recompute is non-atomic with the main
   update — accepted 2026-08-31, shipped in `eef90c9`.** `POST
   /api/orders/[id]/unkeep` writes `displayStatus`/`keptAt`/
