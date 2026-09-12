@@ -5,6 +5,121 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-11 — Pickup-order write-path / classifier anomaly diagnostic
+
+**Follows from the 2026-09-07 pilot findings**, promoted to a combined 🔴 Now
+diagnostic on 2026-09-11 (Shutterfly anomalous Email row + Crate & Barrel
+`isCommerceEmail` misfire, both surfaced during the 2026-09-07/08
+self-outbound-guard recovery effort, see the 2026-09-08 entry below). Owner
+hypothesis going in: both retailers' misfires might share a pickup-vs-shipped
+root cause. **Read-only diagnostic — zero billed Anthropic calls, zero DB
+writes.** Three new scripts added, all read-only (Prisma reads + local
+`decrypt()` only): `scripts/audits/2026-09-11-pickup-anomaly-diagnostic.ts`,
+`2026-09-11-decrypt-check.ts`, `2026-09-11-resolved-text-check.ts`.
+
+**Trace 1 — Shutterfly anomalous Email row
+(`cmtrni73r000mw96wr7nd2c40`, "We've received your Shutterfly order!").**
+Its state (`emailType: null`, `needsReview: false`, `extractionNotes: null`,
+`extractedAt: null`, `orderId: null`) is exactly Prisma's schema defaults for
+a freshly-created `Email` row — nothing ever wrote to it. The row's mere
+existence proves `isCommerceEmail` returned `true` (a `non_commerce` verdict
+never creates a row, `route.ts:362-370`); decrypting the stored body
+confirmed it's an unambiguous order confirmation, not a hard classification
+case. The failure is downstream in `runExtraction`
+(`lib/runExtraction.ts:23-145`), whose entire body is wrapped in one
+try/catch — the catch itself always writes `needsReview: true`
+(`runExtraction.ts:141-144`), so an ordinary extraction failure can't produce
+this signature. The only path that leaves the row at pure defaults: the
+catch's own `prisma.email.update()` call *also* throws (e.g. the same DB
+connection drop that broke the primary attempt also breaks the recovery
+write) — that second exception propagates unhandled to
+`route.ts:398-401`, which only `console.error`s and returns 200. Nothing
+durable records the failure. This is the same class of bug the file's own
+header comment (`runExtraction.ts:11-19`) documents as already fixed for the
+*id-based* re-fetch path (2026-08-08) — that fix didn't cover the
+object-based caller (the inbound route itself passes the freshly-created
+row), which is where this bug lives. Corroborating evidence: confirmed live
+Neon connection instability this same week (`P1017 "server has closed the
+connection"`, twice, during the 09-07/08 recovery scripts) — same failure
+class, same era, not proven to be the same incident but consistent with it.
+
+**Trace 1 census:** 34 Email rows total share the four-field signature
+(`emailType: null`, `needsReview: false`, `orderId: null`,
+`extractionNotes: null`). 31 have `junkedAt` set by the unrelated
+`backfill-junk-other-emails.ts` sweep — legitimately junked noise
+(FedEx/USPS/DoorDash/Goodeggs tracking updates). **3 are genuine, un-junked
+matches**, all commerce-looking subjects a junk sweep correctly left alone:
+Shutterfly `cmtrni73r000mw96wr7nd2c40` (2026-09-05), Factor
+`cmth52vom0001i704plg50wwu` "Your Factor box is on its way!" (2026-08-31),
+Amazon `cmsgsp9s40001jv04qc7csnt8` "Ordered: 2 Hair Care..." (2026-08-06).
+Same double-failure mechanism plausibly explains all three, spread over a
+month — not isolated to pickup orders, not retailer-specific.
+
+**Trace 2 — Shutterfly Order 5011207321227 data provenance. Resolved: no
+earlier link/unlink event.** `orderNumber`, `orderTotal` ($4.68), and the
+line item ("4×6 Photo Print - Glossy ×12") were extracted directly from the
+linked `delivery`-kind email ("Your Shutterfly order is ready for pick up!",
+`messageId 5fa82d64`), confirmed against its stored
+`DryRunCache.extractionResult` row — the extraction pulled all of it from
+the pickup-notification body itself. That email had been wrongly discarded
+by the self-outbound-loop guard bug, then recovered via the 2026-09-07
+dry-run → 2026-09-08 real-recovery pipeline, creating the Order via
+`NEW_ORDER`. No audit trail for `linkOrder` merges exists in this system
+(`ActionLog` only covers user-initiated status actions) — none was needed
+here: exactly one email has ever been linked to this Order. The anomalous
+order_confirmation email from Trace 1 never got far enough to be considered
+for linking.
+
+**Trace 3 — Crate & Barrel classifier input. Cannot be retrieved — this is
+itself the finding.** The misclassified C&B order_confirmation email ("Your
+order confirmation is 359173100") was rejected `non_commerce` in the
+**founder pilot** (2026-09-07). The non-commerce discard path stores zero
+content and no messageId by design (`route.ts:362-370`, `DiscardLog`
+schema) — its exact classifier input no longer exists anywhere in the
+system, isn't in `DryRunCache` (that only covers the separate 106-item
+self-outbound-loop recovery batch), and never became an `Email` row. What
+could be checked: the sibling C&B delivery email ("...Ready for Pickup",
+correctly classified commerce, still stored) and the Shutterfly
+order_confirmation email (also correctly classified commerce, stored) —
+both decrypted and run through `resolveBodyText`'s actual 8000-char
+`isCommerceEmail` truncation window. No truncation issue in either case;
+commerce-identifying content (order numbers, pickup locations, prices) sits
+within the first 1500 characters for both. The Shutterfly order_confirmation
+email is the same shape as the lost C&B email (pickup-only order
+confirmation, no shipping) and classified correctly — evidence against a
+systematic pickup-vs-shipped bias, though it can't rule one out for the
+specific email that's now unrecoverable. **Zero billed classifier calls made
+or recommended** — nothing exists to feed one for the email that matters,
+and re-running it against already-correctly-classified stored bodies would
+only be a sanity check, not new information.
+
+**Trace 4 census — read-only.** (a) covered above (34 total / 3 genuine).
+(b) 85 Order rows have `orderNumber`/`orderTotal` set with no linked
+`order_confirmation` email — overwhelmingly normal, not anomalous (21
+Amazon, plus other retailers where shipping/delivery-only emails routinely
+and correctly populate an Order, the same mechanism as Shutterfly here,
+working as designed). Not evidence of a bug population.
+
+**Pickup hypothesis: refuted.** Neither root cause is pickup-specific. The
+Shutterfly write-path bug is a DB-connection-timing race that hit an Amazon
+order and a Factor delivery too. The Crate & Barrel classifier miss is an
+isolated, unrecoverable data point, not a demonstrated systematic bias —
+same-shaped pickup emails (Shutterfly's own order_confirmation, both
+retailers' "ready for pickup" delivery emails) all classified correctly.
+
+**No fix applied, per diagnostic scope.** Two follow-ups filed to 🟡 Next:
+hardening `runExtraction`'s catch block against a second DB failure (design
+decision needed on where to log durably and whether/how to retry — not a
+one-line fix), and the `DiscardLog` auditability gap this diagnostic hit as
+a dead end (privacy-vs-diagnosability question, needs its own reasoning pass
+before any schema change). See TASKS.md ✅ Done and 🟡 Next, 2026-09-11.
+
+**Session totals: 0 billed Anthropic API calls, 0 DB writes.** Diagnostic
+scripts committed and pushed (`a9eb8ae`) alongside the TASKS.md update; no
+application code changed, nothing to deploy.
+
+---
+
 ## 2026-09-10 — Dashboard V1 step 1: cross-user admin orders table shipped
 
 **Follows from the 2026-09-06 dashboard audit** (findings returned in-session,

@@ -3731,64 +3731,82 @@
       re-processing the recovered Gap email.
       **See paired Claude Code prompt (to be drafted).**
 
-- [ ] **Diagnostic: pickup-order write-path / classifier anomaly — Shutterfly
-      + Crate & Barrel, same suspected root cause. PROMOTED to 🔴 Now
-      2026-09-11, combines and supersedes the 2026-09-07 Next-section entries
-      (Shutterfly anomalous row + Crate & Barrel isCommerceEmail misfire).**
-      Two independent 2026-09-07 pilot findings, now unified by a
-      2026-09-11 owner-observation session. Shutterfly order 5011207321227:
-      the order_confirmation email ("We've received your Shutterfly order!")
-      produced an Email row in an impossible state per route.ts's own
-      comment (emailType: null, needsReview: false, extractionNotes: null,
-      orderId: null) — extraction failures are supposed to leave
-      needsReview: true. Crate & Barrel: two unambiguous order emails
-      ("Your order confirmation is 359173100" / "Ready for pickup! Your
-      order 359173100") classified non_commerce by the Haiku
-      isCommerceEmail classifier. Both are pickup-IRL orders (no shipping).
-      **New signal from 2026-09-11 screenshots:** the Shutterfly Order
-      itself has fully populated data (orderNumber 5011207321227,
-      orderTotal $4.68, one line item "4×6 Photo Print - Glossy ×12"),
-      but the ONLY linked email is a `delivery`-kind row ("Your
-      Shutterfly order is ready for pick up!"). Order data being
-      populated with no linked order_confirmation email is itself
-      unexpected — either the delivery email carried the confirmation
-      data and got extracted from there, or something linked and
-      unlinked earlier. Unknown which.
-      **Deliverable — one chat report covering all four:**
-      (1) Trace the exact code path that produced the anomalous
-      Shutterfly Email row's field combination. Which write in
-      route.ts (or its callers) fires without going through the
-      normal extraction-failure branch?
-      (2) Trace how the Shutterfly Order (5011207321227) got its
-      orderNumber, orderTotal, and line-items populated given the
-      only currently-linked email is a delivery-kind row. Was the
-      data extracted from the delivery email, or was there an
-      earlier linked-then-unlinked event?
-      (3) Trace the isCommerceEmail classifier's input for the two
-      Crate & Barrel emails. Is the misfire prompt-shape,
-      body-content, or a systematic pickup-vs-shipped bias? Compare
-      to the classifier's input on the Shutterfly order_confirmation
-      email (if it ran at all — may not have, given the row's null
-      emailType).
-      (4) Read-only census: how many other Email rows in production
-      share the null-emailType + needsReview: false + null-orderId +
-      null-extractionNotes signature? How many Order rows have
-      orderNumber or orderTotal populated but no linked
-      order_confirmation-kind email?
-      **Read-only for DB access. Any script that will call the
-      isCommerceEmail classifier or the extractor must state its
-      estimated billed API call count BEFORE running (per header
-      2026-07-22 amendment: read-only is a database property, not
-      a cost property).**
-      **Out of scope:** any fix; any state change to any row
-      (Shutterfly row stays in impossible state until fix decision);
-      classifier retraining or prompt changes; broader
-      tracking-extraction audit; classifier audit beyond the three
-      specific rows (Shutterfly + 2 Crate & Barrel).
-      **If the trace produces a clean, obviously-safe fix path,
-      report it and STOP — owner will decide whether to promote to
-      fix scope in a follow-up prompt.**
-      **See paired Claude Code prompt.**
+- [ ] **Harden runExtraction.ts catch block against second DB failure
+      — silent-loss bug, 3 known cases. NEW 2026-09-11, follows from
+      the 2026-09-11 pickup-order diagnostic (see ✅ Done).**
+      The whole runExtraction body is wrapped in one try/catch
+      (runExtraction.ts:23-145); the catch itself writes needsReview:
+      true (runExtraction.ts:141-144). If that recovery write ALSO
+      throws (e.g. same Neon connection drop that broke the primary
+      attempt), the second exception propagates unhandled through
+      route.ts:398-401 which only console.errors and returns 200 —
+      nothing durable records the failure, and the Email row stays
+      at pure Prisma defaults (emailType: null, needsReview: false,
+      extractionNotes: null, extractedAt: null, orderId: null). The
+      file's own header comment (runExtraction.ts:11-19) documents an
+      already-fixed version of this class of bug for the id-based
+      re-fetch path — but that fix didn't cover the object-based
+      caller (route.ts), which is what this bug lives on. Confirmed
+      3 genuine cases via 2026-09-11 census: Shutterfly 09/05
+      (cmtrni73r000mw96wr7nd2c40), Factor 08/31
+      (cmth52vom0001i704plg50wwu), Amazon 08/06
+      (cmsgsp9s40001jv04qc7csnt8). Retailer-agnostic. Real bug, low
+      base rate, silent when it fires — trust-breaking not urgent.
+      **Not a one-line fix — design decision required before code:**
+      (a) where to log durably when both the primary and recovery
+      writes fail (new failure-log table? existing DiscardLog with a
+      new discardReason? external log-only sink?); (b) whether to
+      retry the recovery write at all, and if so with what backoff /
+      idempotency guard given the failure is by definition a DB
+      health problem; (c) whether to surface these to the owner
+      (needsReview equivalent) or just make them recoverable later
+      via replay from the durable log. Owner-approved spec before
+      code, per CLAUDE.md.
+      **Explicitly out of scope:** Neon connection-retry / infra
+      layer work (separate concern — this is about failing safely
+      when the DB drops, not preventing the drops); backfill/repair
+      of the 3 known lost rows (decide after fix, once the durable-
+      log path exists to make future repairs cheap); the id-based
+      re-fetch path (already hardened per the header comment); any
+      change to route.ts's own 398-401 catch (would widen scope
+      beyond runExtraction).
+      **Fixability assessment, 2026-09-11 (not started):** fixable
+      but non-trivial. Whichever durable-log path is chosen becomes
+      infrastructure other silent-failure paths will want to use
+      too, so worth designing with that in mind rather than as a
+      one-off for this specific catch block.
+
+- [ ] **DiscardLog keeps no evidence — classifier misfires
+      unauditable. NEW 2026-09-11, surfaced by the 2026-09-11 pickup-
+      order diagnostic dead-end (see ✅ Done).**
+      route.ts:362-370 stores nothing on non_commerce discard beyond
+      the DiscardLog row's own schema fields — no messageId, no
+      subject, no fromEmail. This is a deliberate privacy design, not
+      an oversight. Consequence surfaced by the 2026-09-11 diagnostic:
+      when a real order email (two Crate & Barrel order_confirmations,
+      order 359173100) was misclassified as non_commerce in the
+      2026-09-07 founder pilot, the exact classifier input needed to
+      diagnose the misfire no longer existed anywhere in the system
+      — the trace hit a hard dead end. Every future classifier
+      misfire on a real commerce email will hit the same dead end
+      unless something changes. Not urgent (misfires appear rare —
+      3 known cases across the whole pilot, 2 of which are the same
+      C&B order) but load-bearing for any future classifier work: we
+      can't measure classifier accuracy against real misses if the
+      misses leave no trace.
+      **Not a design change to propose yet — this is the
+      question, not the answer:** what minimal signal (messageId
+      only? messageId + subject prefix? messageId + subject +
+      fromEmail?) would make misfires diagnosable without
+      meaningfully weakening the privacy design that keeps the rest
+      out? Explicit privacy review required before any change ships
+      — this reopens a deliberate decision, so needs its own
+      reasoning pass, not a code change first.
+      **Explicitly out of scope:** any DiscardLog schema change
+      tonight or this pass; backfill (impossible — the data is gone);
+      classifier retraining or prompt changes; any change to what
+      isCommerceEmail itself does (this is about what the discard
+      path RECORDS, not what the classifier DECIDES).
 
 - [ ] **Follow-up: drop `DryRunCache` table (or add a cleanup
       script) once the self-outbound-guard recovery effort
@@ -5879,6 +5897,19 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Diagnostic: pickup-order write-path / classifier anomaly —
+      Shutterfly + Crate & Barrel. Report received 2026-09-11.**
+      Pickup hypothesis refuted. Shutterfly root cause: runExtraction
+      catch-block double-failure race (Neon connection drop mid-recovery-
+      write), 3 known silent losses over ~30 days across retailers
+      (Shutterfly, Factor, Amazon — not pickup-specific). Crate & Barrel
+      root cause unrecoverable: classifier's exact input for the
+      misclassified email discarded by design (privacy). Two follow-ups
+      spawned in 🟡 Next: runExtraction hardening + DiscardLog auditability
+      gap. Zero billed API calls, zero DB writes. Full paper trail (trace
+      per finding, census methodology, corroborating Neon P1017 evidence
+      from 09-07/08 recovery scripts) → HISTORY.md 2026-09-11.
 
 - [x] **CLOSED (awaiting owner hand-verification) 2026-09-11 — Alpha weekly
       search-and-verify for returnPortalUrl.** Shipped in commit `0fdd581`
