@@ -3731,52 +3731,64 @@
       re-processing the recovered Gap email.
       **See paired Claude Code prompt (to be drafted).**
 
-- [ ] **Diagnostic: isCommerceEmail (Haiku classifier) returned
-      non_commerce on two unambiguous Crate & Barrel order emails —
-      "Your order confirmation is 359173100" and "Ready for pickup!
-      Your order 359173100." NEW 2026-09-07, surfaced during
-      2026-09-07 recovery pilot.**
-      Founder hypothesis: both are pickup-IRL orders (not shipped),
-      possibly the same root cause as the Shutterfly anomaly.
-      Classifier misfire on order emails is a general ingestion
-      accuracy problem beyond this incident — every pickup order
-      that fails classification is silently lost regardless of the
-      guard fix. Predates the guard work; unrelated to recovery,
-      just surfaced by it.
-      **Deliverable:** trace the classifier's input for each email,
-      determine whether the misfire is prompt-shape, body-content,
-      or a systematic pickup-vs-shipped bias. Chat report OK unless
-      the fix path becomes obvious mid-diagnostic.
-      **Out of scope:** any fix; classifier retraining or prompt
-      changes; audit of historical misclassifications beyond the
-      three specific pilot cases (2 Crate & Barrel + reproduce with
-      the Shutterfly if related).
-      **See paired Claude Code prompt (to be drafted).**
-
-- [ ] **Diagnostic: Shutterfly "We've received your Shutterfly order!"
-      email produced an anomalous Email row (emailType: null,
-      needsReview: false, extractionNotes: null, orderId: null) that
-      doesn't match any documented failure signature — route.ts's
-      own comment states extraction failures should leave
-      needsReview: true. NEW 2026-09-07, surfaced during 2026-09-07
-      recovery pilot.**
-      Founder hypothesis: pickup-IRL order, possibly same root cause
-      as the Crate & Barrel classifier misfire. This is a write-path
-      bug not a classification bug (the row exists but is in an
-      impossible state per the documented invariants). Whatever code
-      path allowed this write may have created other silently-broken
-      rows in production over time — the anomaly detection question
-      is potentially bigger than the one row.
-      **Deliverable:** trace the specific code path that produced
-      this row's field combination; determine whether other Email
-      rows in the DB share the same null-emailType + needsReview:
-      false + orderId: null signature (read-only query, no fix).
-      Chat report OK unless the trace reveals a broader silent-bug
-      population, in which case escalate to full audit doc.
-      **Out of scope:** any fix; repair of the specific Shutterfly
-      row (leave it, decide after diagnostic); repair of any other
-      rows discovered to share the signature.
-      **See paired Claude Code prompt (to be drafted).**
+- [ ] **Diagnostic: pickup-order write-path / classifier anomaly — Shutterfly
+      + Crate & Barrel, same suspected root cause. PROMOTED to 🔴 Now
+      2026-09-11, combines and supersedes the 2026-09-07 Next-section entries
+      (Shutterfly anomalous row + Crate & Barrel isCommerceEmail misfire).**
+      Two independent 2026-09-07 pilot findings, now unified by a
+      2026-09-11 owner-observation session. Shutterfly order 5011207321227:
+      the order_confirmation email ("We've received your Shutterfly order!")
+      produced an Email row in an impossible state per route.ts's own
+      comment (emailType: null, needsReview: false, extractionNotes: null,
+      orderId: null) — extraction failures are supposed to leave
+      needsReview: true. Crate & Barrel: two unambiguous order emails
+      ("Your order confirmation is 359173100" / "Ready for pickup! Your
+      order 359173100") classified non_commerce by the Haiku
+      isCommerceEmail classifier. Both are pickup-IRL orders (no shipping).
+      **New signal from 2026-09-11 screenshots:** the Shutterfly Order
+      itself has fully populated data (orderNumber 5011207321227,
+      orderTotal $4.68, one line item "4×6 Photo Print - Glossy ×12"),
+      but the ONLY linked email is a `delivery`-kind row ("Your
+      Shutterfly order is ready for pick up!"). Order data being
+      populated with no linked order_confirmation email is itself
+      unexpected — either the delivery email carried the confirmation
+      data and got extracted from there, or something linked and
+      unlinked earlier. Unknown which.
+      **Deliverable — one chat report covering all four:**
+      (1) Trace the exact code path that produced the anomalous
+      Shutterfly Email row's field combination. Which write in
+      route.ts (or its callers) fires without going through the
+      normal extraction-failure branch?
+      (2) Trace how the Shutterfly Order (5011207321227) got its
+      orderNumber, orderTotal, and line-items populated given the
+      only currently-linked email is a delivery-kind row. Was the
+      data extracted from the delivery email, or was there an
+      earlier linked-then-unlinked event?
+      (3) Trace the isCommerceEmail classifier's input for the two
+      Crate & Barrel emails. Is the misfire prompt-shape,
+      body-content, or a systematic pickup-vs-shipped bias? Compare
+      to the classifier's input on the Shutterfly order_confirmation
+      email (if it ran at all — may not have, given the row's null
+      emailType).
+      (4) Read-only census: how many other Email rows in production
+      share the null-emailType + needsReview: false + null-orderId +
+      null-extractionNotes signature? How many Order rows have
+      orderNumber or orderTotal populated but no linked
+      order_confirmation-kind email?
+      **Read-only for DB access. Any script that will call the
+      isCommerceEmail classifier or the extractor must state its
+      estimated billed API call count BEFORE running (per header
+      2026-07-22 amendment: read-only is a database property, not
+      a cost property).**
+      **Out of scope:** any fix; any state change to any row
+      (Shutterfly row stays in impossible state until fix decision);
+      classifier retraining or prompt changes; broader
+      tracking-extraction audit; classifier audit beyond the three
+      specific rows (Shutterfly + 2 Crate & Barrel).
+      **If the trace produces a clean, obviously-safe fix path,
+      report it and STOP — owner will decide whether to promote to
+      fix scope in a follow-up prompt.**
+      **See paired Claude Code prompt.**
 
 - [ ] **Follow-up: drop `DryRunCache` table (or add a cleanup
       script) once the self-outbound-guard recovery effort
