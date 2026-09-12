@@ -153,132 +153,6 @@
       Gap return different results). Read-only, no code, no
       Anthropic calls.
 
-- [ ] **NEW 2026-09-02 — Alpha weekly search-and-verify for
-      returnPortalUrl.** Weekly batch job runs a search (retailer
-      name + returns) for every new order added in the past week,
-      produces a candidate URL, lands it in a Google Sheet review
-      queue for owner manual approval. Approved URLs overwrite
-      returnPortalUrl on the order (schema decision:
-      overwrite, not separate field). Extraction stays as
-      best-effort input; alpha review is source of truth.
-      Purpose: get users a working button now, accumulate
-      hand-labeled ground truth for eventual automation. Runs on
-      all new orders (not just extraction failures). Search
-      mechanism: start with search API + heuristics; add
-      LLM-with-web-search as a second candidate column after a
-      few weeks of accumulated review. Gated on retailer-name
-      normalisation investigation landing first.
-      **SCOPE LOCKED 2026-09-03 — gate cleared (retailer-name
-      normalisation investigation landed 2026-09-02,
-      `investigations/2026-09-02-retailer-name-normalisation/`),
-      build starting this session.** Expanded scope from the
-      2026-09-02 framing above, full spec given by owner: covers
-      the ENTIRE active non-Amazon order backlog on first run, not
-      just new orders from the past week (fixing existing bad URLs
-      is the primary motivation) — self-heals on later runs since
-      already-queued orders are skipped. Adds retailer-name
-      approval alongside URL approval in the same sheet row (owner
-      can correct both in one pass); approved retailer names
-      overwrite `Order.retailer` when changed, symmetric with the
-      URL overwrite. New `ReturnUrlReview` Prisma table accumulates
-      both as ground truth — explicitly ground-truth generation
-      input to the future shared retailer cache (PHASE 1a/1b +
-      "Retailer URL / policy cache — long-term"), NOT itself a
-      cache or a consumer of one; normalization key (passive,
-      lowercase/whitespace/suffix/trailing-punctuation) deliberately
-      matches the invariant locked in the 2026-08-13 cache-sizing
-      investigation (HISTORY.md) so no re-key is needed if/when
-      approved rows migrate as cache seed data. Two cron jobs
-      (weekly search → Sheet, daily apply-approvals ← Sheet)
-      following the existing `app/api/cron/*` + `CRON_SECRET`
-      pattern (`weekly-coverage`, `weekly-digest`). Sheet via
-      `googleapis` service account; search via Serper API. Explicit
-      non-goals this pass: no extraction-pipeline changes, no
-      PHASE 1a/1b cache, no LLM-web-search candidate source, no
-      fuzzy retailer matching, no shared Retailer/RetailerAlias
-      table, no UI beyond the Sheet. Plan-then-implement: owner
-      wants the implementation plan (files, migration SQL, env
-      vars, deps) shown and approved before any code is written.
-      **[CODE BUILT + TESTED, NOT YET PUSHED/DEPLOYED, 2026-09-04.]**
-      Plan approved 2026-09-03 with two amendments: (1) `APP_DOMAIN`
-      has no hardcoded default and never reads
-      `lib/selfOutboundGuard.ts`'s domain — both cron routes fail
-      loudly (500) before any Serper/Sheets call if unset; (2)
-      `isMeaningfulRetailerChange()` built as a second helper in
-      `lib/retailer-normalize.ts`, not a mode flag on
-      `normalizeRetailer()`. Built: `prisma/schema.prisma`'s
-      `ReturnUrlReview` model + `ReturnUrlReviewStatus`/
-      `ReturnUrlCandidateSource` enums (migration
-      `20260904011814_add_return_url_review`, additive only —
-      applied to the live DB); `lib/retailer-normalize.ts`
-      (`normalizeRetailer`, `isMeaningfulRetailerChange`);
-      `lib/search.ts` (Serper wrapper, one 429 retry); `lib/sheets.ts`
-      (googleapis service-account wrapper — append/read/
-      bootstrap-headers); `app/api/cron/weekly-url-review/route.ts`
-      (Sunday `0 3 * * 1` UTC ≈ 20:00 PT — search-subject priority,
-      `scoreResult()` heuristics, self-heals on per-order failure by
-      never creating a review row); `app/api/cron/apply-url-reviews/
-      route.ts` (daily `0 13 * * *` UTC ≈ 06:00 PT — applies
-      approved/rejected Sheet rows, gated on `ReturnUrlReview.status
-      === PENDING` so re-runs are safe). `vercel.json` +2 cron
-      entries. `.env.example` created (new file — none existed
-      before), `.gitignore`'s blanket `.env*` exclusion given a
-      `!.env.example` carve-out so the template actually commits.
-      `BUILD.md` updated: Env vars table, Cron schedules table,
-      `ReturnUrlReview` data-model entry, full "Alpha weekly
-      search-and-verify" operational section (setup steps, Sheet
-      column contract, manual-trigger command, known limitations,
-      explicit out-of-scope list). New dependency: `googleapis`.
-      **Bug caught by the new test suite, fixed before commit:**
-      `scoreResult()`'s path-keyword scoring originally checked the
-      *whole* URL string, not just the pathname — since
-      `myreturnwindow.com` itself contains the substring `"return"`,
-      a self-domain-loop URL got a false +3 bonus that partially
-      offset the -10 own-domain penalty. Fixed to score
-      `new URL(...).pathname` only.
-      **Second bug caught by owner-requested self-review, fixed before
-      commit 2026-09-04:** `applyApproval()` in `apply-url-reviews/route.ts`
-      originally wrote `ReturnUrlReview.status = APPROVED` and
-      `Order.returnPortalUrl` as two separate sequential `prisma` calls —
-      a crash between them would silently strand the row: no longer
-      `PENDING`, so never retried, and the order's URL never actually
-      updated. Wrapped both writes in one `prisma.$transaction`.
-      **Tests:** `__tests__/retailerNormalize.test.ts` (11 cases —
-      suffix stripping, trailing-punctuation/DONNI parity, no
-      prefix-truncation, no fuzzy matching, meaningful-vs-cosmetic
-      change detection) + `__tests__/weeklyUrlReview.test.ts` (9
-      cases — scoring heuristics including the caught bug, all three
-      search-subject priority branches). **793/793 tests passing,
-      `npm run build` clean** (typecheck + lint, both new routes
-      compile). Zero Anthropic API calls — no model call sites in
-      this feature at all (Serper + Sheets only).
-      **[COMMITTED + PUSHED + DEPLOYED 2026-09-04, `0fdd581`.]**
-      Owner self-review requested and completed before commit (see
-      transaction-fix entry above); two owner notes recorded, not
-      requiring action: (1) swapping README.md for BUILD.md as the
-      docs destination mid-build without flagging first was scope
-      creep — judgment was right, but ask next time; (2) the
-      no-row-on-failure retry mechanism was approved as a good read
-      of the spec gap. `git log origin/main..main` empty post-push;
-      `app.myreturnwindow.com` confirmed aliased to the new
-      deployment (`dpl_3mrsRT42sAFQeM1UeW5Yd3jmE2Qc`) post-deploy.
-      **CORRECTION 2026-09-04, same day:** the initial report that all
-      4 env vars were unconfigured was wrong — owner had already set
-      `GOOGLE_SERVICE_ACCOUNT_JSON`/`RETURN_URL_REVIEW_SHEET_ID`/
-      `SERPER_API_KEY`/`APP_DOMAIN` in Vercel Production before that
-      review pass; confirmed present via `npx vercel env ls
-      production`. Also confirmed the live deployment
-      (`dpl_6dB9cLNpJAGDThi4B1NmR4qNNxXF`, from the follow-on
-      TASKS.md-only commit `9d77e23`) was built *after* the env vars
-      were added, so they're live in production now — no redeploy
-      needed. **Still NOT verified live** — no cron run has fired yet.
-      Remaining gate, narrowed: owner plans to manually trigger
-      `weekly-url-review` Monday-ish (via the `?secret=` query-param
-      path, same as every other cron route) to watch the first run
-      against the 44-order backlog, then verify a real
-      approve/reject → `apply-url-reviews` round-trip through the
-      Sheet before this moves to Done.
-
 - [x] **CLOSED (superseded) 2026-09-02 — `returnPortalUrl` self-domain
       correctness bug.** At least one active order had `returnPortalUrl`
       set to `https://app.myreturnwindow.com/orders/{id}` — our own app's
@@ -5993,6 +5867,27 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **CLOSED (awaiting owner hand-verification) 2026-09-11 — Alpha weekly
+      search-and-verify for returnPortalUrl.** Shipped in commit `0fdd581`
+      (2026-09-04), quoted-query fix in `3102b8e` (2026-09-11). System live
+      in production: weekly Serper-backed search populates the review
+      sheet (`RETURN_URL_REVIEW_SHEET_ID`) with candidate URLs and up to 2
+      alternatives per new order; owner approves in the sheet; daily
+      apply-approvals cron writes approved values back to
+      `Order.returnPortalUrl` (and conditionally `Order.retailer`). Both
+      cron routes deployed and confirmed scheduled in `vercel.json`. 50
+      pending review rows queued as of 2026-09-11T19:46:36Z. All
+      originally-scoped known gaps documented in BUILD.md as design
+      decisions, not oversights. One new observability gap flagged (see
+      🟡 Next item).
+      **Close-out qualifications:** (a) apply-url-reviews
+      multiple-actionable-rows-per-orderId behavior tracked as 🟡 Next;
+      (b) duplicate-ghost-report sheetRowId-vs-sort staleness tracked as
+      🟡 Next; (c) 17 ghost Sheet rows from 2026-09-11 concurrent-
+      invocation races remain in the Sheet — they're harmless because
+      apply-url-reviews matches on orderId and last-write-wins, but they
+      clutter the review view; manual cleanup at owner's discretion.
 
 - [x] **Self-email ingestion loop fix — guard shipped, misfired for 3 days,
       fixed, recovered, live-verified. 2026-09-11.** `22be2d7` (original
