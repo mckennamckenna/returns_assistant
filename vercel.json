@@ -15,10 +15,6 @@
     {
       "path": "/api/cron/weekly-url-review",
       "schedule": "0 3 * * 1"
-    },
-    {
-      "path": "/api/cron/apply-url-reviews",
-      "schedule": "0 13 * * *"
     }
   ]
 }
