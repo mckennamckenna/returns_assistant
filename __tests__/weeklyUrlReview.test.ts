@@ -30,7 +30,7 @@ vi.mock("@/lib/sheets", () => ({
   appendReviewRow: vi.fn(),
 }));
 
-import { scoreResult, resolveSearchSubject, GET } from "@/app/api/cron/weekly-url-review/route";
+import { scoreResult, resolveSearchSubject, stripTrackingParams, GET } from "@/app/api/cron/weekly-url-review/route";
 import { searchWeb } from "@/lib/search";
 import { appendReviewRow } from "@/lib/sheets";
 
@@ -121,6 +121,33 @@ describe("resolveSearchSubject", () => {
     const result = resolveSearchSubject({ retailer: "Gap Inc.", returnPortalUrl: null }, new Map(), APP_DOMAIN);
     expect(result.subject).toBe("gap");
     expect(result.knownDomain).toBeNull();
+  });
+});
+
+describe("stripTrackingParams", () => {
+  it("strips every listed tracking param", () => {
+    const url =
+      "https://example.com/returns?srsltid=abc&utm_source=x&utm_medium=y&utm_campaign=z&utm_term=t&utm_content=c" +
+      "&cid=1&gclid=2&fbclid=3&mc_cid=4&mc_eid=5&_ga=6&_gl=7&ref=8&ref_src=9";
+    expect(stripTrackingParams(url)).toBe("https://example.com/returns");
+  });
+
+  it("leaves unlisted query params untouched", () => {
+    const url = "https://example.com/returns?locale=us&srsltid=abc";
+    expect(stripTrackingParams(url)).toBe("https://example.com/returns?locale=us");
+  });
+
+  it("leaves a URL with no query string untouched", () => {
+    const url = "https://example.com/returns";
+    expect(stripTrackingParams(url)).toBe(url);
+  });
+
+  it("returns an empty string unchanged", () => {
+    expect(stripTrackingParams("")).toBe("");
+  });
+
+  it("returns an unparseable URL unchanged rather than throwing", () => {
+    expect(stripTrackingParams("not a url")).toBe("not a url");
   });
 });
 

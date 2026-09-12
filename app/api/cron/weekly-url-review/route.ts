@@ -46,6 +46,46 @@ const BAD_PATH_KEYWORDS = ["contact", "help", "support", "track", "login", "sign
 const GOOD_PATH_KEYWORDS_STRONG = ["return", "returns"];
 const GOOD_PATH_KEYWORDS_WEAK = ["policy", "refund"];
 
+// Cosmetic + stability cleanup for candidate/alternative URLs before they're
+// written to the Sheet — some of these tokens (srsltid, gclid) are
+// session-scoped and can expire, breaking a URL that otherwise still works.
+// Illustrative, not exhaustive, same as the domain lists above — strip only
+// params named here; a retailer can carry meaningful state in a query param
+// (e.g. ?locale=us) that must survive untouched.
+const TRACKING_QUERY_PARAMS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "srsltid",
+  "cid",
+  "gclid",
+  "fbclid",
+  "mc_cid",
+  "mc_eid",
+  "_ga",
+  "_gl",
+  "ref",
+  "ref_src",
+];
+
+// Exported for tests. Applied to candidateUrl and both alternatives before
+// either the Sheet or DB write, so the two stay consistent with each other.
+export function stripTrackingParams(url: string): string {
+  if (!url) return url;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  for (const param of TRACKING_QUERY_PARAMS) {
+    parsed.searchParams.delete(param);
+  }
+  return parsed.toString();
+}
+
 function extractDomain(url: string): string | null {
   try {
     return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
@@ -198,9 +238,9 @@ export async function GET(request: NextRequest) {
         .map((result) => ({ result, score: scoreResult(result, knownDomain, appDomain) }))
         .sort((a, b) => b.score - a.score);
 
-      const candidateUrl = scored[0]?.result.url ?? "";
-      const alternative1 = scored[1]?.result.url ?? "";
-      const alternative2 = scored[2]?.result.url ?? "";
+      const candidateUrl = stripTrackingParams(scored[0]?.result.url ?? "");
+      const alternative1 = stripTrackingParams(scored[1]?.result.url ?? "");
+      const alternative2 = stripTrackingParams(scored[2]?.result.url ?? "");
       const allNegative = scored.length > 0 && scored.every((s) => s.score < 0);
 
       // DB write before Sheet write — the reverse of this job's original
