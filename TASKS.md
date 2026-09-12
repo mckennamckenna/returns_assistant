@@ -3482,6 +3482,17 @@
       — confirmed apply-url-reviews itself is unaffected, since it
       matches on each row's own orderId column, not sheetRowId.)
 
+- [ ] **apply-url-reviews doesn't dedupe actionable Sheet rows by
+      orderId within a single run. Multiple actionable rows for the
+      same orderId all execute; last-in-Sheet-order wins with silent
+      override. Mixed approve+reject on the same orderId can produce
+      inconsistent final state (Order.returnPortalUrl written but
+      ReturnUrlReview.status = REJECTED if approve is processed first).
+      Fix: dedupe by orderId at the top of the loop, take the last
+      actionable row per orderId, log a warning when multiple
+      actionable rows are seen for one orderId. Small change, closes
+      an alpha footgun.**
+
 - [ ] **Diagnostic: extractor ingesting our own outbound reminder emails
       as retailer emails, then reading retailer/orderNumber/orderTotal
       from the reminder body. NEW 2026-09-06, surfaced by needs-review
