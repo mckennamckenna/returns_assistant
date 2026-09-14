@@ -94,6 +94,62 @@
         elsewhere in `runExtraction` — could be a good idea, but
         would widen tonight's scope; note as a candidate follow-up
         instead.
+      **UPDATE 2026-09-11 evening, after Gate 1 downstream-consumer grep
+      in the fix session:** the original scope above ("swap ordering at
+      line 66 and 98-105, mechanical") was incomplete on three counts,
+      corrected here rather than overwritten so the reasoning survives:
+      (i) The lookup gate we care about spans BOTH `runExtraction.ts:66`
+      (the `lookupReturnPolicy` gate itself) AND `runExtraction.ts:59-64`
+      (the `findMatchingOrder` pre-check that populates `existingOrder`
+      for the 2026-08-24 widened-skip). Both check retailer nullness;
+      both must see the same value or the fix is half-done. Not a
+      line-swap — an extract-and-reuse.
+      (ii) The fix must NOT mutate `parsed.retailer` to the fallback-
+      resolved value before `finalizeExtraction()` returns. Doing so
+      would silently mislabel `retailerSource` as "body_extraction"
+      when the value actually came from sender fallback, violating
+      the `retailerFallback.ts:78` invariant that `retailerSource`
+      describes WHY retailer has its current value. The whole point
+      of that invariant is trustworthy debugging fields — tonight's
+      diagnostic sessions relied on exactly this kind of provenance
+      to trace root causes cleanly. Corrupting it to save one line
+      of code is not a trade worth making. **Fix approach: compute
+      an `effectiveRetailer` local variable used only for gate
+      decisions, leave `parsed.retailer` untouched, let the existing
+      `retailerSource` labeling at lines 93-105 run unchanged.**
+      (iii) Same `effectiveRetailer` variable feeds two other gates
+      in the same block: `isAmazonOrder()` at `extract.ts:740` and
+      `isFoodGroceryRetailer()` at `extract.ts:750`. Under the fix,
+      orders whose retailer resolves to Amazon or a grocery only via
+      sender-fallback would newly route to those specialized branches
+      instead of the general path. Directionally correct — behavior
+      catching up to reality, not new logic — and IN SCOPE for this
+      fix per owner call 2026-09-11 evening.
+      **Also worth noting from Gate 1:** consumer #2 (the Email-row-
+      level `needsReview` at `extract.ts:804-814`, distinct from the
+      Order-level `needsReview` at `linkOrder.ts:269` that tonight's
+      diagnostic traced) will also change behavior under the fix —
+      the clause forcing `Email.needsReview = true` when
+      `params.retailer == null` will stop firing for orders that now
+      resolve retailer via fallback. Different table, different field,
+      not diagnosed tonight, but the change is directionally correct
+      (an email whose retailer we DO know via fallback shouldn't be
+      flagged review-needed for a nullness that no longer applies).
+      IN SCOPE for this fix by extension of the same reasoning.
+      **Scope-description consequence:** the "Scope (code fix)" bullet
+      above understates what the fix touches. Corrected description:
+      extract sender-fallback resolution to compute `effectiveRetailer`
+      before the block starting at `runExtraction.ts:59`, feed it to
+      the `findMatchingOrder` pre-check (line 59-64), the
+      `lookupReturnPolicy` gate (line 66), the Amazon check
+      (`extract.ts:740`), and the grocery check (`extract.ts:750`).
+      Leave `parsed.retailer` untouched. `retailerSource` labeling at
+      lines 93-105 runs unchanged, still correctly distinguishing
+      body-extraction from sender-fallback provenance.
+      **Pre-flight checks (a) and (b) still gate the swap.** Check (a)
+      is now complete (this update IS its output). Check (b) — cost
+      estimate on widened lookup population — still owed at Gate 2
+      before code changes ship.
       **Fixability assessment 2026-09-11 (not started):** small and
       scoped, but has two pre-flight checks (a/b above) that must
       pass before the swap ships. Not a one-line silent change.
