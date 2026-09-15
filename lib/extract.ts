@@ -722,6 +722,17 @@ export async function finalizeExtraction(
   // return_label-only to any email type). null for extractEmail below —
   // behavior for that caller is unchanged.
   existingOrder: ExistingOrderContext | null,
+  // Retailer to use for gate DECISIONS only (Amazon/food-grocery
+  // short-circuits, the lookupReturnPolicy gate itself) — may be
+  // sender-fallback-resolved even when parsed.retailer is null.
+  // Deliberately never substituted for parsed.retailer itself: the
+  // returned ExtractionResult below still spreads parsed as-is, so
+  // retailerSource labeling in runExtraction.ts keeps distinguishing
+  // body-extraction from sender-fallback provenance. TASKS.md
+  // 2026-09-11/13 fix session — defaults to parsed.retailer so
+  // extractEmail below (no sender-fallback context available) is
+  // unaffected.
+  effectiveRetailer: string | null = parsed.retailer,
 ): Promise<ExtractionResult> {
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
@@ -737,7 +748,7 @@ export async function finalizeExtraction(
   // delivery/shipping_confirmation stay eligible.
   if (parsed.returnWindowDays != null) {
     policySource = "email";
-  } else if (isAmazonOrder(parsed.retailer) && parsed.emailType !== "other") {
+  } else if (isAmazonOrder(effectiveRetailer) && parsed.emailType !== "other") {
     // Short-circuit BEFORE the web lookup — this is the whole point (see
     // AMAZON_DEFAULT_RETURN_WINDOW_DAYS above): the call must never fire
     // for an Amazon email with no stated window, not just end up
@@ -747,7 +758,7 @@ export async function finalizeExtraction(
     // never reaches this branch.
     parsed.returnWindowDays = AMAZON_DEFAULT_RETURN_WINDOW_DAYS;
     policySource = "amazon_default";
-  } else if (isFoodGroceryRetailer(parsed.retailer)) {
+  } else if (isFoodGroceryRetailer(effectiveRetailer)) {
     // Food + grocery delivery exclusion (TASKS.md 🔴 Now, 2026-08-18) —
     // Amazon Fresh / Whole Foods Market get junked one step later in
     // linkEmailToOrder (lib/linkOrder.ts) regardless of what a policy
@@ -755,7 +766,7 @@ export async function finalizeExtraction(
     // stays null; returnWindowDays stays whatever extraction returned
     // (typically null) since neither is ever read once the email is junked.
   } else if (
-    parsed.retailer &&
+    effectiveRetailer &&
     parsed.emailType !== "other" &&
     // TASKS.md 2026-08-23/24: an order that already has a resolved
     // returnWindowDays doesn't need a fresh billed lookup just because
@@ -766,7 +777,7 @@ export async function finalizeExtraction(
     existingOrder?.returnWindowDays == null
   ) {
     try {
-      const lookup = await lookupReturnPolicy(parsed.retailer, emailId);
+      const lookup = await lookupReturnPolicy(effectiveRetailer, emailId);
       returnPortalUrlFromLookup = lookup.returnPortalUrl;
 
       if (lookup.returnWindowDays != null && lookup.confidence !== "low") {
@@ -806,7 +817,11 @@ export async function finalizeExtraction(
     lookupNeedsReview,
     confidence: parsed.confidence,
     emailType: parsed.emailType,
-    retailer: parsed.retailer,
+    // effectiveRetailer, not parsed.retailer — TASKS.md 2026-09-11/13 fix
+    // session, owner-approved: an email whose retailer we DO know via
+    // sender fallback shouldn't be flagged review-needed for a nullness
+    // that no longer applies.
+    retailer: effectiveRetailer,
     orderNumber: parsed.orderNumber,
     returnDeadline,
     policyLookupWasUnclear,

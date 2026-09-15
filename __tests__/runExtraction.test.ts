@@ -130,7 +130,11 @@ describe("runExtraction", () => {
     expect(mockEmailFindUnique).toHaveBeenCalledWith({ where: { id: BASE_ROW.id } });
     expect(mockExtractEmailIdentity).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null);
     expect(mockFindMatchingOrder).toHaveBeenCalledWith(BASE_ROW.userId, PARSED_IDENTITY.retailer, PARSED_IDENTITY.orderNumber);
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null);
+    // 4th arg is effectiveRetailer -- equal to parsed.retailer here since
+    // it's already non-null (fallback never consulted). See the dedicated
+    // "effectiveRetailer wiring" describe block below for the fallback-
+    // resolved and fallback-not-consulted cases.
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer);
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BASE_ROW.id }, data: expect.objectContaining({ retailer: "Acme" }) }),
     );
@@ -199,7 +203,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     await runExtraction(BASE_ROW.id);
 
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, { returnWindowDays: 30 });
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, { returnWindowDays: 30 }, PARSED_IDENTITY.retailer);
   });
 
   it("passes null existingOrder when findMatchingOrder finds nothing", async () => {
@@ -208,7 +212,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     await runExtraction(BASE_ROW.id);
 
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer);
   });
 
   it("skips the pre-check query entirely for an Amazon retailer -- never reaches the billed branch regardless", async () => {
@@ -217,7 +221,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockFindMatchingOrder).not.toHaveBeenCalled();
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ retailer: "Amazon" }), BASE_ROW.id, null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ retailer: "Amazon" }), BASE_ROW.id, null, "Amazon");
   });
 
   it("skips the pre-check query entirely for a food/grocery retailer -- never reaches the billed branch regardless", async () => {
@@ -242,22 +246,39 @@ describe("runExtraction — parent-order pre-check wiring", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockFindMatchingOrder).not.toHaveBeenCalled();
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ orderNumber: null }), BASE_ROW.id, null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(
+      expect.objectContaining({ orderNumber: null }),
+      BASE_ROW.id,
+      null,
+      PARSED_IDENTITY.retailer,
+    );
   });
 });
 
-// ZARA_RETAILER_FALLBACK (2026-08-25) — the sender-derived fallback wired
-// into runExtraction.ts right before the DB write. Uses the REAL
-// lib/retailerFallback.ts (not mocked) — it's pure, deterministic logic,
-// so exercising it for real here is more useful than re-asserting a mock
-// call. decrypt() is mocked as identity (see top of file), so BASE_ROW's
-// fromEmail/fromName pass straight through unchanged.
+// ZARA_RETAILER_FALLBACK (2026-08-25) — the sender-derived fallback, now
+// computed in runExtraction.ts BEFORE finalizeExtraction runs (TASKS.md
+// 2026-09-11/13 fix session), then reused at the post-finalizeExtraction
+// DB-write step. Uses the REAL lib/retailerFallback.ts (not mocked) --
+// it's pure, deterministic logic, so exercising it for real here is more
+// useful than re-asserting a mock call. decrypt() is mocked as identity
+// (see top of file), so BASE_ROW's fromEmail/fromName pass straight
+// through unchanged.
+//
+// IMPORTANT for anyone adding a case here: the fallback now reads
+// parsed.retailer / parsed.emailType (extractEmailIdentity's output),
+// NOT result.retailer / result.emailType (finalizeExtraction's output).
+// Mock mockExtractEmailIdentity's return value to simulate "body
+// extraction found nothing" -- overriding mockFinalizeExtraction's
+// retailer/emailType alone (the pre-fix pattern) no longer has any
+// effect on whether the fallback fires, since finalizeExtraction is
+// mocked and its real internals never run in this file.
 describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALLBACK)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEmailFindUnique.mockResolvedValue(BASE_ROW);
     mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
     mockFindMatchingOrder.mockResolvedValue(null);
+    mockFinalizeExtraction.mockResolvedValue(EXTRACT_RESULT);
   });
 
   it("body extraction returned a retailer -- fallback does not fire, retailerSource = 'body_extraction'", async () => {
@@ -272,6 +293,7 @@ describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALL
 
   it("Zara case: retailer null, commerce emailType, fromName 'Zara' -- resolves to 'Zara' via sender_fallback", async () => {
     mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "noreply@zara.com", fromName: "Zara" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "shipping_confirmation" });
     mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
 
     await runExtraction(BASE_ROW.id);
@@ -283,6 +305,7 @@ describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALL
 
   it("carrier case (FedEx): retailer stays null, retailerSource = 'carrier_deferred', NOT mislabeled 'FedEx Delivery Manager'", async () => {
     mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "TrackingUpdates@fedex.com", fromName: "FedEx Delivery Manager" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "shipping_confirmation" });
     mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
 
     await runExtraction(BASE_ROW.id);
@@ -294,6 +317,7 @@ describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALL
 
   it("carrier case (USPS): retailer stays null, retailerSource = 'carrier_deferred', NOT mislabeled 'USPS Tracking'", async () => {
     mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "auto-reply@tracking.usps.com", fromName: "USPS Tracking" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "delivery" });
     mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "delivery" });
 
     await runExtraction(BASE_ROW.id);
@@ -309,8 +333,16 @@ describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALL
     // already passed the commerce-type gate. A carrier email typed "other"
     // (e.g. a promotional/marketing send from a carrier domain) must not
     // be tagged carrier_deferred either -- it should look exactly like any
-    // other non-commerce null-retailer row.
+    // other non-commerce null-retailer row. Rewritten 2026-09-13: the
+    // pre-fix version of this test only varied mockFinalizeExtraction's
+    // emailType, while mockExtractEmailIdentity stayed at the default
+    // PARSED_IDENTITY (retailer: "Acme", non-null) -- so it happened to
+    // pass because the fallback's retailer-nullness precondition was
+    // never met, not because gate condition (ii) was exercised at all.
+    // Now varies parsed.retailer AND parsed.emailType together, the actual
+    // inputs the fallback gate reads.
     mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "TrackingUpdates@fedex.com", fromName: "FedEx Delivery Manager" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "other" });
     mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "other" });
 
     await runExtraction(BASE_ROW.id);
@@ -322,6 +354,7 @@ describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALL
 
   it("ESP subdomain case: orders@email.bloomingdales.com, generic fromName -- resolves to 'Bloomingdales' via domain, stripping the email. prefix", async () => {
     mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "orders@email.bloomingdales.com", fromName: "noreply" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "shipping_confirmation" });
     mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
 
     await runExtraction(BASE_ROW.id);
@@ -332,13 +365,117 @@ describe("runExtraction — sender-derived retailer fallback (ZARA_RETAILER_FALL
   });
 
   it("fromName and fromEmail both empty/unresolvable: retailer stays null, retailerSource stays null (never invents a value)", async () => {
+    // Rewritten 2026-09-13, same reason as the 'other' case above: the
+    // pre-fix version left mockExtractEmailIdentity at the default
+    // PARSED_IDENTITY (retailer: "Acme"), so the fallback's gate was
+    // never actually reached -- the assertion passed vacuously. Now sets
+    // parsed.retailer: null with an eligible emailType, so the fallback
+    // gate genuinely opens and resolveRetailerFallback's own Step 4
+    // ("nothing resolved") is what's under test.
     mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "", fromName: null });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "shipping_confirmation" });
     mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
 
     await runExtraction(BASE_ROW.id);
 
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ retailer: null, retailerSource: null }) }),
+    );
+  });
+});
+
+// TASKS.md 2026-09-11/13 fix session -- effectiveRetailer wiring. Covers
+// the specific behaviors the owner called out when confirming Gate 3:
+// (1) finalizeExtraction receives a 4th arg, the effective retailer;
+// (2) that arg is the sender-fallback-resolved value, used at BOTH the
+//     findMatchingOrder pre-check and the finalizeExtraction call, when
+//     parsed.retailer is null and the sender is fallback-eligible;
+// (3) that arg equals parsed.retailer, and the fallback is not preferred
+//     over it, when parsed.retailer is already non-null;
+// (5) parsed.retailer itself is never mutated -- finalizeExtraction's
+//     first argument still carries the original (possibly null) value,
+//     which is what lets retailerSource labeling (tested above) keep
+//     distinguishing body_extraction from sender_fallback.
+// (4) is NOT independently covered here: isAmazonOrder,
+//     isFoodGroceryRetailer, the lookupReturnPolicy gate, and
+//     computeNeedsReview all live INSIDE finalizeExtraction, which this
+//     file mocks -- exercising their real branches would require mocking
+//     the Anthropic SDK, which no test in this codebase does today (see
+//     the "parent-order pre-check wiring" describe block's own comment
+//     above for the same, pre-existing limitation on the Amazon/
+//     food-grocery branches). What IS verified here is the mechanism
+//     those four consumers all depend on: that effectiveRetailer, not
+//     parsed.retailer, is the value that actually reaches
+//     finalizeExtraction as its 4th argument. Whether each internal
+//     branch reads that argument correctly is verified by code review of
+//     lib/extract.ts, not by a test in this file.
+describe("runExtraction — effectiveRetailer wiring (2026-09-11/13 fix session)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEmailFindUnique.mockResolvedValue(BASE_ROW);
+    mockFindMatchingOrder.mockResolvedValue(null);
+    mockFinalizeExtraction.mockResolvedValue(EXTRACT_RESULT);
+  });
+
+  it("(1) finalizeExtraction is called with exactly 4 args, the 4th being effectiveRetailer", async () => {
+    mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockFinalizeExtraction).toHaveBeenCalledTimes(1);
+    const call = mockFinalizeExtraction.mock.calls[0];
+    expect(call).toHaveLength(4);
+    expect(call[3]).toBe(PARSED_IDENTITY.retailer);
+  });
+
+  it("(2) parsed.retailer null + fallback-eligible sender -- effectiveRetailer is the fallback-resolved value at BOTH the findMatchingOrder pre-check and the finalizeExtraction call", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "noreply@zara.com", fromName: "Zara" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "shipping_confirmation" });
+
+    await runExtraction(BASE_ROW.id);
+
+    // Pre-check read point.
+    expect(mockFindMatchingOrder).toHaveBeenCalledWith(BASE_ROW.userId, "Zara", PARSED_IDENTITY.orderNumber);
+    // finalizeExtraction gate read point.
+    const call = mockFinalizeExtraction.mock.calls[0];
+    expect(call[3]).toBe("Zara");
+    // parsed.retailer (1st arg) stays null -- see test (5) below for the
+    // dedicated assertion; checked here too since it's the same call.
+    expect(call[0].retailer).toBeNull();
+  });
+
+  it("(3) parsed.retailer non-null -- effectiveRetailer equals parsed.retailer, fallback not preferred even when the sender would resolve to a different retailer", async () => {
+    // fromEmail/fromName here would resolve to "Zara" via sender-fallback
+    // if the fallback were consulted -- it must not be, since
+    // parsed.retailer ("Acme") is already non-null.
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "noreply@zara.com", fromName: "Zara" });
+    mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY); // retailer: "Acme"
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockFindMatchingOrder).toHaveBeenCalledWith(BASE_ROW.userId, "Acme", PARSED_IDENTITY.orderNumber);
+    const call = mockFinalizeExtraction.mock.calls[0];
+    expect(call[3]).toBe("Acme");
+  });
+
+  it("(5) parsed.retailer is never mutated, even when effectiveRetailer differs from it", async () => {
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "noreply@zara.com", fromName: "Zara" });
+    mockExtractEmailIdentity.mockResolvedValue({ ...PARSED_IDENTITY, retailer: null, emailType: "shipping_confirmation" });
+    mockFinalizeExtraction.mockResolvedValue({ ...EXTRACT_RESULT, retailer: null, emailType: "shipping_confirmation" });
+
+    await runExtraction(BASE_ROW.id);
+
+    const call = mockFinalizeExtraction.mock.calls[0];
+    // effectiveRetailer (4th arg) resolved via fallback...
+    expect(call[3]).toBe("Zara");
+    // ...but parsed.retailer (1st arg, the object finalizeExtraction
+    // receives and later spreads into its return value) is untouched.
+    expect(call[0].retailer).toBeNull();
+    // And the write downstream still correctly labels this
+    // sender_fallback, not body_extraction -- proving the mutation
+    // didn't happen anywhere in the pipeline, not just at this one call.
+    expect(mockEmailUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retailer: "Zara", retailerSource: "sender_fallback" }) }),
     );
   });
 });

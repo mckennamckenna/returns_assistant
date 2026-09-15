@@ -39,6 +39,28 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
 
     const parsed = await extractEmailIdentity(body, email.subject ?? null, emailId, alternateBody);
 
+    // Sender-derived retailer fallback (ZARA_RETAILER_FALLBACK, 2026-08-25,
+    // Decision 1/2/3 — see lib/retailerFallback.ts and
+    // ZARA_DIAGNOSTIC_FINDINGS_20260825.md / ZARA_DIAGNOSTIC_FINDINGS_
+    // BACKFILL_RADIUS_20260825.md) — computed here, BEFORE the policy-
+    // lookup gate below, instead of after finalizeExtraction returns.
+    // TASKS.md 2026-09-11/13 fix session: the previous ordering computed
+    // this fallback only after finalizeExtraction had already run, so a
+    // body-extraction null silently skipped the billed lookup gate (and
+    // the Amazon/food-grocery short-circuits) even on emails where this
+    // fallback would go on to resolve a real retailer moments later.
+    // Deliberately does NOT mutate parsed.retailer — retailerSource
+    // below still needs to distinguish "body extraction found it" from
+    // "sender fallback guessed it," which would be impossible to recover
+    // once parsed.retailer no longer reflected body-extraction-only.
+    // `fallback` is reused below at the write, instead of being
+    // recomputed a second time.
+    const fallback =
+      parsed.retailer == null && parsed.emailType != null && RETAILER_FALLBACK_GATE_EMAIL_TYPES.has(parsed.emailType)
+        ? resolveRetailerFallback(decrypt(email.fromEmail), email.fromName ? decrypt(email.fromName) : null)
+        : null;
+    const effectiveRetailer = parsed.retailer ?? fallback?.retailer ?? null;
+
     // Deterministic-match pre-check only (TASKS.md 2026-08-24) — finds
     // whether this email is about to link to an existing order that
     // already has a resolved return policy, so finalizeExtraction can skip
@@ -49,32 +71,34 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
     // reimplemented) — so the extra DB read only happens where it could
     // actually save a billed call. RX/prescription emails never reach
     // this function at all: isCommerceEmail (lib/classify.ts) discards
-    // them at ingestion, before any Email row exists.
+    // them at ingestion, before any Email row exists. Uses
+    // effectiveRetailer (not parsed.retailer) so a sender-fallback-
+    // resolved retailer benefits from the existing-order skip too — see
+    // TASKS.md 2026-09-11/13 fix session, Gate 1 consumer #5.
     let existingOrder: ExistingOrderContext | null = null;
     const mayTriggerPolicyLookup =
       parsed.returnWindowDays == null &&
-      !(isAmazonOrder(parsed.retailer) && parsed.emailType !== "other") &&
-      !isFoodGroceryRetailer(parsed.retailer);
+      !(isAmazonOrder(effectiveRetailer) && parsed.emailType !== "other") &&
+      !isFoodGroceryRetailer(effectiveRetailer);
 
-    if (mayTriggerPolicyLookup && parsed.retailer && parsed.orderNumber) {
-      const match = await findMatchingOrder(email.userId, parsed.retailer, parsed.orderNumber);
+    if (mayTriggerPolicyLookup && effectiveRetailer && parsed.orderNumber) {
+      const match = await findMatchingOrder(email.userId, effectiveRetailer, parsed.orderNumber);
       if (match) {
         existingOrder = { returnWindowDays: match.order.returnWindowDays };
       }
     }
 
-    const result = await finalizeExtraction(parsed, emailId, existingOrder);
+    const result = await finalizeExtraction(parsed, emailId, existingOrder, effectiveRetailer);
 
-    // Sender-derived retailer fallback (ZARA_RETAILER_FALLBACK, 2026-08-25,
-    // Decision 1/2/3 — see lib/retailerFallback.ts and
-    // ZARA_DIAGNOSTIC_FINDINGS_20260825.md / ZARA_DIAGNOSTIC_FINDINGS_
-    // BACKFILL_RADIUS_20260825.md). Body extraction always "ran" by this
-    // point in this function — extractedAt is set on the same write below —
-    // so Decision 2 condition (i) is satisfied by construction here; only
-    // (ii) the emailType gate and (iii) whether the fallback resolves
-    // anything still need checking. buildPrompt() (lib/extract.ts:207)
-    // still never reads the From header for the body-extraction pass
-    // itself — this only fires AFTER that pass has already returned null.
+    // Sender-derived retailer fallback WRITE. Reuses `fallback` computed
+    // above rather than re-deriving it — the gating condition below
+    // (`result.retailer == null && fallback`) is equivalent to the
+    // original `result.retailer == null && result.emailType != null &&
+    // RETAILER_FALLBACK_GATE_EMAIL_TYPES.has(result.emailType)`, because
+    // `fallback` was computed from that same emailType gate against
+    // parsed.emailType, and finalizeExtraction never reassigns
+    // parsed.emailType or parsed.retailer — result.retailer ===
+    // parsed.retailer and result.emailType === parsed.emailType always.
     //
     // Table 3 reconciliation (see commit 5fbc968's preview): the design's
     // "Zara rows flip from degrade branch to retailer-populated branch"
@@ -95,10 +119,7 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
       result.retailer != null ? "body_extraction" : null;
     let finalCarrier: string | null = null;
 
-    if (result.retailer == null && result.emailType != null && RETAILER_FALLBACK_GATE_EMAIL_TYPES.has(result.emailType)) {
-      const decryptedFromEmail = decrypt(email.fromEmail);
-      const decryptedFromName = email.fromName ? decrypt(email.fromName) : null;
-      const fallback = resolveRetailerFallback(decryptedFromEmail, decryptedFromName);
+    if (result.retailer == null && fallback) {
       finalRetailer = fallback.retailer;
       retailerSource = fallback.retailerSource;
       finalCarrier = fallback.carrier;
