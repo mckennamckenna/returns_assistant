@@ -161,7 +161,7 @@ export default async function OrderDetail({
   // Consolidated into one note below, rather than repeating "(estimated)" on
   // each field separately — see TRUST_AUDIT.md item 3.
   const deliveryIsEstimated = !order.deliveredAt && (order.estimatedDeliveryDate != null || order.deliveryDate != null);
-  const deadlineIsEstimated = order.returnDeadline != null && order.policySource !== "stated_in_email";
+  const deadlineIsEstimated = order.returnDeadline != null && order.policySource !== "stated_in_email" && order.policySource !== "manual_override";
   const hasEstimatedField = order.orderDateEstimated || deliveryIsEstimated || deadlineIsEstimated;
 
   return (
