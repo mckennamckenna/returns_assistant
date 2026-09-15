@@ -3496,6 +3496,22 @@
       all (lookupReturnPolicy returned "unclear" and stored no policy),
       the email might have been of a type the gate excludes for other
       reasons, or something we haven't seen yet.
+      **Owner-recognized shapes worth capturing while fresh (2026-09-14):**
+      Ancient Greek Sandals #84963's order chain historically started with
+      a DHL shipping email rather than a brand order_confirmation — carrier-
+      first orders are a known edge case where the retailer identity has
+      to come from somewhere other than the first email. ACE VISALIA RSC
+      #001352978 has been "squirrelly" (owner language) around non-standard
+      shipping too — not one of these 8 (it's currently archived, so it was
+      skipped by the Gate 4 dry run rather than landing in this excluded
+      list), but flagged here in case the same carrier-first pattern shows
+      up again on an active order: worth checking for it specifically if
+      so. At least two of the 8 may turn out to be working-as-designed on
+      unusual order shapes rather than bugs. The future diagnostic should
+      sort each of the 8 into bug/not-bug before chasing root cause — the
+      framing isn't "why is returnPolicy null on these 8" but "which of
+      these 8 SHOULD have a returnPolicy and don't, vs. which correctly
+      reflect that there isn't one."
       **Explicitly not scoped as a fix or diagnostic tonight** —
       surfaced by tonight's backfill, deferred for its own session.
 
