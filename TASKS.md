@@ -153,6 +153,49 @@
       **Fixability assessment 2026-09-11 (not started):** small and
       scoped, but has two pre-flight checks (a/b above) that must
       pass before the swap ships. Not a one-line silent change.
+      **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-14 (`a24050b`),
+      BACKFILL RUN 2026-09-15, LIVE VERIFICATION PENDING] Session
+      close-out, 5-gate fix session 2026-09-14/15.** Code fix: the
+      `effectiveRetailer` approach from the Gate 1 update above,
+      exactly as scoped — `parsed.retailer` untouched, `retailerSource`
+      labeling unchanged, `isAmazonOrder`/`isFoodGroceryRetailer`/the
+      `lookupReturnPolicy` gate/`computeNeedsReview` all reading the
+      new value. 9 pre-existing `runExtraction.test.ts` failures were
+      the expected shape-of-the-fix fallout (old tests pinned to the
+      pre-fix arg count and read-point), fixed same-session along with
+      2 tests found to be vacuously passing pre-fix (rewritten to
+      actually exercise what their names claimed) and 4 new tests
+      added for the `effectiveRetailer` mechanism itself — 836/836
+      full suite green. Deployed and confirmed live via build-log
+      commit match (`a24050b`) before the backfill ran, per the
+      session's explicit gate.
+      **Backfill:** `scripts/backfill-runextraction-ordering-fix-
+      20260911.ts`, dry run then owner-approved `--apply`. Re-verified
+      Friday's 15-order census against production first — found it had
+      shifted to 19 (8 of Friday's original set archived by the owner
+      since, 8 more matching the generic query but NOT this bug's
+      signature, tracked separately in 🟡 Next). Only 3 orders were
+      both still-active and bug-matching: 2 Bloomingdale's + Zara
+      #54858811380 (the original diagnosed order). Applied 3/3, 0
+      failed, 0 skipped-at-write-time, 6 billed calls (predicted
+      exactly, ceiling was 7). One of the three (Bloomingdale's
+      #781160797) came back an inconclusive web lookup and stayed
+      unresolved — a real "no answer," not a script defect. Zara and
+      the other Bloomingdale's order (#781187611) spot-checked
+      end-to-end post-run: both now have `returnWindowDays`,
+      `returnDeadline`, and `needsReview: false`. Bloomingdale's
+      #781187611's resolved window (3 days from delivery) had already
+      elapsed by resolution time, so that order now reads `status:
+      expired` — correctly computed, flagged for owner awareness, not
+      chased further.
+      **Session total: 6 billed Anthropic calls** (3 orders ×
+      1 `extractEmailIdentity` + 1 `lookupReturnPolicy` each). Zero
+      billed calls anywhere else in the 5-gate session (Gates 1, 2, 3,
+      and the Gate 4 dry run were all code-reading/DB-reading only).
+      **Awaiting owner verification in production** — dashboard/detail-
+      page check on Zara #54858811380 and the 2 Bloomingdale's orders,
+      per header rule (no ✅ until hand-verified, not just tests/spot-
+      checks passing).
 
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
