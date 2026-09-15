@@ -3451,6 +3451,39 @@
 
 ## 🟡 Next
 
+- [ ] **Start-return: used-token click should still offer retailer
+      redirect (not just dead-end). NEW 2026-09-15, follow-up to the
+      disabled-button fix (PR #1, merged and verified in prod same
+      day).**
+      **Severity:** Low — real UX gap but low frequency; doesn't block
+      anyone from returning, just annoys them if they bail mid-flow.
+      **Symptom:** After a user successfully clicks Start return once
+      (redirects to retailer, `ActionLog` row written, `TokenRedemption`
+      committed), a second click on the same email CTA hits the
+      `already_used` outcome and the intermediate page dead-ends. But a
+      user who bailed out mid-flow — closed the tab, phone died, got
+      distracted, came back later — has no way to get back to the
+      retailer through the app.
+      **Preferred direction (not committed):** Option 3 — on used-token
+      detection, the intermediate page still offers the retailer URL as
+      a "continue to retailer" affordance, without a new
+      `return_requested` transition and without re-redeeming the token.
+      Idempotency at the state layer stays intact; only the UI gets more
+      forgiving.
+      **Not yet investigated:**
+      - What downstream side effects fire on `return_requested` (emails,
+        analytics, jobs) — needed before finalizing what a "resume" path
+        should and shouldn't re-trigger.
+      - Whether a new ActionLog outcome (`return_resumed` or similar) is
+        a clean addition or breaks assumptions elsewhere.
+      - What the intermediate page currently renders when it detects a
+        used token — is there a distinct render path or does it just
+        error.
+      **Priority relative to other open items:** below recipient outreach
+      on the ~16 affected emails, below the disabled-during-submit audit
+      on other forms, and below the reminder-table observability gap.
+      Bump if a real user complains.
+
 - [ ] **PolicyLine source label for manual_override — no label
       currently renders. NEW 2026-09-14, follows from tonight's
       lookupReturnPolicy investigation and Caroline's Bloomingdale's
