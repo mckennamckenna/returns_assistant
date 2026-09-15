@@ -6023,10 +6023,15 @@
       Bloomingdale's order came back an inconclusive lookup and stayed
       unresolved (a real "no answer," not a defect). Full gate-by-gate
       detail → HISTORY.md 2026-09-14/15.
-      **Not separately hand-verified by the owner:** the Bloomingdale's
-      #781187611 order (spot-checked by Claude Code only) and
-      Bloomingdale's #781160797 (still unresolved — see 🟡 Next if it
-      needs its own follow-up).
+      **Owner-verified 2026-09-15:** both Bloomingdale's orders came
+      back with the WRONG return policy (#781187611's 3-day window and
+      #781160797's inconclusive result are both wrong, not just
+      unresolved) — this fix correctly re-triggered the lookup for
+      both, but the lookup itself returned bad data. Different bug,
+      not this one's claim (this entry is about the ordering seam that
+      was silently skipping the lookup, not about lookup accuracy).
+      Owner is tracking the Bloomingdale's return-policy-accuracy
+      follow-up separately, outside this board.
 
 - [x] **Diagnostic: Zara #54858811380 return-policy / estimated-dates
       / Needs Review anomaly + any-order census. Report received
