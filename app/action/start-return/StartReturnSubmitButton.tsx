@@ -23,7 +23,6 @@ export function StartReturnSubmitButton({ orderNumber, retailer }: { orderNumber
     <button
       type="submit"
       onClick={handleClick}
-      disabled={pending}
       className="w-full rounded-lg bg-ink text-page py-2.5 text-sm font-medium hover:bg-ink/90"
     >
       {pending ? "…" : `Continue to ${retailer} →`}
