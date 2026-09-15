@@ -32,171 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Fix: runExtraction ordering — sender-fallback retailer must
-      resolve BEFORE the lookupReturnPolicy gate check. NEW
-      2026-09-11, promoted from tonight's Zara diagnostic (see
-      ✅ Done). Includes retroactive backfill of 15 census orders.**
-      `runExtraction.ts:66` gates the billed `lookupReturnPolicy()`
-      call on `parsed.retailer` being truthy; `runExtraction.ts:
-      98-105` runs the sender-fallback (2026-08-25 fix) that would
-      resolve `retailer` from `fromName`/`fromEmail`. Order is
-      wrong: the lookup gate sees the pre-fallback null and skips,
-      so `returnWindowDays` never populates, so `computeDeadline()`
-      returns null on its first check, so `returnDeadline` stays
-      null, so `needsReview` fires (`linkOrder.ts:269`). Affects
-      any email where AI body extraction returns retailer:null but
-      sender-fallback would resolve it — Zara ships to this
-      population by design (see HTML parsing gap notes in the
-      2026-08-25 Done entry).
-      **Scope (code fix):** swap ordering in `runExtraction.ts` so
-      sender-fallback runs before the `lookupReturnPolicy` gate.
-      Mechanical. Schema diff N/A (no schema changes).
-      **Pre-flight checks BEFORE the swap ships (both required):**
-      (a) Grep for downstream consumers of `parsed.retailer` between
-      current gate line (66) and current fallback lines (98-105).
-      Any code that depends on `retailer` reflecting body-extraction-
-      only at that point would silently change behavior — needs to
-      be identified and reasoned through before swap.
-      (b) Cost estimate: `lookupReturnPolicy` is a billed call. This
-      fix widens the population that triggers it — 15 known current
-      orders + unknown steady-state going forward. Size the expected
-      billed-call impact against recent monthly lookup volume before
-      shipping, per header cost discipline.
-      **Scope (backfill):** the 15 census orders identified in
-      tonight's Trace 5 will not self-heal from the code fix — they
-      need targeted re-extract to populate `returnPolicy` /
-      `returnDeadline` from the newly-firing lookup. Scoped
-      alongside the code fix, same session, not deferred (avoids
-      the "code fix without backfill leaves visible symptom on
-      existing users" gap this project has hit before). Backfill
-      script must:
-      - Enumerate exactly those 15 orders (list captured in
-        tonight's diagnostic run, re-verify against production
-        before triggering).
-      - State billed-call estimate BEFORE running (15
-        lookupReturnPolicy calls minimum, more if the re-extract
-        chain fires additional calls — Claude Code to size).
-      - Read-verify gate: dry-run first, show which 15 rows will
-        change and how, then owner approves before real run.
-      **Explicitly out of scope:**
-      - Any change to lookupReturnPolicy itself, the sender-fallback
-        logic, or `computeDeadline`.
-      - Any change to how `needsReview` is derived (`linkOrder.ts:
-        269` fires correctly given null returnDeadline — the fix
-        is upstream of that, not at it).
-      - The 89% estimated-dates banner question (separate ⚪ Someday
-        entry — product decision, not a bug).
-      - The page.tsx:369 stray toLocaleDateString (separate Known
-        Issues note — not part of this fix).
-      - The Shutterfly runExtraction hardening (separate 🟡 Next
-        entry).
-      - Broader audit of other gate/fallback ordering seams
-        elsewhere in `runExtraction` — could be a good idea, but
-        would widen tonight's scope; note as a candidate follow-up
-        instead.
-      **UPDATE 2026-09-11 evening, after Gate 1 downstream-consumer grep
-      in the fix session:** the original scope above ("swap ordering at
-      line 66 and 98-105, mechanical") was incomplete on three counts,
-      corrected here rather than overwritten so the reasoning survives:
-      (i) The lookup gate we care about spans BOTH `runExtraction.ts:66`
-      (the `lookupReturnPolicy` gate itself) AND `runExtraction.ts:59-64`
-      (the `findMatchingOrder` pre-check that populates `existingOrder`
-      for the 2026-08-24 widened-skip). Both check retailer nullness;
-      both must see the same value or the fix is half-done. Not a
-      line-swap — an extract-and-reuse.
-      (ii) The fix must NOT mutate `parsed.retailer` to the fallback-
-      resolved value before `finalizeExtraction()` returns. Doing so
-      would silently mislabel `retailerSource` as "body_extraction"
-      when the value actually came from sender fallback, violating
-      the `retailerFallback.ts:78` invariant that `retailerSource`
-      describes WHY retailer has its current value. The whole point
-      of that invariant is trustworthy debugging fields — tonight's
-      diagnostic sessions relied on exactly this kind of provenance
-      to trace root causes cleanly. Corrupting it to save one line
-      of code is not a trade worth making. **Fix approach: compute
-      an `effectiveRetailer` local variable used only for gate
-      decisions, leave `parsed.retailer` untouched, let the existing
-      `retailerSource` labeling at lines 93-105 run unchanged.**
-      (iii) Same `effectiveRetailer` variable feeds two other gates
-      in the same block: `isAmazonOrder()` at `extract.ts:740` and
-      `isFoodGroceryRetailer()` at `extract.ts:750`. Under the fix,
-      orders whose retailer resolves to Amazon or a grocery only via
-      sender-fallback would newly route to those specialized branches
-      instead of the general path. Directionally correct — behavior
-      catching up to reality, not new logic — and IN SCOPE for this
-      fix per owner call 2026-09-11 evening.
-      **Also worth noting from Gate 1:** consumer #2 (the Email-row-
-      level `needsReview` at `extract.ts:804-814`, distinct from the
-      Order-level `needsReview` at `linkOrder.ts:269` that tonight's
-      diagnostic traced) will also change behavior under the fix —
-      the clause forcing `Email.needsReview = true` when
-      `params.retailer == null` will stop firing for orders that now
-      resolve retailer via fallback. Different table, different field,
-      not diagnosed tonight, but the change is directionally correct
-      (an email whose retailer we DO know via fallback shouldn't be
-      flagged review-needed for a nullness that no longer applies).
-      IN SCOPE for this fix by extension of the same reasoning.
-      **Scope-description consequence:** the "Scope (code fix)" bullet
-      above understates what the fix touches. Corrected description:
-      extract sender-fallback resolution to compute `effectiveRetailer`
-      before the block starting at `runExtraction.ts:59`, feed it to
-      the `findMatchingOrder` pre-check (line 59-64), the
-      `lookupReturnPolicy` gate (line 66), the Amazon check
-      (`extract.ts:740`), and the grocery check (`extract.ts:750`).
-      Leave `parsed.retailer` untouched. `retailerSource` labeling at
-      lines 93-105 runs unchanged, still correctly distinguishing
-      body-extraction from sender-fallback provenance.
-      **Pre-flight checks (a) and (b) still gate the swap.** Check (a)
-      is now complete (this update IS its output). Check (b) — cost
-      estimate on widened lookup population — still owed at Gate 2
-      before code changes ship.
-      **Fixability assessment 2026-09-11 (not started):** small and
-      scoped, but has two pre-flight checks (a/b above) that must
-      pass before the swap ships. Not a one-line silent change.
-      **[CODE BUILT + TESTED + PUSHED + DEPLOYED 2026-09-14 (`a24050b`),
-      BACKFILL RUN 2026-09-15, LIVE VERIFICATION PENDING] Session
-      close-out, 5-gate fix session 2026-09-14/15.** Code fix: the
-      `effectiveRetailer` approach from the Gate 1 update above,
-      exactly as scoped — `parsed.retailer` untouched, `retailerSource`
-      labeling unchanged, `isAmazonOrder`/`isFoodGroceryRetailer`/the
-      `lookupReturnPolicy` gate/`computeNeedsReview` all reading the
-      new value. 9 pre-existing `runExtraction.test.ts` failures were
-      the expected shape-of-the-fix fallout (old tests pinned to the
-      pre-fix arg count and read-point), fixed same-session along with
-      2 tests found to be vacuously passing pre-fix (rewritten to
-      actually exercise what their names claimed) and 4 new tests
-      added for the `effectiveRetailer` mechanism itself — 836/836
-      full suite green. Deployed and confirmed live via build-log
-      commit match (`a24050b`) before the backfill ran, per the
-      session's explicit gate.
-      **Backfill:** `scripts/backfill-runextraction-ordering-fix-
-      20260911.ts`, dry run then owner-approved `--apply`. Re-verified
-      Friday's 15-order census against production first — found it had
-      shifted to 19 (8 of Friday's original set archived by the owner
-      since, 8 more matching the generic query but NOT this bug's
-      signature, tracked separately in 🟡 Next). Only 3 orders were
-      both still-active and bug-matching: 2 Bloomingdale's + Zara
-      #54858811380 (the original diagnosed order). Applied 3/3, 0
-      failed, 0 skipped-at-write-time, 6 billed calls (predicted
-      exactly, ceiling was 7). One of the three (Bloomingdale's
-      #781160797) came back an inconclusive web lookup and stayed
-      unresolved — a real "no answer," not a script defect. Zara and
-      the other Bloomingdale's order (#781187611) spot-checked
-      end-to-end post-run: both now have `returnWindowDays`,
-      `returnDeadline`, and `needsReview: false`. Bloomingdale's
-      #781187611's resolved window (3 days from delivery) had already
-      elapsed by resolution time, so that order now reads `status:
-      expired` — correctly computed, flagged for owner awareness, not
-      chased further.
-      **Session total: 6 billed Anthropic calls** (3 orders ×
-      1 `extractEmailIdentity` + 1 `lookupReturnPolicy` each). Zero
-      billed calls anywhere else in the 5-gate session (Gates 1, 2, 3,
-      and the Gate 4 dry run were all code-reading/DB-reading only).
-      **Awaiting owner verification in production** — dashboard/detail-
-      page check on Zara #54858811380 and the 2 Bloomingdale's orders,
-      per header rule (no ✅ until hand-verified, not just tests/spot-
-      checks passing).
-
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
       (`receivedAt`), no modify-time signal — blocked diagnosis of a
@@ -6165,6 +6000,33 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Fix: runExtraction ordering — sender-fallback retailer now
+      resolves before the lookupReturnPolicy gate check. Deployed
+      `a24050b` 2026-09-14, backfill run 2026-09-15, owner-verified
+      2026-09-15 on Zara #54858811380 (the original diagnosed order).**
+      5-gate fix session promoted from the Zara diagnostic (below).
+      Code fix: `effectiveRetailer`, computed once in
+      `runExtraction.ts` and fed to the `findMatchingOrder` pre-check,
+      the `lookupReturnPolicy` gate, `isAmazonOrder`/
+      `isFoodGroceryRetailer`, and `computeNeedsReview` —
+      `parsed.retailer` itself untouched so `retailerSource` labeling
+      keeps distinguishing body-extraction from sender-fallback
+      provenance. Full suite green (836/836) after fixing 9 tests that
+      were pinned to the old ordering's shape and rewriting 2 that had
+      gone vacuous, plus 4 new tests for the mechanism itself.
+      Backfill (`scripts/backfill-runextraction-ordering-fix-
+      20260911.ts`) re-verified the population against production
+      before touching anything — found only 3 of the original 15
+      census orders were both still-active and actually caused by this
+      bug (2 Bloomingdale's + Zara); applied 3/3, 6 billed calls, one
+      Bloomingdale's order came back an inconclusive lookup and stayed
+      unresolved (a real "no answer," not a defect). Full gate-by-gate
+      detail → HISTORY.md 2026-09-14/15.
+      **Not separately hand-verified by the owner:** the Bloomingdale's
+      #781187611 order (spot-checked by Claude Code only) and
+      Bloomingdale's #781160797 (still unresolved — see 🟡 Next if it
+      needs its own follow-up).
 
 - [x] **Diagnostic: Zara #54858811380 return-policy / estimated-dates
       / Needs Review anomaly + any-order census. Report received
