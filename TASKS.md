@@ -6148,7 +6148,9 @@
       not this one's claim (this entry is about the ordering seam that
       was silently skipping the lookup, not about lookup accuracy).
       Owner is tracking the Bloomingdale's return-policy-accuracy
-      follow-up separately, outside this board.
+      follow-up — resolved same day, see ✅ Done "Manual overrides on
+      Caroline's Bloomingdale's orders" below and HISTORY.md
+      2026-09-14.
 
 - [x] **Diagnostic: Zara #54858811380 return-policy / estimated-dates
       / Needs Review anomaly + any-order census. Report received

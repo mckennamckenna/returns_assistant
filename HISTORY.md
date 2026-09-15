@@ -307,7 +307,11 @@ back with is WRONG on both (#781187611's 3-day window and
 unresolved). This fix's claim holds — it correctly re-triggered the
 lookup for both orders, closing the ordering seam — but the lookup
 itself returned bad data, a separate, undiagnosed bug. Owner is
-tracking that follow-up outside this board.
+tracking that follow-up outside this board. **Diagnosed and resolved
+2026-09-14 — see the lookupReturnPolicy() shortest-wins investigation
+entry immediately above:** root cause was the shortest-wins rule in
+`buildPolicyLookupPrompt`, both orders manually corrected to 30 days,
+owner-verified live.
 
 ## 2026-09-11 — Zara #54858811380 return-policy / estimated-dates / Needs Review diagnostic
 
