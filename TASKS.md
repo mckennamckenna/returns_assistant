@@ -3472,6 +3472,33 @@
 
 ## 🟡 Next
 
+- [ ] **8 Orders with null returnPolicy from a different root cause than
+      the 2026-09-11/14 runExtraction ordering fix. NEW 2026-09-14,
+      surfaced by Gate 4 dry-run of the ordering-fix backfill script.**
+      Backfill dry-run (scripts/backfill-runextraction-ordering-fix-
+      20260911.ts) checked all 19 orders currently matching
+      "retailer/orderNumber present, returnDeadline/returnWindowDays
+      both null." 8 still-active orders came back with NO linked email
+      having retailerSource: "sender_fallback" — meaning the ordering
+      fix (which addresses the gate/fallback seam for sender-fallback-
+      resolved retailers) will not help them. Their null returnPolicy
+      has a different, unknown root cause. List captured in the Gate 4
+      report (see HISTORY.md 2026-09-14): VPL Bike #3267, row works
+      clothing #12526, Rowing Pad #7179, nmjlmajong (promo order),
+      Nordstrom #920, Nordstrom #261, Etsy #4174171266, Ancient Greek
+      Sandals #84963. Four of these are new since Friday's census.
+      **Not urgent — no user complaint attached, and the population is
+      small and slow-growing (4 new in 3 days is likely noise, but
+      worth watching if it accelerates).** Candidate diagnostic session
+      later: what shape of email/order produces null returnPolicy
+      without hitting the sender-fallback path? Multiple possible root
+      causes — the retailer name might not have a resolvable policy at
+      all (lookupReturnPolicy returned "unclear" and stored no policy),
+      the email might have been of a type the gate excludes for other
+      reasons, or something we haven't seen yet.
+      **Explicitly not scoped as a fix or diagnostic tonight** —
+      surfaced by tonight's backfill, deferred for its own session.
+
 - [ ] **Apply-approvals cron heartbeat log.** The daily apply-url-reviews
       cron currently emits no output when zero rows are actionable, which
       is the normal case until owner starts approving. Result: no positive
