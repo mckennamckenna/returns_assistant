@@ -5,6 +5,97 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-14 — lookupReturnPolicy() shortest-wins investigation + Caroline's Bloomingdale's manual-override plan
+
+**Trigger.** Surfaced by the same day's `a24050b` effectiveRetailer
+backfill: Bloomingdale's order #781187611 (Caroline's account) came
+back `returnWindowDays=3`, `policySource=web_lookup`. The extraction
+notes revealed the mechanism — the AI correctly found Bloomingdale's
+full tiered policy, including a labeled 30-day standard window, and
+deliberately picked the shortest (3 days, furniture-specific) per the
+prompt's explicit shortest-wins instruction. The order had
+`lineItems=[]`, so there was no basis to apply the furniture-specific
+window to it in the first place.
+
+**Diagnostic scope.** Read-only, zero billed AI calls, four questions
+before any rule change:
+
+- **Q1 — where shortest-wins lives.** Explicit AI prompt instruction,
+  `buildPolicyLookupPrompt` (`lib/extract.ts:232`) — not post-AI
+  parsing code, not emergent model behavior. Fix surface is the prompt
+  (and/or downstream logic), not a bug in existing code.
+- **Q2 — scale.** 381 total `policySource='web_lookup'` rows,
+  systemwide. 210 (55.1%) verbalize shortest-wins firing in notes; 130
+  (34.1%) have empty `lineItems`; 45 (11.8%) have
+  `returnWindowDays<=7`. Top retailers hitting shortest-wins: Amazon
+  (83), Target (21), Shopbop (14), Bloomingdale's (14). Census script:
+  `scripts/census-shortest-wins-20260914.ts`.
+- **Q3 — label integrity.** The 2026-07-23 claim still holds post-
+  `a24050b`: `Email.policySource='web_lookup'` has exactly one write
+  site (`lib/extract.ts:786`, the lookup's success branch only);
+  `Order.policySource` only inherits it through `mapPolicySource`'s
+  pass-through (`lib/linkOrder.ts:107`). The 09-14 effectiveRetailer
+  fix changed which retailer reaches the lookup gate, not the write
+  path — so more rows may now correctly reach `web_lookup` that were
+  previously silently skipped, but the label's meaning is unchanged.
+- **Q4 — standard-not-labeled spec options.** Three drafted, no
+  recommendation made: (a) pick the longest window (symmetric inverse
+  of today's rule), (b) route to Needs Review, (c) rule-based tie-break
+  off keyword-matching "standard" in notes. Not decided this session.
+
+**Owner decision.** Keep the shortest-wins rule as-is — it catches
+real cases (Shopbop's 14-day fee boundary, similar terms-degradation
+patterns) and Q4 wasn't resolved to a replacement rule. Do not
+backfill the 210 shortest-wins rows as a class. Manually correct only
+Caroline's Bloomingdale's orders now, since they're visibly wrong on
+her dashboard today.
+
+**Actions taken.**
+  1. Manually corrected Caroline's Bloomingdale's orders — same
+     session, done. Enumeration found 2 Bloomingdale's orders
+     visible on her dashboard (`activeOrderFilter`), not the
+     "several" assumed going in: #781187611 (was
+     returnWindowDays=3, policySource=web_lookup — the original
+     wrong-value case) and #781160797 (was returnWindowDays=null,
+     policySource=null — same shortest-wins pick fired but was
+     rejected by the confidence gate, so it was incomplete rather
+     than wrong). Both corrected to returnWindowDays=30,
+     returnWindowStartsFrom='delivery_date', anchored on confirmed
+     `deliveredAt` (never fabricated, never fell back to
+     orderDate), policySource='manual_override'. `manual_override`
+     needed no migration (`policySource` is a plain `String?`
+     column, not a DB enum) — just a schema-comment update.
+     Pre-write bucket audit (grepped every `policySource`
+     comparison/switch in the codebase) caught one real UI bug the
+     new value would have fallen into: `app/(app)/orders/[id]/
+     page.tsx:164`'s `deadlineIsEstimated` treated anything but
+     `stated_in_email` as an estimate, so a deliberately
+     hand-corrected deadline would have rendered "(estimated)".
+     Fixed (one-line allowlist addition), build-verified, committed
+     `8aa153a`, pushed, deployed, owner-verified live 2026-09-14.
+     Two lower-severity findings from the same audit deferred to
+     🟡 Next rather than fixed inline: `PolicyLine`'s source-label
+     switch has no case for `manual_override` (loses attribution,
+     not misleading), and `lib/linkOrder.ts:857` can let a future
+     email's own stated return window overwrite a manual
+     correction (pre-existing risk, identical exposure for
+     `web_lookup` today, a product call before touching).
+  2. Added Watching entry: revisit the rule only if user
+     spot-check surfaces broad overfire, not on individual
+     reports. Alpha (4 users) — spot-check is sufficient
+     evidence-gathering for now. Retailer cache (planned) will
+     shift the landscape here regardless, so investing in
+     dedicated tracking infra ahead of the cache would be work
+     the cache eats.
+
+**Explicitly not done.** Backfill of the 210 shortest-wins rows
+across all users. Admin-DB tracking table for future
+shortest-wins fires (considered mid-session, cut — not worth
+building ahead of the retailer cache). Sparse-body extraction
+diagnostic (Bloomingdale's body returning retailer=null,
+lineItems=[] — real question, separate follow-up). Any change
+to the 09-14 effectiveRetailer path.
+
 ## 2026-09-14 — Zara #54858811380 return-deadline fix (runExtraction gate/fallback ordering) + 3-order backfill
 
 **Arc spans 2026-09-11 through 2026-09-14. Diagnostic session was

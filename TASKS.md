@@ -32,6 +32,55 @@
 
 ## 🔴 Now
 
+- [ ] **Investigation: lookupReturnPolicy() accuracy — shortest-wins
+      rule + label integrity. NEW 2026-09-14, surfaced by tonight's
+      a24050b backfill (Bloomingdale's #781187611 came back
+      returnWindowDays=3, notes field reveals AI picked shortest of
+      multiple detected windows including a labeled 30-day standard).**
+      Read-only, zero billed AI calls. Answers four questions before
+      any rule change lands:
+      (Q1) Where does shortest-wins live — AI prompt, post-AI parsing
+      code, or emergent AI behavior? Determines fix surface.
+      (Q2) Scale in production — count policySource='web_lookup' rows
+      where notes verbalize shortest-wins, where lineItems is empty,
+      and where returnWindowDays <= 7. Breakdown by retailer, sample
+      rows for owner spot-check.
+      (Q3) Does policySource='web_lookup' reliably mean the lookup
+      wrote the value, or can other paths mislabel? Re-verify the
+      2026-07-23 claim against current code (09-14 effectiveRetailer
+      fix touched this area).
+      (Q4) Spec options (not recommendation) for the standard-not-
+      labeled case in the follow-up rule change — three options with
+      tradeoffs, owner picks.
+      **Explicitly out of scope:** the rule change itself (follow-up
+      session, gated on Q1–Q4); sparse-body extraction (Bloomingdale's
+      body returning retailer=null, lineItems=[] — separate diagnostic);
+      backfilling existing wrong values (gated on rule change + Q2
+      numbers); any change to the 09-14 effectiveRetailer path; any
+      other Phase 1a/1b/1c cost/redundancy work; investigating other
+      implicit safety heuristics Q2 might surface (list and stop).
+      Deliverable: single report, Q1–Q4 in order. At close: commit/push
+      status, billed-call count (expected 0), "awaiting user verification"
+      — no ✅.
+      **Findings 2026-09-14 (report delivered in-session, awaiting owner
+      review — not a code change, nothing to verify live):** Q1 = prompt
+      instruction, explicit text at `lib/extract.ts:232`
+      (`buildPolicyLookupPrompt`), not post-AI code or emergent behavior.
+      Q2 = 381 `web_lookup` rows total; 210 (55.1%) verbalize shortest-wins
+      in notes; 130 (34.1%) have empty lineItems; 45 (11.8%) have
+      returnWindowDays<=7 — full retailer breakdown + samples in session
+      transcript, not yet written to a committed doc. Q3 = 07-23 claim
+      still holds post-a24050b: single write site
+      (`lib/extract.ts:786`, success branch only), `Order.policySource`
+      only inherits via `mapPolicySource` pass-through
+      (`lib/linkOrder.ts:107`); the 09-14 fix changed which retailer
+      reaches the gate, not the write logic. Q4 = three spec options
+      drafted (longest-window / needs-review-route / rule-based
+      tie-break), no recommendation made, owner to choose. Diagnostic
+      script `scripts/census-shortest-wins-20260914.ts` written and run,
+      **not yet committed** — left uncommitted pending owner review since
+      this session's instructions said "no commits expected."
+
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
       (`receivedAt`), no modify-time signal — blocked diagnosis of a
@@ -3350,6 +3399,47 @@
 
 ## 🟡 Next
 
+- [ ] **PolicyLine source label for manual_override — no label
+      currently renders. NEW 2026-09-14, follows from tonight's
+      lookupReturnPolicy investigation and Caroline's Bloomingdale's
+      manual corrections.**
+      `app/(app)/orders/[id]/page.tsx` lines 92–101, PolicyLine
+      source-label switch has cases for "stated in email" / "user
+      supplied" / "Amazon default…" but no case for
+      `manual_override`. Deadline renders correctly (now that line
+      164 treats it as non-estimated post-tonight), but with no
+      attribution string underneath. Not misleading, just loses
+      information about where the value came from.
+      **Scope:** decide label copy and add the case. Suggested
+      copy: "manually corrected" — short, honest, distinguishes
+      from other sources. Owner picks the final copy.
+      **Explicitly out of scope:** any other PolicyLine label
+      change, any refactor of the source-label switch, any
+      change to line 164's allowlist.
+
+- [ ] **linkOrder.ts:857 — email-stated returnWindowDays overwrites
+      existing values (including manual overrides). NEW 2026-09-14,
+      surfaced by tonight's lookupReturnPolicy investigation while
+      auditing manual_override's blast radius.**
+      `mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays`
+      — a future email for an order that itself states a return
+      window in its body will overwrite whatever's already stored,
+      including a manual correction. Pre-existing behavior, not
+      new tonight — applies identically to `web_lookup` values
+      today — but became concrete tonight when Caroline's two
+      Bloomingdale's orders got `manual_override` values that
+      could in principle be overwritten by a future Bloomingdale's
+      email stating its own window.
+      **Real question underneath:** does a retailer's own word in
+      a subsequent email beat a human correction, or does the
+      correction pin against future writes? Product call, not
+      just a code call. Not blocking anything at alpha scale
+      (4 users, 2 manual_override rows), but worth answering
+      before manual overrides become a broader pattern.
+      **Explicitly out of scope until picked up:** any change
+      to the merge logic itself; touching this before the
+      product decision would lock in an answer by accident.
+
 - [ ] **8 Orders with null returnPolicy from a different root cause than
       the 2026-09-11/14 runExtraction ordering fix. NEW 2026-09-14,
       surfaced by Gate 4 dry-run of the ordering-fix backfill script.**
@@ -5351,6 +5441,23 @@
       that guard (0 orders in `refund_pending` at query time, consistent
       with that item's own note).
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **lookupReturnPolicy() shortest-wins rule — overfires on
+      empty-lineItems + category-specific-window cases. First
+      surfaced 2026-09-14, Bloomingdale's #781187611
+      (returnWindowDays=3 chosen from furniture-category window
+      on an order with no line items; standard is 30). Rule
+      itself is deliberate and catches real cases (Shopbop
+      14-day fee boundary, other terms-degradation patterns) —
+      not changing it. Alpha spot-check by users is sufficient
+      evidence-gathering for now; retailer cache (planned) will
+      shift the landscape regardless. Revisit only if spot-check
+      surfaces broad overfire, not on individual reports.
+      Q2 census 2026-09-14: 210 of 381 web_lookup rows (55%)
+      shortest-wins fired; upper bound on affected, not on
+      wrong. Caroline's Bloomingdale's orders manually corrected
+      same session, not backfilled as a class. Full report →
+      HISTORY.md 2026-09-14 (lookupReturnPolicy investigation).**
+
 - [ ] **Multi-shipment orders — watching, 2026-09-04.** The current model
       assumes one order = one delivery date = one return window
       (`estimatedDeliveryDate` on `Order`, moved by shipping emails via
@@ -6000,6 +6107,16 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Manual overrides on Caroline's Bloomingdale's orders —
+      owner-verified live in production 2026-09-14.** Both
+      Bloomingdale's orders (#781187611, #781160797) corrected to
+      30 days from delivery, `policySource='manual_override'`.
+      Companion display fix (`app/(app)/orders/[id]/page.tsx:164`,
+      commit `8aa153a`, pushed + deployed) so the correction no
+      longer renders "(estimated)". Full report, findings, and the
+      two follow-ups it spawned (PolicyLine label gap, linkOrder.ts:857
+      merge risk) → 🟡 Next and HISTORY.md 2026-09-14.
 
 - [x] **Fix: runExtraction ordering — sender-fallback retailer now
       resolves before the lookupReturnPolicy gate check. Deployed
