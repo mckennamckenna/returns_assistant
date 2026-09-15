@@ -32,58 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Start-return CTA button dead-ends — "Continue to X →" button gets
-      stuck on "…" and never redirects to the retailer. NEW 2026-09-14,
-      surfaced by real Shopbop order #144038104 (owner-hit in production,
-      2 days from deadline).** Diagnosed via DB read (order
-      `cmtfzrc5y0003lb0417quupfg`): `returnPortalUrl` is already correct
-      (`https://www.shopbop.com/s/account`, from an APPROVED
-      ReturnUrlReview row) — the two hypotheses in the original report
-      (stale/null order-level URL, retailer-URL-didn't-backfill-to-order)
-      are both **disproved** for this order. Zero `ActionLog` and zero
-      `TokenRedemption` rows exist for this order at all — the POST to
-      `/api/action/start-return` never reached the server. So this isn't
-      a data-freshness bug, it's client-side: the click is registering
-      (pending state flips to show "…", matching the screenshot) but the
-      native form submit never completes.
-      Leading root-cause candidate: `StartReturnSubmitButton.tsx`
-      (`app/action/start-return/StartReturnSubmitButton.tsx:19,26`)
-      synchronously calls `setPending(true)` inside the same `onClick`
-      that's supposed to let the button's native `type="submit"` default
-      action fire — `disabled={pending}` then re-renders the button to
-      `disabled` while the browser is still processing that same click's
-      default action. Disabling a submit button mid-click like this is a
-      known footgun: some browsers cancel the pending form submission
-      when the target element becomes disabled before the default action
-      completes. That would produce exactly this symptom (frozen "…",
-      no navigation, nothing ever reaches the server) with no visible JS
-      error.
-      Checked: Archive/Returned one-tap email actions don't use this
-      client-side pending/disabled pattern (`StartReturnSubmitButton.tsx`
-      is the only component of its kind under `app/action/`), so this
-      looks isolated to start-return, not a shared footgun.
-      Git history: the button and its parent form are both 12 days old
-      (single commit `a2f6eb9`, 2026-09-02) — `disabled={pending}` was
-      present from the file's creation, never introduced later. 8-week
-      sent-vs-logged check: `ActionLog` has **zero** `start-return` rows
-      of any outcome (not just success) across the entire window,
-      including all ~16 deadline-reminder emails sent since the feature
-      launched — consistent with the button never having completed a
-      submit for anyone, since day one.
-      **Fix implemented, NOT yet owner-verified in production — do not
-      mark ✅ until hand-verified on a fresh test order.** Removed
-      `disabled={pending}` from the submit button (kept the "…" label
-      change as click feedback); no timing-dependent workaround. PR:
-      see branch `fix/start-return-submit-disabled`. Idempotency
-      confirmed unaffected: `TokenRedemption.tokenHash` is DB-uniquely
-      constrained and inserted first inside the transaction, so a
-      double-click's second POST hits a P2002 conflict, rolls back
-      cleanly, and logs `already_used` with no duplicate order mutation
-      or duplicate retailer redirect — verified in
-      `app/api/action/start-return/route.ts`, not just assumed.
-      Follow-up noted, not actioned: no other cleanup found worth doing
-      in this file while in there (scope was kept to the one line).
-
 - [ ] **Investigation: lookupReturnPolicy() accuracy — shortest-wins
       rule + label integrity. NEW 2026-09-14, surfaced by tonight's
       a24050b backfill (Bloomingdale's #781187611 came back
@@ -6192,6 +6140,42 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Fix: Start-return CTA button dead-ends — "Continue to X →" button got
+      stuck on "…" and never redirected to the retailer. Owner-verified live
+      in production 2026-09-15.** Surfaced 2026-09-14 by real Shopbop order
+      #144038104 (owner-hit in production, 2 days from deadline). Diagnosed
+      via DB read (order `cmtfzrc5y0003lb0417quupfg`): `returnPortalUrl` was
+      already correct (`https://www.shopbop.com/s/account`, from an APPROVED
+      ReturnUrlReview row) — the two hypotheses in the original report
+      (stale/null order-level URL, retailer-URL-didn't-backfill-to-order)
+      were both disproved for this order. Zero `ActionLog` and zero
+      `TokenRedemption` rows existed for this order at all — the POST to
+      `/api/action/start-return` never reached the server. Root cause:
+      `StartReturnSubmitButton.tsx` synchronously called `setPending(true)`
+      inside the same `onClick` that let the button's native
+      `type="submit"` default action fire — `disabled={pending}` then
+      re-rendered the button to `disabled` while the browser was still
+      processing that same click's default action, which some browsers
+      treat as cancelling the pending form submission.
+      Git history: the button and its parent form were both 12 days old
+      (single commit `a2f6eb9`, 2026-09-02) — `disabled={pending}` was
+      present from the file's creation, never introduced later. 8-week
+      sent-vs-logged check: `ActionLog` had **zero** `start-return` rows
+      of any outcome across the entire window, including all ~16
+      deadline-reminder emails sent since the feature launched —
+      consistent with the button never having completed a submit for
+      anyone, since day one.
+      Fix: removed `disabled={pending}` from the submit button (kept the
+      "…" label change as click feedback); no timing-dependent
+      workaround. Idempotency confirmed unaffected before shipping:
+      `TokenRedemption.tokenHash` is DB-uniquely constrained and inserted
+      first inside the transaction, so a double-click's second POST hits
+      a P2002 conflict, rolls back cleanly, and logs `already_used` with
+      no duplicate order mutation or duplicate retailer redirect.
+      PR #1 (`fix/start-return-submit-disabled`), merged and deployed
+      2026-09-15. Follow-up spawned → 🟡 Next: used-token clicks should
+      still offer a "continue to retailer" affordance instead of dead-ending.
 
 - [x] **Manual overrides on Caroline's Bloomingdale's orders —
       owner-verified live in production 2026-09-14.** Both
