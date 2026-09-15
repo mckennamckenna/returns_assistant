@@ -5,105 +5,218 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
-## 2026-09-14/15 — runExtraction ordering fix + backfill (5-gate session)
+## 2026-09-14 — Zara #54858811380 return-deadline fix (runExtraction gate/fallback ordering) + 3-order backfill
 
-Promoted from the 2026-09-11 Zara diagnostic (entry below). Fixes the root
-cause identified there: `runExtraction.ts`'s `lookupReturnPolicy` gate (and
-the `findMatchingOrder` pre-check that feeds the 2026-08-24 widened skip)
-read `parsed.retailer` before the 2026-08-25 sender-fallback resolution ran,
-so a body-extraction null silently skipped the billed lookup even when
-sender fallback would go on to resolve a real retailer moments later.
+**Arc spans 2026-09-11 through 2026-09-14. Diagnostic session was
+Friday 09-11 (see also HISTORY 2026-09-11 pickup-order diagnostic
+entry, which ran the same evening). Fix and backfill were 09-14
+after a weekend pause. Combined write-up here.**
 
-**Gate 1 — downstream-consumer grep (code-reading only, zero billed calls).**
-Traced every read of `parsed.retailer` inside `finalizeExtraction` (called
-from `runExtraction.ts:66`) plus the `findMatchingOrder` pre-check just
-above it. Found the naive fix (move the fallback block earlier, mutate
-`parsed.retailer` in place) would silently mislabel `retailerSource` as
-`"body_extraction"` when it was actually sender-fallback-resolved —
-violating `retailerFallback.ts:78`'s own documented invariant — and would
-also change Email-level `needsReview` (`extract.ts:804-814`, distinct from
-the Order-level `needsReview` the diagnostic traced) and widen the
-`isAmazonOrder`/`isFoodGroceryRetailer` short-circuits to a population that
-previously fell through to the general path. Owner reviewed and approved
-all of these as in-scope, directionally-correct side effects, and approved
-the "separate `effectiveRetailer` local, don't touch `parsed.retailer`"
-approach.
+### What broke, in plain English
 
-**Gate 2 — cost estimate (code/log-reading only, zero billed calls).** No
-persisted usage table exists (`logAnthropicUsage` only `console.log`s;
-`DiscardLog`/`ActionLog` don't cover this). Used `Email.policySource`/
-`extractionNotes` as a DB-queryable floor: ≥74 `lookupReturnPolicy` calls in
-the trailing 30 days. Widened population under the fix: 7 additional calls/
-month upper bound (3 known linked orders + 4 not-yet-linked rows). ~9.5%
-delta — read as "a handful more calls," no re-scoping needed, approved.
+A returns-tracking app whose whole job is showing users their return
+deadlines was silently failing to compute deadlines for a specific
+class of email — any commerce email where the retailer's name wasn't
+present in plain text in the body, which is exactly the class Zara
+sends. Users saw the order appear on their dashboard with a "Needs
+Review" tag and no deadline, forever.
 
-**Gate 3 — code fix + tests.** `lib/extract.ts`: `finalizeExtraction` gained
-a 4th parameter, `effectiveRetailer` (defaults to `parsed.retailer`, so the
-`extractEmail` wrapper's callers are unaffected), threaded into
-`isAmazonOrder`, `isFoodGroceryRetailer`, the `lookupReturnPolicy` gate, and
-`computeNeedsReview`. `lib/runExtraction.ts`: computes `effectiveRetailer`
-once, right after `extractEmailIdentity` returns (via the same
-`resolveRetailerFallback` gate the old post-hoc write used), feeds it to the
-`findMatchingOrder` pre-check and `finalizeExtraction`, then reuses the same
-`fallback` result at the write step instead of recomputing it.
-`parsed.retailer` is never mutated. `npm test` initially showed 9 failures
-in `runExtraction.test.ts` — all expected fallout of the ordering change
-(5 exact-arity `toHaveBeenCalledWith` assertions missing the new 4th arg;
-4 tests in the sender-fallback describe block that mocked
-`finalizeExtraction`'s *output* to simulate a null retailer, which stopped
-working once the read point moved to `extractEmailIdentity`'s output) — none
-were logic defects. Fixed same-session: the 5 arity assertions got the 4th
-arg added; the 4 mock-layer tests were fixed to mock `extractEmailIdentity`
-instead. Two more tests in that block ("carrier-sender typed 'other'" and
-"fromName/fromEmail both empty") turned out to have been passing
-*vacuously* even before this session — they left `mockExtractEmailIdentity`
-at the default non-null retailer, so the fallback gate they claimed to test
-was never actually reached — rewritten to genuinely exercise it. 4 new
-tests added for the `effectiveRetailer` mechanism itself (4-arg call shape;
-fallback-resolved value reaching both the pre-check and the gate;
-fallback-not-preferred when `parsed.retailer` is already non-null;
-`parsed.retailer` staying unmutated). Full suite: 836/836 green. Committed
-`a24050b`, pushed, auto-deployed via the GitHub integration — confirmed live
-by matching the build log's `Cloning ... Commit: a24050b` against the
-`app.myreturnwindow.com` alias before the backfill ran.
+Two individually-correct fixes shipped in August combined to produce
+the bug:
 
-**Gate 4 — backfill dry run (read-only, zero billed calls).**
-`scripts/backfill-runextraction-ordering-fix-20260911.ts`. Re-verified the
-2026-09-11 15-order census against production first: population had
-shifted to 19. Broke down as 8 of Friday's original 15 archived by the
-owner since (Nordstrom #1048279668, ACE VISALIA RSC #001352978, a second
-Nordstrom order #1055864196 not in Friday's set, Shutterfly, Five Marys
-Ranch, SCRIBE, Anthropic PBC, Etsy #4120342614), 8 matching the generic
-query but with no linked email carrying `retailerSource: "sender_fallback"`
-— a different, unrelated root cause (VPL Bike, row works clothing, Rowing
-Pad, nmjlmajong, plus 4 new-since-Friday: Nordstrom #920, Nordstrom #261,
-Etsy #4174171266, Ancient Greek Sandals #84963; tracked in TASKS.md 🟡 Next),
-and only 3 both still-active and bug-matching: Bloomingdale's #781187611,
-Bloomingdale's #781160797, Zara #54858811380. Predicted 6 billed calls (1
-`extractEmailIdentity` + 1 `lookupReturnPolicy` per order, all routing to
-the general-lookup branch). Estimate cached to `.scratch/` for the apply
-run's 10%-ceiling check.
+- **2026-08-24 shipped:** a lookup-skip gate on
+  `lookupReturnPolicy()` — don't burn a billed AI call when we don't
+  know the retailer, that's just waste.
+- **2026-08-25 shipped:** a sender-fallback that resolves retailer
+  from `fromName`/`fromEmail` when body extraction returns null —
+  needed because Zara's emails use images for the logo, so
+  `html-to-text` strips the retailer signal.
 
-**Gate 5 — real backfill run (owner-approved).** `--apply`: ceiling check
-passed (6 vs. 7 allowed), 3/3 applied, 0 failed, 0 skipped-at-write-time, 6
-billed calls — exactly the predicted number. Bloomingdale's #781187611:
-returnWindowDays=3, returnDeadline=2026-09-12 (delivery-anchored, already
-elapsed by resolution time — order now reads `status: expired`, correctly
-computed, flagged for owner awareness, not investigated further).
-Bloomingdale's #781160797: web lookup came back inconclusive, stayed
-unresolved (null returnWindowDays/returnDeadline, needsReview still true) —
-a genuine "no answer" from the lookup, not a script defect. Zara
-#54858811380: returnWindowDays=14, returnDeadline=2026-09-24,
-needsReview=false. Zara and Bloomingdale's #781187611 spot-checked
-end-to-end via independent re-fetch post-run. Backfill script committed
-`f6afcc6`, pushed (docs/one-shot script, no deploy implications).
+Both correct. Both individually did the thing they were supposed to
+do. Together they created a seam: the lookup-skip gate ran at
+`runExtraction.ts:66`, checked `parsed.retailer`, saw null, and
+skipped. The sender-fallback then ran at
+`runExtraction.ts:98-105`, resolved retailer to "Zara" — but the
+gate had already fired. The lookup that would have populated
+`returnWindowDays` (and via that, `returnDeadline`) never ran.
+`computeDeadline()` returned null on its first check.
+`Order.needsReview` flipped true at `linkOrder.ts:269`.
 
-**Session totals: 6 billed Anthropic calls** (all in Gate 5 — Gates 1-4
-were code/log/DB-reading only). **Owner hand-verified Zara #54858811380 in
-production 2026-09-15** — the original diagnosed order, confirmed fixed.
-Bloomingdale's #781187611 was spot-checked by Claude Code but not
-separately hand-verified by the owner; Bloomingdale's #781160797 remains
-genuinely unresolved (inconclusive lookup — not part of this fix's claim).
+Silent loss, retailer-agnostic. Zara was the visible case that got
+diagnosed, but the bug affected any retailer whose emails need
+sender-fallback to resolve.
+
+### The visible stakes
+
+Bloomingdale's #781187611 was in the affected population.
+Bloomingdale's return window is 3 days. By the time the backfill
+resolved that order on 09-14, the deadline (09-12) had already
+elapsed — the fix computed the correct deadline, marked the order
+"expired." A real user had a real return deadline they couldn't see,
+and by the time the app could show it, it was already too late. One
+order, one user, one concrete miss. The bug was live for enough days
+that this became inevitable.
+
+### Population sizing — a lesson
+
+Friday's diagnostic reported "15 orders affected" based on a census
+query for `retailer + orderNumber populated, returnDeadline +
+returnPolicy both null`. That was a proxy, and it was loose.
+
+Gate 4's dry-run on 09-14 re-checked the population against
+`retailerSource: "sender_fallback"` on linked emails — the signature
+that actually identifies this bug's fingerprint — and found:
+
+- 19 orders in the generic query today (grew from Friday's 15)
+- 8 of those had been archived by the owner between Friday and today
+- 8 have a null return policy from a different, unknown root cause
+  (logged separately as a 🟡 Next diagnostic candidate — see 2026-09-14
+  bottom-note re: Ancient Greek Sandals and ACE Visalia as owner-
+  recognized non-standard shapes worth remembering when that
+  diagnostic runs)
+- Only 3 were actually caused by this bug and still active
+
+**Lesson: "orders with a missing field" is not the same as "orders
+affected by this specific bug." The census-as-proxy pattern is fine
+for stop-and-report threshold decisions during a diagnostic, but not
+precise enough to drive a backfill. Signature checks on the specific
+mechanism are the correct filter for backfill scoping. I should
+have specified the signature check in Friday's diagnostic scope; I
+underspecified it, and Gate 4's dry-run caught the imprecision.
+Worth remembering for future backfill scoping.**
+
+### The fix — not as mechanical as originally scoped
+
+My Friday scope described the fix as "swap ordering at line 66 and
+98-105, mechanical." Gate 1's downstream-consumer grep found this
+was wrong on three counts:
+
+**(i) Two gates, not one.** The pre-check at `runExtraction.ts:59-64`
+(`findMatchingOrder`, populates `existingOrder` for the 08-24
+widened-skip) also reads retailer. Both must see the same value or
+the fix is half-done.
+
+**(ii) The naive swap would silently corrupt `retailerSource`.**
+Mutating `parsed.retailer` to the fallback-resolved value before
+`finalizeExtraction()` returns would mislabel `retailerSource:
+"body_extraction"` when the value actually came from sender fallback,
+violating `retailerFallback.ts:78`'s invariant that `retailerSource`
+describes WHY retailer has its current value. The whole point of
+that invariant is trustworthy debugging fields — the diagnostic
+sessions this week relied on exactly this kind of provenance to
+trace root causes cleanly. Corrupting it to save a line of code
+would have been a bad trade. Fix approach: compute an
+`effectiveRetailer` local variable used only for gate decisions,
+leave `parsed.retailer` untouched, let the existing labeling logic
+run unchanged.
+
+**(iii) Same `effectiveRetailer` also feeds `isAmazonOrder()` and
+`isFoodGroceryRetailer()` in `finalizeExtraction`.** Orders whose
+retailer resolves to Amazon or a grocery only via sender-fallback
+would newly route to those specialized branches. Directionally
+correct (behavior catching up to reality) but a real behavior change
+beyond the diagnosed bug. Accepted in scope.
+
+Also flagged: Email-level `needsReview` at `extract.ts:804-814` (a
+different field from the Order-level `needsReview` that started this
+whole diagnostic) also stops firing on the affected population.
+Same "directionally correct" reasoning. Accepted in scope, no
+separate downstream trace performed — the "user might notice a flag
+disappearing on data that genuinely no longer needs review" concern
+wasn't worth a whole gate.
+
+### Gate discipline held
+
+Five gates, all held:
+
+- **Gate 1** caught the retailerSource invariant risk + the second
+  gate at lines 59-64 that my original scope missed. Corrected the
+  fix shape before code was written.
+- **Gate 2** sized cost. Floor of 74 `lookupReturnPolicy` calls per
+  month currently; fix adds ~7 more. ~10% delta, acceptable. Also
+  surfaced that there's no persisted usage table — the floor is a
+  proxy from `Email.policySource`/`extractionNotes`, not a real
+  count. Not a fix-blocker; noted and moved on (retailer cache
+  coming will make the specific concern moot).
+- **Gate 3** applied the code fix. 9 tests failed as predicted —
+  all pinned to the old buggy shape, none real regressions. Way 1
+  (rewrite meaningfully) not Way 2 (tweak until green): agent
+  caught two vacuous tests in the existing set and rewrote them
+  honestly, flagged behavior 4 as testable only by code review not
+  by test (accurately, given the file's mock structure). 836/836
+  green post-update.
+- **Gate 4** dry-run on the backfill. Signature-check filtered
+  population from 19 → 3. 6 predicted billed calls, hard ceiling
+  at 7.
+- **Gate 5** real run. 6 actual calls, matching prediction
+  exactly. 2 orders fully fixed, 1 (Bloomingdale's #781160797)
+  came back "inconclusive" from the lookup — real behavior, not
+  a failure. Zara #54858811380 spot-checked, confirmed clean.
+
+Zero billed calls across Gates 1–4. All 6 concentrated in Gate 5.
+
+### What I got wrong that gates caught
+
+- Original 🔴 Now entry described the fix as "mechanical, swap
+  ordering." Gate 1 corrected this to "extract-and-reuse via
+  separate variable across two coupled gates, preserve invariant."
+- Original census "15 orders" was a loose proxy. Gate 4 signature
+  check found only 3 were actually caused by this bug. Friday's
+  scoping was imprecise.
+- Reflex "user-visible = more caution" flipped my Email-level
+  `needsReview` recommendation from (a) to (b) when owner mentioned
+  it's live in UX; owner pushed back on the reasoning and I
+  correctly flipped back to (a). Two flips in twenty minutes is
+  more than I'd like. The reflex isn't wrong in general but was
+  wrong here — the flag was designed to come off when its
+  underlying condition resolves, and getting more cautious about
+  the flag doing exactly what it's designed to do was the wrong
+  direction.
+
+**When Claude scopes a fix and says "mechanical" or "small," that's
+often the moment the scope is being underspecified. Push back on
+those words. Gates exist to catch this.**
+
+### Commits
+
+- **`a24050b`** — code fix: `lib/runExtraction.ts` +
+  `lib/extract.ts` + `__tests__/runExtraction.test.ts`. Deploy
+  `dpl_GoyWGgGnKLHMGyzikSsfXboQadPp`, live at
+  `app.myreturnwindow.com` ~2 min after push.
+- **`f6afcc6`** — backfill script + run results:
+  `scripts/backfill-runextraction-ordering-fix-20260911.ts`.
+  One-shot script, no deploy implications.
+- **`b77aee2`** — TASKS.md session close-out.
+- **`74b1d70`, `117d5d9`, `4ca8075`** — earlier intra-session
+  docs/scoping commits (TASKS updates, HISTORY draft).
+
+### Follow-ups (all sitting in 🟡 Next as of session close)
+
+- **Shutterfly runExtraction hardening** — the 09-11 diagnostic's
+  primary follow-up. Same file as tonight's fix, different bug.
+- **DiscardLog auditability** — surfaced by the 09-11 C&B trace
+  dead-end.
+- **8 orders with different-root-cause null returnPolicy** —
+  surfaced by tonight's Gate 4 signature check. Includes owner-
+  recognized non-standard shapes (Ancient Greek Sandals: carrier-
+  first order chain via DHL; ACE VISALIA RSC: historically
+  squirrelly non-standard shipping) that may turn out to be
+  working-as-designed rather than bugs.
+
+### End-state for the specific case that started this
+
+Zara #54858811380: `returnWindowDays=14`, `returnDeadline=2026-09-24`,
+`policySource=web_lookup`, `needsReview=false`, `status=returnable`.
+Owner-verified on dashboard 2026-09-14, ✅ earned.
+
+**2026-09-15 postscript:** owner checked both Bloomingdale's orders
+and found the return policy the backfill's re-triggered lookup came
+back with is WRONG on both (#781187611's 3-day window and
+#781160797's inconclusive result are both bad data, not just
+unresolved). This fix's claim holds — it correctly re-triggered the
+lookup for both orders, closing the ordering seam — but the lookup
+itself returned bad data, a separate, undiagnosed bug. Owner is
+tracking that follow-up outside this board.
 
 ## 2026-09-11 — Zara #54858811380 return-policy / estimated-dates / Needs Review diagnostic
 
