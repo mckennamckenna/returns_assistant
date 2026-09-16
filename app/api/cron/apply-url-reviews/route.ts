@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { notifyAdmin } from "@/lib/adminNotify";
-import { isMeaningfulRetailerChange } from "@/lib/retailer-normalize";
+import { isMeaningfulRetailerChange, isUrlShapedRetailer } from "@/lib/retailer-normalize";
 import { readReviewRows, ReviewRow } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
 
   const applied: { orderId: string; status: string }[] = [];
   const skippedAlreadyApplied: string[] = [];
+  const skippedUrlShaped: string[] = [];
   const failed: { orderId: string; error: string }[] = [];
 
   for (const sheetRow of actionableRows) {
@@ -75,7 +76,11 @@ export async function GET(request: NextRequest) {
 
     try {
       if (sheetRow.status === "approved") {
-        await applyApproval(sheetRow, review.order.retailer);
+        const result = await applyApproval(sheetRow, review.order.retailer);
+        if (result === "skipped_url_shaped") {
+          skippedUrlShaped.push(sheetRow.orderId);
+          continue;
+        }
       } else {
         await applyRejection(sheetRow);
       }
@@ -103,16 +108,36 @@ export async function GET(request: NextRequest) {
     totalSheetRows: sheetRows.length,
     applied,
     skippedAlreadyApplied,
+    skippedUrlShaped,
     failed,
   });
 }
 
-async function applyApproval(sheetRow: ReviewRow, currentRetailer: string | null): Promise<void> {
+// Defense-in-depth against the weekly-url-review sheet-generation leak
+// (2026-09-16 fix, TASKS.md) — the primary fix is on the generation side
+// (resolveSearchSubject's retailerPrefill no longer offers a URL/domain),
+// but a row already queued before that fix, or a cell the owner hasn't
+// corrected yet, can still reach this cron with a URL-shaped
+// `Approved retailer`. Returns "skipped_url_shaped" instead of writing
+// anything — including the transaction below and the ReturnUrlReview
+// status flip — so the row stays PENDING and is re-evaluated on every
+// future run until the sheet cell is corrected to a name.
+async function applyApproval(
+  sheetRow: ReviewRow,
+  currentRetailer: string | null,
+): Promise<"applied" | "skipped_url_shaped"> {
   const approvedRetailer = sheetRow.approvedRetailer.trim();
   const approvedUrl = sheetRow.candidateUrl.trim();
 
   if (!approvedUrl) {
     throw new Error('sheet row marked "approved" with an empty Candidate URL cell');
+  }
+
+  if (approvedRetailer && isUrlShapedRetailer(approvedRetailer)) {
+    console.warn(
+      `apply-url-reviews: URL-shape rejected by apply-cron defense — order ${sheetRow.orderId}, rejected value "${approvedRetailer}"`,
+    );
+    return "skipped_url_shaped";
   }
 
   const orderUpdate: { returnPortalUrl: string; retailer?: string } = { returnPortalUrl: approvedUrl };
@@ -144,6 +169,8 @@ async function applyApproval(sheetRow: ReviewRow, currentRetailer: string | null
       data: orderUpdate,
     }),
   ]);
+
+  return "applied";
 }
 
 async function applyRejection(sheetRow: ReviewRow): Promise<void> {

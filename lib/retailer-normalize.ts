@@ -50,3 +50,31 @@ export function isMeaningfulRetailerChange(current: string | null, approved: str
   const approvedNormalized = approved.toLowerCase().trim().replace(/\s+/g, " ");
   return currentNormalized !== approvedNormalized;
 }
+
+// URL-poisoning defense (2026-09-16 fix, see TASKS.md) — used both to keep
+// weekly-url-review's Approved-retailer sheet prefill name-only (never a
+// domain), and as apply-url-reviews' defense-in-depth before writing
+// Order.retailer. Structural, not a TLD allowlist: a real TLD list would
+// miss observed poisoned values whose last label isn't a common TLD
+// ("mydhl.express.dhl", "dermstore.returns.international"). Instead:
+// scheme/www prefixes always match; otherwise the whole string must be
+// dot-separated alnum/hyphen labels (no spaces, no "&", no apostrophes —
+// already excludes almost every real brand name) AND every label must be
+// at least 2 characters, which is what excludes single-letter-initial
+// names like "J.Crew" ("j" is a 1-char label) while still matching every
+// real poisoned example on file (all of which have 2+ char labels).
+// Known limitation: a genuine single-letter domain like "x.com" would not
+// be flagged — not observed in practice here, and the tradeoff favors not
+// flagging a legitimate short brand name over catching that edge case.
+export function isUrlShapedRetailer(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const s = value.trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes("://")) return true;
+  if (s.startsWith("www.")) return true;
+
+  const bareDomainShape = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+  if (!bareDomainShape.test(s)) return false;
+
+  return s.split(".").every((label) => label.length >= 2);
+}

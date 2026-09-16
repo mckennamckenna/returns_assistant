@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { notifyAdmin } from "@/lib/adminNotify";
 import { activeOrderFilter } from "@/lib/orderFilters";
 import { isAmazonOrder } from "@/lib/amazonBundle";
-import { normalizeRetailer } from "@/lib/retailer-normalize";
+import { normalizeRetailer, isUrlShapedRetailer } from "@/lib/retailer-normalize";
 import { searchWeb, SerperResult } from "@/lib/search";
 import { ensureSheetHeaders, appendReviewRow } from "@/lib/sheets";
 
@@ -135,15 +135,32 @@ export function scoreResult(result: SerperResult, knownDomain: string | null, ap
 }
 
 interface SearchSubject {
-  subject: string;
+  // Serper search-query anchor — a domain is a legitimate, even preferred,
+  // value here (it's what knownDomain/scoreResult's own-domain bonus is
+  // built around). Priority order unchanged from the original spec: (1) a
+  // previously-approved retailer name for the same normalized retailer, so
+  // week 2+ orders benefit from prior corrections; (2) the order's existing
+  // returnPortalUrl's domain, when it looks like a real retailer domain
+  // (not a carrier/marketing/our-own domain); (3) the passive-normalized
+  // Order.retailer as a last resort.
+  searchAnchor: string;
   knownDomain: string | null;
+  // Sheet-facing `Approved retailer` column prefill — 2026-09-16 fix
+  // (TASKS.md): this MUST be a human-readable retailer name, never a URL
+  // or domain, so it needs its own independent fallback chain rather than
+  // reusing searchAnchor. Root cause of the URL-poisoning bug this fix
+  // addresses was exactly that reuse — priority (2) above is correct for
+  // search-anchor purposes and wrong for a name-only prefill. Priority
+  // order here: (1) a previously-approved retailer name for the same
+  // normalized retailer, but ONLY if it isn't itself URL-shaped
+  // (isUrlShapedRetailer guard — self-perpetuation-loop defense: without
+  // this, one row approved with a domain poisons every future row for the
+  // same retailer, forever, via this same lookup); (2) the
+  // passive-normalized Order.retailer; blank if neither yields a usable
+  // name. Never falls back to a returnPortalUrl domain.
+  retailerPrefill: string;
 }
 
-// Priority order per spec: (1) a previously-approved retailer name for the
-// same normalized retailer, so week 2+ orders benefit from prior
-// corrections; (2) the order's existing returnPortalUrl's domain, when it
-// looks like a real retailer domain (not a carrier/marketing/our-own
-// domain); (3) the passive-normalized Order.retailer as a last resort.
 export function resolveSearchSubject(
   order: { retailer: string | null; returnPortalUrl: string | null },
   approvedRetailerByNormalizedName: Map<string, string>,
@@ -151,18 +168,21 @@ export function resolveSearchSubject(
 ): SearchSubject {
   const normalized = normalizeRetailer(order.retailer ?? "");
   const priorApproval = approvedRetailerByNormalizedName.get(normalized);
+
+  const retailerPrefill = priorApproval && !isUrlShapedRetailer(priorApproval) ? priorApproval : normalized;
+
   if (priorApproval) {
-    return { subject: priorApproval, knownDomain: null };
+    return { searchAnchor: priorApproval, knownDomain: null, retailerPrefill };
   }
 
   if (order.returnPortalUrl) {
     const domain = extractDomain(order.returnPortalUrl);
     if (domain && !isCarrierOrMarketingDomain(domain) && !domainMatchesOrIsSubdomainOf(domain, appDomain)) {
-      return { subject: domain, knownDomain: domain };
+      return { searchAnchor: domain, knownDomain: domain, retailerPrefill };
     }
   }
 
-  return { subject: normalized, knownDomain: null };
+  return { searchAnchor: normalized, knownDomain: null, retailerPrefill };
 }
 
 function isAuthorized(request: NextRequest): boolean {
@@ -229,8 +249,12 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      const { subject, knownDomain } = resolveSearchSubject(order, approvedRetailerByNormalizedName, appDomain);
-      const query = `${subject} returns`;
+      const { searchAnchor, knownDomain, retailerPrefill } = resolveSearchSubject(
+        order,
+        approvedRetailerByNormalizedName,
+        appDomain,
+      );
+      const query = `${searchAnchor} returns`;
 
       const results = await searchWeb(query);
       const top10 = results.slice(0, 10);
@@ -270,7 +294,7 @@ export async function GET(request: NextRequest) {
       const sheetRowId = await appendReviewRow({
         orderId: order.id,
         rawRetailer: order.retailer ?? "",
-        approvedRetailerPrefill: subject,
+        approvedRetailerPrefill: retailerPrefill,
         queryUsed: query,
         currentReturnPortalUrl: order.returnPortalUrl ?? "",
         candidateUrl,
