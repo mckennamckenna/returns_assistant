@@ -15,6 +15,16 @@ const MODEL = "claude-sonnet-4-6";
 // few days before they strictly had to" for "never miss the real window."
 const STANDARD_SHIPPING_DAYS = 5;
 
+// Upper bound for the near-threshold-primary retry bypass (2026-09-15,
+// Bloomingdale's-shape investigation — see extractEmailIdentity's
+// nearThresholdPrimary local below). A conservative floor: the two known
+// affected rows had primaries of 33 non-whitespace chars each. May need
+// widening if a legitimate short-but-complete commerce email surfaces in
+// the (100, 150] band — a 2026-09-15 calibration check found zero such
+// rows in current data up to 150 chars, so 150 would also have been safe,
+// but 100 was chosen as the more conservative starting point.
+const NEAR_THRESHOLD_MAX_CHARS = 100;
+
 // Amazon's return window is well-known and deterministic enough (2026-08-08
 // owner decision) that a per-email web_lookup() call is pure waste: Step 0
 // census (TASKS.md, this task) found 94 of 99 Amazon-retailer emails ever
@@ -648,9 +658,34 @@ export async function extractEmailIdentity(
     (parsed.lineItems == null || parsed.lineItems.length === 0) &&
     parsed.returnWindowDays == null;
 
+  // Near-threshold-primary bypass (2026-09-15, Bloomingdale's-shape): a
+  // primary that clears resolveBodyTextWithAlternate's own substantiality
+  // bar by raw character count but is actually a preheader sentence
+  // ("We'll let you know when your items ship.") with zero commerce
+  // content — retailer extraction fails on a body like this, so
+  // `parsed.retailer` is null even though a real, differing htmlBody-
+  // derived alternate exists and would recover everything. Scoped to
+  // short primaries only, not a general retailer==null bypass — see the
+  // retailer != null comment below for why that distinction matters.
+  const primaryNonWhitespaceLen = textBody.trim().replace(/\s/g, "").length;
+  const nearThresholdPrimary = primaryNonWhitespaceLen > 0 && primaryNonWhitespaceLen <= NEAR_THRESHOLD_MAX_CHARS;
+
   if (
     (parsed.orderNumber == null || hasNoBodyContent) &&
-    parsed.retailer != null &&
+    // The retailer != null term is stale-intent as of the 2026-09-15
+    // reverify: it was written (2026-08-23) to keep this retry from ever
+    // firing on Zara's shape, but Zara-shape (empty textBody -> htmlBody
+    // promoted to primary) always produces alternate: null at
+    // emailBodyText.ts:64-68, which already makes alternateDiffersFromPrimary
+    // false below regardless of this term. So in current code this
+    // condition does no work against Zara — its only observable effect is
+    // blocking Bloomingdale's-shape (retailer genuinely null, primary
+    // near-threshold). Kept as-is rather than removed: a future refactor
+    // of resolveBodyTextWithAlternate could reintroduce Zara-reachability
+    // here, and this term would still be the thing stopping that
+    // collision. nearThresholdPrimary is the narrow, additive carve-out
+    // for the one shape this term currently blocks unnecessarily.
+    (parsed.retailer != null || nearThresholdPrimary) &&
     parsed.emailType !== "other" &&
     alternateDiffersFromPrimary
   ) {

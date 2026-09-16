@@ -56,8 +56,19 @@ const BASE = {
 };
 
 const SUBJECT = "We've received your return request";
-const PRIMARY_BODY = "primary body text, order number only in a URL";
-const ALTERNATE_BODY = "alternate body text, Order number 68462778273 present as labeled text";
+// Widened 2026-09-15 (Bloomingdale's-shape / near-threshold-primary retry
+// bypass) from a 37-char PRIMARY_BODY to this, deliberately >
+// NEAR_THRESHOLD_MAX_CHARS (100): these two strings are shared by every
+// test below, including the retailer===null case ("Zara shape") at line
+// ~120, and that test specifically needs a primary long enough that
+// nearThresholdPrimary is false — otherwise the new bypass would fire and
+// the test would no longer be asserting what its name says. Near-
+// threshold-specific tests use their own short, locally-scoped bodies
+// instead of these.
+const PRIMARY_BODY =
+  "This is the primary body text for the order confirmation email. The order number appears only inside a tracking URL further down in this message, not as labeled running text anywhere else in the body.";
+const ALTERNATE_BODY =
+  "This is the alternate body text recovered from the other source for this same email. Order number 68462778273 is present here as plain, clearly labeled running text describing the order.";
 
 beforeEach(() => {
   mockCreate.mockReset();
@@ -290,5 +301,135 @@ describe("extractEmailIdentity — widened gate + gap-fill (2026-09-06)", () => 
     expect(result.orderTotal).toBe(254.14);
     expect(result.needsReview).toBe(true);
     expect(result.confidence).toBe("high"); // untouched by gap-fill, stays sourced from pass 1
+  });
+});
+
+// Near-threshold-primary retry bypass (TASKS.md 2026-09-15, Bloomingdale's-
+// shape): a primary that clears resolveBodyTextWithAlternate's own
+// substantiality bar by raw character count (a preheader sentence, not real
+// commerce content) but has retailer == null, because there was nothing in
+// that primary for the model to find a retailer name in. The existing gate
+// blocked this shape (retailer != null was required); the new
+// nearThresholdPrimary term carves out short primaries specifically, without
+// granting a blanket retailer==null bypass — the above-band test below
+// confirms that boundary.
+const BLOOMINGDALES_BASE = {
+  emailType: "order_confirmation" as const,
+  retailer: null as string | null,
+  orderNumber: null as string | null,
+  orderDate: null as string | null,
+  deliveryDate: null,
+  shipByDate: null,
+  returnWindowDays: null as number | null,
+  returnWindowStartsFrom: null,
+  orderTotal: null as number | null,
+  orderCurrency: null,
+  refundAmount: null,
+  refundAmountConfidence: null,
+  lineItems: [] as { name: string }[],
+  returnPortalUrlFromEmail: null,
+  confidence: "high" as const,
+  needsReview: true,
+  notes: "Commerce email but no retailer or order details found in the provided body.",
+};
+
+const BLOOMINGDALES_SUBJECT = "We received your order!";
+// 33 non-whitespace chars — matches the real affected rows' preheader-only
+// textBody exactly (TASKS.md 2026-09-15 investigation).
+const BLOOMINGDALES_PRIMARY_BODY = "We'll let you know when your items ship.";
+const BLOOMINGDALES_ALTERNATE_BODY =
+  "Order #: 781187611. Chantecaille Future Skin Foundation, Petal, Qty: 1, UPC: 656509152940, $95.00. Subtotal (1 item) $95.00.";
+
+describe("extractEmailIdentity — near-threshold-primary bypass (2026-09-15)", () => {
+  it("fires the retry for a near-threshold primary with retailer null and a substantial differing alternate — the Bloomingdale's shape", async () => {
+    mockCreate.mockResolvedValueOnce(apiResponse(BLOOMINGDALES_BASE));
+    mockCreate.mockResolvedValueOnce(
+      apiResponse({
+        ...BLOOMINGDALES_BASE,
+        orderNumber: "781187611",
+        lineItems: [{ name: "Chantecaille Future Skin Foundation" }],
+        needsReview: false,
+      }),
+    );
+
+    const result = await extractEmailIdentity(
+      BLOOMINGDALES_PRIMARY_BODY,
+      BLOOMINGDALES_SUBJECT,
+      "email_bloomingdales_near_threshold",
+      BLOOMINGDALES_ALTERNATE_BODY,
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result.orderNumber).toBe("781187611");
+    expect(result.lineItems).toEqual([{ name: "Chantecaille Future Skin Foundation" }]);
+    expect(result.notes).toContain("recovered from alternate body source on retry");
+    // retailer must stay null — the retry never contributes retailer, and
+    // this test's mocked retry response doesn't set it either, matching
+    // finalizeExtraction/runExtraction.ts's retailerSource invariant that
+    // parsed.retailer is never mutated by this merge.
+    expect(result.retailer).toBeNull();
+  });
+
+  it("does not retry a near-threshold primary with retailer null when no alternate is offered", async () => {
+    mockCreate.mockResolvedValueOnce(apiResponse(BLOOMINGDALES_BASE));
+
+    const result = await extractEmailIdentity(
+      BLOOMINGDALES_PRIMARY_BODY,
+      BLOOMINGDALES_SUBJECT,
+      "email_bloomingdales_no_alternate",
+      null,
+    );
+
+    expect(mockCreate).toHaveBeenCalledOnce();
+    expect(result.orderNumber).toBeNull();
+  });
+
+  it("does not retry an above-band primary with retailer null — nearThresholdPrimary must not become a blanket retailer==null bypass", async () => {
+    const abovebandPrimary = "a".repeat(500);
+    const substantialAlternate = "b".repeat(500);
+    mockCreate.mockResolvedValueOnce(apiResponse({ ...BLOOMINGDALES_BASE, notes: "Long primary body, no retailer or order details found." }));
+
+    const result = await extractEmailIdentity(
+      abovebandPrimary,
+      BLOOMINGDALES_SUBJECT,
+      "email_above_band_null_retailer",
+      substantialAlternate,
+    );
+
+    expect(mockCreate).toHaveBeenCalledOnce();
+    expect(result.orderNumber).toBeNull();
+  });
+
+  it("retries at exactly NEAR_THRESHOLD_MAX_CHARS (100) — boundary is inclusive", async () => {
+    const boundaryPrimary = "a".repeat(100);
+    const substantialAlternate = "b".repeat(150);
+    mockCreate.mockResolvedValueOnce(apiResponse(BLOOMINGDALES_BASE));
+    mockCreate.mockResolvedValueOnce(apiResponse({ ...BLOOMINGDALES_BASE, orderNumber: "boundary-100" }));
+
+    const result = await extractEmailIdentity(
+      boundaryPrimary,
+      BLOOMINGDALES_SUBJECT,
+      "email_boundary_100",
+      substantialAlternate,
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result.orderNumber).toBe("boundary-100");
+  });
+
+  it("does not retry at NEAR_THRESHOLD_MAX_CHARS + 1 (101) — boundary is exclusive above the limit", async () => {
+    const justAboveBoundaryPrimary = "a".repeat(101);
+    const substantialAlternate = "b".repeat(150);
+    mockCreate.mockResolvedValueOnce(apiResponse(BLOOMINGDALES_BASE));
+
+    const result = await extractEmailIdentity(
+      justAboveBoundaryPrimary,
+      BLOOMINGDALES_SUBJECT,
+      "email_boundary_101",
+      substantialAlternate,
+    );
+
+    expect(mockCreate).toHaveBeenCalledOnce();
+    expect(result.orderNumber).toBeNull();
   });
 });

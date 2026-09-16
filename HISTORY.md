@@ -5,6 +5,83 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-15 — Bloomingdale's-shape: near-threshold-primary retry bypass shipped, plus a stale-intent finding on the retailer != null retry gate
+
+**Trigger.** The 2026-09-14 Caroline manual-override arc (Bloomingdale's
+#781187611 / #781160797) left an open question: both orders came back
+`retailer: null` and `lineItems: []` from primary extraction, resolved
+only via the `effectiveRetailer` sender-fallback path. A same-day,
+read-only investigation (zero billed calls) traced why.
+
+**Root cause.** Both orders' linked `order_confirmation` emails have
+identical shape: `textBody` is a preheader sentence — `"We'll let you
+know when your items ship."` — 33 non-whitespace characters, carrying
+zero commerce content, but just long enough to clear
+`resolveBodyTextWithAlternate`'s `MIN_TEXT_BODY_CHARS` (20) bar and win
+as `primary`. `htmlBody`, converted via the pipeline's own html-to-text
+config, produces clean, complete signal — retailer name, a labeled
+order number, itemized products — and was correctly offered as
+`alternate`, but the two-pass retry gate in `extractEmailIdentity`
+(`lib/extract.ts`) required `parsed.retailer != null` to fire, and
+these rows have `retailer == null` by definition. The retry never got
+a chance to recover anything.
+
+A third, distinct shape from Zara (html-to-text destroys signal) and
+H&M (substantial textBody missing specific fields): here textBody has
+no real content at all, yet wins as primary on a character-count
+technicality. Working name: **Bloomingdale's-shape**.
+
+**Structural finding that changed the risk picture.** The
+`retailer != null` term was written 2026-08-23 specifically to prevent
+Zara-collision. Re-tracing `resolveBodyTextWithAlternate`
+(`lib/emailBodyText.ts:64-68`) found `alternate` is hardcoded `null`
+whenever `textBody` isn't substantial — unconditionally. Verified
+against all 10 real Zara `sender_fallback` rows: every one has
+`alternate === null`. So `alternateDiffersFromPrimary` already
+excludes true Zara-shape from this gate, independent of the retailer
+check — **`retailer != null` is redundant as a Zara defense in current
+code**, and its only observable effect was blocking Bloomingdale's-shape.
+
+**Fix.** `lib/extract.ts`: new local `nearThresholdPrimary`
+(non-whitespace primary length `> 0` and `<= NEAR_THRESHOLD_MAX_CHARS`,
+pinned at **100** — a same-day calibration census found zero
+`order_confirmation` rows database-wide with a retailer-null primary
+in (20, 150] outside the two known rows). Gate's `retailer != null`
+becomes `(retailer != null || nearThresholdPrimary)` — the only
+changed line; `retailer != null` itself stays, commented as a latent
+safety net for any future `resolveBodyTextWithAlternate` refactor.
+
+**Not done:** the two known rows stay `manual_override`, not
+re-extracted (owner decision). `resolveBodyTextWithAlternate`,
+`MIN_TEXT_BODY_CHARS`, `effectiveRetailer`, `runExtraction.ts`, the
+2026-09-06 `hasNoBodyContent` widen — all untouched.
+
+**Tests.** `extractRetry.test.ts`'s shared body constants widened
+above the new 100-char band (old length would have broken the existing
+retailer-null test's own premise). 5 new tests: fires + gap-fills +
+retailer stays null; no-alternate → no retry; above-band (500 chars) →
+no retry (confirms this isn't a disguised blanket bypass); boundary at
+100 and 101. 841/841 passing. `npm run build` clean.
+
+**Deploy.** Committed in this same commit (`lib/extract.ts` +
+`__tests__/extractRetry.test.ts` + this HISTORY entry together — amending
+a commit to also include its own hash in this file isn't possible without
+the hash changing again, so the exact hash is intentionally not quoted
+here; see `git log` or the session transcript for it), pushed, deploy
+confirmed via `vercel inspect`.
+
+**No live verification this session** — both known rows off-limits,
+other 5 Bloomingdale's `sender_fallback` rows are non-`order_confirmation`.
+Awaits next real inbound: expect `email_extraction` →
+`email_extraction_retry`, `extractionNotes` containing "Fields
+recovered from alternate body source on retry", `retailerSource` still
+`sender_fallback`. Cost: 1 extra billed call, no duplicated policy
+lookup.
+
+**Billed Anthropic calls this session: 0.**
+
+---
+
 ## 2026-09-14 — lookupReturnPolicy() shortest-wins investigation + Caroline's Bloomingdale's manual-override plan
 
 **Trigger.** Surfaced by the same day's `a24050b` effectiveRetailer
