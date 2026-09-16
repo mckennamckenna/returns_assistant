@@ -32,6 +32,28 @@
 
 ## 🔴 Now
 
+- [ ] **Fix URL-poisoning at sheet-generation source, 2026-09-16 —
+      split search-subject from retailer-prefill, add prior-approval
+      URL guard, add apply-cron defense-in-depth, add regression tests.**
+      Follows from 2026-09-16 sheet-generation diagnostic. Root cause:
+      `resolveSearchSubject()` in `app/api/cron/weekly-url-review/route.ts`
+      returns one value used for two purposes — Serper search anchor
+      (domain acceptable) and `Approved retailer` sheet-column prefill
+      (must be human-readable retailer name). Fix: split into
+      `searchAnchor` and `retailerPrefill` with independent fallback
+      priorities; `retailerPrefill` is name-only, never a URL/domain,
+      blank rather than domain-substitute if no name available. Add
+      permanent URL-shape guard on the prior-approval lookup so it
+      ignores historical URL-shaped values (self-perpetuation loop
+      defense). Add defense-in-depth at `apply-url-reviews`: reject
+      URL-shaped `approvedRetailer` values with clear log; row stays
+      PENDING (not APPLIED). Regression tests for each. Scope
+      constraint: this is NOT a broad retailer-identity refactor.
+      `Order.retailer` architectural overloading goes on backlog.
+      Cleanup of the ~40 existing URL-shaped `Order.retailer` values
+      is a separate follow-up session, run after this verifies in prod
+      and after owner reviews the proposed mapping.
+
 - [ ] **Diagnostic session, 2026-09-16 — why does the URL-review sheet's
       `Approved retailer` column get pre-populated with URL/domain
       shapes?** Read-only diagnostic only, per scope-control rule: no
