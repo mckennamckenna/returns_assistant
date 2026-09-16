@@ -32,6 +32,97 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic session, 2026-09-15 — why is every order that received
+      any email in the last ~3 days flagged Needs review?** Read-only
+      diagnostic only, per scope-control rule: no code changes, no DB
+      writes, no Anthropic API calls this session. Ground truth from owner
+      (cross-referenced inbox against Needs review view directly, 1:1
+      match): every order that received any email in the last ~3 days is
+      currently flagged. Flag fires on any email arrival, not just new-
+      order creation — previously-cleared orders re-flag when subsequent
+      emails (shipping confirmation, return label) arrive. Retailer
+      extraction on new emails is clean; flag is downstream of extraction.
+      Multiple review reasons firing (duplicate, uncertain_details,
+      no_extraction_signal) — every reason elevated, not one dominating.
+      Working hypothesis: the ~10 orders with URL-shaped `Order.retailer`
+      values (written by the 09-12 apply-url-reviews cron run) re-flag on
+      every incoming email via the retailer prefix-match path in
+      `lib/linkOrder.ts`; if most active orders received emails in the
+      3-day window this accounts for the pattern — but doesn't account
+      for non-duplicate reasons, which need their own explanation.
+      Deliverable: actual counts (not estimates), named cause(s) with
+      file/line evidence, no fix proposal. **No code changes this session;
+      report back and owner decides what moves into Now next.**
+
+- [ ] **Diagnostic follow-up, 2026-09-15 — does apply-url-reviews re-apply
+      APPROVED rows, or apply each once?** Read-only diagnostic only: no
+      writes, no code changes, no Anthropic API calls this session. Follows
+      from the prior same-day finding that `app/api/cron/apply-url-reviews/
+      route.ts` wrote the URL-shaped `approvedRetailer` sheet value
+      (`"shopbop.com"`, `"margauxny.loopreturns.com"`) onto `Order.retailer`
+      for the Shopbop/Margaux rows on 2026-09-12, overwriting what was
+      previously a clean brand name. Three questions only: (1) what status
+      filter does the cron use to select `ReturnUrlReview` rows to process —
+      show the actual query; (2) does it change the row's status after
+      applying, to what; (3) if the `approvedRetailer` cell on an
+      already-applied row is edited by hand, does the next run re-apply it
+      or ignore it. **No fixes proposed — answer and stop.**
+
+- [ ] **Diagnostic follow-up, 2026-09-15 — does the daily AM URL-review job
+      write to Order.retailer?** Read-only diagnostic only, per scope-control
+      rule: no code changes, no DB writes, no Anthropic API calls this
+      session. Follows from the same-day Shopbop/Margaux Needs-review
+      diagnostic (see entry below), which found `Order.retailer` is
+      write-once from `createOrderFromEmail` and never touched by
+      `mergeEmailIntoOrder` — this follow-up checks whether the alpha
+      URL-review job (added 2026-09-02, commit `0fdd581`, search-and-verify
+      for `returnPortalUrl` and retailer name) is a second write path onto
+      `Order.retailer` that the prior diagnostic didn't check. Three
+      questions only: (1) does the job write `Order.retailer` at all — grep
+      `prisma.order.update`/`.updateMany`/raw SQL touching `retailer` in the
+      job's code path, file+line or confirm none; (2) if yes, what value and
+      where does it come from (spreadsheet, domain heuristic, or
+      `returnPortalUrl` itself); (3) if yes, has it actually written to the
+      Shopbop (#144038104) or Margaux (#593636) rows — check `Order.updatedAt`
+      on those two and any available write history. **No fixes proposed —
+      answer and stop.**
+
+- [ ] **Diagnostic session, 2026-09-15 — why are Shopbop / Margaux / eBay
+      landing in Needs review?** Read-only diagnostic only, per scope-control
+      rule: no changes to extraction, matching, or UI code this session; any
+      DB query is read-only; any probe that would call the Anthropic API
+      requires stating estimated call count and getting owner OK first.
+      Four rows currently in Needs review: eBay ($39.06, Sep 16, "not certain
+      about some details"), margauxny.loopreturns.com ($541.41, Aug 29,
+      flagged duplicate), shopbop.com ($2,222.51, Aug 30, flagged duplicate),
+      and an Unknown retailer (Sep 5, "couldn't extract any details").
+      Treating duplicate-flag (Margaux, Shopbop) and low-confidence-
+      extraction (eBay, Unknown) as potentially separate bugs — not
+      collapsing into one story without evidence. Hypothesis to test, not
+      fix: retailer-name extraction is falling back to sender domain / a
+      body URL instead of a canonical name, so a Loop Returns portal domain
+      (margauxny.loopreturns.com) doesn't match the standardized-names
+      sheet, and if the duplicate check compares on name, unrelated
+      Loop/Narvar/Happy-Returns retailers could collapse into one "duplicate"
+      bucket — Shopbop is the case that argues against a pure name-collision
+      story since it has a normal domain, so its dup-flag needs its own
+      explanation. eBay's "uncertain details" is noted as possibly a
+      separate, unrelated extraction issue with eBay's email format — not
+      chased this session unless evidence points to the same root cause.
+      Deliverable: named root cause(s), the retailer-name fallback chain
+      with file/function and any commit in the last ~2 weeks touching it,
+      what the duplicate check actually compares (walked through for the
+      Margaux and Shopbop rows specifically), whether a canonical-retailer
+      map exists that should resolve `*.loopreturns.com` → Margaux and why
+      it isn't firing, and the actual Needs-review-vs-cleared rate over the
+      last 14 days (owner is not confident "all new orders" is literally
+      true given only 4 sparse rows Aug 29–Sep 16). Fix options presented,
+      not implemented — owner has a preference for a canonical-name resolver
+      (URL → retailer map) over changing the extraction fallback chain, to
+      preserve optionality on the extractor, but final call is owner's.
+      **No code changes this session; report back and owner decides what
+      moves into Now next.**
+
 - [ ] **Ship Option C — near-threshold-primary retry bypass for
       Bloomingdale's/preheader shape. NEW 2026-09-15, follows from the
       09-15 sparse-body investigation and spec review.** Additive
