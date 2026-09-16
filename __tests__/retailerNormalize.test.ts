@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeRetailer, isMeaningfulRetailerChange } from "@/lib/retailer-normalize";
+import { normalizeRetailer, isMeaningfulRetailerChange, isUrlShapedRetailer } from "@/lib/retailer-normalize";
 
 describe("normalizeRetailer", () => {
   it("lowercases and trims", () => {
@@ -53,5 +53,55 @@ describe("isMeaningfulRetailerChange", () => {
 
   it("treats null current retailer as always meaningfully different from a non-empty approval", () => {
     expect(isMeaningfulRetailerChange(null, "Gap")).toBe(true);
+  });
+});
+
+// D5 (2026-09-16 URL-poisoning fix, TASKS.md) — structural, not a TLD
+// allowlist. Every positive case here is a value actually observed
+// poisoning Order.retailer in production (2026-09-15/16 diagnostics).
+describe("isUrlShapedRetailer", () => {
+  it("flags every URL/domain shape observed poisoning Order.retailer", () => {
+    const positives = [
+      "americangirl.com",
+      "shopbop.com",
+      "margauxny.loopreturns.com",
+      "click.eml.nordstrom.com",
+      "https://foo.com",
+      "http://foo.com/bar",
+      "www.foo.com",
+      "FOO.COM",
+      "  foo.com  ",
+      "mydhl.express.dhl",
+      "dermstore.returns.international",
+      "www2.hm.com",
+    ];
+    for (const value of positives) {
+      expect(isUrlShapedRetailer(value), `expected "${value}" to be URL-shaped`).toBe(true);
+    }
+  });
+
+  it("does not flag legitimate retailer names, including ones that contain a dot", () => {
+    const negatives = [
+      "American Girl",
+      "Shopbop",
+      "Margaux",
+      "H&M",
+      "J.Crew",
+      "Dr. Scholl's",
+      "Bloomingdale's",
+      "Nordstrom Rack",
+      "eBay",
+      "Anaba Wines",
+    ];
+    for (const value of negatives) {
+      expect(isUrlShapedRetailer(value), `expected "${value}" to NOT be URL-shaped`).toBe(false);
+    }
+  });
+
+  it("treats null/undefined/empty as not URL-shaped", () => {
+    expect(isUrlShapedRetailer(null)).toBe(false);
+    expect(isUrlShapedRetailer(undefined)).toBe(false);
+    expect(isUrlShapedRetailer("")).toBe(false);
+    expect(isUrlShapedRetailer("   ")).toBe(false);
   });
 });
