@@ -32,6 +32,30 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic session, 2026-09-16 — why does the URL-review sheet's
+      `Approved retailer` column get pre-populated with URL/domain
+      shapes?** Read-only diagnostic only, per scope-control rule: no
+      code changes, no DB writes, no Anthropic API calls this session.
+      Follows from the 2026-09-15 all-emails-flagging diagnostic, which
+      found that ~40 orders currently have URL-shaped `Order.retailer`
+      values, written by `apply-url-reviews` from the sheet's `Approved
+      retailer` column, and the poisoning is ongoing (fresh wave applied
+      2026-09-15). Ground truth from owner: the sheet has an `Approved
+      retailer` column adjacent to a `Raw retailer` column. `Raw
+      retailer` has always looked correct (e.g., "American Girl"). At
+      some point, `Approved retailer` started getting URL-shaped values
+      (e.g., "americangirl.com") instead of matching `Raw retailer`.
+      Owner has been manually pasting `Raw retailer` values over
+      `Approved retailer` to fix, but the apply cron consumes the
+      column before that happens if owner marks the row approved before
+      fixing. Prior diagnostics investigated the apply-side (correctly
+      gates on PENDING); no prior diagnostic has investigated the
+      generation-side. Deliverable: named root cause with file/line
+      evidence for what populates `Approved retailer` at sheet-row
+      generation time, and whether/when it changed. No fix proposal.
+      **No code changes this session; report back and owner scopes the
+      fix next.**
+
 - [ ] **Diagnostic session, 2026-09-15 — why is every order that received
       any email in the last ~3 days flagged Needs review?** Read-only
       diagnostic only, per scope-control rule: no code changes, no DB
