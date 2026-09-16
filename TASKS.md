@@ -32,6 +32,42 @@
 
 ## 🔴 Now
 
+- [ ] **Ship Option C — near-threshold-primary retry bypass for
+      Bloomingdale's/preheader shape. NEW 2026-09-15, follows from the
+      09-15 sparse-body investigation and spec review.** Additive
+      one-line-plus-one-local change to lib/extract.ts's retry gate, per
+      the reviewed spec (see chat transcript this session for full spec).
+      NEAR_THRESHOLD_MAX_CHARS pinned at 100 — conservative floor based
+      on the two known Bloomingdale's rows (33 chars each); calibration
+      showed a band as wide as 150 touches zero rows outside the target
+      population in current data, so widening later on evidence is
+      available. retailer != null term stays exactly as written per spec
+      §3; the OR adds nearThresholdPrimary alongside it. Tests target
+      __tests__/extractRetry.test.ts. HISTORY entry captures three facts
+      in one write-up: the fix, the 09-15 reverify finding that
+      retailer != null is stale-intent as a Zara defense (alternateDiffers
+      FromPrimary at emailBodyText.ts:64-68 already excludes Zara-shape
+      structurally), and the working name for the new shape
+      (Bloomingdale's-shape — owner confirms at pre-commit).
+      **Explicitly out of scope:** any change beyond the one gate line and
+      the one new local; touching resolveBodyTextWithAlternate or
+      MIN_TEXT_BODY_CHARS; touching effectiveRetailer or runExtraction.ts;
+      touching the 2026-09-06 hasNoBodyContent widen; backfilling the two
+      manually-corrected Bloomingdale's orders (owner decided leave as
+      manual_override); addressing the 128 non-Bloomingdale's empty-
+      lineItems rows (🟡 Next). Deliverable: code + tests shipped and
+      deployed, HISTORY entry drafted for owner pre-commit review, no
+      live verification (no non-destructive way to verify against
+      existing data — the two known rows must not be re-extracted per
+      the §8 leave-em-alone decision, and the other 5 Bloomingdale's
+      sender_fallback rows are non-order_confirmation types that
+      wouldn't trigger the retry path anyway). Awaits next real
+      Bloomingdale's order_confirmation inbound for live verification.
+      At close: commit/push/deploy status, billed call count (expected: 0
+      — tests use mocks, no live extraction), "awaiting live
+      verification against next inbound Bloomingdale's order_confirmation
+      per §7 of the spec" — no ✅.
+
 - [ ] **Investigation: lookupReturnPolicy() accuracy — shortest-wins
       rule + label integrity. NEW 2026-09-14, surfaced by tonight's
       a24050b backfill (Bloomingdale's #781187611 came back
@@ -80,6 +116,59 @@
       script `scripts/census-shortest-wins-20260914.ts` written and run,
       **not yet committed** — left uncommitted pending owner review since
       this session's instructions said "no commits expected."
+
+- [ ] **Investigation: sparse-body extraction on emails with
+      retailerSource='sender_fallback'. NEW 2026-09-14, surfaced by
+      tonight's Bloomingdale's #781187611 / #781160797 manual override
+      arc (both came back retailer=null and lineItems=[] from primary
+      extraction; retailer only resolved via the effectiveRetailer
+      sender fallback path shipped 09-14).** Read-only, zero billed
+      AI calls. Answers four questions before any fix surface lands:
+      (Q1) Verify current code shape vs. HISTORY 2026-08-23 (efd4f43,
+      c8c51e4), 2026-08-25 (2d067bd et al.), and 2026-09-14
+      (effectiveRetailer): resolveBodyText[WithAlternate] in
+      lib/emailBodyText.ts, the alternate-body retry gate inside
+      lib/extract.ts (per HISTORY, gated on `retailer != null` — the
+      exclusion of Zara-shape was deliberate, verify current condition
+      and file:line), and the effectiveRetailer flow in
+      lib/runExtraction.ts. Confirm the retry gate evaluates BEFORE
+      effectiveRetailer exists — structural constraint for Q4.
+      (Q2) Raw-email inspection of the linked order_confirmation
+      emails behind Bloomingdale's #781187611 and #781160797. Classify
+      each as Zara-shape (textBody empty/thin, htmlBody→html-to-text
+      destroys signal), H&M-shape (textBody substantial but missing
+      labeled fields, htmlBody has them), or new-shape (describe).
+      (Q3) Signature-checked census on Email rows where
+      retailerSource='sender_fallback'. Total count, retailer
+      breakdown. Of those, linked orders with empty lineItems.
+      Top 3-5 retailers: one representative email each, characterize
+      shape. Tail: named, deferred. Cross-check per top retailer:
+      covered for retailer-level rescue (yes by definition — they're
+      in the sender_fallback population) but covered for field-level
+      rescue (lineItems, orderNumber, orderDate)? Explicit yes/no.
+      (Q4) Fix-surface options per shape identified in Q3(c), NOT
+      full spec: file(s) that would change, gate interactions
+      (especially the retry gate's retailer != null condition —
+      loosening it risks colliding with what that gate was designed
+      to prevent), rough test surface, invariant risks (e.g.
+      retailerSource labeling integrity per HISTORY 2026-09-14's
+      effectiveRetailer scoping note). Two-three options per shape,
+      no recommendation, owner picks.
+      **Explicitly out of scope:** any code change; any fix spec
+      beyond Q4's surface + blast-radius framing; the retry gate
+      itself; the effectiveRetailer path; any backfill of historical
+      rows; the 8 "different, unknown root cause" orders from
+      HISTORY 2026-09-14 Zara entry (Ancient Greek Sandals, ACE
+      Visalia — separate 🟡 Next candidate); the 210 shortest-wins
+      rows from lookupReturnPolicy investigation (different class);
+      long-tail retailer characterization (top 3-5 only, tail
+      named-and-deferred); any billed AI call.
+      Deliverable: single report, Q1-Q4 in order, signature-checked
+      populations only (no proxy counts). At close: commit/push
+      status (expected: nothing committed; census scripts may exist
+      uncommitted per the shortest-wins investigation pattern),
+      billed-call count (expected: 0), "awaiting owner review" —
+      no ✅, no code changed.
 
 - [ ] **Add `updatedAt` to the Email model — NEW 2026-09-09.** Email
       currently only has `extractedAt`-style create-time signals
@@ -5474,6 +5563,28 @@
       that guard (0 orders in `refund_pending` at query time, consistent
       with that item's own note).
 ## 👀 Watching — parked, revisit only if it recurs
+- [ ] **👁 Watching: post-F9 empty-lineItems accumulation. NEW 2026-09-15,
+      supersedes the 128-rows 🟡 Next entry drafted earlier same session.**
+      The 09-15 fix-relevance sizing pass established that the 131-row
+      policySource='web_lookup' AND Email.lineItems=[] census population
+      is dominated by historical debt — Amazon's 40 rows are 100% pre-F2
+      (amazon_default, 2026-08-09); top-5-other and long-tail rows are
+      overwhelmingly pre-F8. Only 1 row extracted between F8 (09-14
+      effectiveRetailer) and F9 (09-15 Option C), so live coverage-gap
+      size against current code is currently unmeasurable — not "small,"
+      unmeasurable. Rerun scripts/census-fix-relevance-sizing-20260915.ts
+      in 4-6 weeks (target 2026-10-27 to 2026-11-10 window) once meaningful
+      post-F9 inbound volume accumulates. Decision rule at rerun: if the
+      post-F9 empty-lineItems row count is single digits per retailer,
+      no coverage gap — close this Watching entry. If material (>20 rows
+      post-F9 concentrated on any single retailer, or >50 across the
+      long tail), scope a real audit from that data. Not a Next
+      candidate — no action to take before rerun.
+      **Not doing:** Amazon 40-row re-extraction (considered, rejected —
+      Amazon rows provide too little data to justify even a small billed
+      budget for tidiness). Any characterization of the current 131 rows.
+      Any fix-surface work.
+
 - [ ] **lookupReturnPolicy() shortest-wins rule — overfires on
       empty-lineItems + category-specific-window cases. First
       surfaced 2026-09-14, Bloomingdale's #781187611
