@@ -98,7 +98,10 @@ describe("resolveSearchSubject", () => {
     );
     expect(result.searchAnchor).toBe("mango.com");
     expect(result.knownDomain).toBe("mango.com");
-    expect(result.retailerPrefill).toBe("mango");
+    // retailerPrefill mirrors raw order.retailer (matches rawRetailer's own
+    // casing), not searchAnchor's domain and not normalizeRetailer's
+    // lowercased form.
+    expect(result.retailerPrefill).toBe("Mango");
   });
 
   it("priority (2) is skipped when the existing URL is a carrier domain", () => {
@@ -119,26 +122,27 @@ describe("resolveSearchSubject", () => {
     expect(result.searchAnchor).toBe("some retailer");
   });
 
-  it("priority (3): falls back to passive-normalized Order.retailer", () => {
+  it("priority (3): searchAnchor falls back to passive-normalized Order.retailer; retailerPrefill uses the raw value", () => {
     const result = resolveSearchSubject({ retailer: "Gap Inc.", returnPortalUrl: null }, new Map(), APP_DOMAIN);
     expect(result.searchAnchor).toBe("gap");
     expect(result.knownDomain).toBeNull();
-    expect(result.retailerPrefill).toBe("gap");
+    expect(result.retailerPrefill).toBe("Gap Inc.");
   });
 
-  // T1 (2026-09-16 fix) — the bug this session fixes: an order whose
-  // returnPortalUrl domain is a legitimate search anchor must NOT leak
-  // that domain into the human-facing Approved-retailer prefill.
-  it("2026-09-16 fix: searchAnchor uses the returnPortalUrl domain, retailerPrefill stays the retailer name, not the domain", () => {
+  // T1 (2026-09-16 fix, corrected same day — see commit after d1e0711) —
+  // the bug this session fixes: an order whose returnPortalUrl domain is a
+  // legitimate search anchor must NOT leak that domain into the
+  // human-facing Approved-retailer prefill. retailerPrefill uses the raw
+  // order.retailer (not normalizeRetailer's lowercased form) so it matches
+  // rawRetailer's own casing in the sheet.
+  it("2026-09-16 fix: searchAnchor uses the returnPortalUrl domain, retailerPrefill stays the retailer name (title case, matching Raw retailer), not the domain", () => {
     const result = resolveSearchSubject(
       { retailer: "Nordstrom", returnPortalUrl: "https://click.eml.nordstrom.com/?id=123" },
       new Map(),
       APP_DOMAIN,
     );
     expect(result.searchAnchor).toBe("click.eml.nordstrom.com");
-    // retailerPrefill falls through to normalizeRetailer(order.retailer) per
-    // F1 — passive-normalized (lowercased), not the raw "Nordstrom" casing.
-    expect(result.retailerPrefill).toBe("nordstrom");
+    expect(result.retailerPrefill).toBe("Nordstrom");
     expect(result.retailerPrefill).not.toMatch(/\./);
   });
 
@@ -151,7 +155,7 @@ describe("resolveSearchSubject", () => {
     const approvals = new Map([["shopbop", "shopbop.com"]]);
     const result = resolveSearchSubject({ retailer: "Shopbop", returnPortalUrl: null }, approvals, APP_DOMAIN);
     expect(result.searchAnchor).toBe("shopbop.com");
-    expect(result.retailerPrefill).toBe("shopbop");
+    expect(result.retailerPrefill).toBe("Shopbop");
     expect(result.retailerPrefill).not.toBe("shopbop.com");
   });
 });

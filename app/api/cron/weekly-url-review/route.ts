@@ -155,9 +155,13 @@ interface SearchSubject {
   // normalized retailer, but ONLY if it isn't itself URL-shaped
   // (isUrlShapedRetailer guard — self-perpetuation-loop defense: without
   // this, one row approved with a domain poisons every future row for the
-  // same retailer, forever, via this same lookup); (2) the
-  // passive-normalized Order.retailer; blank if neither yields a usable
-  // name. Never falls back to a returnPortalUrl domain.
+  // same retailer, forever, via this same lookup); (2) the raw
+  // `order.retailer` as-is (NOT normalizeRetailer's lowercased/suffix-
+  // stripped form — this must match how `rawRetailer` is populated a few
+  // lines below in the caller, so the sheet's Approved retailer and Raw
+  // retailer columns agree when priority (1) doesn't fire); blank if
+  // neither yields a usable name. Never falls back to a returnPortalUrl
+  // domain.
   retailerPrefill: string;
 }
 
@@ -169,7 +173,7 @@ export function resolveSearchSubject(
   const normalized = normalizeRetailer(order.retailer ?? "");
   const priorApproval = approvedRetailerByNormalizedName.get(normalized);
 
-  const retailerPrefill = priorApproval && !isUrlShapedRetailer(priorApproval) ? priorApproval : normalized;
+  const retailerPrefill = priorApproval && !isUrlShapedRetailer(priorApproval) ? priorApproval : (order.retailer ?? "");
 
   if (priorApproval) {
     return { searchAnchor: priorApproval, knownDomain: null, retailerPrefill };
