@@ -32,9 +32,392 @@
 
 ## 🔴 Now
 
+- [ ] **Follow-up, 2026-09-16 — Delete button rendering check.**
+
+      READ FIRST: TASKS.md header.
+
+      CONTEXT:
+      Prior report described app/OrderCard.tsx:300-304 as rendering
+      ArchiveOrDeletePrompt (with Archive + Delete) on every order card
+      on the main dashboard. Owner confirmed on live prod that no dashboard
+      card currently shows an Archive or Delete control at all — only Keep
+      (and Start Return where applicable). Screenshot evidence attached to
+      this task in TASKS.md Now.
+
+      TASKS (read-only):
+
+      1. Re-read app/OrderCard.tsx:300-304 in full context (surrounding
+         branching, conditional wrappers, feature flags, prop-gated
+         rendering). Quote the actual rendered output and any conditions
+         that gate it. Under what Order states / props does the
+         Archive+Delete control render, and under what conditions is it
+         suppressed?
+
+      2. Check git history on OrderCard.tsx: has the Archive+Delete
+         control been recently removed, gated, or feature-flagged?
+         git log --oneline -20 on the file, and git blame on the
+         relevant lines (300-304 or wherever the render happens).
+
+      3. If the control is intentionally hidden by a condition: quote
+         the condition, and identify which commit introduced it (with
+         commit message).
+
+      4. If the control appears in code but isn't reaching the DOM:
+         check for CSS/display-gating, wrapper components that might
+         return null, or parent components that might not pass the
+         necessary props.
+
+      5. Answer: given the running production build (commit a1b43f5),
+         is a user looking at a dashboard order card able to reach the
+         Delete action through any UI path? If yes, where. If no, why not.
+
+      6. Expected billed Anthropic API calls: 0.
+
+      CONSTRAINTS: read-only, no code changes, no doc edits, no fixes.
+      Answer the rendering question.
+
+- [ ] **Follow-up to today's framing session, 2026-09-16 — Order
+      soft-delete trigger check.**
+
+      READ FIRST: TASKS.md header.
+
+      CONTEXT:
+      Prior report identified that Order soft-delete leaves linked emails
+      attached until nightly hard-delete cron fires days later, at which
+      point Postgres cascade sets Email.orderId to null (silent re-orphan).
+      Before filing this as a bug, need to know what user-facing action(s)
+      trigger Order soft-delete in normal use.
+
+      TASKS (read-only):
+
+      1. Every code path that calls prisma.order.update with deletedAt set,
+         or otherwise soft-deletes an Order. For each: file:line, what UI
+         action triggers it (button label, page), and under what conditions.
+
+      2. Specifically check: is there a user-facing "delete this order"
+         action? Or does Order soft-delete only happen as a side effect of
+         something else (e.g., last email unlinked/junked, admin action,
+         cleanup process)?
+
+      3. If Order soft-delete happens as a side effect of email-level
+         actions, describe the exact chain: user does X on an email, which
+         causes Y on the Order.
+
+      4. Expected billed Anthropic API calls: 0.
+
+      CONSTRAINTS: read-only, no code changes, no doc edits, no fix
+      proposals. Just answer the trigger question.
+
+- [ ] **Framing pressure-test, 2026-09-16 — needs-review as one concept
+      with two maturity states.**
+
+      READ FIRST:
+      1. TASKS.md header (session rules — binding).
+      2. CARD_SPEC.md Part 3 (current state, will be amended).
+      3. Your two prior reports from today (needs-review row/detail-page
+         diagnostic + surface-area investigation).
+
+      CONTEXT:
+      Prior sessions established that "needsReview" currently means three
+      overlapping things across the codebase (bucket structural query,
+      Email.needsReview boolean, Order.needsReview boolean), with five
+      downstream surfaces silently defaulting to Order-only.
+
+      Owner has proposed a unifying product framing to resolve the
+      incoherence. This session pressure-tests that framing against the
+      codebase BEFORE any spec amendment is drafted. Read-only diagnostic.
+
+      PROPOSED FRAMING (to be tested, not assumed correct):
+
+      Needs-review is ONE concept with TWO maturity states:
+
+      - PROTO state: an email has arrived and is awaiting a decision about
+        whether it represents a real commercial purchase and, if so, which
+        Order it belongs to. Currently expressed in code as: an Email row
+        with orderId=null and junkedAt=null (an "orphan"). Resolutions
+        available: link to an existing Order, create a new Order from it,
+        or mark as not-a-purchase (junk).
+
+      - CONFIRMED state: an Order exists in the database, and the app has
+        committed to tracking it, but something about the Order is flagged
+        as needing owner attention. Currently expressed in code as: an
+        Order row with needsReview=true. Resolutions available: correct
+        the flagged issue (per reason), or accept the Order as-is.
+
+      Under this framing, needs-review is a single feature with two
+      lifecycle stages: proto (pre-Order) and confirmed (post-Order). Both
+      require an owner decision to resolve. Same UI container (the
+      dashboard bucket) surfaces both. Reasons and actions differ by
+      state, but the underlying concept is unified.
+
+      TASKS (read-only — no code changes):
+
+      1. Adversarial test — try to break the framing.
+         Look for cases the two-state model does NOT cleanly cover. For
+         each candidate case, describe what the code does and why the
+         framing doesn't fit. Examples to search for:
+         - Emails that are linked to an Order but whose Email.needsReview
+           is true (linked-but-flagged). Does this fit "confirmed" (the
+           Order carries the flag) or is it a third state?
+         - Orders that were created but should not have been (accidental
+           duplicates, mis-extracted non-purchases that became Orders).
+           What resolution path exists? Does deleting/merging an Order
+           re-orphan its emails? Any code path that does this today?
+         - Emails that arrive AFTER an Order is confirmed and get linked
+           retroactively — do they enter as proto and get promoted, or
+           link directly?
+         - Any code path that treats an email as reviewable independent
+           of its Order or orphan status.
+         Be specific: file:line evidence for each case, not general
+         speculation.
+
+      2. Transition audit — map every code path that moves items between
+         states.
+         - proto → confirmed (email becomes/joins an Order): every code
+           path that does this. File:line, function name, trigger.
+         - confirmed → proto (Order deleted/merged, emails re-orphaned):
+           does this path exist? If yes, where. If no, what happens to
+           emails when an Order is deleted or merged today?
+         - proto → discarded (junk-with-rescue): file:line.
+         - confirmed → resolved (needsReview flipped to false): file:line.
+         Report each transition. Flag any transition the framing implies
+         should exist but doesn't in code.
+
+      3. Email.needsReview removal — blast radius (assessment only, not
+         proposal).
+         The proposed framing implies Email.needsReview is redundant
+         (proto state is derivable from orderId=null + junkedAt=null;
+         flags on linked emails should live on the parent Order). Report:
+         - Every write site for Email.needsReview (already partially
+           identified: lib/runExtraction.ts:164, lib/linkOrder.ts:1103 —
+           confirm exhaustive).
+         - Every read site (already identified: app/(app)/emails/[id]/
+           page.tsx:90-94 — confirm exhaustive).
+         - Prisma schema location and any indexes/constraints on the
+           field.
+         - Migration considerations if the field were dropped (existing
+           rows, downstream analytics, anything else).
+         No opinion on whether to remove it — just the blast radius.
+
+      4. Framing verdict.
+         Given items 1-3, give a specific evidence-based read:
+         (a) Framing survives cleanly — code and framing align, no gaps.
+         (b) Framing survives with friction — list specific places code
+             would need to change to align, but no conceptual gaps.
+         (c) Framing has a real gap — describe the gap concretely, cite
+             the case(s) from item 1 that expose it, and suggest what
+             the framing would need to add to cover it.
+         Do not hedge between options. Pick one and defend it.
+
+      5. Expected billed Anthropic API calls: state before running.
+         Expected: 0.
+
+      CONSTRAINTS:
+      - No code changes. No file writes.
+      - No TASKS.md / HISTORY.md / DECISIONS.md / CARD_SPEC.md edits.
+      - No fix proposals.
+      - Do not treat the framing as correct — the point of this session is
+        to find where it isn't. Confirmation bias here defeats the exercise.
+      - If you find a candidate scope expansion beyond items 1-4, flag it
+        as a finding, don't pursue it.
+
+      DELIVERABLE:
+      Single report covering items 1-5, in that order. Then stop and wait.
+
+- [ ] **Surface-area investigation, 2026-09-16 — where the email-vs-order
+      duality lives in the needs-review feature and adjacent surfaces.**
+
+      READ FIRST:
+      1. TASKS.md header (session rules — binding).
+      2. CARD_SPEC.md Part 3 (needs-review bucket spec, including the
+         reason → action table and the 2026-08-24/25 amendment D).
+      3. Your own findings from the earlier session today (row-level and
+         detail-page code paths for both kinds).
+
+      CONTEXT:
+      Prior diagnostic today established that the needs-review feature
+      handles two structurally different objects — email-kind rows (loose
+      inbound email, no Order yet) and order-kind rows (already-formed
+      Order flagged for review) — with different code paths at four points
+      we've already found: reason detection, row-level action routing,
+      detail-page resolution surface, and which secondary controls apply.
+
+      We suspect this distinction reaches into more surfaces than we've
+      mapped. Before drafting a spec amendment for the bucket, we want
+      the full surface area of where email-vs-order matters, so the spec
+      amendment can cover it coherently instead of leaving other surfaces
+      inconsistent.
+
+      SCOPE (bounded):
+      - The needs-review feature itself (already mapped, re-confirm coverage).
+      - Directly adjacent surfaces that consume the needs-review population:
+          - Digest emails (weekly summary, if it references needs-review items)
+          - Reminders / notifications (any cron or job that reads needsReview)
+          - Dashboard sections outside the needs-review bucket that reference
+            flagged items (counts, banners, "due in 7 days" logic if it
+            excludes needs-review items, etc.)
+          - The four-slot inventory logic the spec mentions (find where this
+            lives in code and whether it treats the two kinds differently)
+          - Any code path that iterates over both Orders and Emails and
+            handles needsReview status.
+
+      OUT OF SCOPE:
+      - General Order-vs-Email data model audit across the whole app.
+      - Any surface that treats Orders and Emails differently for reasons
+        unrelated to needs-review (e.g., the main dashboard's Order list
+        doesn't need to be audited just because it shows Orders and not
+        Emails).
+      - Code changes of any kind.
+
+      TASKS (read-only diagnostic — no code changes):
+
+      1. For each in-scope surface, report:
+         - File path(s) and function/component names.
+         - What the surface does with the two kinds — treated identically,
+           treated differently, or only handles one kind (which one).
+         - If treated differently: quote the branching logic and describe
+           the divergence in plain English.
+
+      2. Read TASKS.md 🟡 Next (and 🟢 Later if relevant). Report every
+         entry that references the email-vs-order distinction, order-to-
+         order merge, email-kind detail page, or any of the gaps identified
+         in the prior diagnostic. Quote the entry verbatim, note how long
+         it has been sitting there (git blame the TASKS.md line).
+
+      3. Search the codebase for TODOs, FIXMEs, and code comments
+         referencing the email-vs-order distinction or acknowledging it as
+         unresolved. Report each with file:line and the comment text.
+
+      4. Report your overall read: is the distinction handled coherently
+         across in-scope surfaces (i.e., a consistent conceptual model even
+         if implementation differs), or has each surface made independent
+         local calls that don't add up to a coherent model? Give a specific,
+         evidence-based answer, not a hedge.
+
+      5. Expected billed Anthropic API calls: state before running. Expected: 0.
+
+      CONSTRAINTS:
+      - No code changes. No file writes outside scratch notes.
+      - No TASKS.md / HISTORY.md / DECISIONS.md edits.
+      - Do not propose fixes. Findings only.
+      - If you find yourself wanting to expand scope beyond the bounded
+        list above, stop and report the candidate expansion as a finding
+        for owner review — do not silently expand.
+
+      DELIVERABLE:
+      Single report covering items 1-5, in that order. Then stop and wait.
+
+- [ ] **Diagnostic session, 2026-09-16 — needs-review panel regression.**
+
+      READ FIRST, IN ORDER:
+      1. TASKS.md header (session rules — binding).
+      2. CARD_SPEC.md, especially Part 3 (reason → action table).
+      3. HISTORY.md entries for 2026-08-19 through 2026-08-23 (the (A)→(B)
+         needs-review rebuild, commits fd6ad84 + 561a95d, prod 198932b,
+         deploy dpl_8hJxiabe3PA6KomDEnDgwN38joRx).
+
+      CONTEXT — treat board as intent, not verified current state:
+      TASKS.md/HISTORY.md list the needs-review bucket rebuild as ✅ Done,
+      shipped 2026-08-23. Owner verified live at ship. It has REGRESSED in
+      production as of 2026-09-16. Reason from what the code shows now, not
+      from the written status. This is the SECOND instance of the pattern
+      class "build ships without CARD_SPEC Part 3's reason→action table
+      honored" — first was 08-19 through 08-23. That repeat is material to
+      how we diagnose; do not treat it as a footnote.
+
+      OBSERVED IN PROD (owner-captured screenshots, live
+      app.myreturnwindow.com, 2026-09-16):
+
+      Dashboard "Needs review" panel, 3 rows:
+      - Row 1: "Simply Simpson Boutique" — reason text "We're not certain
+        about some details on this order." Action(s) rendered: only "More
+        info" (tap-through to detail). No inline resolution action.
+      - Row 2: "shopbop.com" — reason text "This looks like a duplicate of
+        another order." Action(s) rendered: only "More info". No inline
+        merge action. Per spec, this is the case that most needs an inline
+        action.
+      - Row 3: "Unknown retailer" — reason text "We couldn't extract any
+        details from this email." Action(s) rendered: "Archive" (inline) +
+        "More info". Partially correct.
+
+      Detail page — Simply Simpson (row 1's detail):
+      - HAS a working "Looks correct" resolution button in the yellow
+        banner, top-right. Resolves the needs-review reason. Correct.
+      - Also has order-level Keep + Archive (six-state machine). Correct.
+
+      Detail pages for row 2 (duplicate) and row 3 (unknown retailer) — NOT
+      captured. Whether they have their own reason-specific resolution
+      actions is unverified.
+
+      So this is NOT a total regression. Some resolution surface exists on
+      one detail page. What appears missing: (a) row-level reason-specific
+      inline actions on the dashboard for all three cases, (b) possibly the
+      resolution surface on the duplicate and unknown-retailer detail
+      pages. Confirm both.
+
+      TASKS TO DO (READ-ONLY DIAGNOSTIC — NO CODE CHANGES):
+
+      1. Row-level action code path.
+         Show the exact component(s) that render each needs-review row's
+         action button(s) on the dashboard. Include: file paths, component
+         names, props actually passed, and the branching logic that picks
+         which action(s) to show per reason. Check BOTH the leaf row
+         component AND its parent panel — regressions in this class have
+         historically been at the parent/branching layer, not the leaf.
+
+      2. Diff against the (B) rebuild.
+         Compare the current row + parent code to commit 561a95d (the (B)
+         design-correction rebuild that shipped 2026-08-23). Same,
+         different, or effectively reverted? If different: `git log
+         --oneline` and `git blame` the row component and its parent to
+         identify when and why the change landed. Name the commit(s), the
+         author (should be you or a coding agent), and the stated reason
+         from the commit message.
+
+      3. Detail-page resolution surface, per reason.
+         Simply Simpson's "Looks correct" works — trace how (component,
+         handler, mutation, state transition). Then check the detail pages
+         for the duplicate case and the unknown-retailer case: does each
+         have its own reason-specific resolution action, or is the surface
+         missing/inconsistent? Report exactly what's rendered per reason.
+
+      4. Spec vs code — verbatim.
+         Open CARD_SPEC.md Part 3. Quote the reason → action table VERBATIM
+         (do not paraphrase — paraphrase drift is the pattern class we're
+         diagnosing). Then, for each reason, state what the code actually
+         renders at (a) row level and (b) detail-page level. Flag every
+         mismatch as a bullet: "Reason X: spec says Y, code renders Z."
+
+      5. Git state.
+         Report: local main HEAD, origin/main HEAD, and the commit prod is
+         actually running (resolve deploy hash 198932b or the current live
+         deploy → git ref). If local and origin diverge, or if prod is
+         behind either, say so.
+
+      6. Expected model-call count.
+         State expected billed Anthropic API calls for this diagnostic
+         BEFORE running anything model-adjacent. Expected: 0. If any step
+         would call the model, stop and ask.
+
+      CONSTRAINTS:
+      - No code changes. No file writes outside your own scratch notes.
+      - No TASKS.md edits. No HISTORY.md edits. No DECISIONS.md edits.
+      - Do not mark anything ✅.
+      - If you find yourself wanting to fix something "while you're in
+        there," stop and report it as a finding. Owner decides fix scope
+        after diagnosis lands.
+
+      DELIVERABLE:
+      A single report covering items 1–6, in that order. Then stop and
+      wait for owner review before proposing any fix.
+
 - [ ] **Fix URL-poisoning at sheet-generation source, 2026-09-16 —
       split search-subject from retailer-prefill, add prior-approval
       URL guard, add apply-cron defense-in-depth, add regression tests.**
+      **[2026-09-16 STATUS: wait-and-see monitoring, not active work —
+      this session's explicit task is the needs-review surface-area
+      investigation elsewhere in Now. Do not touch URL-poisoning code
+      paths this session.]**
       Follows from 2026-09-16 sheet-generation diagnostic. Root cause:
       `resolveSearchSubject()` in `app/api/cron/weekly-url-review/route.ts`
       returns one value used for two purposes — Serper search anchor
@@ -56,8 +439,11 @@
 
 - [ ] **Diagnostic session, 2026-09-16 — why does the URL-review sheet's
       `Approved retailer` column get pre-populated with URL/domain
-      shapes?** Read-only diagnostic only, per scope-control rule: no
-      code changes, no DB writes, no Anthropic API calls this session.
+      shapes?** **[2026-09-16 STATUS: wait-and-see monitoring, not active
+      work — this session's explicit task is the needs-review surface-area
+      investigation elsewhere in Now. Do not touch URL-poisoning code
+      paths this session.]** Read-only diagnostic only, per scope-control
+      rule: no code changes, no DB writes, no Anthropic API calls this session.
       Follows from the 2026-09-15 all-emails-flagging diagnostic, which
       found that ~40 orders currently have URL-shaped `Order.retailer`
       values, written by `apply-url-reviews` from the sheet's `Approved
@@ -3624,6 +4010,64 @@
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+
+- [ ] **Order soft-delete silently re-orphans linked emails days later,
+      with no reconciliation and no user-facing notice. NEW 2026-09-16,
+      surfaced across three same-day follow-up diagnostics (needs-review
+      framing pressure-test → soft-delete trigger check → Delete-button
+      rendering check).**
+      **Confirmed real, user-reachable trigger:** the dashboard's per-
+      order `Archive` control (`app/OrderCard.tsx:300-304`, behind the
+      card's expand toggle, `expanded` defaults `false` — collapsed-by-
+      default per CARD_SPEC.md Part 5 Q7, not a bug, confirmed via git
+      blame all one commit `d4543cd4` 2026-08-10) opens a popover with a
+      `Delete` option (`app/ArchiveOrDeletePrompt.tsx:90-97`) → confirm
+      dialog → `PATCH /api/orders/[id]/delete` (`app/api/orders/[id]/
+      delete/route.ts:28-30`) → `Order.deletedAt` set to now. This is
+      the only live write site for `Order.deletedAt` (confirmed
+      exhaustively; one other write site, `scripts/soft-delete-
+      southbank.mjs`, is a one-off manual script, not a repeatable
+      trigger).
+      **The gap:** soft-delete does not touch the order's linked emails
+      at all. `Email.orderId` has `ON DELETE SET NULL`
+      (`prisma/migrations/20260623024619_add_order_model/migration.sql:
+      27`), so when the nightly hard-delete cron
+      (`app/api/cron/route.ts:213-216`) sweeps the order past
+      `HARD_DELETE_DAYS`, Postgres itself nulls every linked email's
+      `orderId` — silently re-orphaning them, days after the user's
+      original action, with no code that reconciles `Email.needsReview`
+      or informs the user their deleted order's emails are back in the
+      needs-review bucket. Distinct from (but related to) the tracked
+      order-to-order merge gap below — this is Order *deletion*, not
+      merge, and nothing currently listens for it.
+- [ ] **"Linked-but-flagged" is a real third needs-review state with no
+      resolution path — not covered by the proto/confirmed framing. NEW
+      2026-09-16, surfaced during the needs-review framing pressure-
+      test.**
+      An email with `orderId` set (linked to a real Order — "confirmed"
+      under the proposed framing) can still carry `Email.needsReview:
+      true`, and nothing in the app can ever clear it. Root cause:
+      `mergeEmailIntoOrder()` (`lib/linkOrder.ts:840-923`, the shared
+      merge primitive used both by automatic ingestion-time matching and
+      by the manual "Link to order" bucket action) never touches
+      `needsReview`. The two *manual* callers patch this themselves
+      right after calling it (`lib/orderReview.ts:83`, `:99`, both set
+      `needsReview: false`) — but the *automatic* ingestion match
+      (`lib/linkOrder.ts:1150`, the far more common path) has no such
+      follow-up write, so a previously-orphaned flagged email that later
+      auto-matches keeps `needsReview: true` forever once attached.
+      **Not a hypothetical:** this exact shape has been independently
+      named twice before, unresolved both times — the 2026-07-23 four-
+      slot inventory found "108 linked emails carry `Email.needsReview:
+      true` with no resolve path" (HISTORY.md), and
+      `scripts/census-orphan-refresh.ts:9,49` has a standing
+      "linked-but-flagged" census category. The only live read of
+      `Email.needsReview` anywhere in the app
+      (`app/(app)/emails/[id]/page.tsx:90-94`) renders a static badge
+      with zero action. See also the still-open 2026-09-08 diagnostic
+      on this same field going stale post-merge (🟡 Next, Gap #1RYJR48
+      entry) — that entry described one incident; this entry is the
+      structural cause.
 
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
