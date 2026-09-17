@@ -5,6 +5,67 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-16 — Needs-review regression chain: five read-only diagnostics, scope drifted from "bucket regression" to "framing amendment" — no code shipped
+
+**REPORT ONLY, no code changes across any of the five sessions. 0 billed
+Anthropic API calls total** — every session was grep/file-read/git only,
+stated in advance each time per TASKS.md header's cost-reporting rule.
+
+**Scope drift, acknowledged.** The day started as a single task: diagnose
+why the needs-review dashboard panel, marked ✅ Done 2026-08-23, regressed
+in prod (owner screenshots showed 3 rows missing reason-specific inline
+actions). That diagnostic found the "regression" was mostly not a
+regression at all — order-kind rows degrading to `View detail` alone was a
+documented, deliberate 2026-08-21 scope decision (order-to-order merge
+deferred, see 🟡 Next), not new breakage. That finding reframed the actual
+problem from "something broke" to "the concept was never fully specified,"
+which pulled the day into a second track: a surface-area investigation
+(where email-vs-order duality reaches beyond the bucket — five downstream
+surfaces silently Order-only: alerts badge, reminder cron, both digests,
+four admin views), then a framing pressure-test of the owner's proposed
+proto/confirmed unifying model, which found a real third state
+("linked-but-flagged" — an email attached to an Order but still carrying
+its own stale `needsReview: true`, with zero code path to ever clear it)
+that the two-state framing doesn't cover. Two further same-day follow-ups
+(Order soft-delete trigger check, Delete-button rendering check) chased
+one thread out of the framing session — confirmed Order soft-delete's
+nightly-cron cascade silently re-orphans linked emails days later with no
+reconciliation, and separately confirmed the dashboard's Archive/Delete
+control isn't broken, just collapsed-by-default (CARD_SPEC Part 5 Q7,
+unchanged since 2026-08-10) — so the owner's "no Archive/Delete visible"
+observation was the collapsed view, not a missing control.
+
+None of this was scope creep in the sense of unrequested code changes —
+every pivot was owner-directed, each new task explicitly re-added to
+TASKS.md 🔴 Now before starting, per the standing rule. But the *shape* of
+the day's work moved a long way from its opening framing ("fix a UI
+regression") to its closing one ("pressure-test a spec amendment before
+it's drafted"), and that shift is worth naming plainly rather than letting
+the original "regression" framing stand uncorrected in the record.
+
+**What got done:** two new 🟡 Next entries (delayed silent re-orphan on
+Order delete; linked-but-flagged third state with no resolution path),
+one Delete-button-rendering false alarm closed out with evidence, and a
+much clearer map of exactly where "needs review" means three different
+things in the codebase (bucket structural query, `Email.needsReview`,
+`Order.needsReview`) with five surfaces defaulting to Order-only.
+
+**What did NOT get done — explicitly deferred, not forgotten:** no code
+changed. The dashboard's actual user-visible gap (order-kind rows without
+a real merge action, and linked-but-flagged emails with no resolve
+button) is still exactly as visible in prod at the end of today as it was
+at the start. That fix is **blocked on the spec amendment landing first**
+— CARD_SPEC.md Part 3 has not yet been amended to cover the "linked-but-
+flagged" third state the framing pressure-test surfaced, and building a
+UI fix against an unrevised spec would just re-create the same
+build-ships-before-spec-catches-up pattern this whole diagnostic chain was
+about (the second instance of that pattern class, per the original 🔴 Now
+entry). Sequencing for a future session: (1) owner amends CARD_SPEC.md
+Part 3 to name the third state and its resolution action, (2) then a build
+session implements against the amended spec — not before.
+
+---
+
 ## 2026-09-15 — Bloomingdale's-shape: near-threshold-primary retry bypass shipped, plus a stale-intent finding on the retailer != null retry gate
 
 **Trigger.** The 2026-09-14 Caroline manual-override arc (Bloomingdale's
