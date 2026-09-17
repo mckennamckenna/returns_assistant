@@ -161,8 +161,46 @@ table and map to displayStatus `shipped`; they are not part of this mapping.)
 ## Part 3 — The Needs-review bucket
 
 This is a **container**, structurally identical to the Amazon bundle — NOT a single
-card. It holds N flagged orders. Reuse the bundle component/pattern; do not design a
-new one.
+card. It holds N flagged items. Reuse the bundle component/pattern; do not design
+a new one.
+
+**[2026-09-17 amendment — two-state framing formalized.** Needs-review is one
+concept with two maturity states: **proto** and **confirmed**. Prior versions of
+this section treated the bucket's contents as one undifferentiated pool of
+"flagged items," which produced three overlapping definitions across the codebase
+(bucket structural query vs. `Email.needsReview` boolean vs. `Order.needsReview`
+boolean) and five downstream surfaces silently defaulting to Order-only. See
+HISTORY 2026-09-17 for the four-round diagnostic that surfaced this. The two
+states are defined structurally, share the row shape and control rendering, and
+differ only in what reasons apply.**
+
+### The two states
+
+- **Proto — an orphan email awaiting a routing decision.** Structurally:
+  `Email.orderId IS NULL AND Email.junkedAt IS NULL`. The app has not yet
+  committed to tracking the item. Resolutions: link to an existing Order,
+  start a new Order, or discard as not-a-purchase.
+- **Confirmed — a tracked Order flagged for owner attention.** Structurally:
+  `Order.needsReview = true`. The Order is in the database and being tracked;
+  something about it is flagged (typically a missing or ambiguous extracted
+  field). Resolutions: correct the flag per its reason, or accept as-is.
+
+Both states surface in the same bucket, render as the same 2x2 row shape (below),
+share the same collapsed/expanded rules, and share the always-present `View
+detail` secondary. What differs is the set of *reasons* — a proto row's reason
+describes an email awaiting a routing decision; a confirmed row's reason
+describes a flag on a tracked Order. The reason → action tables below are split
+by state to make that difference structural rather than implicit.
+
+**On `Email.needsReview` as a field.** Proto state is *derived* from the two
+structural properties above — it is not stored as a boolean on the Email row.
+`Email.needsReview` exists in the current schema for historical reasons and is
+being deprecated; see 🟡 Next / #3 for the migration and 🟡 Next / #1 for the
+related automatic-match bug that produced the linked-but-flagged bug population
+(folds into #3 when picked up). Code that needs to know "is this email in proto
+state?" must derive from `orderId` and `junkedAt`, not read `Email.needsReview`.
+
+---
 
 **Bucket header** (its own 2x2):
 
@@ -180,10 +218,10 @@ new one.
   fragment (`possible duplicate`, `no return policy`) and not a generic catch-all
   (`"This order needs a quick check"`). See the reason → action table below for the
   canonical phrasings.
-- Slot 4: **action** — the row's primary action (from the registry below, chosen via
-  the reason → action mapping) plus an always-present `View detail` secondary. Rows
-  whose reason has no mapped primary action show `View detail` alone — see "The
-  View-detail rule" below.
+- Slot 4: **action** — the row's primary action (from the registry below, chosen
+  via the state-appropriate reason → action mapping) plus an always-present
+  `View detail` secondary. Rows whose reason has no mapped primary action show
+  `View detail` alone — see "The View-detail rule" below.
 
 **Collapsed vs expanded — CORRECTED 2026-08-21, see Part 5 Q10:**
 
@@ -206,14 +244,14 @@ new one.
   reveals per-row detail; the change is which controls are visible
   before expand, not what expand does.**
 
-  **Two shapes, per the existing mapped-vs-degrade distinction in the
-  View-detail rule below:**
-  - **Mapped row** (top four reasons in the reason → action table —
-    primary action is not View detail): render three controls —
-    `{primary action, Archive, View detail}`.
-  - **Degrade row** (bottom three reasons — primary action IS View
-    detail): render two controls — `{Archive, View detail}`. No
-    duplicate.
+  **Two shapes, per the mapped-vs-degrade distinction in the View-detail
+  rule below** (defined by primary-action shape, not by row position —
+  new mapped or degrade reasons can be added to either state's table
+  without re-counting):
+  - **Mapped row** (any row whose primary action is not `View detail`):
+    render three controls — `{primary action, Archive, View detail}`.
+  - **Degrade row** (any row whose primary action IS `View detail`):
+    render two controls — `{Archive, View detail}`. No duplicate.
 
   **(2026-08-25 clarification: the earlier amendment text called More
   info "optional third control," and a same-day patch draft
@@ -224,6 +262,13 @@ new one.
   View-detail invariant in the View-detail rule below. CC's
   degrade-row-UI question during the Session-2 build surfaced the
   bug.)**
+
+  **[2026-09-17 note]** The pre-2026-09-17 wording referred to "top four" mapped
+  reasons and "bottom three" degrade reasons in the flat table. Both counts were
+  already stale relative to the table as of that date (6 mapped + 3 degrade),
+  and the table has since been split by state (below). The rule above is now
+  stated definitionally — mapped/degrade by primary-action shape — so no counts
+  need updating when reasons are added.
 
 **Slot 3 (why) is open-ended. Slot 4 (action) is a v1 registry of FIVE** (Q9 — treat as
 an open registry, not a closed set; owner wants room to add actions over time, and the
@@ -237,10 +282,14 @@ View-detail degrade default makes that safe):
 | View detail | "More info" | opens the item's detail. |
 | Nothing | (leave in bucket) | stays flagged, no-op. |
 
-**Reason → action mapping.** This is the missing logic the original draft skipped —
-"each row needs a reason string and an action" never said which reason gets which
-action. The table below is that mapping; it's the authority for what a given `why`
-renders as, not a suggestion:
+**Reason → action mapping — split by state (2026-09-17).** Each state has its own
+table. The two tables never share rows: a proto reason cannot apply to a tracked
+Order (structurally, no Order exists yet), and a confirmed reason cannot apply to
+an orphan email (structurally, there is no Order to flag). This split replaces
+the single flat table used pre-2026-09-17. The mapped-vs-degrade shape
+distinction (above) still applies, per-state.
+
+**Proto reasons — routing decisions on orphan emails:**
 
 | Reason (slot-3 why — full sentence) | Primary action (slot-4) | Secondary |
 |---|---|---|
@@ -250,10 +299,24 @@ renders as, not a suggestion:
 | "This looks like a real purchase with no order record." | Start a new order (Create new order) | View detail |
 | "This looks like a return or refund for an order we don't have on file." | Merge with existing order (Link to order) | View detail |
 | "Shipping or delivery update — link to the correct order." | Merge with existing order (Link to order) | View detail |
+| "We couldn't extract any details from this email." | View detail (degrade — only action) | — |
+| any unmapped proto reason | View detail (degrade) | — |
+
+**Confirmed reasons — flags on tracked Orders:**
+
+| Reason (slot-3 why — full sentence) | Primary action (slot-4) | Secondary |
+|---|---|---|
 | "We couldn't find a purchase date — the deadline may be estimated." | View detail (degrade — only action) | — |
 | "We couldn't find the order total." | View detail (degrade — only action) | — |
-| "We couldn't extract any details from this email." | View detail (degrade — only action) | — |
-| any unmapped reason | View detail (degrade) | — |
+| any unmapped confirmed reason | View detail (degrade) | — |
+
+The confirmed table is deliberately thin as of 2026-09-17 — the current set of
+confirmed reasons is limited to extraction-completeness flags on already-created
+Orders. As more Order-side review triggers are added (e.g. Order-total
+discrepancy after a partial refund, return-window-expiring warnings, unverified
+return-portal signal from M2), they will extend the confirmed table without
+touching the proto one. The thin table reflects present scope, not a design
+decision that confirmed reasons should stay few.
 
 - **Why "Create new order" is not redundant with "Link to order":** *Link* assumes a
   target order already exists. An orphaned email is often a real purchase with **no
@@ -271,25 +334,46 @@ renders as, not a suggestion:
   once it gets long.
 - **The View-detail rule, precisely:** `View detail` is the **always-present secondary
   on every row** — not merely a fallback that shows up when nothing else applies. A
-  mapped row (top four rows of the table above) shows **[primary action + View
-  detail]**, two controls. A degrade row (bottom three) shows **View detail alone**,
-  because there is no primary action to pair it with. Either way, `View detail` is
-  reachable from every row in the bucket, no exceptions.
-- **Any reason with no registered mapping degrades to `View detail`** — never throws.
-  This is what lets the bucket ship before every possible reason is mapped, and what
-  makes the registry safely extensible: a new reason string can be added at any time
-  without a matching action existing yet, and the row still works.
+  mapped row (any row whose primary action is not `View detail`, from either state's
+  table) shows **[primary action + View detail]**, two controls. A degrade row (any
+  row whose primary action IS `View detail`, from either state's table, plus any
+  unmapped reason) shows **View detail alone**, because there is no primary action
+  to pair it with. Either way, `View detail` is reachable from every row in the
+  bucket, no exceptions.
+- **Any reason with no registered mapping — proto or confirmed — degrades to
+  `View detail`.** Never throws. This is what lets the bucket ship before every
+  possible reason is mapped, and what makes the registry safely extensible: a new
+  reason string can be added at any time without a matching action existing yet,
+  and the row still works.
 - **[2026-08-24] "We couldn't extract any details from this email" is deliberately
   distinct from a generic "some details are uncertain" sentence** — it covers the
   zero-extraction case (no retailer, no order number, nothing to go on), not a
   partial-extraction case where specific fields are identifiably missing. Don't
   collapse the two; they're different claims about how much the system actually knows.
-- Populations that feed this bucket (from the four-slot inventory): orphaned
-  genuine-commerce emails, linked-but-flagged emails, duplicates, extraction
-  failures, and possible non-commerce (no detector yet, reason/action pair
-  reserved — not yet built). Each just needs a slot-3 reason string (full sentence,
-  per the table above) and inherits its slot-4 action from the mapping; unknown →
-  View detail.
+- **Populations that feed this bucket** (from the four-slot inventory), grouped by
+  state:
+  - **Proto:** orphaned genuine-commerce emails, duplicates, extraction failures,
+    and possible non-commerce (no detector yet, reason/action pair reserved —
+    not yet built).
+  - **Confirmed:** Orders with `needsReview = true` due to missing or ambiguous
+    extracted fields (per the confirmed reasons table).
+
+  Each row just needs a slot-3 reason string (full sentence, per the tables
+  above) and inherits its slot-4 action from the state-appropriate mapping;
+  unknown → View detail.
+
+  **[2026-09-17 historical note]** A prior version of this list named a fourth
+  population — "linked-but-flagged emails" — with `orderId` set AND
+  `Email.needsReview = true`. That population exists in the current database
+  (approx. 108 rows as of the 2026-09-17 audit) but is a bug artifact, not a
+  legitimate state. The automatic ingestion-match path
+  (`lib/linkOrder.ts:1146-1160`) fails to clear `Email.needsReview` when linking
+  an orphan into an existing Order; manual paths (`orderReview.ts:83`,
+  `orderReview.ts:99`) clear it correctly. Under the corrected implementation
+  (🟡 Next / #1, folds into #3), a linked email either belongs to an Order that
+  is itself flagged (confirmed state, read from `Order.needsReview`) or is not
+  in review at all. See HISTORY 2026-09-17 for the framing session that
+  surfaced this and CC's four-round diagnostic.
 
 **Overflow:** the bucket can hold 3 today and 15 after a bad extraction week. The
 bucket's own collapse/expand toggle (see "Collapsed vs expanded" above, corrected

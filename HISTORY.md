@@ -5,6 +5,217 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-17 — Needs-review framing: one concept, two states
+
+**Session shape.** Started as a bucket-regression diagnostic
+(continued from 2026-09-16 evening). Ended as a spec amendment
+formalizing a two-state framing for needs-review, three tracked
+bugs, and a pattern-class conclusion. Scope drifted from
+"diagnose the bucket" to "define the concept"; the drift was
+correct — the bucket was a symptom, not the disease.
+
+**What the diagnostic found (four CC rounds, 2026-09-16 → 17).**
+
+- **Round 1 — bucket regression.** The needs-review bucket was
+  under-populating relative to expected orphan-email counts.
+  Initial hypothesis: paraphrase drift on a spec sentence during
+  the 2026-08-21 rebuild. Wrong — the spec sentence was intact.
+- **Round 2 — surface-area investigation.** Widened to check
+  every code path that reads "needs review" state. Found three
+  overlapping definitions in play:
+  - The bucket's own structural query
+    (`Email.orderId IS NULL AND Email.junkedAt IS NULL`)
+  - `Email.needsReview` boolean
+  - `Order.needsReview` boolean
+  Five downstream surfaces silently defaulted to Order-only,
+  meaning any state carried on Email was invisible to them.
+  Working hypothesis shifted: "spec was deliberately deviated
+  from." Also wrong — no deviation on record; the surfaces were
+  built to different definitions, none of them wrong on its own.
+- **Round 3 — 🟡 Next promotion pattern.** Wondered whether
+  known-but-deferred items in 🟡 Next were failing to get
+  promoted. Partial explanation for some items, not the core
+  issue.
+- **Round 4 — framing pressure-test.** Owner proposed a
+  unifying framing (one concept, two maturity states).
+  Pressure-tested against code. Survived, with one refinement:
+  linked-but-flagged (~108 emails with `orderId` set AND
+  `Email.needsReview=true`) is a bug population, not a third
+  state. Auto-ingestion path in `lib/linkOrder.ts:1146-1160`
+  fails to clear `Email.needsReview` when linking; the manual
+  paths clear it correctly. Bug population is real; the state
+  shouldn't exist under a correct implementation.
+
+**Terminal framing.**
+
+Needs-review is one concept with two maturity states:
+
+- **Proto** — orphan email awaiting a routing decision.
+  Structurally `Email.orderId IS NULL AND Email.junkedAt IS
+  NULL`. App has not committed to tracking it. Resolutions:
+  link, create, or discard.
+- **Confirmed** — tracked Order flagged for review.
+  Structurally `Order.needsReview = true`. App is tracking;
+  something on the Order is flagged. Resolutions: correct
+  the flag, or accept.
+
+Both surface in the same bucket, share the row shape and
+control rendering, differ only in reasons. Full framing
+formalized in CARD_SPEC.md Part 3 (2026-09-17 amendment).
+
+**Option 2 chosen for `Email.needsReview` (deprecate, don't
+redefine).**
+
+Option 1 was: keep the field, define it as meaningless when
+`orderId` is set. Cheap now, ongoing tax — code has to
+remember to check `orderId` before reading `needsReview`,
+and code has already demonstrated (via the auto-match bug)
+that it forgets.
+
+Option 2 is: drop the field, derive proto state structurally
+from `orderId=null AND junkedAt=null`. Bounded upfront work
+(5 write sites, 1 read site, ~8 test refs, 5 scripts, schema
+drop). No ongoing tax. Bug class disappears — nothing to
+coordinate, nothing to forget.
+
+Option 2 chosen. Rationale: urgency is low (small alpha,
+visible bug is annoying not blocking), codebase is small
+enough to make the migration bounded, and Option 1 preserves
+the structural weakness that produced the bug in the first
+place. When you can fix a bug or fix the shape that keeps
+producing bugs, fix the shape.
+
+**Vestigial-field discoveries (two).**
+
+1. `Email.needsReview` itself — the entire point of the
+   deprecation. A boolean whose meaning depends on another
+   field's value is a boolean whose meaning drifts.
+2. The July 23 admin-undercount finding — a separate audit
+   result that surfaced a field discrepancy on the admin
+   dashboard, never converted into a tracked item. Not
+   directly related to needs-review framing, but a second
+   instance of the same anti-pattern: a real signal noticed
+   during diagnostic work that never made it onto the board.
+   Worth eventually promoting to a Next item; noting here so
+   it isn't lost a second time.
+
+**Pattern class.**
+
+Not "spec forgotten in paraphrase." Not "spec deliberately
+violated." Not "🟡 Next items don't get promoted." The actual
+pattern:
+
+**A core product concept ("needsReview") was never given a
+single definition, so every surface that needed one made its
+own local call, and now there are three overlapping
+definitions that don't reference each other.**
+
+The bucket regression was a symptom that surfaced because the
+bucket is the one place where a user sees the email-kind
+population directly — but the gap runs through the entire
+app. Fix is at the framing layer, not the code layer:
+define the concept once, in spec, then align code to it.
+
+This is worth watching for elsewhere. Any concept in the app
+that is (a) named the same across multiple surfaces and
+(b) not defined in one authoritative place is a candidate to
+develop the same drift. Candidates to eyeball at some point:
+"archived," "returned," "delivered," "junk" — each of these
+probably has a spec sentence but is worth checking whether
+every surface reads from the same source or is quietly
+computing its own version.
+
+**Artifacts produced.**
+
+1. CARD_SPEC.md Part 3 amendment (2026-09-17) — formalizes
+   the two-state framing, splits the flat reason→action table
+   into proto and confirmed tables, updates the populations
+   list, adds historical note on linked-but-flagged as a bug
+   population.
+2. TASKS.md 🟡 Next entries — three bugs:
+   - #1 automatic-match no-clear (`lib/linkOrder.ts:1146-1160`)
+   - #2 order-delete ghost emails (`app/api/cron/route.ts:213-216`
+     + FK cascade + `app/actions.ts:12-31` companion)
+   - #3 `Email.needsReview` deprecation (Option 2 migration)
+   Sequencing: #3 subsumes #1; #2 lands before Delete UI
+   redesign.
+3. HISTORY.md entry (this one).
+4. TASKS.md 🔴 Now closeout — scope drift acknowledged;
+   visible dashboard fix deferred, blocked on spec landing.
+
+**Surfaced during drafting (worth mentioning here so the note
+isn't lost).**
+
+The state-split makes visible that the confirmed table has
+only two reasons today, both degrade — meaning every
+confirmed row currently renders as `{Archive, View detail}`
+with no inline primary action. Correcting a "couldn't find
+purchase date" flag requires going into detail. That's how
+the current spec has it and the amendment preserved it
+exactly, but the UX consequence wasn't visible pre-split
+when the two rows were mixed among mapped proto rows. Not
+a change to the amendment; a candidate for a later
+confirmed-side design pass.
+
+**CC diagnostic 2026-09-17 (post-framing).**
+
+After Part 3 was drafted, ran a read-only diagnostic against
+CC to confirm none of the three bugs had been partially fixed
+since the file:line references were captured. Result: all
+three still present, all references still accurate, git in
+sync with origin/main. Confirmed the Next entries can use the
+file:line pointers directly without re-verification per entry.
+
+**What didn't get done (deferred).**
+
+Visible dashboard fix — the actual UI-side alignment of the
+five surfaces that silently defaulted to Order-only.
+Deferred to a future session, blocked on Part 3 amendment
+landing so the alignment target is settled.
+
+### 2026-09-17 — Session close
+
+**Scope drift acknowledged.** Session opened as "diagnose the
+needs-review bucket regression" (continued from 2026-09-16
+evening). Ended as a framing amendment to CARD_SPEC.md Part 3
+plus three tracked bugs in 🟡 Next. Drift was correct — the
+bucket regression was a symptom of a concept-definition gap
+that runs through the whole app, not a bucket-local bug. Full
+narrative above.
+
+**What landed:**
+- CARD_SPEC.md Part 3 amendment (two-state framing, split
+  reason→action tables, populations regrouped, linked-but-flagged
+  historical note).
+- 🟡 Next #1, #2, #3 (auto-match no-clear, order-delete ghost
+  emails, `Email.needsReview` deprecation).
+- This HISTORY entry.
+
+**What didn't get done, and why:**
+- **Visible dashboard fix** (the five surfaces that silently
+  defaulted to Order-only for needs-review state). Deferred to a
+  future session. Blocked on Part 3 landing so the alignment
+  target is settled — now unblocked, but not attempted this
+  session because the framing work took the whole session.
+  Not on any Next entry yet; add when picking up.
+
+**Diagnostic entries cleared from Now:**
+The five diagnostic entries added to 🔴 Now during 2026-09-16 and
+2026-09-17 (original bucket-regression diagnostic + surface-area
+investigation + framing pressure-test + two follow-ups) are
+consolidated into this entry and removed from Now. Anything they
+were tracking that isn't captured in the three 🟡 Next entries or
+the deferred dashboard fix above should be surfaced now — nothing
+else is expected to be outstanding.
+
+**Next work session starting point:** 🟡 Next #2 (order-delete
+ghost emails). Sequencing rationale: bounded scope, on the
+critical path for Delete UI redesign, not blocked by anything
+else. #3 (which subsumes #1) can run in parallel or after; #1
+alone only worth doing if #3 is deferred.
+
+---
+
 ## 2026-09-16 — Needs-review regression chain: five read-only diagnostics, scope drifted from "bucket regression" to "framing amendment" — no code shipped
 
 **REPORT ONLY, no code changes across any of the five sessions. 0 billed
