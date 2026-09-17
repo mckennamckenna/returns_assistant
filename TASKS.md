@@ -4040,34 +4040,62 @@
       needs-review bucket. Distinct from (but related to) the tracked
       order-to-order merge gap below — this is Order *deletion*, not
       merge, and nothing currently listens for it.
-- [ ] **"Linked-but-flagged" is a real third needs-review state with no
-      resolution path — not covered by the proto/confirmed framing. NEW
-      2026-09-16, surfaced during the needs-review framing pressure-
-      test.**
-      An email with `orderId` set (linked to a real Order — "confirmed"
-      under the proposed framing) can still carry `Email.needsReview:
-      true`, and nothing in the app can ever clear it. Root cause:
-      `mergeEmailIntoOrder()` (`lib/linkOrder.ts:840-923`, the shared
-      merge primitive used both by automatic ingestion-time matching and
-      by the manual "Link to order" bucket action) never touches
-      `needsReview`. The two *manual* callers patch this themselves
-      right after calling it (`lib/orderReview.ts:83`, `:99`, both set
-      `needsReview: false`) — but the *automatic* ingestion match
-      (`lib/linkOrder.ts:1150`, the far more common path) has no such
-      follow-up write, so a previously-orphaned flagged email that later
-      auto-matches keeps `needsReview: true` forever once attached.
-      **Not a hypothetical:** this exact shape has been independently
-      named twice before, unresolved both times — the 2026-07-23 four-
-      slot inventory found "108 linked emails carry `Email.needsReview:
-      true` with no resolve path" (HISTORY.md), and
-      `scripts/census-orphan-refresh.ts:9,49` has a standing
-      "linked-but-flagged" census category. The only live read of
+- [ ] **Automatic-match no-clear bug: `Email.needsReview` never gets
+      cleared on the ingestion-time auto-match path, producing an
+      unintended "linked-but-flagged" population. NEW 2026-09-16,
+      surfaced during the needs-review framing pressure-test.
+      CORRECTED same night: this is a bug, not a third needs-review
+      state — see the framing session's explicit rejection of the
+      "third state" framing. Under the proto/confirmed two-state model
+      this population shouldn't exist at all.**
+      Root cause: `mergeEmailIntoOrder()` (`lib/linkOrder.ts:840-923`,
+      the shared merge primitive used both by automatic ingestion-time
+      matching and by the manual "Link to order" bucket action) never
+      touches `needsReview`. The two *manual* callers patch this
+      themselves right after calling it (`lib/orderReview.ts:83`, `:99`,
+      both set `needsReview: false`) — but the *automatic* ingestion
+      match (`lib/linkOrder.ts:1146-1160`, the far more common path) has
+      no such follow-up write, so a previously-orphaned flagged email
+      that later auto-matches keeps `needsReview: true` forever once
+      attached, with `orderId` set. Fix shape: add the same
+      `needsReview: false` write to the automatic match path (or see
+      the deprecation item below, which subsumes this entirely).
+      **Ongoing production evidence, not evidence of a legitimate
+      state:** the 2026-07-23 four-slot inventory found "108 linked
+      emails carry `Email.needsReview: true` with no resolve path"
+      (HISTORY.md) — 108 instances of this bug, not 108 members of a
+      real state. `scripts/census-orphan-refresh.ts:9,49`'s standing
+      "linked-but-flagged" census category and the still-open
+      2026-09-08 diagnostic (🟡 Next, Gap #1RYJR48 entry, one incident
+      of the same bug) are further evidence the bug keeps firing, not
+      that anything should resolve it as a state. The only live read of
       `Email.needsReview` anywhere in the app
       (`app/(app)/emails/[id]/page.tsx:90-94`) renders a static badge
-      with zero action. See also the still-open 2026-09-08 diagnostic
-      on this same field going stale post-merge (🟡 Next, Gap #1RYJR48
-      entry) — that entry described one incident; this entry is the
-      structural cause.
+      with zero action — another symptom of the same underlying bug,
+      not a missing feature to build.
+- [ ] **Deprecate `Email.needsReview` entirely (Option 2, owner
+      decision 2026-09-16 framing session). NEW 2026-09-16.**
+      Under the proto/confirmed two-state framing, proto state is fully
+      derivable from `orderId=null AND junkedAt=null` (already how the
+      bucket and its overflow page detect email-kind rows —
+      `lib/needsReviewRows.ts`, neither reads `Email.needsReview`) —
+      confirmed state lives entirely on the Order. `Email.needsReview`
+      is redundant under the framing and should be removed, not
+      reconciled. Blast radius (from the framing pressure-test, assessed
+      not yet executed): 5 write sites
+      (`lib/runExtraction.ts:164`, `lib/linkOrder.ts:1100-1104`,
+      `lib/orderReview.ts:83`, `:99`, `app/actions.ts:68`), 1 live read
+      (`app/(app)/emails/[id]/page.tsx:90-94` — badge needs
+      reworking or removal), 3 one-off census/report scripts under
+      `scripts/`, 8 test references. No index/FK dependency
+      (`prisma/schema.prisma:160`) — structurally cheap to drop once
+      call sites are updated. Not yet scoped into a migration plan.
+      **Sequencing note:** this deprecation subsumes the automatic-match
+      no-clear bug above (fixing the field's existence makes the missed
+      write moot). Do not fix both independently — either patch the
+      no-clear bug in isolation as a quick interim fix, **or** fold it
+      into this deprecation work and skip the interim patch. Don't do
+      both (wasted work: a fix to a field about to be deleted).
 
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the

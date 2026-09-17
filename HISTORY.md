@@ -23,10 +23,18 @@ which pulled the day into a second track: a surface-area investigation
 (where email-vs-order duality reaches beyond the bucket — five downstream
 surfaces silently Order-only: alerts badge, reminder cron, both digests,
 four admin views), then a framing pressure-test of the owner's proposed
-proto/confirmed unifying model, which found a real third state
-("linked-but-flagged" — an email attached to an Order but still carrying
-its own stale `needsReview: true`, with zero code path to ever clear it)
-that the two-state framing doesn't cover. Two further same-day follow-ups
+proto/confirmed unifying model, which surfaced "linked-but-flagged"
+(an email attached to an Order but still carrying its own stale
+`needsReview: true`, with zero code path to ever clear it) as a candidate
+gap in the framing. **CORRECTED same night:** this was initially logged
+as a real third state the two-state framing doesn't cover; the owner
+rejected that framing — it's an automatic-match no-clear bug
+(`lib/linkOrder.ts:1146-1160` never writes `needsReview: false` on the
+ingestion-time auto-match path, unlike the two manual link/create
+callers), not a state the model needs to accommodate. Under proto/
+confirmed, this population shouldn't exist at all — see the owner's
+Option 2 decision (🟡 Next) to deprecate `Email.needsReview` outright,
+which subsumes the bug. Two further same-day follow-ups
 (Order soft-delete trigger check, Delete-button rendering check) chased
 one thread out of the framing session — confirmed Order soft-delete's
 nightly-cron cascade silently re-orphans linked emails days later with no
@@ -43,26 +51,29 @@ regression") to its closing one ("pressure-test a spec amendment before
 it's drafted"), and that shift is worth naming plainly rather than letting
 the original "regression" framing stand uncorrected in the record.
 
-**What got done:** two new 🟡 Next entries (delayed silent re-orphan on
-Order delete; linked-but-flagged third state with no resolution path),
-one Delete-button-rendering false alarm closed out with evidence, and a
-much clearer map of exactly where "needs review" means three different
-things in the codebase (bucket structural query, `Email.needsReview`,
-`Order.needsReview`) with five surfaces defaulting to Order-only.
+**What got done:** three 🟡 Next entries (delayed silent re-orphan on
+Order delete; the linked-but-flagged automatic-match no-clear bug,
+corrected from an initial mis-framing as a third state; the Option 2
+decision to deprecate `Email.needsReview` entirely, which subsumes that
+bug), one Delete-button-rendering false alarm closed out with evidence,
+and a much clearer map of exactly where "needs review" means three
+different things in the codebase (bucket structural query,
+`Email.needsReview`, `Order.needsReview`) with five surfaces defaulting
+to Order-only.
 
 **What did NOT get done — explicitly deferred, not forgotten:** no code
 changed. The dashboard's actual user-visible gap (order-kind rows without
-a real merge action, and linked-but-flagged emails with no resolve
-button) is still exactly as visible in prod at the end of today as it was
-at the start. That fix is **blocked on the spec amendment landing first**
-— CARD_SPEC.md Part 3 has not yet been amended to cover the "linked-but-
-flagged" third state the framing pressure-test surfaced, and building a
-UI fix against an unrevised spec would just re-create the same
+a real merge action) is still exactly as visible in prod at the end of
+today as it was at the start. That fix is **blocked on the spec amendment
+landing first** — CARD_SPEC.md Part 3 has not yet been amended to reflect
+the proto/confirmed framing (now settled, third-state framing rejected)
+or the `Email.needsReview` deprecation decision, and building a UI fix
+against an unrevised spec would just re-create the same
 build-ships-before-spec-catches-up pattern this whole diagnostic chain was
 about (the second instance of that pattern class, per the original 🔴 Now
 entry). Sequencing for a future session: (1) owner amends CARD_SPEC.md
-Part 3 to name the third state and its resolution action, (2) then a build
-session implements against the amended spec — not before.
+Part 3 for the settled framing and its resolution actions, (2) then a
+build session implements against the amended spec — not before.
 
 ---
 
