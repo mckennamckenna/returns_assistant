@@ -3896,6 +3896,18 @@
       touching those protected blocks. No code uses the old terms
       (grepped app/lib/__tests__ 2026-09-18).
 
+- [ ] **6. Stop deployments from filling Vercel Function Storage.** NEW
+      2026-09-18, follow-up to the Known-issues entry on hitting 100% of
+      the 10 GB free tier. ~200 production deploys in a month, because
+      every push deploys, including docs-only ones. Two options, not
+      mutually exclusive: (a) a Deployment Retention policy in Vercel
+      project settings so old deploys age out on their own; (b) an
+      Ignored Build Step that skips builds when a commit touches only
+      `*.md` files. (b) would change CLAUDE.md/BUILD.md's "docs-only
+      commits deploy too" statement and the session-start sync check
+      (live ≠ HEAD would then be normal after docs-only commits). Update
+      both in the same change. [needs clarification: which option(s)]
+
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
       disabled-button fix (PR #1, merged and verified in prod same
@@ -8818,18 +8830,19 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **Docs-only push `2720766` (2026-09-18 14:21) triggered no Vercel
-  deploy** — no Building/Queued/Preview entry in `vercel ls` 4+ minutes
-  after the push, though GitHub's `main` was confirmed at that SHA
-  (`git ls-remote`). Contradicts CLAUDE.md/BUILD.md ("every push to
-  `main` triggers a production deploy, including docs-only commits") and
-  every prior data point (Known-issues auto-deploy log above, ~2s–2.5min).
-  Code-irrelevant (docs only; live `4cee116` code is identical), but the
-  next session's start-of-session sync check will show live ≠ HEAD. Did
-  NOT run `vercel --prod` (CLAUDE.md forbids). Next step: check the
-  Vercel dashboard's Git settings / Ignored Build Step and GitHub webhook
-  delivery log for this push; if the commit that records this note also
-  doesn't deploy, the webhook is broken, not a one-off.
+- **Vercel Function Storage at 100% of the free tier (10 GB), 2026-09-18
+  — deploys stall.** Root cause of the "docs-only push triggered no
+  deploy" symptom first logged here the same afternoon (that note wrongly
+  suspected a broken GitHub webhook; the webhook was fine). Vercel emailed
+  the owner: team at 100% of included Function Storage. Effect observed:
+  `2720766`'s deploy was created ~10 min late and sat at INITIALIZING
+  indefinitely; `d0c0e1f`'s deploy went through ~20 min late and is live.
+  Production kept serving throughout. Scale: 206 retained deployments
+  (201 production) since 2026-08-20; each build carries ~104 functions.
+  Owner planning a bulk delete of old deployments. Keep at minimum: the
+  live deploy, `4cee116` (order-delete cascade), and `34cbdb4` (last
+  pre-cascade code — the rollback target until 🔴 Now's cascade is
+  verified). Prevention tracked in 🟡 Next #6.
 - **`npm run build` warns: `lib/actionToken.ts` loads Node `crypto`,
   unsupported in the Edge Runtime** — import trace runs through
   `instrumentation.ts` (Edge Instrumentation). Build still exits 0 and
