@@ -162,15 +162,17 @@ model Email {
   extractionRaw       Json? // full AI JSON response, for debugging the prompt
   extractedAt         DateTime?
 
-  // Soft state: null = visible in normal views; non-null = filtered out
-  // everywhere an email list is queried (Unlinked emails, Needs Review,
-  // any future consumer — see lib/junk.ts's JUNK_FILTER, the single
-  // exported where-clause fragment every such query must spread). NOT a
-  // delete — prisma.email.delete() is never involved. Auto-set at
-  // ingestion for orphaned, confirmed-non-commerce emails
-  // (emailType === "other" — see shouldAutoJunk in lib/junk.ts). Cleared
-  // by rescueEmail(), which also writes an EmailRescue row so rescues are
-  // auditable per-user over time, not just a count.
+  // Soft state: null = visible in normal views; non-null = suppressed
+  // from every email list shown to a human (Unlinked emails, Needs Review,
+  // the weekly coverage digest, any future consumer — see lib/junk.ts's
+  // JUNK_FILTER, the single exported where-clause fragment every such
+  // query must spread). Means "suppressed," NOT "classified non-commerce":
+  // set automatically at ingestion (shouldAutoJunk, lib/junk.ts), by the
+  // user's "Not a purchase" action, and by the order-delete cascade when a
+  // soft-deleted Order is hard-deleted. NOT a delete — prisma.email.delete()
+  // is never involved. Cleared by rescueEmail(), which also writes an
+  // EmailRescue row so rescues are auditable per-user over time, not just
+  // a count.
   junkedAt DateTime?
 
   // --- Anchor date resolver (ANCHOR_DATE_RESOLVER.md, 2026-07-25) ---

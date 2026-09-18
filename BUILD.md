@@ -744,11 +744,18 @@ this pass.
   missed-window order is indistinguishable from a manually-archived one (same
   pre-existing gap as manual archive, not something this feature introduces).
 
-### Junk mechanics for non-commerce orphaned emails (`lib/junk.ts`, 2026-07-22, backend only)
+### Junk suppression
 - **Junk is a soft state, `Email.junkedAt`, never a delete.** `prisma.email.delete()`
   is never involved anywhere in this feature — junked means "filtered out of every
   view that lists emails," fully recoverable via `rescueEmail()`. Same shape as
   `Order.archivedAt`, one level down (email, not order).
+- **Junked means "suppressed," not "non-commerce" (2026-09-18).** Three triggers
+  set `junkedAt`: ingestion auto-junk (`shouldAutoJunk`, below), the user's
+  "Not a purchase" action, and the order-delete cascade (a soft-deleted Order's
+  linked emails are junked when the nightly cron hard-deletes it —
+  `junkLinkedEmailsForDeletedOrder`, `lib/orderReview.ts`). A junked email is
+  therefore not necessarily a non-purchase — don't read `junkedAt` as classifier
+  truth or count it toward a non-commerce rate.
 - **Invariant: every consumer that lists emails MUST spread `JUNK_FILTER`
   (`{ junkedAt: null }`, `lib/junk.ts`) into its `where` clause, or a junked email
   can silently leak back into a human-facing surface.** Full consumer audit run
@@ -759,9 +766,11 @@ this pass.
   (a junked marketing email would otherwise read as "did we catch this?" in a real
   outbound email — not scoped to `orderId: null`, so it needed checking explicitly).
   Both updated in the same change. Every other email query is scoped by `orderId`,
-  which a junked email can never carry (junking only ever fires on an orphaned
-  email — see `shouldAutoJunk` below) — those sites are structurally unreachable
-  by a junked row and were deliberately left unchanged. **Any future consumer that
+  which a junked email never carries once its junk commits — ingestion auto-junk
+  and "Not a purchase" only junk orphans, and the order-delete cascade (2026-09-18)
+  junks inside the same transaction as the Order delete, whose ON DELETE SET NULL
+  clears `orderId` before commit — those sites are structurally unreachable by a
+  junked row and were deliberately left unchanged. **Any future consumer that
   lists emails must add this filter explicitly — it is not automatic.**
 - **`shouldAutoJunk(email)` — pure, deliberately narrow: `orderId === null AND
   emailType === "other"`.** Fires from exactly one call site,

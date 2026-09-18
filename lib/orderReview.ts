@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   createOrderFromEmail,
@@ -105,12 +106,57 @@ export async function createOrderFromOrphanedEmail(emailId: string): Promise<{ o
 
 // CARD_SPEC.md Part 3 — "Not a purchase." Junk-with-rescue (lib/junk.ts's
 // JUNK_FILTER/rescueEmail contract), never a hard delete — deliberately not
-// deleteEmail() above, which really does prisma.email.delete().
-export async function archiveOrphanedEmail(emailId: string): Promise<boolean> {
-  const email = await prisma.email.findUnique({ where: { id: emailId }, select: { id: true } });
+// deleteEmail() above, which really does prisma.email.delete(). Optional
+// tx lets junkLinkedEmailsForDeletedOrder below run this inside the
+// caller's order-delete transaction; omitted, it uses the global client
+// (archiveOrphanedEmailAction's path, unchanged).
+export async function archiveOrphanedEmail(emailId: string, tx: Prisma.TransactionClient = prisma): Promise<boolean> {
+  const email = await tx.email.findUnique({ where: { id: emailId }, select: { id: true } });
   if (!email) return false;
-  await prisma.email.update({ where: { id: emailId }, data: { junkedAt: new Date() } });
+  await tx.email.update({ where: { id: emailId }, data: { junkedAt: new Date() } });
   return true;
+}
+
+// TASKS.md 🔴 Now (2026-09-17, "Order-delete ghost emails fix") — when an
+// Order is hard-deleted, its linked emails are junked-with-rescue in the
+// same transaction, rather than left to the FK's ON DELETE SET NULL to
+// silently re-orphan them into the Needs Review bucket days or weeks
+// later with no explanation. Reuses archiveOrphanedEmail per email —
+// deliberately not a bulk junkedAt update — so this stays the one place
+// "junk an email" is implemented. Call sites must pass their transaction
+// client and call this BEFORE deleting the Order row itself: junk and
+// delete commit or roll back together, so an email is never left junked
+// while still linked (lib/junk.ts's JUNK_FILTER invariant). Emails are
+// junked sequentially, not via Promise.all — an interactive transaction
+// runs on one connection, so parallel queries buy nothing there.
+//
+// One ActionLog row per call (per order-delete event), not per email —
+// the transition is one causal event, not N. ActionLog has no payload
+// column and this fix adds no migration, so detail is packed into the
+// `action` string, same convention as `status_action:<from>-><to>`. The
+// orderId goes in the string too, not just the orderId column: that
+// column is ON DELETE SET NULL (prisma/schema.prisma's ActionLog model),
+// so once the Order is deleted it's the only record of which Order this
+// was. Email IDs stay out — recoverable by junkedAt timestamp + userId.
+// Skips the log write entirely when there's nothing to junk (an order
+// with no linked emails at delete time) — nothing happened, so there's
+// no event worth recording.
+export async function junkLinkedEmailsForDeletedOrder(orderId: string, tx: Prisma.TransactionClient = prisma): Promise<void> {
+  const emails = await tx.email.findMany({ where: { orderId }, select: { id: true, userId: true } });
+  if (emails.length === 0) return;
+
+  for (const email of emails) {
+    await archiveOrphanedEmail(email.id, tx);
+  }
+
+  await tx.actionLog.create({
+    data: {
+      userId: emails[0].userId,
+      orderId,
+      action: `order_deleted_junk_cascade:orderId=${orderId}:count=${emails.length}`,
+      outcome: "success",
+    },
+  });
 }
 
 // There's no stored "reason code" for needsReview — it's just a boolean,

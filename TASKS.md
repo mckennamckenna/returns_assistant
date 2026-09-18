@@ -32,6 +32,103 @@
 
 ## 🔴 Now
 
+- [ ] **Order-delete ghost emails fix — implementation, 2026-09-17.**
+      Picked up from 🟡 Next #2. Owner review rejected the original
+      re-orphan-with-reason framing (both the Next entry's and the
+      first design report's) on UX grounds: delete/archive should mean
+      gone, not "reappears in Needs Review a month later, even
+      labeled." Corrected behavior, approved for implementation:
+      when an Order is hard-deleted (nightly cron sweep of soft-deleted
+      Orders, or `app/actions.ts:12-31`'s last-email path converging
+      onto the same soft-delete model), its linked emails are
+      junked-with-rescue at that moment — same effect as tapping
+      "Not a purchase" on each individually — not re-orphaned into the
+      bucket. A genuinely new email arriving for a deleted Order still
+      enters the bucket normally via existing detection; no change
+      needed there.
+
+      **Locked implementation plan (owner-approved 2026-09-17):**
+      1. `lib/orderReview.ts` — add `junkLinkedEmailsForDeletedOrder(orderId)`,
+         calling the existing `archiveOrphanedEmail` per linked email
+         (reuse, not reimplement) plus one `ActionLog` row per
+         order-delete event (not per email) — `action:
+         "order_deleted_junk_cascade:orderId=<id>:count=<n>"`,
+         `outcome: "success"`. **Amended 2026-09-18** after the red-team
+         investigation: (i) orderId goes back IN the action string —
+         `ActionLog.orderId` is ON DELETE SET NULL (`schema.prisma:480`),
+         so the column alone can't identify the Order once it's deleted
+         (reverses the Checkpoint 1 call to drop it); email IDs stay out
+         (recoverable via junkedAt timestamp + userId). (ii) Both this
+         function and `archiveOrphanedEmail` take an optional
+         `tx: Prisma.TransactionClient` (default global prisma) so junk +
+         Order delete are atomic — otherwise a failed delete leaves
+         junked-but-still-linked emails, violating `lib/junk.ts`'s
+         JUNK_FILTER invariant. (iii) Contract docs updated in the same
+         change: `lib/junk.ts` header + `schema.prisma` Email.junkedAt
+         comment reframed from "confirmed non-commerce, orphan only" to
+         "suppressed from active views," naming both triggers.
+         Deliberately NOT in this change: ActionLog on the Not-a-purchase
+         path; 🟡 Next #1; CARD_SPEC Part 3 "one queue, two review types"
+         reframe (owner, separately).
+
+      2. `app/api/cron/route.ts:212-217` — hard-delete step calls it
+         inside a per-order transaction before deleting each Order.
+      3. `app/actions.ts:12-31` (`deleteEmail`) — last-email branch
+         soft-deletes the Order (`deletedAt = now()`) instead of
+         hard-deleting it immediately, converging onto the same
+         30-day-window model as the dashboard Delete button; the
+         `reminder.deleteMany` moves to the cron's hard-delete step.
+         **Amended 2026-09-18 (Checkpoint 2 review): reminder deletion
+         dropped entirely, not moved.** Reminder rows are kept on
+         hard-delete (FK is ON DELETE SET NULL — confirmed live via
+         `pg_constraint`, `confdeltype = 'n'`), matching dashboard-Delete
+         behavior and preserving `/admin`'s recent-sends audit trail. The
+         `deleteEmail` line was removable: added 2026-06-24 while the FK
+         was still RESTRICT (its removed sibling `deleteOrder` said so
+         explicitly), made dead by the 2026-06-27 SET NULL migration.
+      4. Tests: `__tests__/orderReview.test.ts` (new cascade function),
+         `__tests__/cronHardDelete.test.ts` (new), `__tests__/deleteEmail.test.ts`
+         (new).
+      5. **Added 2026-09-18:** per-order failure isolation in the cron
+         hard-delete step (one bad order logs + retries next night instead
+         of failing the whole run), with an admin email via the existing
+         `notifyAdmin` pattern (new kind `hard_delete_failures`, plain
+         String column, no migration) listing failed order IDs + errors.
+
+      **Status 2026-09-18:** built, 870 tests passing, `npm run build`
+      clean; committed + pushed + deployed this session (see HISTORY
+      once verified). **Awaiting production verification** — the cascade
+      only runs in the nightly cron (14:00 UTC), and the next run with a
+      >30-day soft-deleted order is the real test: check its response
+      JSON `hardDeleted`/`hardDeleteFailed` and for an
+      `order_deleted_junk_cascade:*` ActionLog row. Don't force-run the
+      cron to verify — it also sends real reminder emails.
+
+      **Explicitly out of scope for this fix** (each a deliberate
+      owner decision, not an oversight):
+      - No schema change, no migration, no stored reason field — a
+        deleted order's emails never appear in the bucket, so no "why"
+        string is ever needed for them.
+      - No backfill of emails already re-orphaned under the current
+        buggy behavior — they're already visible to users; retroactively
+        removing them would itself be a silent-disappearance event, the
+        exact anti-pattern this fix exists to eliminate.
+      - No defensive `deletedAt` check added to
+        `linkEmailToExistingOrder` (`lib/orderReview.ts:77-88`) — every
+        current UI candidate-order query already excludes soft-deleted
+        orders (verified 2026-09-17: `app/(app)/page.tsx:74`,
+        `app/(app)/needs-review/page.tsx:47`, `lib/linkOrder.ts:659` all
+        filter `deletedAt: null`), so the gap is unreachable today.
+        Noted as a future hygiene item, not fixed here.
+      - No Delete-flow UI change / no Part 5 amendment — the
+        "also archive attached emails?" prompt considered in the first
+        design pass is unnecessary once junking is the unconditional
+        default.
+
+      **Refs:** CARD_SPEC Part 3 (two-state framing); HISTORY 2026-09-17;
+      supersedes the re-orphan framing in 🟡 Next #2 below, which stays
+      recorded for history but is no longer the plan being built.
+
 - [ ] **Fix URL-poisoning at sheet-generation source, 2026-09-16 —
       split search-subject from retailer-prefill, add prior-approval
       URL guard, add apply-cron defense-in-depth, add regression tests.**
@@ -3758,6 +3855,33 @@
       for free). If #3 gets deferred and the linked-but-flagged
       population becomes visibly confusing before then, do #1 as a
       one-line patch.
+
+- [ ] **4. Junk/rescue recovery view — no UI surface exists for
+      `rescueEmail`.** Surfaced during 🟡 Next #2's implementation
+      design (2026-09-17). `rescueEmail` (`lib/junk.ts:89-99`) and its
+      wired action `rescueEmailAction` (`app/actions.ts:118-127`) exist
+      in the backend, but `rescueEmailAction` has zero importers
+      anywhere in `app/` — no page, tab, filter, or admin view lists
+      `junkedAt IS NOT NULL` emails or offers a "Restore" control.
+      Junking an email (via the bucket's existing "Not a purchase"
+      action, or via #2's new order-delete junk cascade) is currently
+      a one-way trip in practice, even though the data model is
+      reversible.
+
+      Not a new gap introduced by #2 — the bucket's "Not a purchase"
+      action has shipped this same gap all along. #2 makes it worse in
+      practice: those emails get junked 30 days after the user's
+      original Delete tap, with no on-screen moment to remember them,
+      versus junking something you just looked at yourself.
+
+      **Scope:** some recovery surface (a tab, a filter toggle, a
+      dedicated page) listing junked emails per user, each with a
+      Restore control calling the existing `rescueEmailAction`. Not
+      designed yet — needs its own pass, possibly a CARD_SPEC addition
+      since it's a new surface, not an extension of an existing one.
+
+      **Not a hard block on #2** — owner decision 2026-09-17: ship #2
+      without this, track separately.
 
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
@@ -8676,6 +8800,23 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`npm run build` warns: `lib/actionToken.ts` loads Node `crypto`,
+  unsupported in the Edge Runtime** — import trace runs through
+  `instrumentation.ts` (Edge Instrumentation). Build still exits 0 and
+  the token routes work in prod (Node runtime); risk is only if
+  instrumentation's Edge path ever actually calls into the token code.
+  Pre-existing, noticed 2026-09-18 during the order-delete junk-cascade
+  build; not investigated further.
+- **`lib/linkOrder.ts:1092-1094` comment overclaims — two stale
+  "only" statements.** Says this branch is "the only place an email can
+  end up orphaned" and "the only point shouldAutoJunk can ever fire
+  from." Both already false before 2026-09-18: `unlinkEmailFromOrderAction`
+  (`app/actions.ts:61-73`) and the Order FK's ON DELETE SET NULL also
+  orphan emails, and `shouldAutoJunk` also fires at ingestion
+  (`app/api/inbound/route.ts:335`). Comment-only; code behavior is
+  correct. Found 2026-09-18 during the order-delete junk-cascade
+  contract-doc pass; left out of that change as unrelated to the
+  junk-semantics wording.
 - **`app/(app)/orders/[id]/page.tsx:369` uses a raw
   `email.receivedAt.toLocaleDateString()` for the linked-emails list,
   not routed through `lib/dateDisplay.ts`.** Found 2026-09-12 during the

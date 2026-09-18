@@ -19,6 +19,7 @@ import { escapeHtml, htmlLink, wrapEmailHtml } from "@/lib/emailHtml";
 import { isAmazonOrder } from "@/lib/amazonBundle";
 import { formatCalendarDate } from "@/lib/dateDisplay";
 import { truncateOrderNumber } from "@/lib/orderNumberDisplay";
+import { junkLinkedEmailsForDeletedOrder } from "@/lib/orderReview";
 
 export const dynamic = "force-dynamic";
 
@@ -193,6 +194,56 @@ function isAuthorized(request: NextRequest): boolean {
   return url.searchParams.get("secret") === secret;
 }
 
+// TASKS.md 🔴 Now (2026-09-17, "Order-delete ghost emails fix") — one
+// transaction per order, not a single order.deleteMany: each order's linked
+// emails are junked (junkLinkedEmailsForDeletedOrder) in the same
+// transaction as the Order delete, so the Email FK's ON DELETE SET NULL
+// can't re-orphan them into the Needs Review bucket, and a failed delete
+// rolls the junking back rather than leaving emails junked-but-still-linked.
+// Reminder rows are deliberately kept — their FK is ON DELETE SET NULL, so
+// they survive with orderId null and /admin's "recent sends" audit trail
+// stays intact through order deletion. The deletedAt re-check inside the
+// transaction covers an order restored between the findMany and its turn
+// in the loop. A per-order failure is logged and skipped, not thrown — the
+// order stays soft-deleted and is retried on the next nightly run, one bad
+// order can't block the reminder sends below, and any failures are emailed
+// to the admin (same notifyAdmin pattern as the reminder run summary).
+export async function hardDeleteSoftDeletedOrders(
+  now: Date,
+): Promise<{ hardDeleted: number; hardDeleteFailed: { orderId: string; error: string }[] }> {
+  const cutoff = hardDeleteCutoff(now);
+  const expired = await prisma.order.findMany({ where: { deletedAt: { lte: cutoff } }, select: { id: true } });
+
+  let hardDeleted = 0;
+  const hardDeleteFailed: { orderId: string; error: string }[] = [];
+  for (const { id } of expired) {
+    try {
+      const deleted = await prisma.$transaction(async (tx) => {
+        const stillExpired = await tx.order.findFirst({ where: { id, deletedAt: { lte: cutoff } }, select: { id: true } });
+        if (!stillExpired) return false;
+        await junkLinkedEmailsForDeletedOrder(id, tx);
+        await tx.order.delete({ where: { id } });
+        return true;
+      });
+      if (deleted) hardDeleted++;
+    } catch (error) {
+      console.error("Hard-delete failed for order, will retry next run:", id, error);
+      hardDeleteFailed.push({ orderId: id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  if (hardDeleteFailed.length > 0) {
+    const lines = [
+      `${hardDeleteFailed.length} order hard-delete(s) failed; ${hardDeleted} succeeded. Failed orders stay soft-deleted and are retried on the next nightly run.`,
+      "",
+      ...hardDeleteFailed.map((f) => `- ${f.orderId}: ${f.error}`),
+    ];
+    await notifyAdmin("Return Window: order hard-delete failures", lines.join("\n"), "hard_delete_failures");
+  }
+
+  return { hardDeleted, hardDeleteFailed };
+}
+
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -211,10 +262,7 @@ export async function GET(request: NextRequest) {
 
   // Hard-delete orders that were soft-deleted more than HARD_DELETE_DAYS ago.
   // Runs first so deleted orders are already gone before reminder processing.
-  const cutoff = hardDeleteCutoff(today);
-  const { count: hardDeleted } = await prisma.order.deleteMany({
-    where: { deletedAt: { lte: cutoff } },
-  });
+  const { hardDeleted, hardDeleteFailed } = await hardDeleteSoftDeletedOrders(today);
 
   // Silently archive orders whose return window closed AUTO_ARCHIVE_GRACE_DAYS
   // ago or more with no user action taken — no email, no Reminder row, no
@@ -372,6 +420,7 @@ export async function GET(request: NextRequest) {
     ranAt: today.toISOString(),
     force,
     hardDeleted,
+    hardDeleteFailed,
     autoArchived,
     rateLimitRowsSwept,
     totalOrders: orders.length,

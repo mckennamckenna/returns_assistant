@@ -7,6 +7,7 @@ export type NotificationKind =
   | "new_user_login"
   | "gmail_verification"
   | "reminder_summary"
+  | "hard_delete_failures"
   | "weekly_coverage_summary"
   | "weekly_digest_summary"
   | "weekly_url_review_summary"

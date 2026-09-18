@@ -2,11 +2,25 @@ import { prisma } from "@/lib/db";
 import { isFoodGroceryDomain } from "@/lib/foodGroceryExclusion";
 import { isUspsCarrierDomain } from "@/lib/uspsCarrierPingExclusion";
 
-// Junk is a soft state on Email.junkedAt — never a delete. An email that's
-// been auto-filed as confirmed non-commerce is still fully recoverable via
-// rescueEmail() below; prisma.email.delete() is never involved anywhere in
-// this file. See prisma/schema.prisma's Email.junkedAt comment for the full
-// contract and BUILD.md for the invariant this file exists to protect.
+// Junk is a soft state on Email.junkedAt — never a delete. It means
+// "suppressed from active views," NOT "classified as non-commerce": a
+// junked email is hidden from every email list shown to a human (see
+// JUNK_FILTER below) and stays fully recoverable via rescueEmail(). Three
+// triggers set it:
+//   1. Automatic, at ingestion — shouldAutoJunk below (sender-domain
+//      exclusions, or an orphaned emailType === "other"), plus
+//      lib/linkOrder.ts's food/grocery retailer-name backstop.
+//   2. The user's "Not a purchase" action on a Needs Review row
+//      (lib/orderReview.ts's archiveOrphanedEmail).
+//   3. The order-delete cascade — when a soft-deleted Order is
+//      hard-deleted, its linked emails are junked in the same transaction
+//      (lib/orderReview.ts's junkLinkedEmailsForDeletedOrder), so a deleted
+//      order's emails stay gone instead of resurfacing as orphans.
+// Because of (3), a junked email is not necessarily a non-purchase — don't
+// read junkedAt as classifier truth or count it toward a non-commerce
+// rate. prisma.email.delete() is never involved anywhere in this file. See
+// prisma/schema.prisma's Email.junkedAt comment for the full contract and
+// BUILD.md for the invariant this file exists to protect.
 
 // Prisma where-clause fragment that excludes junked emails. Spread this into
 // any findMany/findFirst where clause that lists emails for a human to see —
@@ -20,9 +34,11 @@ import { isUspsCarrierDomain } from "@/lib/uspsCarrierPingExclusion";
 // emails by retailer name in a real outbound email — a junked marketing
 // email showing up there would read as "did we catch this?" about content
 // that was never a purchase). Every other prisma.email.* call site is
-// scoped by orderId, which junked emails can never carry (junking only
-// ever applies to orphaned emails — see shouldAutoJunk below) — those sites
-// are structurally unreachable by a junked row and were left unchanged.
+// scoped by orderId, which a junked email never carries once its junk
+// commits: triggers 1 and 2 above only ever junk orphans, and trigger 3
+// runs inside the same transaction as the Order delete, whose ON DELETE
+// SET NULL clears orderId before commit — those sites are structurally
+// unreachable by a junked row and were left unchanged.
 export const JUNK_FILTER = {
   junkedAt: null,
 } as const;

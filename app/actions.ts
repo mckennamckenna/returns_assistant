@@ -18,11 +18,18 @@ export async function deleteEmail(emailId: string): Promise<void> {
 
   await prisma.email.delete({ where: { id: emailId } });
 
+  // Deleting an order's last email soft-deletes the Order — same model as
+  // the dashboard Delete button (app/api/orders/[id]/delete/route.ts) — so
+  // every Order hard-delete goes through the nightly cron's
+  // hardDeleteSoftDeletedOrders, which junks linked emails in the same
+  // transaction as the delete. No reminder cleanup needed: Reminder's FK is
+  // ON DELETE SET NULL (the old reminder.deleteMany here dated from when it
+  // was RESTRICT). deletedAt: null in the where keeps an already-soft-deleted
+  // order's original 30-day clock from resetting.
   if (email.orderId) {
     const remaining = await prisma.email.count({ where: { orderId: email.orderId } });
     if (remaining === 0) {
-      await prisma.reminder.deleteMany({ where: { orderId: email.orderId } });
-      await prisma.order.delete({ where: { id: email.orderId } });
+      await prisma.order.updateMany({ where: { id: email.orderId, deletedAt: null }, data: { deletedAt: new Date() } });
     }
     revalidatePath(`/orders/${email.orderId}`);
   }

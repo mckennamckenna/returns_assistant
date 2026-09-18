@@ -1,5 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { computeOrderReviewReason } from "../lib/orderReview";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Global client stand-in for archiveOrphanedEmail's default-parameter path
+// (TASKS.md 🔴 Now, order-delete ghost emails fix). computeOrderReviewReason
+// below is pure and never touches it.
+const mockPrisma = {
+  email: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+  actionLog: { create: vi.fn() },
+};
+vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
+
+const { computeOrderReviewReason, archiveOrphanedEmail, junkLinkedEmailsForDeletedOrder } = await import("../lib/orderReview");
 
 const base = {
   id: "order-1",
@@ -89,5 +99,117 @@ describe("computeOrderReviewReason", () => {
 
   it("defaults candidateOrders to [] when omitted (e.g. a caller with no other-orders data on hand)", () => {
     expect(() => computeOrderReviewReason(base)).not.toThrow();
+  });
+});
+
+// TASKS.md 🔴 Now (2026-09-17, amended 2026-09-18) — order-delete junk cascade.
+function makeTx(linkedEmails: { id: string; userId: string }[] = []) {
+  return {
+    email: {
+      findUnique: vi.fn(({ where }: { where: { id: string } }) => Promise.resolve({ id: where.id })),
+      findMany: vi.fn().mockResolvedValue(linkedEmails),
+      update: vi.fn().mockResolvedValue({}),
+    },
+    actionLog: { create: vi.fn().mockResolvedValue({}) },
+  };
+}
+
+type Tx = Parameters<typeof junkLinkedEmailsForDeletedOrder>[1];
+
+describe("archiveOrphanedEmail", () => {
+  beforeEach(() => {
+    mockPrisma.email.findUnique.mockReset();
+    mockPrisma.email.update.mockReset();
+  });
+
+  it("uses the global client when no tx is passed — archiveOrphanedEmailAction's path, unchanged", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue({ id: "email-1" });
+
+    expect(await archiveOrphanedEmail("email-1")).toBe(true);
+    expect(mockPrisma.email.update).toHaveBeenCalledWith({
+      where: { id: "email-1" },
+      data: { junkedAt: expect.any(Date) },
+    });
+  });
+
+  it("uses the passed tx, never the global client, when one is given", async () => {
+    const tx = makeTx();
+
+    expect(await archiveOrphanedEmail("email-1", tx as unknown as Tx)).toBe(true);
+    expect(tx.email.update).toHaveBeenCalledWith({ where: { id: "email-1" }, data: { junkedAt: expect.any(Date) } });
+    expect(mockPrisma.email.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.email.update).not.toHaveBeenCalled();
+  });
+
+  it("returns false and writes nothing when the email doesn't exist", async () => {
+    mockPrisma.email.findUnique.mockResolvedValue(null);
+
+    expect(await archiveOrphanedEmail("missing")).toBe(false);
+    expect(mockPrisma.email.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("junkLinkedEmailsForDeletedOrder", () => {
+  beforeEach(() => {
+    mockPrisma.email.findUnique.mockReset();
+    mockPrisma.email.findMany.mockReset();
+    mockPrisma.email.update.mockReset();
+    mockPrisma.actionLog.create.mockReset();
+  });
+
+  it("junks every email linked to the order, through the tx", async () => {
+    const tx = makeTx([
+      { id: "email-1", userId: "user-1" },
+      { id: "email-2", userId: "user-1" },
+    ]);
+
+    await junkLinkedEmailsForDeletedOrder("order-1", tx as unknown as Tx);
+
+    expect(tx.email.findMany).toHaveBeenCalledWith({ where: { orderId: "order-1" }, select: { id: true, userId: true } });
+    expect(tx.email.update).toHaveBeenCalledTimes(2);
+    expect(tx.email.update).toHaveBeenCalledWith({ where: { id: "email-1" }, data: { junkedAt: expect.any(Date) } });
+    expect(tx.email.update).toHaveBeenCalledWith({ where: { id: "email-2" }, data: { junkedAt: expect.any(Date) } });
+  });
+
+  it("writes exactly one ActionLog row with the orderId in the action string (the orderId column is nulled once the Order is deleted) and no email IDs", async () => {
+    const tx = makeTx([
+      { id: "email-1", userId: "user-1" },
+      { id: "email-2", userId: "user-1" },
+      { id: "email-3", userId: "user-1" },
+    ]);
+
+    await junkLinkedEmailsForDeletedOrder("order-1", tx as unknown as Tx);
+
+    expect(tx.actionLog.create).toHaveBeenCalledTimes(1);
+    expect(tx.actionLog.create).toHaveBeenCalledWith({
+      data: {
+        userId: "user-1",
+        orderId: "order-1",
+        action: "order_deleted_junk_cascade:orderId=order-1:count=3",
+        outcome: "success",
+      },
+    });
+    const { action } = tx.actionLog.create.mock.calls[0][0].data;
+    expect(action).not.toContain("email-");
+  });
+
+  it("writes nothing — no junk, no ActionLog row — when the order has no linked emails", async () => {
+    const tx = makeTx([]);
+
+    await junkLinkedEmailsForDeletedOrder("order-1", tx as unknown as Tx);
+
+    expect(tx.email.update).not.toHaveBeenCalled();
+    expect(tx.actionLog.create).not.toHaveBeenCalled();
+  });
+
+  it("never touches the global client when a tx is passed — everything joins the caller's transaction", async () => {
+    const tx = makeTx([{ id: "email-1", userId: "user-1" }]);
+
+    await junkLinkedEmailsForDeletedOrder("order-1", tx as unknown as Tx);
+
+    expect(mockPrisma.email.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.email.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.email.update).not.toHaveBeenCalled();
+    expect(mockPrisma.actionLog.create).not.toHaveBeenCalled();
   });
 });

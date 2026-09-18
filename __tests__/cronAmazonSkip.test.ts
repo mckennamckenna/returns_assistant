@@ -17,9 +17,11 @@ const mockOrderFindMany = vi.fn();
 
 const mockPrisma = {
   order: {
-    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-    findMany: mockOrderFindMany,
+    // The hard-delete step's expired-orders query (deletedAt: { lte })
+    // returns nothing here — this file only exercises the reminder loop.
+    findMany: (args: { where?: { deletedAt?: { lte?: Date } | null } }) =>
+      args?.where?.deletedAt?.lte ? Promise.resolve([]) : mockOrderFindMany(args),
   },
   rateLimitCounter: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
   reminder: {
