@@ -3883,6 +3883,19 @@
       **Not a hard block on #2** — owner decision 2026-09-17: ship #2
       without this, track separately.
 
+- [ ] **5. CARD_SPEC Part 3 — finish the proto/confirmed → routing/correction
+      terminology sweep.** NEW 2026-09-18, follow-up to the Part 3 language
+      reframe (✅ Done 2026-09-18). That reframe was deliberately scoped to
+      leave these untouched, so old terms remain in: the mapped/degrade
+      shape rules ("either state's table," "split by state"), the reason
+      table rows ("any unmapped proto/confirmed reason"), the thin-table
+      paragraph below the tables, the "Any reason with no registered
+      mapping — proto or confirmed" bullet, the populations list
+      (**Proto:** / **Confirmed:**), and the linked-but-flagged historical
+      note ("confirmed state"). Language-only; needs owner sign-off on
+      touching those protected blocks. No code uses the old terms
+      (grepped app/lib/__tests__ 2026-09-18).
+
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
       disabled-button fix (PR #1, merged and verified in prod same
@@ -6646,6 +6659,11 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **CARD_SPEC Part 3 language reframe — "two maturity states
+      (proto/confirmed)" → "two kinds of review item
+      (routing/correction)," 2026-09-18.** Docs-only; committed and
+      pushed. Leftover old terms in protected blocks → 🟡 Next #5.
 
 - [x] **Fix: Start-return CTA button dead-ends — "Continue to X →" button got
       stuck on "…" and never redirected to the retailer. Owner-verified live

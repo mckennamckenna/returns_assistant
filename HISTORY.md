@@ -5,6 +5,34 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-18 — CARD_SPEC Part 3 language reframe: "two kinds of review item"
+
+Owner-authored replacement for Part 3's "### The two states." Needs
+Review is now framed as one queue surfacing two *kinds* of item —
+**routing review** (orphan Email, `orderId IS NULL AND junkedAt IS NULL`)
+and **order correction** (`Order.needsReview = true`) — rather than two
+maturity states (proto → confirmed) of one record. Rationale: most
+routing items never become correction items (link and discard leave
+the queue; create-new usually yields a healthy Order), so a lifecycle
+framing overclaimed. The one real transition — create-new producing an
+incomplete Order — is named as the exception path. Also added: the
+structural definitions are current invariants, not permanent truths;
+extend them explicitly rather than adding side-booleans (the
+`Email.needsReview` lesson).
+
+Language only: structural definitions, reason-table contents, shape
+rules, the linked-but-flagged note, and everything below the tables
+unchanged. Terminology updated in the amendment header, the
+`Email.needsReview` paragraph, the mapping intro, and both table
+headers. Remaining old-term occurrences inside the protected blocks
+tracked as 🟡 Next #5.
+
+Same session (not yet in this log — awaiting production verification):
+🟡 Next #2 order-delete junk cascade shipped in `4cee116`; see TASKS.md
+🔴 Now for status.
+
+---
+
 ## 2026-09-17 — Needs-review framing: one concept, two states
 
 **Session shape.** Started as a bucket-regression diagnostic

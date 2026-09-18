@@ -165,39 +165,79 @@ card. It holds N flagged items. Reuse the bundle component/pattern; do not desig
 a new one.
 
 **[2026-09-17 amendment — two-state framing formalized.** Needs-review is one
-concept with two maturity states: **proto** and **confirmed**. Prior versions of
+concept with two kinds of review item: **routing** and **correction** (reframed
+2026-09-18 from the original "two maturity states, proto and confirmed" wording —
+see "Two kinds of review item" below). Prior versions of
 this section treated the bucket's contents as one undifferentiated pool of
 "flagged items," which produced three overlapping definitions across the codebase
 (bucket structural query vs. `Email.needsReview` boolean vs. `Order.needsReview`
 boolean) and five downstream surfaces silently defaulting to Order-only. See
 HISTORY 2026-09-17 for the four-round diagnostic that surfaced this. The two
-states are defined structurally, share the row shape and control rendering, and
+kinds are defined structurally, share the row shape and control rendering, and
 differ only in what reasons apply.**
 
-### The two states
+### Two kinds of review item
 
-- **Proto — an orphan email awaiting a routing decision.** Structurally:
-  `Email.orderId IS NULL AND Email.junkedAt IS NULL`. The app has not yet
-  committed to tracking the item. Resolutions: link to an existing Order,
-  start a new Order, or discard as not-a-purchase.
-- **Confirmed — a tracked Order flagged for owner attention.** Structurally:
-  `Order.needsReview = true`. The Order is in the database and being tracked;
-  something about it is flagged (typically a missing or ambiguous extracted
-  field). Resolutions: correct the flag per its reason, or accept as-is.
+Needs Review is one queue that surfaces two kinds of unresolved
+decision. They differ in what entity carries the state, what
+resolutions apply, and how they're structurally identified —
+they are not two lifecycle stages of one record. Most items
+resolve without ever passing through the other kind.
 
-Both states surface in the same bucket, render as the same 2x2 row shape (below),
-share the same collapsed/expanded rules, and share the always-present `View
-detail` secondary. What differs is the set of *reasons* — a proto row's reason
-describes an email awaiting a routing decision; a confirmed row's reason
-describes a flag on a tracked Order. The reason → action tables below are split
-by state to make that difference structural rather than implicit.
+- **Routing review — an orphan email awaiting a routing
+  decision.** Entity: Email. Structurally:
+  `Email.orderId IS NULL AND Email.junkedAt IS NULL`. The app
+  has not yet committed to tracking the item. Resolutions:
+  link to an existing Order, start a new Order, or discard as
+  not-a-purchase. Most routing items resolve to "gone from the
+  queue" — link produces a healthy tracked Order, discard
+  suppresses the email, create-new-order in the common case
+  produces a healthy Order (needsReview=false) that never
+  appears in the queue at all.
+- **Order correction — a tracked Order flagged for owner
+  attention.** Entity: Order. Structurally:
+  `Order.needsReview = true`. The Order is in the database and
+  being tracked; something about it is flagged (typically a
+  missing or ambiguous extracted field). Resolutions: correct
+  the flag per its reason, or accept as-is.
 
-**On `Email.needsReview` as a field.** Proto state is *derived* from the two
+**They're related but not stages.** A routing item's "create
+new order" resolution can, in the sub-case where extraction
+produces an incomplete Order, surface the same underlying
+decision as a subsequent correction item on that Order. That's
+a genuine transition — but it's the exception path, not the
+expected outcome. Most routing items never produce a correction
+item. Treating them as sequential lifecycle stages (routing
+→ correction) would overclaim; treating them as unrelated would
+underclaim. The accurate framing is: two kinds of item that
+share a queue and a UI, occasionally one produces the other.
+
+**On the structural definitions above.** These are current
+invariants under today's data model, not metaphysical truths
+about email or orders. Future features (automated retry
+queues, multi-Order emails, additional Order-side review
+triggers) may add discriminators that the two-clause structural
+tests above can't express on their own. When that happens,
+extend the definitions explicitly rather than layering side-
+booleans that duplicate the structural state (see the
+`Email.needsReview` deprecation for what happens when the
+codebase forgets this rule).
+
+Both kinds surface in the same bucket, render as the same 2x2
+row shape (below), share the same collapsed/expanded rules,
+and share the always-present `View detail` secondary. What
+differs is the set of *reasons* — a routing item's reason
+describes an email awaiting a decision; a correction item's
+reason describes a flag on a tracked Order. The reason →
+action tables below are split by kind to make that difference
+structural rather than implicit.
+
+**On `Email.needsReview` as a field.** Routing state is *derived* from the two
 structural properties above — it is not stored as a boolean on the Email row.
 `Email.needsReview` exists in the current schema for historical reasons and is
 being deprecated; see 🟡 Next / #3 for the migration and 🟡 Next / #1 for the
 related automatic-match bug that produced the linked-but-flagged bug population
-(folds into #3 when picked up). Code that needs to know "is this email in proto
+(folds into #3 when picked up). Code that needs to know "is this email in routing
 state?" must derive from `orderId` and `junkedAt`, not read `Email.needsReview`.
 
 ---
@@ -282,14 +322,14 @@ View-detail degrade default makes that safe):
 | View detail | "More info" | opens the item's detail. |
 | Nothing | (leave in bucket) | stays flagged, no-op. |
 
-**Reason → action mapping — split by state (2026-09-17).** Each state has its own
-table. The two tables never share rows: a proto reason cannot apply to a tracked
-Order (structurally, no Order exists yet), and a confirmed reason cannot apply to
+**Reason → action mapping — split by kind (2026-09-17).** Each kind has its own
+table. The two tables never share rows: a routing reason cannot apply to a tracked
+Order (structurally, no Order exists yet), and a correction reason cannot apply to
 an orphan email (structurally, there is no Order to flag). This split replaces
 the single flat table used pre-2026-09-17. The mapped-vs-degrade shape
-distinction (above) still applies, per-state.
+distinction (above) still applies, per-kind.
 
-**Proto reasons — routing decisions on orphan emails:**
+**Routing reasons — orphan emails awaiting a decision:**
 
 | Reason (slot-3 why — full sentence) | Primary action (slot-4) | Secondary |
 |---|---|---|
@@ -302,7 +342,7 @@ distinction (above) still applies, per-state.
 | "We couldn't extract any details from this email." | View detail (degrade — only action) | — |
 | any unmapped proto reason | View detail (degrade) | — |
 
-**Confirmed reasons — flags on tracked Orders:**
+**Correction reasons — flags on tracked Orders:**
 
 | Reason (slot-3 why — full sentence) | Primary action (slot-4) | Secondary |
 |---|---|---|
