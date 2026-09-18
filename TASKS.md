@@ -8818,6 +8818,18 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Docs-only push `2720766` (2026-09-18 14:21) triggered no Vercel
+  deploy** — no Building/Queued/Preview entry in `vercel ls` 4+ minutes
+  after the push, though GitHub's `main` was confirmed at that SHA
+  (`git ls-remote`). Contradicts CLAUDE.md/BUILD.md ("every push to
+  `main` triggers a production deploy, including docs-only commits") and
+  every prior data point (Known-issues auto-deploy log above, ~2s–2.5min).
+  Code-irrelevant (docs only; live `4cee116` code is identical), but the
+  next session's start-of-session sync check will show live ≠ HEAD. Did
+  NOT run `vercel --prod` (CLAUDE.md forbids). Next step: check the
+  Vercel dashboard's Git settings / Ignored Build Step and GitHub webhook
+  delivery log for this push; if the commit that records this note also
+  doesn't deploy, the webhook is broken, not a one-off.
 - **`npm run build` warns: `lib/actionToken.ts` loads Node `crypto`,
   unsupported in the Edge Runtime** — import trace runs through
   `instrumentation.ts` (Edge Instrumentation). Build still exits 0 and
