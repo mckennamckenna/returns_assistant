@@ -43,6 +43,8 @@
       updates CLAUDE.md/BUILD.md deploy wording and the session-start
       sync check. Done when a docs-only push is shown as skipped in
       Vercel and live stays on the last code commit.
+      **Status 2026-09-19:** `8ffeb92` (the `vercel.json` change) built and
+      went live normally. This entry's own update is the docs-only test push.
 
 ### 2026-09-19 — Session close
 
