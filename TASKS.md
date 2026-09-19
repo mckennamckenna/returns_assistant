@@ -32,35 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Diagnostic session, 2026-09-16 — why did Margaux and eBay
-      silently drop out of Needs review after receiving new emails?**
-      Read-only diagnostic only, per scope-control rule: no code
-      changes, no DB writes, no Anthropic API calls this session.
-      Ground truth: earlier today (see 2026-09-15 all-emails-flagging
-      diagnostic report), Needs review contained at minimum Margaux
-      (`margauxny.loopreturns.com`, duplicate reason), Shopbop
-      (`shopbop.com`, duplicate reason), eBay (`uncertain_details`
-      reason), and Unknown retailer. Now: Margaux and eBay are gone
-      from the view. Shopbop and Unknown remain. Owner did not
-      manually clear, approve, or archive either order. No production
-      deploy has happened since the earlier state (Session A fixes
-      pushed but NOT deployed — prod code unchanged). Both Margaux
-      and eBay received an email today in the intervening window:
-      Margaux a refund-arrival notification, eBay a shipping
-      notification. Candidate explanations to distinguish: (1) silent
-      flag flip — a code path un-flipped without external trigger
-      (bug); (2) legitimate recompute — the merge with the new email
-      caused `computeOrderReviewReason` / `computeOrderStatus` to
-      return non-flagged based on new data (may be normal behavior
-      worth documenting). Deliverable: named cause per order (Margaux
-      and eBay separately — do not assume shared root cause), with
-      file/line evidence and specific gate/field identified. No fix
-      proposal.
-      [needs clarification: brief is dated 2026-09-16 but was run
-      2026-09-19; production deploys did happen after 09-16 (e.g.
-      Session A order-delete fix, 09-18), so "no deploy between
-      observations" holds only if both observations were on 09-16.]
-
 ### 2026-09-19 — Session close
 
 **Scope drift acknowledged.** Session opened as Session B Phase 1
@@ -4121,18 +4092,35 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       `returnDeadline: null`, which flagged the order as `uncertain_details`
       until a subsequent shipping email merged in and the merge-path
       recalculation populated the deadline via fallback (order date +
-      shipping window + retailer policy). Two possible reasons the deadline
-      was null on create — both worth checking: (a) the order date wasn't
-      extracted from the first email even though it was extractable, (b)
-      eBay isn't in the retailer-window data source the deadline calculation
-      reads from. Framing: this isn't really a create-vs-merge asymmetry
+      shipping window + retailer policy).
+      **Confirmed diagnosis (2026-09-19 diagnostic):** neither of the two
+      originally suspected causes (order date not extracted; eBay missing
+      from the retailer-window source). On the eBay order:
+      - The order's `orderDate` WAS present — taken from the email's
+        `anchorDate` at creation.
+      - The retailer policy WAS present — `returnWindowDays: 14`,
+        `returnWindowStartsFrom: delivery_date`, via `web_lookup`.
+      - Actual cause: extraction's deadline calculation
+        (`lib/extract.ts:841`) uses only the AI-extracted
+        `parsed.orderDate`, which was null (the email states no order
+        date), and never reads `anchorDate` — even though `anchorDate` is
+        already resolved at inbound (`app/api/inbound/route.ts:101`), before
+        extraction runs. `anchorDate` is only promoted to the order's date
+        later, in `createOrderFromEmail`, which copies the email's null
+        `returnDeadline` verbatim (`lib/linkOrder.ts:940`) without
+        recalculating.
+      - Scope: hits every retailer whose confirmation email doesn't state
+        its own order date, where the order date is only knowable from
+        `anchorDate`. Confirmed still hitting on the eBay order created
+        2026-09-19. Probably a significant contributor to Needs review
+        noise across many retailers, not an eBay-specific edge.
+      Framing: this isn't really a create-vs-merge asymmetry
       bug (that's the mechanism); the real principle is that when both
       order date and retailer identity are known, we should always be able
       to produce at least an estimated deadline. A null deadline should
       mean genuinely "we don't know" (missing order date AND unknown
       retailer AND no policy fallback), not "we know both but didn't try
-      to compute." Diagnostic-first: figure out which of (a) or (b) is
-      hitting for eBay, then scope the fix. Not urgent; ordered after
+      to compute." Diagnosis is done — scope the fix directly. Not urgent; ordered after
       Session A verify + Session B cleanup. If it turns out to affect
       many active orders, revisit ordering.
 
@@ -6900,6 +6888,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **Silent-unflag diagnostic (Margaux / eBay dropping out of Needs review), 2026-09-19.** Margaux was never unflagged — auto-archived on refund, which the view hides. eBay's flag cleared when a later email's merge recalculated a deadline that create had copied as null. Findings in 🟡 Next #9 and the Decisions log. Read-only, docs-only.
+
 - [x] **Docs-only pushes no longer trigger Vercel builds, 2026-09-19** (was 🟡 Next #7). Build skip via `vercel.json` plus 7-day deployment retention. Verified: a docs-only push was canceled without building and live stayed on the last code commit. Owner hand-check of the Vercel dashboard pending.
 
 - [x] **`Email.needsReview` deprecation — Phase 1 read-only investigation, 2026-09-18.** Blast radius recounted, linked-but-flagged population found to be the AI extraction signal (not a bug). Findings in 🟡 Next #3; correction in HISTORY 2026-09-19. Docs-only.
@@ -9660,3 +9650,48 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
   alpha QA net. It is NOT "what's coming up" (that's the Sunday digest)
   and NOT "what's genuinely new to the user." Recorded so a future
   session doesn't re-add a second purpose to `weekly-coverage/route.ts`.
+- **Auto-archive on refunded hides flagged orders (2026-09-19).** Surfaced
+  by the silent-unflag diagnostic on Margaux. `buildStatusTransitionData`
+  in `lib/displayStatus.ts:176` sets `archivedAt` whenever displayStatus
+  transitions to `refunded`. The Needs review view filters on
+  `archivedAt: null` (see `app/(app)/needs-review/page.tsx:26` and the
+  dashboard bucket at `app/(app)/page.tsx:99`), so a flagged
+  order that gets refunded disappears from Needs review even though
+  `needsReview: true` is still set on the row. This is by design and
+  correct: a refund means the return is complete, and a completed return
+  shouldn't clutter the operational view. Recorded so a future diagnostic
+  doesn't mistake "hidden by archive" for "flag cleared." Not a bug; do
+  not fix.
+- **Extraction's returnDeadline calculation ignores anchorDate
+  (2026-09-19).** Surfaced by the silent-unflag diagnostic on eBay.
+  Confirmed diagnosis: extraction's deadline calculation
+  (`lib/extract.ts:841`) uses only the AI-extracted `orderDate` and never
+  reads `anchorDate` — even though `anchorDate` is already resolved at
+  inbound (`app/api/inbound/route.ts:101`) before extraction runs. When
+  the email states no order date, the calculation returns null even
+  though both order date (via `anchorDate`) and retailer policy are
+  available. `anchorDate` is only promoted to the order's `orderDate`
+  later, in `createOrderFromEmail` (`lib/linkOrder.ts:940`), which copies
+  the email's null deadline verbatim. `mergeEmailIntoOrder`
+  (`lib/linkOrder.ts:863`) recalculates on every subsequent merge, which
+  is why the flag clears on the next email into the order. The
+  create/merge asymmetry is what makes this visible, but the underlying
+  gap is that extraction's deadline calculation never considers
+  `anchorDate`, and create doesn't recalculate to compensate. Backlogged
+  as 🟡 Next #9 (return deadline computability). Producing real
+  Needs-review noise across many retailers.
+- **recomputeOrderStatus can undo a manual approval (2026-09-19).**
+  Surfaced by the silent-unflag diagnostic. `recomputeOrderStatus`
+  (`lib/linkOrder.ts:307-311`) runs on every link and writes
+  `needsReview = false` when the order has a deadline (true when it
+  doesn't); its caller then forces it back to true via the prefix /
+  refund-fallback / kept-conflict / untrusted-portal block
+  (`lib/linkOrder.ts:1198`). Neither checks whether the flag was manually
+  cleared by `approveOrder`. Consequence: an owner-approved order can be
+  re-flagged by any later email merge whose recompute path lands on
+  `true`. Feels bad in the "system ignores my input" way. Not a silent
+  flag flip (there's always a triggering email), and not urgent enough to
+  interrupt the current URL-poisoning sequence. Backlogged. When picked
+  up, fix probably involves either an `approvedAt` timestamp that gates
+  the recompute, or a separate `manuallyApproved` field that recompute
+  respects.
