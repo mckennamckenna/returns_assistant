@@ -32,6 +32,16 @@
 
 ## 🔴 Now
 
+- [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
+      cleanup backfill.** Owner returning Monday. (1) After the weekly
+      URL-review cron runs (2026-09-21 03:00 UTC), confirm new sheet rows'
+      `Approved retailer` matches `Raw retailer` casing (verifies the
+      prefill casing fix, live since 09-19's deploy). (2) Run the backfill
+      cleaning the ~40 URL-shaped `Order.retailer` values (the Session B
+      cleanup). Production DB write: owner reviews the proposed mapping
+      and signs off before it runs. [needs clarification: confirm the
+      backfill's exact scope and mapping at pickup.]
+
 ### 2026-09-19 — Session close
 
 **Scope drift acknowledged.** Session opened as Session B Phase 1
@@ -9052,6 +9062,22 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Extraction's returnDeadline calculation ignores anchorDate, 2026-09-19.**
+  `lib/extract.ts:841` computes the email's deadline from the AI-extracted
+  `orderDate` only; when the email states no date, it returns null even
+  though `anchorDate` (resolved at inbound, `app/api/inbound/route.ts:101`)
+  and the retailer policy are both known. `createOrderFromEmail`
+  (`lib/linkOrder.ts:940`) copies that null, so the new Order is flagged
+  Needs review until a later email's merge recalculates it
+  (`lib/linkOrder.ts:863`). Hits every retailer whose confirmation omits
+  its own order date (confirmed on eBay, still occurring 2026-09-19).
+  Tracked as 🟡 Next #9; rationale in the Decisions log.
+- **`recomputeOrderStatus` can undo a manual approval, 2026-09-19.**
+  `lib/linkOrder.ts:307-311` rewrites `Order.needsReview` on every email
+  link, and the caller's force-true block (`lib/linkOrder.ts:1198`) can
+  set it back to true; neither respects a prior `approveOrder`
+  (`lib/orderReview.ts:33`). An owner-approved order can re-flag on any
+  later email. Backlogged, not scheduled; rationale in the Decisions log.
 - **Vercel Function Storage at 100% of the free tier (10 GB), 2026-09-18
   — deploys stall.** Root cause of the "docs-only push triggered no
   deploy" symptom first logged here the same afternoon (that note wrongly
