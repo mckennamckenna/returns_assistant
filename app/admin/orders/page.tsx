@@ -82,6 +82,7 @@ export default async function AdminOrdersPage({
         id: true,
         retailer: true,
         orderNumber: true,
+        orderDate: true,
         displayStatus: true,
         returnDeadline: true,
         needsReview: true,
@@ -151,6 +152,7 @@ export default async function AdminOrdersPage({
               <th className="py-2 pl-4 pr-4">User</th>
               <th className="py-2 pr-4">Retailer</th>
               <th className="py-2 pr-4">Order #</th>
+              <th className="py-2 pr-4">Order date</th>
               <th className="py-2 pr-4">Status</th>
               <th className="py-2 pr-4">Deadline</th>
               <th className="py-2 pr-4">Needs review</th>
@@ -179,6 +181,7 @@ export default async function AdminOrdersPage({
                       {order.orderNumber || "—"}
                     </Link>
                   </td>
+                  <td className="py-2 pr-4 text-secondary">{formatDate(order.orderDate)}</td>
                   <td className="py-2 pr-4 text-secondary">{order.displayStatus}</td>
                   <td className="py-2 pr-4 text-secondary">{formatDate(order.returnDeadline)}</td>
                   <td className="py-2 pr-4 text-secondary">{order.needsReview ? "yes" : "—"}</td>
@@ -188,7 +191,7 @@ export default async function AdminOrdersPage({
             })}
             {orders.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-4 pl-4 pr-4 text-sm text-secondary">
+                <td colSpan={8} className="py-4 pl-4 pr-4 text-sm text-secondary">
                   No orders match these filters.
                 </td>
               </tr>

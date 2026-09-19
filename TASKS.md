@@ -32,6 +32,12 @@
 
 ## 🔴 Now
 
+- [ ] **Admin orders table: add "Order date" column (dashboard V1 step 1).**
+      /admin/orders shows the deadline but not the order date, so an
+      operator can't gut-check deadline plausibility. Display-only column
+      between Order # and Status, from `Order.orderDate`, same format as
+      Deadline, "—" when null. No filter/sort/schema changes.
+
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
       URL-review cron runs (2026-09-21 03:00 UTC), confirm new sheet rows'
