@@ -4115,6 +4115,27 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       surfaces during framing session); HISTORY 2026-09-19 (correction
       noting this is unblocked); CARD_SPEC Part 3 (target framing).
 
+- [ ] **9. Return deadline should always be computable when order date and
+      retailer are both known (2026-09-19).** Surfaced by the silent-unflag
+      diagnostic on eBay. eBay's first email produced an order with
+      `returnDeadline: null`, which flagged the order as `uncertain_details`
+      until a subsequent shipping email merged in and the merge-path
+      recalculation populated the deadline via fallback (order date +
+      shipping window + retailer policy). Two possible reasons the deadline
+      was null on create — both worth checking: (a) the order date wasn't
+      extracted from the first email even though it was extractable, (b)
+      eBay isn't in the retailer-window data source the deadline calculation
+      reads from. Framing: this isn't really a create-vs-merge asymmetry
+      bug (that's the mechanism); the real principle is that when both
+      order date and retailer identity are known, we should always be able
+      to produce at least an estimated deadline. A null deadline should
+      mean genuinely "we don't know" (missing order date AND unknown
+      retailer AND no policy fallback), not "we know both but didn't try
+      to compute." Diagnostic-first: figure out which of (a) or (b) is
+      hitting for eBay, then scope the fix. Not urgent; ordered after
+      Session A verify + Session B cleanup. If it turns out to affect
+      many active orders, revisit ordering.
+
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
       disabled-button fix (PR #1, merged and verified in prod same
