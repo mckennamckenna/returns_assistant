@@ -5,6 +5,27 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-18 — Vercel Function Storage hit the free-tier limit; 128 old deployments deleted
+
+Deploys started stalling in the afternoon: one docs-only push got a
+deploy ~10 min late that sat at INITIALIZING until Vercel canceled it;
+the next went through ~20 min late. First suspected a broken GitHub
+webhook (wrong). Vercel then emailed the owner: team at 100% of the
+included Function Storage (10 GB). Cause: every push deploys, docs-only
+included, so the project had kept 206 deployments (201 production) since
+2026-08-20. Production kept serving throughout.
+
+Cleanup: a throwaway dry-run-by-default script (never committed, deleted
+afterward) kept the live deploy, the 5 most recent Ready deploys, and
+code-change deploys under 14 days old, and deleted docs-prefixed and
+>14-day deploys — 128 of 206, 0 failures. The rollback target `34cbdb4`
+and the cascade deploy `4cee116` were kept. Verified after: production
+unchanged and serving, 78 deploys remain, and the next push built and
+went live in ~80 s. Prevention (retention policy and/or skipping builds
+for docs-only commits) is 🟡 Next #7.
+
+---
+
 ## 2026-09-18 — CARD_SPEC Part 3 language reframe: "two kinds of review item"
 
 Owner-authored replacement for Part 3's "### The two states." Needs
