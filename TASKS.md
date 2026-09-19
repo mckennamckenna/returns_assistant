@@ -6914,6 +6914,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **Dashboard V1 step 1 complete — cross-user admin orders table at /admin/orders, 2026-09-19.** Built 09-10, then refined: order # links to the order page, Order date column, forwarding address instead of personal email, column widths. Owner verified the finished table in prod.
+
 - [x] **Admin orders table: Order date column added, 2026-09-19.** Sits between Order # and Status, same date format as Deadline, "—" when missing. Owner verified in prod.
 
 - [x] **Admin orders table: User column shows the forwarding address instead of personal email, 2026-09-19.** Personal email no longer loaded for the table; the "User email contains…" filter intentionally still searches personal email (owner decision). Owner verified in prod.

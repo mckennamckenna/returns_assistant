@@ -5,6 +5,38 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-19 — Dashboard V1 step 1 closed out: cross-user admin orders table
+
+Step 1 of the internal admin/debugging dashboard is complete: a
+read-only, cross-user orders table at `/admin/orders`, behind the
+existing `ADMIN_SECRET` gate. Six commits, 2026-09-10 → 2026-09-19. No
+schema change, no backfill, no changes to `lib/linkOrder.ts` or
+`lib/extract.ts`. Per-commit detail is in the 2026-09-10 and 2026-09-19
+entries below.
+
+- `84b678e` (09-10) — initial build: filters (`needsReview`,
+  `displayStatus`, retailer contains, user contains, `missingDeadline`,
+  `lowConfidence`), `updatedAt desc` sort, retailer name links to the
+  per-order detail page.
+- `54019bd` (09-10) — order # column also links to the detail page.
+- `f3534e6` (09-19) — Order date column, same format as Deadline, "—"
+  when null.
+- `4eff9a3` (09-19) — User column shows the forwarding address; personal
+  email no longer loaded for these rows.
+- `8957a28`, `2316a8e` (09-19) — User and Retailer truncate at 10rem
+  with the full value on hover; other columns stay on one line.
+
+**Verified in prod:** owner hand-verified the combined final state of the
+table after `2316a8e`.
+
+**Deferred:** further dashboard work goes to later V1 steps. Editing
+extracted field values is indefinitely deferred (wrong values get fixed
+at the extractor, not the row). State-transition history, field-level
+provenance, and reminder open/click instrumentation are HEAVY and
+deferred. Extractor-side invariant enforcement is a separate project.
+
+---
+
 ## 2026-09-19 — Admin orders table: Order date column, forwarding-address User column, column widths
 
 Three display-only changes to `app/admin/orders/page.tsx` (dashboard V1
