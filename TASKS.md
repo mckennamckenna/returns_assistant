@@ -96,13 +96,19 @@
          String column, no migration) listing failed order IDs + errors.
 
       **Status 2026-09-18:** built, 870 tests passing, `npm run build`
-      clean; committed + pushed + deployed this session (see HISTORY
-      once verified). **Awaiting production verification** — the cascade
-      only runs in the nightly cron (14:00 UTC), and the next run with a
-      >30-day soft-deleted order is the real test: check its response
-      JSON `hardDeleted`/`hardDeleteFailed` and for an
-      `order_deleted_junk_cascade:*` ActionLog row. Don't force-run the
-      cron to verify — it also sends real reminder emails.
+      clean; shipped in `4cee116`, live in production (HISTORY
+      2026-09-18 "Session A shipped"). **Awaiting production
+      verification** — the cascade only runs in the nightly cron (14:00
+      UTC) on Orders soft-deleted >30 days ago, and **zero Orders were
+      soft-deleted as of 2026-09-18** (read-only aggregate count). The
+      Delete UI does ship (dashboard Delete, per-email delete on the
+      order page), so organic verification is ~30 days after the next
+      real Delete: check that run's response JSON
+      `hardDeleted`/`hardDeleteFailed` and for an
+      `order_deleted_junk_cascade:*` ActionLog row. Faster option:
+      backdate one Order's `deletedAt` — a production DB write, owner
+      sign-off first. Don't force-run the cron to verify — it also
+      sends real reminder emails.
 
       **Explicitly out of scope for this fix** (each a deliberate
       owner decision, not an oversight):
@@ -3856,34 +3862,100 @@
       population becomes visibly confusing before then, do #1 as a
       one-line patch.
 
-- [ ] **4. Junk/rescue recovery view — no UI surface exists for
-      `rescueEmail`.** Surfaced during 🟡 Next #2's implementation
-      design (2026-09-17). `rescueEmail` (`lib/junk.ts:89-99`) and its
-      wired action `rescueEmailAction` (`app/actions.ts:118-127`) exist
-      in the backend, but `rescueEmailAction` has zero importers
-      anywhere in `app/` — no page, tab, filter, or admin view lists
-      `junkedAt IS NOT NULL` emails or offers a "Restore" control.
-      Junking an email (via the bucket's existing "Not a purchase"
-      action, or via #2's new order-delete junk cascade) is currently
-      a one-way trip in practice, even though the data model is
-      reversible.
+- [ ] **4. Junk/rescue recovery UI.** No user-facing surface currently
+      exists to view or restore junked emails (emails with
+      `junkedAt IS NOT NULL`). Backend is complete: `rescueEmail`
+      in `lib/junk.ts:105-115` and `rescueEmailAction` in
+      `app/actions.ts:125-134` both work and log EmailRescue rows,
+      but `rescueEmailAction` has zero importers anywhere in
+      `app/`. No page, component, view, or admin surface calls it.
 
-      Not a new gap introduced by #2 — the bucket's "Not a purchase"
-      action has shipped this same gap all along. #2 makes it worse in
-      practice: those emails get junked 30 days after the user's
-      original Delete tap, with no on-screen moment to remember them,
-      versus junking something you just looked at yourself.
+      **Why this matters now (was low-severity, is higher after
+      🟡 Next #2 shipped):** today's "Not a purchase" button in
+      the bucket already ships this gap — junked emails are
+      backend-recoverable but UI-invisible. Users experience
+      junking as a single-email decision made in the moment,
+      with recency of memory as the informal recovery path.
+      With 🟡 Next #2 shipped, the order-delete cascade junks N
+      emails silently, 30 days after the user's delete tap, with
+      no on-screen moment — the informal recovery path evaporates.
 
-      **Scope:** some recovery surface (a tab, a filter toggle, a
-      dedicated page) listing junked emails per user, each with a
-      Restore control calling the existing `rescueEmailAction`. Not
-      designed yet — needs its own pass, possibly a CARD_SPEC addition
-      since it's a new surface, not an extension of an existing one.
+      **Scope:** some view (a tab in the dashboard, a filter
+      toggle, or a dedicated `/junk` page — owner design call)
+      listing emails with `junkedAt IS NOT NULL`, with a
+      "Restore" action that calls `rescueEmailAction`. Filter/
+      sort probably wants "recently junked" and "junked by
+      order delete" (via ActionLog cross-reference to
+      `order_deleted_junk_cascade:orderId=…` rows).
 
-      **Not a hard block on #2** — owner decision 2026-09-17: ship #2
-      without this, track separately.
+      **Design consideration worth naming (per red-team note):**
+      an "Undo Delete" window on the Order card itself (e.g.
+      "Order deleted · Undo" toast for 30 seconds after the
+      delete tap) may be a better product than a full junk
+      browser — closer to the mental model of the user who just
+      made a mistake, no need to hunt through a cemetery. Not
+      mutually exclusive with a junk browser but worth
+      considering first as the primary recovery path. Full junk
+      browser is the fallback for older mistakes.
 
-- [ ] **5. CARD_SPEC Part 3 — finish the proto/confirmed → routing/correction
+      **Sequencing:** soft dependency on 🟡 Next #2 being
+      production-verified. Not a hard block on 🟡 Next #2 (that
+      fix improves the app even without the recovery UI in
+      place), but should not sit in Next indefinitely once #2
+      verifies. Watch condition: if a user reports a missing
+      email or the alpha grows, promote to 🔴 Now.
+
+      **Refs:** CARD_SPEC Part 3 (junk-with-rescue is the
+      registered action, meaning of "rescue" is spec'd but not
+      surfaced); 🟡 Next #2 (cascade uses this primitive at
+      scale); HISTORY 2026-09-18 (Session A ship + red-team
+      discussion of recovery-surface tradeoff). Supersedes the
+      shorter "Junk/rescue recovery view" #4 entry first captured
+      2026-09-17 during #2's implementation design.
+
+- [ ] **5. `unlinkEmailFromOrderAction` should stamp a suppression
+      reason.** `app/actions.ts:68-80` explicitly re-orphans an
+      email by setting `orderId: null, needsReview: true` when
+      the user unlinks it from an Order via the detail page. It's
+      the closest existing analog to `reorphanEmailsForDeletedOrder`
+      (the earlier proposed function that got redesigned into
+      `junkLinkedEmailsForDeletedOrder` when the fix was
+      reframed) and confirms the pattern "explicit write beats
+      derived/cascaded state" is already established in the
+      codebase.
+
+      **What's missing:** it doesn't record *why* the email was
+      re-orphaned — same class of gap as the ghost-email bug
+      before 🟡 Next #2 landed. A user unlinks an email, it
+      reappears in the bucket, and the app has no trace of "the
+      user explicitly unlinked this from Order X on date Y" —
+      which is exactly the audit-trail deficit that made
+      diagnosing the ghost-email bug hard in the first place.
+
+      **Fix scope:** small. Add an ActionLog row inside
+      `unlinkEmailFromOrderAction` recording the transition
+      (matching the pattern from `junkLinkedEmailsForDeletedOrder`:
+      one row per event, orderId + emailId in the action string
+      since the ActionLog columns will be null/absent after the
+      fact). Optionally: if 🟡 Next #3 (Email.needsReview
+      deprecation) has landed by the time this is picked up,
+      revisit whether the write to `needsReview: true` is still
+      correct (it won't be — the field is gone — so the write
+      just gets removed).
+
+      **Sequencing:** low priority. Not blocking anything.
+      Sensible to bundle with 🟡 Next #3 since #3 will touch
+      this file anyway (unlinkEmailFromOrderAction is one of
+      the 5 write sites in the deprecation blast radius).
+
+      **Refs:** HISTORY 2026-09-17 (watching-note on
+      action/decision logging gap — this is a concrete third
+      instance of that pattern, would firm the hypothesis if
+      it comes up separately); HISTORY 2026-09-18 (red-team
+      discussion of ActionLog coverage inconsistency);
+      🟡 Next #3 (blast radius overlap).
+
+- [ ] **6. CARD_SPEC Part 3 — finish the proto/confirmed → routing/correction
       terminology sweep.** NEW 2026-09-18, follow-up to the Part 3 language
       reframe (✅ Done 2026-09-18). That reframe was deliberately scoped to
       leave these untouched, so old terms remain in: the mapped/degrade
@@ -3896,7 +3968,7 @@
       touching those protected blocks. No code uses the old terms
       (grepped app/lib/__tests__ 2026-09-18).
 
-- [ ] **6. Stop deployments from filling Vercel Function Storage.** NEW
+- [ ] **7. Stop deployments from filling Vercel Function Storage.** NEW
       2026-09-18, follow-up to the Known-issues entry on hitting 100% of
       the 10 GB free tier. ~200 production deploys in a month, because
       every push deploys, including docs-only ones. Two options, not
@@ -6675,7 +6747,7 @@
 - [x] **CARD_SPEC Part 3 language reframe — "two maturity states
       (proto/confirmed)" → "two kinds of review item
       (routing/correction)," 2026-09-18.** Docs-only; committed and
-      pushed. Leftover old terms in protected blocks → 🟡 Next #5.
+      pushed. Leftover old terms in protected blocks → 🟡 Next #6.
 
 - [x] **Fix: Start-return CTA button dead-ends — "Continue to X →" button got
       stuck on "…" and never redirected to the retailer. Owner-verified live
@@ -8842,7 +8914,7 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
   Owner planning a bulk delete of old deployments. Keep at minimum: the
   live deploy, `4cee116` (order-delete cascade), and `34cbdb4` (last
   pre-cascade code — the rollback target until 🔴 Now's cascade is
-  verified). Prevention tracked in 🟡 Next #6.
+  verified). Prevention tracked in 🟡 Next #7.
 - **`npm run build` warns: `lib/actionToken.ts` loads Node `crypto`,
   unsupported in the Edge Runtime** — import trace runs through
   `instrumentation.ts` (Edge Instrumentation). Build still exits 0 and

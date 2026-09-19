@@ -25,11 +25,135 @@ rules, the linked-but-flagged note, and everything below the tables
 unchanged. Terminology updated in the amendment header, the
 `Email.needsReview` paragraph, the mapping intro, and both table
 headers. Remaining old-term occurrences inside the protected blocks
-tracked as 🟡 Next #5.
+tracked as 🟡 Next #6.
 
-Same session (not yet in this log — awaiting production verification):
-🟡 Next #2 order-delete junk cascade shipped in `4cee116`; see TASKS.md
-🔴 Now for status.
+Same session: Session A (🟡 Next #2 order-delete junk cascade) shipped
+earlier the same day — see the entry below.
+
+---
+
+## 2026-09-18 — Session A shipped: order-delete ghost emails fix
+
+**Landed:** commit `4cee116774b0c13971f04d1a904941de31eff046`
+("Junk linked emails when an Order is hard-deleted (🟡 Next
+#2)"), pushed to origin/main, deployed to production 12:46:47
+PDT (5 seconds after the commit). 870 tests pass, type-check + build
+clean.
+
+**What the fix does.** When the nightly cron hard-deletes a
+soft-deleted Order (30-day cutoff), it now junks the Order's
+linked emails inside the same transaction as the Order delete,
+rather than letting the Postgres FK cascade silently null the
+emails' orderId and re-orphan them into the Needs Review bucket
+days or weeks later with no explanation. Same cascade behavior
+covers the email-side path in app/actions.ts's deleteEmail:
+deleting the last email on an Order now soft-deletes the Order
+(rather than the previous immediate hard-delete), so both trigger
+paths converge on the same soft-delete → 30-day recovery →
+cron-hard-delete + cascade model. Per-order transaction
+isolation added so a single failure doesn't kill the whole cron
+run.
+
+**Contract docs updated in the same commit.** lib/junk.ts,
+prisma/schema.prisma, and BUILD.md all had wording claiming
+"junked = confirmed non-commerce, orphan only" — a written
+contract the code has never actually enforced (junkedAt has
+always been used as generic suppression in every live reader).
+The cascade would have widened the code behavior further, so
+the contract wording was updated in the same PR to reflect the
+three real triggers (ingestion auto-junk, user Not-a-purchase
+action, and now the order-delete cascade) and to explicitly say
+"suppressed, not classified non-commerce" — do not read
+junkedAt as classifier truth. Prevents the same
+docs-diverge-from-code drift that produced the original
+needs-review bug class.
+
+**Framing evolution during the session.** Initial fix proposal
+(from 🟡 Next #2 as written) was "re-orphan emails with a
+labeled reason so at least the appearance is explained."
+Owner reframed mid-session: delete means gone; those emails
+shouldn't re-appear at all unless the user goes hunting or new
+mail arrives for that order. Fix became "junk on cascade" as
+the unconditional default, no delete-time prompt asking the
+user what to do with linked emails, no reason string surfaced
+in the bucket. Reasoning: the "keep some emails, discard
+others" workflow is unlink-then-delete, not a delete-time
+prompt. This reframe changed the fix architecture materially
+(dropped a proposed `orphanReason` field and its migration,
+dropped a proposed CARD_SPEC Part 3 row for a new reason,
+dropped a proposed Part 5 amendment). Materially simpler fix,
+better UX alignment.
+
+**Red team surfaced the junk-semantics landmine.** A second-
+model red team (ChatGPT) attacked the reframed design and
+correctly identified that if junkedAt semantically means "not
+a purchase" anywhere in the codebase (training data,
+analytics, classifier evaluation), the cascade would
+contaminate ground-truth labels by junking legitimate order
+confirmations. Investigation confirmed no live reader treats
+it that way today (see contract-docs update above), but
+EmailRescue as a latent metric would have been contaminated
+once anything read it, and three one-off scripts already
+count junked emails as the non-commerce population. Contract
+docs now explicitly warn against reading junkedAt as
+classifier truth going forward.
+
+**CC diagnostic caught two problems the red team missed.**
+(1) The initial Checkpoint 1 function used the global prisma
+client and couldn't join the cron's per-order transaction — a
+delete failure after junking succeeded would have left emails
+in a junked-but-still-linked state, violating the JUNK_FILTER
+invariant in lib/junk.ts. Fixed by threading an optional Prisma
+transaction client through both junkLinkedEmailsForDeletedOrder
+and its underlying archiveOrphanedEmail primitive. (2) The
+ActionLog action string dropped orderId on my (incorrect)
+approval that "orderId is already in the ActionLog column" —
+I hadn't known that ActionLog.orderId is nulled by FK cascade
+when its Order is deleted, so once the Order was gone the log
+row couldn't identify which Order it was about. Restored
+orderId to the action string.
+
+**Useful drive-bys CC surfaced (owner then directed both).**
+(1) Removed a dead reminder.deleteMany line from deleteEmail
+(added 2026-06-24 when the Reminder FK was still RESTRICT,
+obsolete since 06-27 when it became SET NULL, verified via
+read-only live-DB check). Comment added recording the history.
+(2) Reused existing notifyAdmin pattern for cron hard-delete
+failure notifications (new hard_delete_failures kind, no
+migration needed since the kind column is plain string) rather
+than inventing a new admin-email pattern. Both are the good
+version of scope-creep: notice adjacent thing, verify
+thoroughly, name the change.
+
+**Verification status.** Not yet production-verified. The
+cascade only runs during the nightly cron on Orders past the
+30-day soft-delete cutoff, and zero Orders were soft-deleted
+as of 2026-09-18 (read-only aggregate count), so no
+cron-eligible Orders exist yet. The Delete UI does ship
+(dashboard Delete via SoftDeleteOrderButton /
+ArchiveOrDeletePrompt; per-email delete on the order page), so
+the fix self-verifies ~30 days after the next real Delete.
+🟡 Next #2 stays in 🔴 Now until then. If verification is
+needed sooner, backdate one Order's deletedAt in the DB (a
+production write — owner sign-off first) and watch the next
+cron run.
+
+**Session scope creep flagged and refused.** GPT's red team
+proposed reframing the CARD_SPEC Part 3 framing language from
+"two maturity states" to "one queue, two review types" — a
+better description of what's actually happening but doc-only
+and not blocking Session A. Held for post-Session-A cleanup;
+landed as part of the housekeeping pass, this session.
+
+**Chapter progress.** Session A closes the ghost-email bug
+(pending production verification). The needs-review chapter
+closes on the code side after Session B (Email.needsReview
+deprecation, subsumes 🟡 Next #1) and the dashboard-visibility
+alignment session (the five surfaces that silently default to
+Order-only; blocked on Session B). Framing-language reframe
+(Part 3 update) and two housekeeping 🟡 Next entries (#4
+recovery UI, #5 unlinkEmailFromOrderAction suppression reason)
+also landed this session.
 
 ---
 
