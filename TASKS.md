@@ -32,6 +32,38 @@
 
 ## 🔴 Now
 
+- [ ] **🟡 Next #3 `Email.needsReview` deprecation — Phase 1 (read-only
+      investigation) DONE 2026-09-18; Phase 2 (migration + code plan)
+      waiting on owner review.** 0 model calls, 0 DB writes (aggregate
+      counts only). Findings that change the Next #3 entry:
+      - **Linked-but-flagged is 425 rows, not ~108.** The "108" was the
+        2026-07-23 audit figure carried forward, not a 09-17 recount (105
+        of the 425 were extracted before 07-24). +15 since 09-17.
+      - **All 425 have `extractionRaw.needsReview = true`.** They are the
+        AI extraction-quality flag, written on the *success* path at
+        `lib/runExtraction.ts:151` (a 6th write site, missing from the
+        list), which linking never touched. That is the BUILD.md:1000
+        "Email-level extraction-quality review" job, not a routing flag
+        the auto path forgot to clear. 221 carry the tiered-window note.
+        Dropping the column loses nothing stored: `extractionRaw` keeps it.
+      - **Only one reader** of the Email field in app/lib: the static
+        badge at `app/(app)/emails/[id]/page.tsx:90`. Every admin and
+        dashboard hit is `Order.needsReview`.
+      - Line shifts: `orderReview.ts` 83→84 and 99→100 (Session A import);
+        the auto-path Email write is now `linkOrder.ts:1162`.
+      - Tests: 5 Email-field assertions in 3 files (runExtraction,
+        linkOrder, unlinkEmailFromOrderAction). The rest of the 61 raw
+        matches are the extraction-result field or `needsReview*` module names.
+      - Scripts: ~45 reference the Email field. All are one-off
+        diagnostics/backfills, none operational. `scripts/` is excluded
+        from tsc, so the drop doesn't break the build.
+      Open owner questions for Phase 2: (a) keep the badge (reads
+      `extractionRaw`), rebuild it on routing state, or drop it;
+      (b) the Next #3 "relocate the signal to Order before dropping" step
+      vs. BUILD.md's decision to keep extraction-quality off
+      `Order.needsReview`; (c) Next #1's framing ("auto path forgets to
+      clear") needs correcting to match what the data shows.
+
 - [ ] **Order-delete ghost emails fix — implementation, 2026-09-17.**
       Picked up from 🟡 Next #2. Owner review rejected the original
       re-orphan-with-reason framing (both the Next entry's and the
