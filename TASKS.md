@@ -47,6 +47,12 @@
       email — left as-is (out of scope); see follow-up in 🟡 Next.
       **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
       in prod.**
+- [ ] **Admin orders table: fix column-width squishing.** User and
+      Retailer columns dominate; middle columns (Order #, Order date,
+      Status, Deadline, Needs review) wrap awkwardly. Width/wrapping only —
+      cap User + Retailer widths (User truncates with full value on hover),
+      keep order # / dates / short values on one line. No content, filter,
+      sort, or click-through changes.
 
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
@@ -3831,12 +3837,12 @@ the 09-17 pattern; the 09-19 placement was a one-off).
 
 ## 🟡 Next
 
-- [ ] **Admin orders "User email contains…" filter matches a field the
+- [x] **Admin orders "User email contains…" filter matches a field the
       table no longer shows.** Since 2026-09-19 the User column shows the
       forwarding address, but the filter still searches `User.email`.
-      Operator sees `<token>@mail…` yet must type part of a personal email
-      to filter. [needs clarification: switch filter to match inboundToken,
-      or keep personal-email search as an operator-only lookup?]
+      **Decided 2026-09-19 (owner): keep personal-email search as an
+      operator-only lookup for now — "wonky but fine." No change.**
+      Revisit if it causes real confusion.
 
 - [x] **1. ~~Automatic-match no-clear bug~~ — CLOSED 2026-09-19, not a bug.**
 

@@ -164,16 +164,22 @@ export default async function AdminOrdersPage({
               const forwardingAddress = getInboundAddress(order.user.inboundToken);
               return (
                 <tr key={order.id} className="border-b border-border last:border-0">
-                  <td className="py-2 pl-4 pr-4 text-secondary">{forwardingAddress}</td>
-                  <td className="py-2 pr-4">
-                    <Link
-                      href={`/admin/users/${encodeURIComponent(forwardingAddress)}/orders/${order.id}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {order.retailer || "Unknown retailer"}
-                    </Link>
+                  <td className="py-2 pl-4 pr-4 text-secondary">
+                    <div className="max-w-[10rem] truncate" title={forwardingAddress}>
+                      {forwardingAddress}
+                    </div>
                   </td>
-                  <td className="py-2 pr-4 text-secondary">
+                  <td className="py-2 pr-4">
+                    <div className="max-w-[10rem] break-words">
+                      <Link
+                        href={`/admin/users/${encodeURIComponent(forwardingAddress)}/orders/${order.id}`}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {order.retailer || "Unknown retailer"}
+                      </Link>
+                    </div>
+                  </td>
+                  <td className="py-2 pr-4 text-secondary whitespace-nowrap">
                     <Link
                       href={`/admin/users/${encodeURIComponent(forwardingAddress)}/orders/${order.id}`}
                       className="text-blue-600 hover:underline"
@@ -181,11 +187,11 @@ export default async function AdminOrdersPage({
                       {order.orderNumber || "—"}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4 text-secondary">{formatDate(order.orderDate)}</td>
-                  <td className="py-2 pr-4 text-secondary">{order.displayStatus}</td>
-                  <td className="py-2 pr-4 text-secondary">{formatDate(order.returnDeadline)}</td>
-                  <td className="py-2 pr-4 text-secondary">{order.needsReview ? "yes" : "—"}</td>
-                  <td className="py-2 pr-4 text-secondary">{formatDateTime(order.updatedAt)}</td>
+                  <td className="py-2 pr-4 text-secondary whitespace-nowrap">{formatDate(order.orderDate)}</td>
+                  <td className="py-2 pr-4 text-secondary whitespace-nowrap">{order.displayStatus}</td>
+                  <td className="py-2 pr-4 text-secondary whitespace-nowrap">{formatDate(order.returnDeadline)}</td>
+                  <td className="py-2 pr-4 text-secondary whitespace-nowrap">{order.needsReview ? "yes" : "—"}</td>
+                  <td className="py-2 pr-4 text-secondary whitespace-nowrap">{formatDateTime(order.updatedAt)}</td>
                 </tr>
               );
             })}
