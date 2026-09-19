@@ -5,6 +5,45 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-19 — Admin orders table: Order date column, forwarding-address User column, column widths
+
+Three display-only changes to `app/admin/orders/page.tsx` (dashboard V1
+step 1), each shipped and owner-verified in prod the same day. No
+schema change, no new lib helpers, no filter/sort/pagination change,
+0 billed Anthropic API calls.
+
+- `f3534e6` — **Order date column** between Order # and Status, from
+  `Order.orderDate` via the page's existing `formatDate()` (same format
+  and "—" null handling as Deadline). Lets an operator gut-check a
+  deadline against when the order was placed. Empty-state `colSpan`
+  bumped 7→8 to match.
+- `4eff9a3` — **User column shows the forwarding address**
+  (`getInboundAddress(inboundToken)`, the value already used for the row
+  click-throughs) instead of `User.email`, and `email` was dropped from
+  the select. Owner decision: the "User email contains…" filter keeps
+  searching personal email as an operator-only lookup — wonky (you filter
+  on a value the table doesn't show) but acceptable for now.
+- `8957a28`, `2316a8e` — **column widths.** User and Retailer each
+  truncate at `max-w-[10rem]` with the full value in a `title` tooltip
+  (Retailer first wrapped via `break-words`, then switched to truncate at
+  owner request — click-through covers the full name). Order #, Order
+  date, Status, Deadline, Needs review, and Updated cells get
+  `whitespace-nowrap`. Width caps sit on an inner `div` because `max-width`
+  on a `td` isn't reliably honored in auto table layout. Only utilities
+  already used elsewhere in the app. Widths chosen from a read-only
+  length census: order number p95 19 chars (max 42), retailer p95 19
+  (max 31), status max 16, forwarding address ~49. Worst-case rows can
+  overflow the `max-w-6xl` container and scroll via the existing
+  `overflow-x-auto`; truncating Order # past ~20 chars is the noted
+  fallback if that shows up.
+
+Also clarified in-session: the table's Needs review column is
+`Order.needsReview` (linking-quality / forced-review), not
+`Email.needsReview` (extraction-quality) — see BUILD.md's Order/Email
+`needsReview` separation.
+
+---
+
 ## 2026-09-19 — Docs-only pushes stop building on Vercel (🟡 Next #7)
 
 Follow-up to the 09-18 Function Storage incident. Owner set Deployment

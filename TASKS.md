@@ -32,42 +32,12 @@
 
 ## 🔴 Now
 
-- [ ] **Admin orders table: add "Order date" column (dashboard V1 step 1).**
-      /admin/orders shows the deadline but not the order date, so an
-      operator can't gut-check deadline plausibility. Display-only column
-      between Order # and Status, from `Order.orderDate`, same format as
-      Deadline, "—" when null. No filter/sort/schema changes.
-      **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
-      in prod.**
-- [ ] **Admin orders table: User column shows forwarding address, not
-      personal email.** Owner request 2026-09-19: personal email is too
-      personal for the cross-user table. Show `getInboundAddress(inboundToken)`
-      (`<token>@mail.myreturnwindow.com`) instead; drop `email` from the
-      select. The "User email contains…" filter still matches against real
-      email — left as-is (out of scope); see follow-up in 🟡 Next.
-      **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
-      in prod.**
-- [ ] **Admin orders table: fix column-width squishing.** User and
-      Retailer columns dominate; middle columns (Order #, Order date,
-      Status, Deadline, Needs review) wrap awkwardly. Width/wrapping only —
-      cap User + Retailer widths (User truncates with full value on hover),
-      keep order # / dates / short values on one line. No content, filter,
-      sort, or click-through changes.
-      **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
-      in prod.** Note: if every row's values are at max width, the table
-      can exceed the page's `max-w-6xl` container and scroll horizontally
-      (existing `overflow-x-auto`) rather than squish.
-      **Amended 2026-09-19 (owner):** Retailer truncates too (ellipsis +
-      hover title) instead of wrapping — click-through covers the full name.
-      Open option (not requested): truncate Order # past ~20 chars (p95 is
-      19; one 42-char outlier) if horizontal scroll shows up in practice.
-
 ### 2026-09-19 — Session close (admin orders table)
 
 Three display-only changes to /admin/orders shipped + deployed: Order
 date column; User column → forwarding address (personal email dropped
 from the select); column widths (User + Retailer truncate at 10rem,
-other cells nowrap). All three await owner hand-verification in prod.
+other cells nowrap). All three owner-verified in prod and moved to Done.
 Owner decided the "User email contains…" filter stays as an
 operator-only personal-email lookup. 0 billed Anthropic API calls.
 
@@ -6943,6 +6913,12 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Admin orders table: Order date column added, 2026-09-19.** Sits between Order # and Status, same date format as Deadline, "—" when missing. Owner verified in prod.
+
+- [x] **Admin orders table: User column shows the forwarding address instead of personal email, 2026-09-19.** Personal email no longer loaded for the table; the "User email contains…" filter intentionally still searches personal email (owner decision). Owner verified in prod.
+
+- [x] **Admin orders table: column widths fixed, 2026-09-19.** User and Retailer truncate with the full value on hover; order numbers, dates, and short values stay on one line. Owner verified in prod.
 
 - [x] **Silent-unflag diagnostic (Margaux / eBay dropping out of Needs review), 2026-09-19.** Margaux was never unflagged — auto-archived on refund, which the view hides. eBay's flag cleared when a later email's merge recalculated a deadline that create had copied as null. Findings in 🟡 Next #9 and the Decisions log. Read-only, docs-only.
 
