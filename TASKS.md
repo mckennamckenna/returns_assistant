@@ -32,6 +32,18 @@
 
 ## 🔴 Now
 
+- [ ] **Stop docs-only pushes from filling Vercel Function Storage
+      (was 🟡 Next #7), 2026-09-19.** Owner chose both options.
+      (a) Deployment Retention set to 7 days by owner in the Vercel
+      dashboard, 2026-09-19. (b) Ignored Build Step via `vercel.json`
+      `ignoreCommand`: skip the build when nothing but `*.md` changed
+      since the last successful deploy (`VERCEL_GIT_PREVIOUS_SHA`, not
+      `HEAD^`, so a push of code-then-docs still builds; empty or
+      unreachable previous SHA falls back to building). Same change
+      updates CLAUDE.md/BUILD.md deploy wording and the session-start
+      sync check. Done when a docs-only push is shown as skipped in
+      Vercel and live stays on the last code commit.
+
 ### 2026-09-19 — Session close
 
 **Scope drift acknowledged.** Session opened as Session B Phase 1
@@ -4055,18 +4067,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       note ("confirmed state"). Language-only; needs owner sign-off on
       touching those protected blocks. No code uses the old terms
       (grepped app/lib/__tests__ 2026-09-18).
-
-- [ ] **7. Stop deployments from filling Vercel Function Storage.** NEW
-      2026-09-18, follow-up to the Known-issues entry on hitting 100% of
-      the 10 GB free tier. ~200 production deploys in a month, because
-      every push deploys, including docs-only ones. Two options, not
-      mutually exclusive: (a) a Deployment Retention policy in Vercel
-      project settings so old deploys age out on their own; (b) an
-      Ignored Build Step that skips builds when a commit touches only
-      `*.md` files. (b) would change CLAUDE.md/BUILD.md's "docs-only
-      commits deploy too" statement and the session-start sync check
-      (live ≠ HEAD would then be normal after docs-only commits). Update
-      both in the same change. [needs clarification: which option(s)]
 
 - [ ] **8. Dashboard-visibility alignment for needs-review state.**
       Five surfaces in the app currently default to reading Order-side

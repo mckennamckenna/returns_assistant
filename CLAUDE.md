@@ -110,7 +110,12 @@ Return Window matters until it has happy users.
 - Deploy: **automatic on push.** `mckennamckenna/returns_assistant` is
   connected to this Vercel project via the GitHub integration (connected
   2026-06-21) — every push to `main` triggers a production deploy on its
-  own, including docs-only commits, typically live within a few seconds.
+  own, typically live within a few seconds. **Exception (2026-09-19):**
+  `vercel.json`'s `ignoreCommand` skips the build when nothing but `*.md`
+  files changed since the last successful deploy — docs-only pushes show
+  as canceled/ignored in Vercel and the live deploy stays on the last
+  code commit. Deployment Retention is 7 days (Vercel dashboard), so
+  rollback targets older than that are gone; roll back by revert + push.
   Do **not** run `vercel --prod` — it creates a redundant duplicate
   deployment alongside the one GitHub already triggered. After pushing:
   confirm the alias updated: `npx vercel inspect returns-assistant.vercel.app`
@@ -134,8 +139,11 @@ Return Window matters until it has happy users.
 ## Working agreement
 - At the start of a session, run `git status` AND `git log origin/main..main --oneline`
   AND `npx vercel inspect returns-assistant.vercel.app | grep "Git Commit"` (or
-  equivalent) to report sync state: are local `main`, `origin/main`, and the live
-  Vercel deploy all on the same commit? Flag any drift immediately before proceeding.
+  equivalent) to report sync state: are local `main` and `origin/main` on the same
+  commit, and does the live deploy match them *for code*? Since docs-only builds
+  are skipped (2026-09-19), live can legitimately be behind HEAD — the check is
+  `git diff --quiet <live-sha> HEAD -- . ':(exclude)*.md'` (exit 0 = in sync).
+  Flag any other drift immediately before proceeding.
   (This is how `CLAUDE.md` and `TASKS.md` once sat uncommitted for several sessions,
   and how unpushed commits once lingered without anyone noticing.)
 - **At the end of every working session, report the Anthropic API cost
