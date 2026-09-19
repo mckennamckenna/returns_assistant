@@ -32,6 +32,35 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic session, 2026-09-16 — why did Margaux and eBay
+      silently drop out of Needs review after receiving new emails?**
+      Read-only diagnostic only, per scope-control rule: no code
+      changes, no DB writes, no Anthropic API calls this session.
+      Ground truth: earlier today (see 2026-09-15 all-emails-flagging
+      diagnostic report), Needs review contained at minimum Margaux
+      (`margauxny.loopreturns.com`, duplicate reason), Shopbop
+      (`shopbop.com`, duplicate reason), eBay (`uncertain_details`
+      reason), and Unknown retailer. Now: Margaux and eBay are gone
+      from the view. Shopbop and Unknown remain. Owner did not
+      manually clear, approve, or archive either order. No production
+      deploy has happened since the earlier state (Session A fixes
+      pushed but NOT deployed — prod code unchanged). Both Margaux
+      and eBay received an email today in the intervening window:
+      Margaux a refund-arrival notification, eBay a shipping
+      notification. Candidate explanations to distinguish: (1) silent
+      flag flip — a code path un-flipped without external trigger
+      (bug); (2) legitimate recompute — the merge with the new email
+      caused `computeOrderReviewReason` / `computeOrderStatus` to
+      return non-flagged based on new data (may be normal behavior
+      worth documenting). Deliverable: named cause per order (Margaux
+      and eBay separately — do not assume shared root cause), with
+      file/line evidence and specific gate/field identified. No fix
+      proposal.
+      [needs clarification: brief is dated 2026-09-16 but was run
+      2026-09-19; production deploys did happen after 09-16 (e.g.
+      Session A order-delete fix, 09-18), so "no deploy between
+      observations" holds only if both observations were on 09-16.]
+
 ### 2026-09-19 — Session close
 
 **Scope drift acknowledged.** Session opened as Session B Phase 1
