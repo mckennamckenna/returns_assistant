@@ -87,7 +87,7 @@ export default async function AdminOrdersPage({
         returnDeadline: true,
         needsReview: true,
         updatedAt: true,
-        user: { select: { inboundToken: true, email: true } },
+        user: { select: { inboundToken: true } },
       },
     }),
   ]);
@@ -164,7 +164,7 @@ export default async function AdminOrdersPage({
               const forwardingAddress = getInboundAddress(order.user.inboundToken);
               return (
                 <tr key={order.id} className="border-b border-border last:border-0">
-                  <td className="py-2 pl-4 pr-4 text-secondary">{order.user.email}</td>
+                  <td className="py-2 pl-4 pr-4 text-secondary">{forwardingAddress}</td>
                   <td className="py-2 pr-4">
                     <Link
                       href={`/admin/users/${encodeURIComponent(forwardingAddress)}/orders/${order.id}`}

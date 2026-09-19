@@ -39,6 +39,12 @@
       Deadline, "—" when null. No filter/sort/schema changes.
       **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
       in prod.**
+- [ ] **Admin orders table: User column shows forwarding address, not
+      personal email.** Owner request 2026-09-19: personal email is too
+      personal for the cross-user table. Show `getInboundAddress(inboundToken)`
+      (`<token>@mail.myreturnwindow.com`) instead; drop `email` from the
+      select. The "User email contains…" filter still matches against real
+      email — left as-is (out of scope); see follow-up in 🟡 Next.
 
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
@@ -3822,6 +3828,13 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+
+- [ ] **Admin orders "User email contains…" filter matches a field the
+      table no longer shows.** Since 2026-09-19 the User column shows the
+      forwarding address, but the filter still searches `User.email`.
+      Operator sees `<token>@mail…` yet must type part of a personal email
+      to filter. [needs clarification: switch filter to match inboundToken,
+      or keep personal-email search as an operator-only lookup?]
 
 - [x] **1. ~~Automatic-match no-clear bug~~ — CLOSED 2026-09-19, not a bug.**
 
