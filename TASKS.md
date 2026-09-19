@@ -37,6 +37,8 @@
       operator can't gut-check deadline plausibility. Display-only column
       between Order # and Status, from `Order.orderDate`, same format as
       Deadline, "—" when null. No filter/sort/schema changes.
+      **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
+      in prod.**
 
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
