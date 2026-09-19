@@ -170,7 +170,7 @@ export default async function AdminOrdersPage({
                     </div>
                   </td>
                   <td className="py-2 pr-4">
-                    <div className="max-w-[10rem] break-words">
+                    <div className="max-w-[10rem] truncate" title={order.retailer || "Unknown retailer"}>
                       <Link
                         href={`/admin/users/${encodeURIComponent(forwardingAddress)}/orders/${order.id}`}
                         className="text-blue-600 hover:underline"
