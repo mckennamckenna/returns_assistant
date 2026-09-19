@@ -32,6 +32,24 @@
 
 ## 🔴 Now
 
+- [ ] **Diagnostic, 2026-09-19 — owner reports the URL-review spreadsheet
+      isn't updating anymore.** Read-only: no code changes, no DB writes,
+      0 model calls. Check whether the cron is enabled (`vercel.json`), when
+      the sheet last updated, any error or emergency-disabled state, and
+      commits since the 09-16 fix (`d1e0711`/`025d77d`). Report only.
+      **Findings (awaiting owner read):** nothing is broken or disabled.
+      Both URL crons are enabled (`vercel.json:15-22`). The weekly
+      generator runs Mondays 03:00 UTC; its last run was 09-14, two days
+      *before* the fix, and it hasn't run since. The next run is
+      2026-09-21 03:00 UTC (Sun 09-20, 8pm PT). The generator only
+      *appends* rows for orders that have no ReturnUrlReview row yet. It
+      never rewrites existing rows, so the fix doesn't touch rows already
+      in the sheet. 16 non-Amazon orders (all created after 09-14) are
+      waiting for Monday's run. The daily apply job only emails when it
+      applies something; last email 09-15, and 0 PENDING rows since.
+      Commits since the fix: only `a1b43f5` (prefill casing). Vercel CLI
+      logs couldn't confirm cron runs (1000-line cap covered ~20 s).
+
 - [ ] **🟡 Next #3 `Email.needsReview` deprecation — Phase 1 (read-only
       investigation) DONE 2026-09-18; Phase 2 (migration + code plan)
       waiting on owner review.** 0 model calls, 0 DB writes (aggregate
