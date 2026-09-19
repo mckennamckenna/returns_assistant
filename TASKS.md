@@ -59,6 +59,17 @@
       (existing `overflow-x-auto`) rather than squish.
       **Amended 2026-09-19 (owner):** Retailer truncates too (ellipsis +
       hover title) instead of wrapping — click-through covers the full name.
+      Open option (not requested): truncate Order # past ~20 chars (p95 is
+      19; one 42-char outlier) if horizontal scroll shows up in practice.
+
+### 2026-09-19 — Session close (admin orders table)
+
+Three display-only changes to /admin/orders shipped + deployed: Order
+date column; User column → forwarding address (personal email dropped
+from the select); column widths (User + Retailer truncate at 10rem,
+other cells nowrap). All three await owner hand-verification in prod.
+Owner decided the "User email contains…" filter stays as an
+operator-only personal-email lookup. 0 billed Anthropic API calls.
 
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
