@@ -32,20 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Stop docs-only pushes from filling Vercel Function Storage
-      (was 🟡 Next #7), 2026-09-19.** Owner chose both options.
-      (a) Deployment Retention set to 7 days by owner in the Vercel
-      dashboard, 2026-09-19. (b) Ignored Build Step via `vercel.json`
-      `ignoreCommand`: skip the build when nothing but `*.md` changed
-      since the last successful deploy (`VERCEL_GIT_PREVIOUS_SHA`, not
-      `HEAD^`, so a push of code-then-docs still builds; empty or
-      unreachable previous SHA falls back to building). Same change
-      updates CLAUDE.md/BUILD.md deploy wording and the session-start
-      sync check. Done when a docs-only push is shown as skipped in
-      Vercel and live stays on the last code commit.
-      **Status 2026-09-19:** `8ffeb92` (the `vercel.json` change) built and
-      went live normally. This entry's own update is the docs-only test push.
-
 ### 2026-09-19 — Session close
 
 **Scope drift acknowledged.** Session opened as Session B Phase 1
@@ -6863,6 +6849,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Docs-only pushes no longer trigger Vercel builds, 2026-09-19** (was 🟡 Next #7). Build skip via `vercel.json` plus 7-day deployment retention. Verified: a docs-only push was canceled without building and live stayed on the last code commit. Owner hand-check of the Vercel dashboard pending.
 
 - [x] **`Email.needsReview` deprecation — Phase 1 read-only investigation, 2026-09-18.** Blast radius recounted, linked-but-flagged population found to be the AI extraction signal (not a bug). Findings in 🟡 Next #3; correction in HISTORY 2026-09-19. Docs-only.
 

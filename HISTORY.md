@@ -5,6 +5,31 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-19 — Docs-only pushes stop building on Vercel (🟡 Next #7)
+
+Follow-up to the 09-18 Function Storage incident. Owner set Deployment
+Retention to 7 days in the Vercel dashboard. `8ffeb92` adds a
+`vercel.json` `ignoreCommand`: skip the build when nothing but `*.md`
+changed since the last successful deploy. It compares against
+`VERCEL_GIT_PREVIOUS_SHA` rather than `HEAD^`, because `HEAD^` would
+skip a push whose last commit is docs but whose earlier commits change
+code. An empty previous SHA, or one missing from Vercel's shallow clone,
+makes the command fail and so builds. That's the safe direction. All
+five cases were tested locally against real commit ranges before
+shipping. CLAUDE.md/BUILD.md deploy wording and the session-start
+sync check were updated in the same commit: live may now trail HEAD by
+docs-only commits, and `git diff --quiet <live-sha> HEAD -- .
+':(exclude)*.md'` is the in-sync test.
+
+Verified: `8ffeb92` built and went live normally; the docs-only test
+push `5f96f06` showed Canceled after 8 s with no build, live stayed on
+`8ffeb92`, and the app kept serving (login page 200).
+
+Consequence to remember: with 7-day retention, instant rollback only
+reaches deploys from the last week; older rollbacks mean revert + push.
+
+---
+
 ## 2026-09-19 — Correction to 2026-09-17 framing: what `Email.needsReview` actually means
 
 **Summary.** The 2026-09-17 framing session diagnosed a bug in how
