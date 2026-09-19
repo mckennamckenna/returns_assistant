@@ -200,3 +200,18 @@ source (see note at the top of that file).
   a referenced file path that didn't actually exist, a doc section
   referenced as if present but missing, a stale task already shipped. Keep
   doing this even when a task doesn't explicitly say "diagnostic-first."
+
+### Definitional search before reasoning about semantics
+
+When a session's reasoning depends on what a specific field, function,
+concept, or invariant means — before reasoning from the name, from
+adjacent code, or from prior-session context — grep the codebase AND
+search BUILD.md for the term and read what turns up. Definition first,
+then reasoning.
+
+If no definition exists, note it explicitly and produce one as part of
+the work. Do not proceed on assumed semantics.
+
+Applies to CC and to Claude equally. Applies especially to schema
+fields, cross-cutting invariants, and anything whose meaning has ever
+been contested in the paper trail.
