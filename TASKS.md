@@ -45,6 +45,8 @@
       (`<token>@mail.myreturnwindow.com`) instead; drop `email` from the
       select. The "User email contains…" filter still matches against real
       email — left as-is (out of scope); see follow-up in 🟡 Next.
+      **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
+      in prod.**
 
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
