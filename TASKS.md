@@ -53,6 +53,10 @@
       cap User + Retailer widths (User truncates with full value on hover),
       keep order # / dates / short values on one line. No content, filter,
       sort, or click-through changes.
+      **Shipped + deployed 2026-09-19 — awaiting owner hand-verification
+      in prod.** Note: if every row's values are at max width, the table
+      can exceed the page's `max-w-6xl` container and scroll horizontally
+      (existing `overflow-x-auto`) rather than squish.
 
 - [ ] **Monday 2026-09-21 — URL-prefill check + URL-shaped retailer
       cleanup backfill.** Owner returning Monday. (1) After the weekly
