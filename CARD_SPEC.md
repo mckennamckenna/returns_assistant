@@ -402,18 +402,25 @@ decision that confirmed reasons should stay few.
   above) and inherits its slot-4 action from the state-appropriate mapping;
   unknown → View detail.
 
-  **[2026-09-17 historical note]** A prior version of this list named a fourth
-  population — "linked-but-flagged emails" — with `orderId` set AND
-  `Email.needsReview = true`. That population exists in the current database
-  (approx. 108 rows as of the 2026-09-17 audit) but is a bug artifact, not a
-  legitimate state. The automatic ingestion-match path
-  (`lib/linkOrder.ts:1146-1160`) fails to clear `Email.needsReview` when linking
-  an orphan into an existing Order; manual paths (`orderReview.ts:83`,
-  `orderReview.ts:99`) clear it correctly. Under the corrected implementation
-  (🟡 Next / #1, folds into #3), a linked email either belongs to an Order that
-  is itself flagged (confirmed state, read from `Order.needsReview`) or is not
-  in review at all. See HISTORY 2026-09-17 for the framing session that
-  surfaced this and CC's four-round diagnostic.
+  **[2026-09-17 historical note, corrected 2026-09-19]** A prior
+  version of this list named a fourth population — "linked-but-
+  flagged emails" — with `orderId` set AND
+  `Email.needsReview = true`. The 2026-09-17 framing session
+  described this population as a bug artifact from an auto-match
+  path failing to clear a routing flag. **That description was
+  wrong.** Session B Phase 1 investigation (2026-09-18) established
+  that `Email.needsReview` is not a routing flag at all — it is
+  the AI extraction engine's confidence signal, and the ~425 rows
+  in that population (count as of 2026-09-18; 108 was a stale
+  2026-07-23 figure the 09-17 session repeated without re-verifying)
+  are correctly-linked emails where extraction happened to be
+  uncertain. Not a bug. The actual mis-behaving code is the
+  opposite of what was originally claimed: the manual link/create
+  paths at `lib/orderReview.ts` erase the AI's extraction-quality
+  signal whenever a user acts on an orphan, silently corrupting
+  the field. See HISTORY 2026-09-19 for how the misreading
+  propagated and how the deprecation decision (🟡 Next #3) still
+  holds under corrected reasoning.
 
 **Overflow:** the bucket can hold 3 today and 15 after a bad extraction week. The
 bucket's own collapse/expand toggle (see "Collapsed vs expanded" above, corrected

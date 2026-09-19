@@ -5,6 +5,154 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-19 — Correction to 2026-09-17 framing: what `Email.needsReview` actually means
+
+**Summary.** The 2026-09-17 framing session diagnosed a bug in how
+`Email.needsReview` was being handled by the auto-match path. Session
+B Phase 1 investigation (2026-09-18) established that the diagnosis
+was wrong: the field means something different from what everyone
+involved (including me) assumed, and the "bug" was correct behavior
+under the field's actual semantics. The deprecation decision (🟡 Next
+#3) still holds, for corrected reasoning. Three documents recorded
+the wrong story and were corrected in the same commit as this entry.
+
+**What we thought `Email.needsReview` meant.** A routing-state
+boolean: true means this email is in the routing bucket awaiting a
+user's decision, false means it's been resolved. Under this reading,
+the auto-match path failing to set it to false when linking was a bug
+producing an illegal state (~108 rows with `orderId` set AND
+`needsReview = true`). The framing session built a whole two-state
+model on this reading — proto items structurally derivable from
+`orderId IS NULL AND junkedAt IS NULL`, with `Email.needsReview` as
+a redundant boolean that should be deprecated to prevent the
+duplicated-state class of bugs.
+
+**What it actually means.** The AI extraction engine's confidence
+signal. Written by `lib/runExtraction.ts:151` on every successful
+extraction based on rules like "tiered window, low confidence, missing
+IDs, missing deadline" — the AI's self-report on how confident it is
+in what it extracted from a given email. Not related to routing state
+at all.
+
+**Which means the "bug" wasn't a bug.** The auto-match path at
+`lib/linkOrder.ts:1162` correctly leaves the field alone because
+extraction quality doesn't change when an auto-linker succeeds at
+linking an already-extracted email. The 425 linked-but-flagged rows
+(count as of 2026-09-18; the "~108" figure the 09-17 session used was
+a stale 2026-07-23 audit number that got repeated without
+re-verification) are correctly-linked emails where the AI happened to
+be uncertain about extraction. Correct data, not illegal state.
+
+**The actual mis-behavior is the opposite of what we identified.** The
+manual link/create paths at `orderReview.ts:84` and `:100`, plus the
+unlink at `actions.ts:75`, all write to the field on user actions —
+setting it to `false` on manual link/create, `true` on unlink. Every
+one of those writes is corrupting the AI's extraction-quality signal
+by treating the field as a routing flag. The signal survives only in
+`extractionRaw.needsReview`, a separate JSON field on the Email that
+no path overwrites.
+
+**How the misreading propagated.**
+
+- The field name (`needsReview`) reads as "this needs a user's
+  review," which primes the routing interpretation. The AI-signal
+  interpretation would suggest a name like `extractionUncertain`.
+- The framing session (2026-09-17) started from a bucket-population
+  discrepancy and worked outward. Nobody dug into what the field
+  actually *was* — everyone was reasoning from the name plus the
+  observed database state, which happened to be consistent with the
+  routing-flag interpretation as long as you didn't look at where
+  the field was written.
+- GPT's red team (2026-09-18, during Session A design review)
+  explicitly flagged the risk of the same class of mistake on
+  `junkedAt` — "if any reader treats it as classifier truth, the
+  order-delete cascade would contaminate that data." We investigated
+  `junkedAt` and confirmed it was safe. We did NOT do the equivalent
+  investigation on `needsReview` because we thought we already knew
+  what it meant.
+- CC's Session B Phase 1 diagnostic (2026-09-18) was the first
+  read that traced every write site to its trigger. That trace
+  surfaced `runExtraction.ts:151` as an unlisted sixth write site
+  that only makes sense under the AI-signal interpretation.
+
+**Pattern class (second instance of the concept-drift anti-pattern
+diagnosed on 09-17).** The 2026-09-17 framing session concluded that
+the original needs-review bugs came from "a core product concept
+never given a single definition, so every surface made its own local
+call and drifted." The same pattern is at work one layer deeper — but not because the
+meaning was never written down. The extraction path wrote to it per
+the documented definition; the manual paths wrote to it as if it were
+a routing flag; the badge rendered it with no stated meaning; and the
+09-17 framing session diagnosed it as a routing flag. One correct
+interpretation documented at BUILD.md:1000 since July, three drifted
+ones in code; the 09-17 session didn't consult BUILD.md before
+reasoning about the field. Pattern-tracking note: the documentation
+existed but wasn't reached for at the moment the concept was being
+decided — a distinct failure shape from "no documentation exists,"
+and worth watching separately.
+
+**The corrected reason to deprecate the field (🟡 Next #3 revised
+framing).** Not "duplicated state creates illegal combinations" — the
+original framing's rationale, which turns out to have been reasoning
+from the wrong understanding of the field. The corrected reason:
+
+1. The field's semantics have quietly diverged from any documented
+   or assumed meaning. No one can accurately state what it means
+   because the writers disagree.
+2. Its one UI surface (the amber "Needs Review" badge on the email
+   detail page) is silently unreliable — the manual paths erase the
+   AI's signal, so the badge lights up on a filtered subset of
+   uncertain-extraction emails (only those the user hasn't manually
+   touched), not the true set.
+3. The AI's extraction-quality signal is already preserved reliably
+   in `extractionRaw.needsReview` (a separate JSON field, never
+   overwritten by any manual path). Nothing is lost by dropping the
+   top-level field.
+4. If a top-level extraction-quality boolean is wanted later (e.g.,
+   for extraction-improvement dashboards once alpha grows or usage
+   patterns solidify), it can be re-added and backfilled from
+   `extractionRaw` cleanly — the backfilled value would be a
+   *better* signal than what exists today, because it would reflect
+   what the AI actually said on every email rather than the
+   manual-path-corrupted subset.
+
+**Corrections landed with this entry.** 🟡 Next #1 rewritten to close
+as not-a-bug with a pointer to this correction. CARD_SPEC.md Part 3's
+2026-09-17 historical note about the linked-but-flagged population
+updated to name it as correct data rather than a bug artifact. This
+entry itself added to record the misreading and its correction.
+
+**What did NOT need correction.** Session A (order-delete ghost emails
+fix, shipped 2026-09-18) is unaffected — its scope was `junkedAt`
+semantics, not `needsReview`, and CC's investigation confirmed the
+junk semantics separately. The two-state framing itself (routing /
+correction) still holds; it just doesn't rest on the argument the
+09-17 session used to arrive at it. The structural definitions
+(`Email.orderId IS NULL AND Email.junkedAt IS NULL` for routing,
+`Order.needsReview = true` for correction) are unaffected — neither
+depends on `Email.needsReview`. Session B's decision to drop the
+field is still correct. It follows that the dashboard-visibility
+alignment work (the five Order-only surfaces identified 09-17) was
+never actually blocked on Session B; it is unblocked and now has its
+own entry, 🟡 Next #8.
+
+**Watching-note follow-on (from HISTORY 09-17's action/decision
+logging gap watching-note):** this correction is not a third instance
+of that specific pattern (which was about user actions and system
+decisions leaving no durable trace). It IS a distinct instance of a
+related pattern — assumptions about field semantics compounding across
+sessions without verification. Not promoting to a real audit yet; one
+instance beyond the 09-17 concept-drift finding is still hypothesis
+territory. Noting here for pattern-tracking.
+
+**Session B status.** Parked in 🟡 Next as ready-to-build after this
+correction lands. Phase 1 investigation complete, Phase 2 (migration
+proposal) not started. Ready to resume any time; extraction signal is
+safe in `extractionRaw` and the deprecation can happen whenever it's
+the highest-leverage work available.
+
+---
+
 ## 2026-09-18 — Vercel Function Storage hit the free-tier limit; 128 old deployments deleted
 
 Deploys started stalling in the afternoon: one docs-only push got a

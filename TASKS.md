@@ -32,6 +32,58 @@
 
 ## 🔴 Now
 
+### 2026-09-19 — Session close
+
+**Scope drift acknowledged.** Session opened as Session B Phase 1
+investigation for 🟡 Next #3 (Email.needsReview deprecation). Phase 1
+surfaced that the field's semantics were misunderstood by the 09-17
+framing session — the field is the AI's extraction-quality signal,
+not a routing-state boolean. The "bug" in 🟡 Next #1 wasn't a bug;
+the actual mis-behavior is that manual paths corrupt the AI's signal.
+Session pivoted from advancing to Phase 2 into a docs-correction pass
+to fix the paper trail before further work builds on the wrong story.
+
+**What landed:**
+- 🟡 Next #1 closed as not-a-bug with corrected explanation.
+- CARD_SPEC.md Part 3 historical note updated to reflect corrected
+  understanding of the linked-but-flagged population.
+- HISTORY 2026-09-19 entry recording the misreading, how it
+  propagated, the corrected rationale for deprecation, and pattern-
+  class note (second instance of concept-drift, distinct from 09-17
+  watching-note).
+- 🟡 Next #3 updated with corrected framing and Phase 1 findings;
+  parked as ready-to-build.
+- URL-spreadsheet diagnostic run and recorded (🔴 Now entry).
+- Phase 1 investigation entry moved to ✅ Done.
+- Two owner-named items captured in 🟡 Next (archived-order search;
+  purchase date in admin DB), plus 🟡 Next #8 (dashboard-visibility
+  alignment).
+
+**Session B parked, not shipped.** Decision to park based on relative
+leverage: dropping the field is real cleanup but produces near-zero
+user-visible impact (the field's one UI surface is a silent
+mostly-invisible badge). Owner identified higher-leverage outstanding
+work: retailer strings displaying as URLs, no merge-from-Needs-Review
+capability, search not returning archived orders, purchase-date
+missing from admin DB. Session B remains ready-to-build for any
+future session; corrected framing makes the resume clean.
+
+**Convention note.** Session close is landing in 🔴 Now for this
+session per mid-session instruction, but 09-17's close went in
+HISTORY. Going forward, session closes default to HISTORY (matches
+the 09-17 pattern; the 09-19 placement was a one-off).
+
+**What didn't get done (deferred, no ownership assumed):**
+- Session B Phase 2 (migration proposal) and Phase 3 (implementation).
+  Ready-to-build.
+- Dashboard-visibility alignment session. Not blocked on Session B
+  (the structural routing definition doesn't depend on
+  `Email.needsReview`); now tracked as 🟡 Next #8.
+- URL-spreadsheet update — investigated 2026-09-19 (read-only), not
+  broken: the weekly cron hasn't run since the 09-16 fix; next run
+  Mon 2026-09-21 03:00 UTC. See the 🔴 Now diagnostic entry.
+
+
 - [ ] **Diagnostic, 2026-09-19 — owner reports the URL-review spreadsheet
       isn't updating anymore.** Read-only: no code changes, no DB writes,
       0 model calls. Check whether the cron is enabled (`vercel.json`), when
@@ -49,38 +101,6 @@
       applies something; last email 09-15, and 0 PENDING rows since.
       Commits since the fix: only `a1b43f5` (prefill casing). Vercel CLI
       logs couldn't confirm cron runs (1000-line cap covered ~20 s).
-
-- [ ] **🟡 Next #3 `Email.needsReview` deprecation — Phase 1 (read-only
-      investigation) DONE 2026-09-18; Phase 2 (migration + code plan)
-      waiting on owner review.** 0 model calls, 0 DB writes (aggregate
-      counts only). Findings that change the Next #3 entry:
-      - **Linked-but-flagged is 425 rows, not ~108.** The "108" was the
-        2026-07-23 audit figure carried forward, not a 09-17 recount (105
-        of the 425 were extracted before 07-24). +15 since 09-17.
-      - **All 425 have `extractionRaw.needsReview = true`.** They are the
-        AI extraction-quality flag, written on the *success* path at
-        `lib/runExtraction.ts:151` (a 6th write site, missing from the
-        list), which linking never touched. That is the BUILD.md:1000
-        "Email-level extraction-quality review" job, not a routing flag
-        the auto path forgot to clear. 221 carry the tiered-window note.
-        Dropping the column loses nothing stored: `extractionRaw` keeps it.
-      - **Only one reader** of the Email field in app/lib: the static
-        badge at `app/(app)/emails/[id]/page.tsx:90`. Every admin and
-        dashboard hit is `Order.needsReview`.
-      - Line shifts: `orderReview.ts` 83→84 and 99→100 (Session A import);
-        the auto-path Email write is now `linkOrder.ts:1162`.
-      - Tests: 5 Email-field assertions in 3 files (runExtraction,
-        linkOrder, unlinkEmailFromOrderAction). The rest of the 61 raw
-        matches are the extraction-result field or `needsReview*` module names.
-      - Scripts: ~45 reference the Email field. All are one-off
-        diagnostics/backfills, none operational. `scripts/` is excluded
-        from tsc, so the drop doesn't break the build.
-      Open owner questions for Phase 2: (a) keep the badge (reads
-      `extractionRaw`), rebuild it on routing state, or drop it;
-      (b) the Next #3 "relocate the signal to Order before dropping" step
-      vs. BUILD.md's decision to keep extraction-quality off
-      `Order.needsReview`; (c) Next #1's framing ("auto path forgets to
-      clear") needs correcting to match what the data shows.
 
 - [ ] **Order-delete ghost emails fix — implementation, 2026-09-17.**
       Picked up from 🟡 Next #2. Owner review rejected the original
@@ -3785,31 +3805,44 @@
 
 ## 🟡 Next
 
-- [ ] **1. Automatic-match no-clear bug.** `lib/linkOrder.ts:1146-1160` (the
-      auto-ingestion match/create path) does not clear `Email.needsReview`
-      when it links an orphan email into an existing Order. Manual paths
-      (`orderReview.ts:83` `linkEmailToExistingOrder`, `orderReview.ts:99`
-      `createOrderFromOrphanedEmail`) do clear it correctly. The shared
-      merge primitive `mergeEmailIntoOrder()` (`linkOrder.ts:840-903`)
-      only writes Order fields, so the auto path is on its own for
-      Email-side cleanup and forgets to do it. Produces the ~108-row
-      linked-but-flagged population (see CARD_SPEC Part 3 → 2026-09-17
-      historical note under Populations).
+- [x] **1. ~~Automatic-match no-clear bug~~ — CLOSED 2026-09-19, not a bug.**
 
-      **Fix:** one-line addition on the Email update at the end of the
-      auto path — `needsReview: false` alongside the `orderId` write.
-      Trivial in isolation.
+      Originally filed 2026-09-17 as: `lib/linkOrder.ts:1146-1160` (the
+      auto-ingestion path) fails to clear `Email.needsReview` when
+      linking an orphan email into an existing Order; manual paths
+      at `lib/orderReview.ts:83` and `:99` do clear it correctly;
+      produces ~108 linked-but-flagged emails.
 
-      **Sequencing:** fold into #3 if #3 is picked up first. Once
-      `Email.needsReview` is gone (#3), the auto path can no longer
-      forget to clear it — the bug class is structurally eliminated,
-      and this entry closes without its own code change. Only worth
-      patching separately if #3 is deferred and the ~108-row
-      linked-but-flagged population starts causing visible confusion.
+      **What Session B Phase 1 investigation (2026-09-18) actually
+      found:** `Email.needsReview` is not a routing-state flag. It's
+      the AI extraction engine's confidence signal, written by
+      `lib/runExtraction.ts:151` on every successful extraction based
+      on extraction-quality rules (tiered window, low confidence,
+      missing IDs or deadline). The auto-match path correctly leaves
+      it alone because extraction quality doesn't change when
+      auto-linking succeeds. The manual paths at `orderReview.ts`
+      are the ones getting the semantics wrong — they erase the
+      AI's extraction-quality signal whenever a user manually links
+      or creates an order, silently corrupting the field for any
+      downstream reader.
 
-      **Refs:** CARD_SPEC Part 3 (two-state framing, 2026-09-17
-      amendment); HISTORY 2026-09-17; CC diagnostic 2026-09-17
-      confirmed code unchanged since references captured.
+      The 108-row (now 425-row) linked-but-flagged population isn't
+      a bug artifact. It's the extraction AI's legitimate flag on
+      correctly-linked emails where extraction was uncertain.
+
+      The framing-session diagnosis of this bug (see HISTORY
+      2026-09-17) was built on a misreading of what
+      `Email.needsReview` actually meant. See HISTORY 2026-09-19
+      amendment for the corrected understanding and how the mistake
+      propagated through three documents.
+
+      **Superseded by:** the still-correct decision to deprecate
+      `Email.needsReview` (🟡 Next #3), but for a corrected reason —
+      nobody can accurately state the field's meaning, its one UI
+      surface (the email detail page badge) is silently unreliable
+      under the corrupting manual-path writes, and the AI's signal
+      is already preserved reliably in `extractionRaw.needsReview`
+      which no path overwrites. See #3 for revised framing.
 - [ ] **2. Order-delete ghost emails.** Soft-deleting an Order (dashboard
       card → expand → Archive popover → Delete) leaves its linked emails
       attached to the Order row until the nightly hard-delete cron
@@ -3848,69 +3881,74 @@
       explicit, per the two-state framing); HISTORY 2026-09-17; CC
       diagnostic 2026-09-17 confirmed cron, FK constraint, and
       `deleteEmail` code unchanged.
-- [ ] **3. `Email.needsReview` deprecation (Option 2 implementation).**
-      Remove the `Email.needsReview` field from the schema; derive
-      proto state from `Email.orderId IS NULL AND Email.junkedAt IS
-      NULL` everywhere it's needed. Rationale in CARD_SPEC Part 3
-      (2026-09-17 amendment, "On `Email.needsReview` as a field") and
-      HISTORY 2026-09-17 (Option 2 decision reasoning).
+- [ ] **3. `Email.needsReview` deprecation (Option 2 implementation).
+      Ready-to-build, parked 2026-09-19.** Remove the
+      `Email.needsReview` field from the schema. The AI's extraction-
+      quality signal is preserved reliably in `extractionRaw.needsReview`;
+      nothing needs to move.
 
-      **Blast radius (CC-confirmed 2026-09-17, all unchanged since
-      yesterday):**
-      - **5 write sites** to remove or rewrite:
-        - `lib/runExtraction.ts:164` (error-path write: `needsReview:
-          true` alongside `extractedAt`)
-        - `lib/linkOrder.ts:1100-1104` (orphan branch: `needsReview:
-          true` alongside `junkedAt` handling)
-        - `lib/orderReview.ts:83` (`linkEmailToExistingOrder`,
-          `needsReview: false`)
-        - `lib/orderReview.ts:99` (`createOrderFromOrphanedEmail`,
-          `needsReview: false`)
-        - `app/actions.ts:68` (`unlinkEmailFromOrderAction`, sets
-          `needsReview: true` when unlinking; added 2026-08-28 per
-          its own comment — it was in the summary's original 5-site
-          list; CC re-flagged it as "not in the list," CC was wrong,
-          leaving here so the correction sticks)
-      - **1 live read site:** `app/(app)/emails/[id]/page.tsx:90`
-        (static badge render). Rebuild around derived proto state or
-        remove the badge.
-      - **Test refs:** ~8 distinct references per yesterday's summary;
-        `grep needsReview __tests__/` returns 61 raw matches per CC.
-        The gap is probably file-count vs. line-occurrence-count —
-        resolve on the day by opening the tests, not worth reconciling
-        in advance.
-      - **5 scripts** referencing the field (per yesterday's summary;
-        specific paths not re-verified by CC — recount during work).
-      - **Schema drop:** structurally cheap. Add a Prisma migration
-        that drops the column.
+      **Corrected framing (2026-09-19):** original rationale was
+      "duplicated state creates illegal combinations." That reasoning was
+      built on a misreading of the field's semantics — see HISTORY
+      2026-09-19 for the full correction. Corrected rationale:
 
-      **Migration coordinate:** before dropping the field, relocate
-      any signal `Email.needsReview=true` currently carries onto the
-      Order row (probably as `Order.needsReview` + a specific reason
-      string), so the ~108-row linked-but-flagged population from #1
-      doesn't become undetectable during migration. Otherwise the fix
-      for #1 (which #3 subsumes) becomes "these emails silently rejoin
-      the proto pool" instead of "these emails were correctly linked
-      all along, per the corrected implementation." Name the signal
-      before dropping the field — that's the coordinated step.
+      1. Field semantics have quietly diverged; no one can accurately
+         state its meaning.
+      2. Its one UI surface (email detail page amber badge) is silently
+         unreliable — manual paths erase the AI's signal.
+      3. AI signal is preserved in `extractionRaw.needsReview` (never
+         overwritten by any manual path).
+      4. If a top-level boolean is wanted later for extraction-quality
+         queries, it can be re-added and backfilled from `extractionRaw`
+         cleanly — signal would be *better* than today's.
 
-      **Sequencing:** subsumes #1 (auto-match no-clear). Once the field
-      is gone, the auto path can no longer forget to clear it — the bug
-      class is structurally eliminated. Not sequenced against #2; they
-      touch different code and can go in either order.
+      **Session B Phase 1 investigation complete (2026-09-18).** Blast
+      radius verified:
+      - 6 write sites (not 5 as originally listed; `runExtraction.ts:151`
+        was unlisted; the two extraction writers, `:151` and `:164`, are
+        the legitimate ones under corrected semantics, the other four
+        are the drifted ones): `runExtraction.ts:151` (extraction success),
+        `runExtraction.ts:164` (extraction error), `linkOrder.ts:1103`
+        (orphan branch), `orderReview.ts:84` (manual link),
+        `orderReview.ts:100` (manual create), `actions.ts:75` (manual
+        unlink).
+      - 1 live read site: `app/(app)/emails/[id]/page.tsx:90` (the badge
+        drops with the field, per 2026-09-19 owner decision).
+      - 5 test assertions across 3 files: `runExtraction.test.ts:120,174`,
+        `linkOrder.test.ts:917,934`, `unlinkEmailFromOrderAction.test.ts:75`.
+        All assert the written value directly; each needs rewriting
+        without the field but not deletion (other payload assertions
+        remain).
+      - ~45 scripts reference the field; none are operational (nothing in
+        package.json, vercel.json, or any app/lib import), so no build
+        breakage. Historical/one-off scripts that would fail at runtime
+        if rerun. Do not need to be edited; obsolete-by-context.
+      - No migration helpers exist.
 
-      **Refs:** CARD_SPEC Part 3 (two-state framing, 2026-09-17
-      amendment); HISTORY 2026-09-17 (Option 2 decision reasoning);
-      CC diagnostic 2026-09-17 (blast radius confirmed unchanged from
-      yesterday's summary).
+      **Sequencing:** no external dependencies; #1 closed as
+      not-a-bug, no code carried over.
 
-      **Sequencing across the three:** #2 lands before any Delete UI
-      redesign. #3 subsumes #1. Not sequenced #2 vs #3 — either can go
-      first, they touch different code. Recommendation: **#2 first**
-      (bounded, has a downstream blocker), then **#3** (which closes #1
-      for free). If #3 gets deferred and the linked-but-flagged
-      population becomes visibly confusing before then, do #1 as a
-      one-line patch.
+      **Ready-to-build state:** Phase 2 (migration proposal) and Phase 3
+      (implementation) not started. Resume with a fresh CC session
+      pointing at HISTORY 2026-09-19 for corrected framing plus this
+      entry for blast radius. No sequencing dependency on other work;
+      pick up whenever it becomes highest-leverage.
+
+      **Refs:** HISTORY 2026-09-19 (correction to 09-17 framing +
+      corrected reasoning for deprecation); Session B Phase 1 CC report
+      2026-09-18 (blast radius); CARD_SPEC Part 3 corrected historical
+      note (2026-09-19); 🟡 Next #1 (closed not-a-bug, 2026-09-19).
+
+- [ ] **Search doesn't return archived orders — NEW 2026-09-19, owner
+      named it as higher-leverage than Session B.** [needs clarification:
+      which search surface, and whether archived results should appear
+      by default or behind a filter; related: "Reconsider Archived
+      dropdown option in SearchFilterBar" entry below.]
+
+- [ ] **Purchase date missing from admin DB view — NEW 2026-09-19, owner
+      named it as higher-leverage than Session B.** [needs clarification:
+      which admin page, and whether it's a missing column or null
+      `orderDate` values.]
 
 - [ ] **4. Junk/rescue recovery UI.** No user-facing surface currently
       exists to view or restore junked emails (emails with
@@ -4029,6 +4067,36 @@
       commits deploy too" statement and the session-start sync check
       (live ≠ HEAD would then be normal after docs-only commits). Update
       both in the same change. [needs clarification: which option(s)]
+
+- [ ] **8. Dashboard-visibility alignment for needs-review state.**
+      Five surfaces in the app currently default to reading Order-side
+      needs-review state only, ignoring the structural Email-side
+      routing state (Email.orderId IS NULL AND Email.junkedAt IS NULL).
+      Identified during the 2026-09-17 framing session; deferred at
+      that time as "blocked on spec landing," then persisted as
+      "blocked on Session B" in the paper trail until 2026-09-19 —
+      which was wrong on the second characterization. The structural
+      routing definition doesn't depend on Email.needsReview, so
+      dropping the field (parked 🟡 Next #3) doesn't gate this work.
+      Unblocked and available.
+
+      **Scope:** locate each of the five surfaces (see HISTORY 2026-
+      09-17 for the framing session narrative that identified them;
+      specific file:line references not captured at the time — Phase 1
+      would re-locate). For each, align its read to the corrected
+      two-kind framing per CARD_SPEC Part 3: surfaces that display
+      proto/routing items should read from the structural query;
+      surfaces that display confirmed/correction items should read
+      from Order.needsReview. No design decisions remain; this is
+      code-to-spec alignment.
+
+      **Sequencing:** no dependency on 🟡 Next #3. Could ship before
+      or after. Low complexity per surface, but touches five separate
+      places — expect a real session, not a drive-by.
+
+      **Refs:** HISTORY 2026-09-17 (identification of the five
+      surfaces during framing session); HISTORY 2026-09-19 (correction
+      noting this is unblocked); CARD_SPEC Part 3 (target framing).
 
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
@@ -6793,6 +6861,8 @@
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **`Email.needsReview` deprecation — Phase 1 read-only investigation, 2026-09-18.** Blast radius recounted, linked-but-flagged population found to be the AI extraction signal (not a bug). Findings in 🟡 Next #3; correction in HISTORY 2026-09-19. Docs-only.
 
 - [x] **CARD_SPEC Part 3 language reframe — "two maturity states
       (proto/confirmed)" → "two kinds of review item
