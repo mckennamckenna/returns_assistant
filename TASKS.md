@@ -2318,6 +2318,21 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       sample (n>3 shipments) looks materially different, or (b) Phase 4/5
       gets scoped and this folds into that work.
 
+- [ ] **Registry cleanup: "Archive" label now covers two semantically
+      distinct actions** — not_a_purchase (email-kind, junk-with-rescue)
+      and archivedAt (order-kind, hide-only). Wire is intentional per
+      Passage A; label collision is deferred. Reconcile when Act 2
+      introduces Junk as a distinct action per owner's 30-day-retention
+      vs indefinite-Archive distinction (this session, 2026-09-20).
+      See `DECISIONS.md` 2026-09-20.
+
+- [ ] **Needs-review row Archive on order-kind hides but doesn't clear
+      needsReview flag.** Unarchiving returns the order to the bucket
+      still flagged. Symmetric with detail-page Archive but creates a
+      second silent-resolution path alongside "Looks correct" — no
+      reason recorded either way. Revisit in Act 2 resolution-action
+      pass. See `DECISIONS.md` 2026-09-20.
+
 ## 🐛 Bugs
 
 ### Trust-breaking
