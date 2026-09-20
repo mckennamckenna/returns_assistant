@@ -5,6 +5,51 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-19 — Pre-fix reminder-linked orders: verified, chose not to clean
+
+Follow-up on the self-outbound guard fix (2026-09-07 `b316416`,
+recovery 2026-09-08 `1e51fe2`, verification 2026-09-10). Read-only
+diagnostic on the two orders for one user spot-listed in the 09-10
+census, plus a third (Ruti #409582, a different user) that was in a
+similar shape in an earlier admin screenshot but was never
+explicitly cleared. 0 Anthropic model calls, 0 DB writes.
+
+**Findings.** All three orders classify "affected, real retailer
+email currently linked." Real retailer emails (TRR, TRR, Ruti) are
+present with matching order numbers and totals. The currently-
+visible extracted fields on all three are not demonstrably wrong
+— the reminder bodies quote figures the order already held, so
+extracting from either the reminder or the real email produces the
+same values. What is contaminated is the link graph: 5 reminder-
+sourced Email rows across the 3 orders are linked as
+`emailType: "other"` instead of junked. The second order
+(`cmsvzhb8k0003jz04f2z3h3dz`) has 3 reminder rows linked, not 1 as
+the census brief named — worth recording so the 09-10 census is not
+treated as a complete count of affected emails in future sessions.
+The Ruti order (`cmrjnuhp50003l004h7st52fj`) is archived
+(`archivedAt: 2026-08-09`, refunded).
+
+**Decision: no cleanup.** The bleeding is stopped by the guard; the
+09-08 recovery pass handled the visible remediation; today's
+findings confirm no visible field is demonstrably wrong. The
+residual polluted link graph is dormant — no current code path
+iterates over linked emails in a way that would re-activate the
+contamination. Field-provenance investigation of derived fields
+(`returnDeadline`, retailer-policy) was considered and rejected as
+hypothesis-driven scope creep; if a symptom surfaces later, that's
+when to look, on evidence.
+
+**Schema corrections captured (from Claude Code's method notes).**
+Order has no `needsReviewReasons` column — reasons are derived at
+read time in `lib/needsReviewReasons.ts`, only the boolean
+`needsReview` persists. Order has no source-email field
+(`sourceEmailId` / `createdFromEmailId`) — bogus-created checks
+require the earliest-linked-email inference proxy, not a stored
+field. Future diagnostic prompts on Order shape should not assume
+either.
+
+---
+
 ## 2026-09-19 — Dashboard V1 step 1 closed out: cross-user admin orders table
 
 Step 1 of the internal admin/debugging dashboard is complete: a

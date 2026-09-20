@@ -6914,6 +6914,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **Pre-fix reminder-linked orders verified, no cleanup, 2026-09-19.** Read-only check of the two orders from the 09-10 census plus a third in the same shape that had never been cleared. All three have a real retailer email linked and no demonstrably wrong visible field; the residual reminder-linked email rows are dormant. Decided not to clean. Detail in HISTORY 2026-09-19; decision in the Decisions log. Read-only, docs-only, 0 model calls.
+
 - [x] **Dashboard V1 step 1 complete — cross-user admin orders table at /admin/orders, 2026-09-19.** Built 09-10, then refined: order # links to the order page, Order date column, forwarding address instead of personal email, column widths. Owner verified the finished table in prod.
 
 - [x] **Admin orders table: Order date column added, 2026-09-19.** Sits between Order # and Status, same date format as Deadline, "—" when missing. Owner verified in prod.
@@ -9355,6 +9357,29 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## 📝 Decisions log
 <!-- One line per decision so future-you and Claude Code know WHY -->
+- **Residual pre-guard reminder-linked emails: verified, deliberately NOT
+  cleaned** (2026-09-19). Three orders checked read-only against the real
+  `detectSelfOutboundLoop()`; all three still have a genuine retailer email
+  linked, and no visible extracted field is demonstrably wrong — the
+  reminder bodies quote figures the order already held, so either source
+  yields the same values. What remains contaminated is only the link graph
+  (reminder-sourced rows linked as `emailType: "other"` rather than junked),
+  and no current code path walks linked emails in a way that re-activates
+  it. The guard stopped the bleeding and the 09-08 recovery handled the
+  visible remediation, so cleanup buys nothing today. Field-provenance
+  investigation of derived fields (`returnDeadline`, retailer-policy) was
+  considered and rejected as hypothesis-driven scope creep — look only if a
+  symptom surfaces, and look on evidence. Also: the 09-10 census is NOT a
+  complete count of affected emails (one order had 3 reminder rows linked
+  where the census named 1) — do not treat it as exhaustive in future work.
+- **Order shape: two fields that do not exist, do not assume them**
+  (2026-09-19, from the above diagnostic). `Order` has no
+  `needsReviewReasons` column — reasons are derived at read time in
+  `lib/needsReviewReasons.ts`, only the boolean `needsReview` persists.
+  `Order` has no source-email field (`sourceEmailId` / `createdFromEmailId`),
+  so "was this order created from a reminder?" requires the earliest-linked-
+  email inference proxy, not a stored fact. Both were assumed by a
+  diagnostic prompt and had to be corrected mid-session.
 - **Cheap deterministic pre-Sonnet junk gates — all REFUTED on real data
   (2026-08-18), three read-only passes. Do not re-propose without new
   evidence:** (1) List-Unsubscribe drop = 6.8% real orders caught (the
