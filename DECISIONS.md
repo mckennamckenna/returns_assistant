@@ -7,6 +7,67 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-20 — Junk vs Archive lifecycle
+
+**Decision:** Archive and Junk are distinct actions with distinct
+retention.
+
+- **Archive** — the "closed order" drawer. Indefinite retention.
+  User might want to look back (did I return that, what did I pay,
+  when did it arrive). Past-tense record, not a bin.
+- **Junk** — "this wasn't an order at all, get it out of my life."
+  30-day retention, then hard-delete. Grace period exists so a
+  misclassification (user's or system's) can be recovered.
+
+**Status:** Decided in principle. Not built. Junk detection is
+Act 2 parser work; Junk lifecycle build follows. Archive
+indefinite is current behavior on order-kind (verified this
+session — `archivedAt` timestamp, no sweep found; TODO to verify
+during Act 2 that nothing cleans up old archives).
+
+**Implications currently pending:**
+- Registry cleanup: today's "Archive" label on email-kind rows
+  is actually the `not_a_purchase` action, which will become
+  Junk with different retention. Label collision deferred until
+  Junk exists as a distinct action. (See TASKS.md ❄️ Deferred.)
+- Needs-review Archive on order-kind hides but doesn't clear
+  `needsReview` flag. Interaction with Junk semantics revisited
+  in Act 2 resolution-action pass. (See TASKS.md ❄️ Deferred.)
+- Undo UI for Junk (view of what's currently in the 30-day
+  window, ability to rescue): not built, probably not needed for
+  alpha. The 30 days is the safety net.
+- What happens to the underlying email when a row is Junked:
+  undecided. Options: email stays and gets marked non-commerce
+  (feeds future classifier), or email deleted with the Junk
+  record. Pin before Junk build.
+
+**Source:** Conversation 2026-09-20 (needs-review diagnostic
+session), owner's framing verbatim: "junk lives there 30 days,
+archive lives forever. it's closed orders. you may want to see
+them."
+
+**[CC addendum, 2026-09-20 — verification detail behind the
+"no sweep found" claim above.]** Nothing deletes archived
+orders. The nightly cron's hard-delete step keys on `deletedAt`
+only (`hardDeleteSoftDeletedOrders`, `app/api/cron/route.ts:264`),
+never on `archivedAt`, so an archived order is retained until
+the user soft-deletes it. Two refinements worth carrying into
+the Act 2 verification:
+- The cron *does write* `archivedAt` — it silently auto-archives
+  orders whose return window closed `AUTO_ARCHIVE_GRACE_DAYS`
+  ago with no user action (`app/api/cron/route.ts:273-276`).
+  That's a producer of archives, not a sweep of them, but it
+  means "archived" is not purely a user-initiated state and the
+  Act 2 check should confirm both paths.
+- The 30 days Junk wants already exists in the codebase as
+  `HARD_DELETE_DAYS = 30` (`lib/orderFilters.ts:5`), governing
+  the soft-delete → hard-delete path. Junk's retention window is
+  the same duration against a different trigger; worth deciding
+  at build time whether it reuses that constant or gets its own,
+  rather than letting the two silently drift.
+
+---
+
 ## 2026-09-06 — `linkOrder.ts` nullish-coalescing merge is a load-bearing property, not an implementation detail
 
 The merge in `linkOrder.ts` uses nullish-coalescing semantics so that
