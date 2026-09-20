@@ -32,16 +32,7 @@
 
 ## 🔴 Now
 
-### 2026-09-20 — Diagnose needs-review regression (findings only)
-
-- [ ] **Diagnose needs-review regression: dashboard row actions +
-      detail-page resolution surfaces vs CARD_SPEC Part 3.** Findings
-      only, no fix. Second instance of "build ships without spec Part 3
-      honored." Owner screenshots 2026-09-16 show all three dashboard
-      needs-review rows rendering "More info" (plus Archive on the
-      unknown-retailer row) instead of the spec's reason-specific inline
-      actions. Fix scope — straight revert-forward vs. root cause
-      predating 561a95d needing coverage/testing — is the owner's call.
+### 2026-09-20 — Needs-review row actions
 
 - [ ] **Parser: non-commerce email detection (not_a_purchase reason).**
       Currently unbuilt. Spec reserves the {not_a_purchase primary,
@@ -6936,6 +6927,10 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Archive now renders on every needs-review row, 2026-09-20.** The control was gated to email-kind rows, so every order-kind row showed "More info" alone — one control short of the spec. Archive is now unconditional; order-kind rows reuse the order detail page's own Archive control, so both surfaces archive the same reversible way. Owner verified in prod across all needs-review rows.
+
+- [x] **Needs-review regression diagnosed — not a regression, 2026-09-20.** The reason→action mapping had never changed; order-kind rows have always degraded, by a deliberate deferral. What had drifted was the spec: the two passages defining a row's control set contradict each other, and git archaeology dated the contradiction to the 08-25 amendment, not the 09-17 one. Also found: no test anywhere asserts the mapping, and an order-to-order merge already exists in a backfill script. Read-only, 0 model calls.
 
 - [x] **Pre-fix reminder-linked orders verified, no cleanup, 2026-09-19.** Read-only check of the two orders from the 09-10 census plus a third in the same shape that had never been cleared. All three have a real retailer email linked and no demonstrably wrong visible field; the residual reminder-linked email rows are dormant. Decided not to clean. Detail in HISTORY 2026-09-19; decision in the Decisions log. Read-only, docs-only, 0 model calls.
 
