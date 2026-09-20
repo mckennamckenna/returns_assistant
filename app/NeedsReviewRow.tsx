@@ -3,6 +3,7 @@ import { needsReviewAction, NEEDS_REVIEW_ACTION_LABELS } from "@/lib/needsReview
 import type { NeedsReviewRowData } from "@/lib/needsReviewRows";
 import { NeedsReviewRowActions } from "./NeedsReviewRowActions";
 import { LinkToOrderPicker, type LinkablePickerOrder } from "./LinkToOrderPicker";
+import { ArchiveOrderButton } from "./ArchiveOrderButton";
 import { shouldShowCreateNewEscapeHatch } from "@/lib/shipmentUnlinkedPicker";
 import { formatCalendarDateShort } from "@/lib/dateDisplay";
 
@@ -29,15 +30,24 @@ const linkButtonClass = "text-xs font-medium text-secondary underline hover:text
 // component no longer takes an `expanded` prop at all as a result.
 //
 // [2026-08-24 amendment D] Slot 4's control set is {presumed primary
-// action, Archive, optional More info} for email-kind rows — Archive is
-// now a standing control alongside the primary action, not something a
-// row only gets via its resolved reasonId. More info renders only when
-// the primary action isn't already view_detail (rendering it again would
-// duplicate the primary). Order-kind rows are unchanged (still degrade to
-// View detail alone) — amendment D's "primary action from the routing
-// tree" ties to NEEDS_REVIEW_ROUTING_DESIGN.md §2, which is scoped to
-// email-kind rows only; order-kind routing is a separate, deferred
-// decision (lib/needsReviewActions.ts:43-44, untouched this session).
+// action, Archive, optional More info} — Archive is a standing control
+// alongside the primary action, not something a row only gets via its
+// resolved reasonId. More info renders only when the primary action
+// isn't already view_detail (rendering it again would duplicate the
+// primary).
+//
+// [2026-09-20] Archive is now unconditional across BOTH kinds, per
+// CARD_SPEC.md Part 3 Passage A (~L291-294: mapped renders {primary,
+// Archive, View detail}, degrade renders {Archive, View detail} — the
+// shape is defined by primary-action shape, never by kind). It was
+// previously gated on `row.kind === "email"`, which left every
+// order-kind row one control short of the spec. What differs by kind is
+// only WHICH archive path the control dispatches to (see below), not
+// whether it renders. Part 3's "View-detail rule" passage (~L375) still
+// carries pre-amendment-D control counts that omit Archive entirely;
+// that text is stale, not a competing rule — its counts predate Archive
+// joining the row shape. Spec cleanup is tracked separately; the router
+// in lib/needsReviewActions.ts is untouched by this change.
 export function NeedsReviewRow({
   row,
   linkablePickerOrders,
@@ -81,7 +91,8 @@ export function NeedsReviewRow({
             Archive + More info], three controls. A degrade row (primary is
             already view_detail) renders [Archive + View detail], two
             controls — More info is omitted rather than duplicating the
-            primary. Archive is email-kind only (see comment above). */}
+            primary. Archive renders on every row regardless of kind
+            (see comment above). */}
         {!isDegrade &&
           (action.id === "link_to_order" && row.kind === "email" ? (
             <LinkToOrderPicker
@@ -94,13 +105,22 @@ export function NeedsReviewRow({
           ) : (
             <NeedsReviewRowActions emailId={row.id} actionId={action.id} label={action.label} className={actionButtonClass} />
           ))}
-        {row.kind === "email" && (
+        {row.kind === "email" ? (
           <NeedsReviewRowActions
             emailId={row.id}
             actionId="not_a_purchase"
             label={NEEDS_REVIEW_ACTION_LABELS.not_a_purchase}
             className={linkButtonClass}
           />
+        ) : (
+          // Order-kind rows archive the Order itself, not an Email —
+          // NeedsReviewRowActions/archiveOrphanedEmailAction only ever
+          // take an emailId. Reuses the order detail page's own control
+          // (app/(app)/orders/[id]/page.tsx:302) so both surfaces hit the
+          // identical PATCH /api/orders/[id]/archive path and the same
+          // reversible archivedAt semantics. isArchived is always false
+          // here: the bucket's queries filter archivedAt: null.
+          <ArchiveOrderButton orderId={row.id} isArchived={false} className={linkButtonClass} />
         )}
         <Link href={detailHref} className={isDegrade ? actionButtonClass : linkButtonClass}>
           {NEEDS_REVIEW_ACTION_LABELS.view_detail}

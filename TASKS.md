@@ -32,6 +32,29 @@
 
 ## 🔴 Now
 
+### 2026-09-20 — Diagnose needs-review regression (findings only)
+
+- [ ] **Diagnose needs-review regression: dashboard row actions +
+      detail-page resolution surfaces vs CARD_SPEC Part 3.** Findings
+      only, no fix. Second instance of "build ships without spec Part 3
+      honored." Owner screenshots 2026-09-16 show all three dashboard
+      needs-review rows rendering "More info" (plus Archive on the
+      unknown-retailer row) instead of the spec's reason-specific inline
+      actions. Fix scope — straight revert-forward vs. root cause
+      predating 561a95d needing coverage/testing — is the owner's call.
+
+- [ ] **Parser: non-commerce email detection (not_a_purchase reason).**
+      Currently unbuilt. Spec reserves the {not_a_purchase primary,
+      Archive, View detail} pair; button is wired at
+      NeedsReviewRow.tsx:97 but no reason detection ever routes to it.
+      Emails that are newsletters, service receipts, spam, non-order
+      confirmations currently either get force-extracted into
+      needs-review rows with garbage fields, or (if extraction bails)
+      surface as "Unknown retailer / couldn't extract" — which is the
+      wrong framing. Belongs in the Act 2 parser pass alongside the
+      extraction-quality work prompted by the Simply Simpson 2020
+      delivery-date issue.
+
 ### 2026-09-19 — Session close (admin orders table)
 
 Three display-only changes to /admin/orders shipped + deployed: Order
