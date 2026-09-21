@@ -32,99 +32,6 @@
 
 ## 🔴 Now
 
-### 2026-09-21 — Act 2: anchor date into extraction prompt + ANCHOR_DATE_RESOLVER Part 3 guard
-
-**Awaiting deploy + owner verification. Not Done until verified live.**
-
-Two fixes shipped as one unit, closing the Simply Simpson #164649
-"Sep 28, 2020" delivery date.
-
-**Fix A (preventive) — `anchorDate` into the extraction prompt.**
-`buildPrompt` previously gave the model *no temporal reference at all*,
-so a body stating a bare "Monday, Sep 28" had nothing to resolve the
-year against. Every Email row already carried a correct `anchorDate`
-from `lib/forwardResolver.ts`, computed at ingestion before extraction
-runs — it was simply never handed to the model. Now threaded
-`runExtraction` → `extractEmailIdentity` → `runRawExtraction` →
-`buildPrompt`. A null anchor (unresolved manual forward) emits no date
-line rather than a guess, per the resolver's own never-invent posture.
-
-**Fix A's effect exceeded the original spec's scope.**
-`ANCHOR_DATE_RESOLVER.md` Part 3 was written purely about *wrong*
-years. Validation showed the extractor was also **silently dropping
-legitimate dates entirely** on year-less strings: 7 of 52 rows went
-`null → value`, and 5 of 5 spot-checked were genuine stated dates in
-the body ("Arriving September 28", "Sat, Sep 26", "Tue, Sep 22",
-"Wed, Sep 23 - Mon, Sep 28", "Sat, Sep 19 - Thu, Sep 24"). On both
-ranges the model took the earlier end, matching the tighter-deadline
-bias. So the bug class was larger than the 2026-07-25 doc recorded —
-not just wrong years but missing dates — and Fix A addresses both.
-This preventive layer is an addition to that spec, not part of it.
-
-**Fix B — Part 3's sanity guard, spec'd 2026-07-25, never built until
-now.** `applyAnchorYearGuard` (`lib/extract.ts`), pure, runs inside
-`finalizeExtraction` after date routing and before `computeDeadline`.
-- **Owner-approved deviation from spec:** swaps the YEAR ONLY,
-  preserving the stated month/day, instead of the spec's "discard its
-  year and re-derive from `anchorDate` + standard shipping." Applied
-  literally, the spec would turn "Monday, Sep 28" into anchor + 5 days
-  = 2026-09-21 — knowably wrong by a week when the email plainly
-  states the 28th. Every documented instance of this bug class had a
-  correct month/day, so the month/day is the trustworthy half.
-  Accepted trade-off: a year-swap can produce a LATER deadline than
-  the spec's re-derive, the less conservative direction, justified
-  because it yields the correct date rather than a safer wrong one.
-- Refuses to act when more than one candidate year is plausible
-  (DECISIONS.md:440 posture, "never pick a winner"), and when
-  `anchorDate` is null.
-- Corrects the legacy `deliveryDate` column in lockstep with
-  `estimatedDeliveryDate` — the order detail page still falls back to
-  it, so leaving it would be a second stale render path.
-- **Part 3 bullet 2 ("a dateless body never yields a fabricated
-  `estimatedDeliveryDate`") needed no code.** `routeDeliveryDate`
-  already returns null when `deliveryDate` is null,
-  `resolveEstimatedDeliveryDate` only falls back to `shipByDate` (a
-  real stated date), and `computeDeadline`'s case 4 estimates transit
-  internally without ever persisting an `estimatedDeliveryDate`. The
-  Emme Parsons fabrication came from the MODEL, which Fix A now
-  addresses at the root.
-- Also restored the spec's L73 quoted-date year bound in
-  `parseForwardedHeaderDate` (reject a year more than ~2 years from
-  `receivedAt`) — specified 2026-07-25, omitted from the Part 2 build
-  that shipped the next day (`13521ca`).
-- `mergeEmailIntoOrder` deliberately untouched (DECISIONS.md:88). The
-  guard is email-level only, so existing Order rows are unaffected
-  until a separate backfill.
-
-**Validation:** 52 rows (24 needs-review, 25 known-good, 3
-null-anchor controls). **58 billed calls for 52 rows** — 52 primary
-extractions plus 6 two-pass `email_extraction_retry` calls, which fire
-when `extractEmailIdentity`'s existing alternate-body gate trips.
-**$1.31 measured** (intercepted from `logAnthropicUsage`, not
-estimated). **Zero web searches:** the harness calls
-`extractEmailIdentity` only, never `finalizeExtraction` — routing
-through it would have fired ~50 billed policy lookups on precisely the
-path the same-day H&M incident showed producing wrong-and-confident
-answers. Caught one real wrong-year instance in the wild
-(`2025-09-26 → 2026-09-26`). The Fix B guard fired once and correctly
-*declined* to act (implausible `deliveredAt`, no single resolvable
-year, left as extracted). No regression attributable to Fix A.
-Harness committed as `scripts/validate-anchor-prompt-20260921.ts` —
-date-stamped deliberately: the re-extract/diff/measure loop is
-reusable, but the null-anchor control cohort, the guard-application
-block, and the tuned comparable-field list are specific to this arc,
-so the pattern should be copied rather than re-run unchanged.
-
-**On verification: mark `ANCHOR_DATE_RESOLVER.md` Part 3 SHIPPED.**
-Spec'd and owner-approved 2026-07-25, described in its own text as
-"small" and "the provable-correct half," then deferred ~14 months
-across at least 7 production instances (the `returnDeadline <
-orderDate` sweep: Good Eggs -358d, Emme Parsons -343d, Waitrose
--2153d, Fitness Superstore, a Target pickup order, Simply Simpson
-#164649). Part 2 shipped 2026-07-25/26; Part 3 was the outstanding
-half. Nothing was missing except the guard — the anchor it needs has
-been computed and persisted on every Email row since Part 2.
-
 ### 2026-09-21 — PRODUCTION INCIDENT: web lookup overwrote a stated return window (H&M)
 
 **Live data corruption, found 2026-09-21. Not caused by Act 2 — the
@@ -2571,6 +2478,73 @@ the 09-17 pattern; the 09-19 placement was a one-off).
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **Single-email orders can be stuck with a null `returnDeadline`
+      despite holding every input needed to compute one. NEW 2026-09-21,
+      found via 4 Amazon rows during the `uncertain_details` recon.**
+      **Order of operations is the bug.** Extraction runs
+      `computeDeadline` while `orderDate` is still null (the extractor
+      found no body-stated date), so it writes `returnDeadline: null`.
+      Then `createOrderFromEmail` sets `Order.orderDate` from
+      `resolveExtractedOrderDate`, which falls back to the email's
+      `anchorDate` for an `order_confirmation` — the order now has a date
+      the email never had. `applyFallbackOrderDate`, the one place that
+      recomputes a deadline after establishing an order date, opens with
+      `if (order.orderDate) return` — so it early-returns and **never
+      re-runs `computeDeadline`**. The order ends up with `orderDate` +
+      `returnWindowDays` and no deadline, permanently, unless a second
+      email arrives and `mergeEmailIntoOrder` recomputes (which it always
+      does).
+      **This is why it looks intermittent.** 102 of 108 Amazon orders have
+      a deadline. An order gets one when either a second email arrives, or
+      the extractor happened to read a date out of the body (18
+      single-email Amazon orders have deadlines for that reason). The
+      affected rows are the ones currently inside that window — they
+      self-heal on the next email, which is why a steady ~3-4 Amazon
+      orders/week produces only an occasional visible case. It is NOT
+      Amazon-specific: Amazon is just over-represented because its order
+      confirmations rarely state a parseable order date.
+      **Not self-healing in every case:** an order that never receives a
+      second email keeps a null deadline forever while holding everything
+      needed to compute one.
+      **Fix:** recompute the deadline after `applyFallbackOrderDate` sets
+      `orderDate` (and, more generally, wherever an order's `orderDate` is
+      established after the email-level deadline was computed).
+      **Backfill the 4 known rows as part of shipping the fix, not as a
+      separate data patch** (owner, 2026-09-21 — repairing the data
+      without the code fix just lets the same rows re-break on the next
+      order through this path):
+      `cmu1dvihz0003jn04ekinu1tx` (#114-7230290-3135406),
+      `cmtyjzliq0003jw043s3zpv6l` (#111-5249027-1507438),
+      `cmtx7p6tx0003l40406tedxie` (#114-0716436-1195447),
+      `cmua6qw950003l904gfi6diy0` (#112-9599522-4029036).
+      All four verified to have `Email.orderDate` null,
+      `Order.orderDate === Email.anchorDate`, `returnWindowDays: 30`,
+      `returnWindowStartsFrom: null` — i.e. `computeDeadline` case 1b
+      would produce a deadline immediately if anything called it.
+      **Adjacent to but distinct from the null-`returnDeadline` surfacing
+      item in 🔴 Now:** that one is a *display* gap (an order with no
+      deadline isn't flagged anywhere); this is a *compute* gap (a
+      deadline that should exist was never calculated). Fixing either
+      alone leaves the other.
+      **Two other null-deadline Amazon rows are NOT this bug — do not
+      sweep them in.** Both have `orderDate` genuinely null, so there is
+      nothing to anchor on and a null deadline is correct:
+      - `cmrr1ztav0003jv048mrf2tdj` (#112-6025570, created 2026-07-19) —
+        both linked emails have `forwardType: null`, i.e. they predate the
+        anchor resolver (Part 2 shipped 2026-07-25/26) and were never
+        classified. This is the documented pre-resolver population that
+        "fades out naturally; no backfill planned," not the resolver
+        declining to invent a date.
+      - `cms85t8te0005jx0421esysuv` (#111-9846204, created 2026-07-30) —
+        **does not match the "unresolved manual forward" description at
+        all.** Its email has a valid `anchorDate` (2026-07-30,
+        `anchorSource: received_at`, `forwardType: auto`), yet
+        `Order.orderDate` is null while `orderDateSource` reads
+        `"fallback"` — a combination `applyFallbackOrderDate` shouldn't
+        produce, since it writes both together. Possibly an artifact of
+        `scripts/orderdate-source-backfill-20260827.sql`. Logged as
+        genuinely unexplained; do not assume working-as-designed if
+        someone sweeps this area.
 - [x] **CLOSED 2026-08-27 — see ✅ Done ("orderDate write-once fixed,
       backfill executed") and `HISTORY.md` 2026-08-27 for the full arc.
       The email-detail-page return-deadline disagreement (frozen per-email
@@ -7278,6 +7252,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Act 2 — anchor date into the extraction prompt, and ANCHOR_DATE_RESOLVER.md Part 3 shipped, 2026-09-21.** The extractor was given no temporal reference at all, so a bare "Monday, Sep 28" resolved to 2020; every Email row already carried a correct `anchorDate` computed at ingestion and never handed to the model. Fix A passes it into the prompt; Fix B ships Part 3's sanity guard, spec'd and owner-approved 2026-07-25 and deferred ~14 months across 7+ production instances. Owner-approved deviation: the guard swaps the year only, preserving the stated month/day, rather than re-deriving from anchor + standard shipping — every instance of this bug class had a correct month/day, so re-deriving would discard the trustworthy half. Fix A's effect turned out wider than the spec described: the extractor was also silently *dropping* legitimate year-less dates, not just mis-yearing them (7 of 52 validation rows recovered a real stated date). Validated on 52 rows for $1.31 with zero web searches; no regression attributable to the change. **Owner-verified on the gate row: Simply Simpson #164649 corrected 2020-09-28 → 2026-09-28 in production.** Full detail in HISTORY.md.
 
 - [x] **Archive now renders on every needs-review row, 2026-09-20.** The control was gated to email-kind rows, so every order-kind row showed "More info" alone — one control short of the spec. Archive is now unconditional; order-kind rows reuse the order detail page's own Archive control, so both surfaces archive the same reversible way. Owner verified in prod across all needs-review rows.
 
