@@ -32,6 +32,191 @@
 
 ## 🔴 Now
 
+### 2026-09-21 — Act 2: anchor date into extraction prompt + ANCHOR_DATE_RESOLVER Part 3 guard
+
+**Awaiting deploy + owner verification. Not Done until verified live.**
+
+Two fixes shipped as one unit, closing the Simply Simpson #164649
+"Sep 28, 2020" delivery date.
+
+**Fix A (preventive) — `anchorDate` into the extraction prompt.**
+`buildPrompt` previously gave the model *no temporal reference at all*,
+so a body stating a bare "Monday, Sep 28" had nothing to resolve the
+year against. Every Email row already carried a correct `anchorDate`
+from `lib/forwardResolver.ts`, computed at ingestion before extraction
+runs — it was simply never handed to the model. Now threaded
+`runExtraction` → `extractEmailIdentity` → `runRawExtraction` →
+`buildPrompt`. A null anchor (unresolved manual forward) emits no date
+line rather than a guess, per the resolver's own never-invent posture.
+
+**Fix A's effect exceeded the original spec's scope.**
+`ANCHOR_DATE_RESOLVER.md` Part 3 was written purely about *wrong*
+years. Validation showed the extractor was also **silently dropping
+legitimate dates entirely** on year-less strings: 7 of 52 rows went
+`null → value`, and 5 of 5 spot-checked were genuine stated dates in
+the body ("Arriving September 28", "Sat, Sep 26", "Tue, Sep 22",
+"Wed, Sep 23 - Mon, Sep 28", "Sat, Sep 19 - Thu, Sep 24"). On both
+ranges the model took the earlier end, matching the tighter-deadline
+bias. So the bug class was larger than the 2026-07-25 doc recorded —
+not just wrong years but missing dates — and Fix A addresses both.
+This preventive layer is an addition to that spec, not part of it.
+
+**Fix B — Part 3's sanity guard, spec'd 2026-07-25, never built until
+now.** `applyAnchorYearGuard` (`lib/extract.ts`), pure, runs inside
+`finalizeExtraction` after date routing and before `computeDeadline`.
+- **Owner-approved deviation from spec:** swaps the YEAR ONLY,
+  preserving the stated month/day, instead of the spec's "discard its
+  year and re-derive from `anchorDate` + standard shipping." Applied
+  literally, the spec would turn "Monday, Sep 28" into anchor + 5 days
+  = 2026-09-21 — knowably wrong by a week when the email plainly
+  states the 28th. Every documented instance of this bug class had a
+  correct month/day, so the month/day is the trustworthy half.
+  Accepted trade-off: a year-swap can produce a LATER deadline than
+  the spec's re-derive, the less conservative direction, justified
+  because it yields the correct date rather than a safer wrong one.
+- Refuses to act when more than one candidate year is plausible
+  (DECISIONS.md:440 posture, "never pick a winner"), and when
+  `anchorDate` is null.
+- Corrects the legacy `deliveryDate` column in lockstep with
+  `estimatedDeliveryDate` — the order detail page still falls back to
+  it, so leaving it would be a second stale render path.
+- **Part 3 bullet 2 ("a dateless body never yields a fabricated
+  `estimatedDeliveryDate`") needed no code.** `routeDeliveryDate`
+  already returns null when `deliveryDate` is null,
+  `resolveEstimatedDeliveryDate` only falls back to `shipByDate` (a
+  real stated date), and `computeDeadline`'s case 4 estimates transit
+  internally without ever persisting an `estimatedDeliveryDate`. The
+  Emme Parsons fabrication came from the MODEL, which Fix A now
+  addresses at the root.
+- Also restored the spec's L73 quoted-date year bound in
+  `parseForwardedHeaderDate` (reject a year more than ~2 years from
+  `receivedAt`) — specified 2026-07-25, omitted from the Part 2 build
+  that shipped the next day (`13521ca`).
+- `mergeEmailIntoOrder` deliberately untouched (DECISIONS.md:88). The
+  guard is email-level only, so existing Order rows are unaffected
+  until a separate backfill.
+
+**Validation:** 52 rows (24 needs-review, 25 known-good, 3
+null-anchor controls). **58 billed calls for 52 rows** — 52 primary
+extractions plus 6 two-pass `email_extraction_retry` calls, which fire
+when `extractEmailIdentity`'s existing alternate-body gate trips.
+**$1.31 measured** (intercepted from `logAnthropicUsage`, not
+estimated). **Zero web searches:** the harness calls
+`extractEmailIdentity` only, never `finalizeExtraction` — routing
+through it would have fired ~50 billed policy lookups on precisely the
+path the same-day H&M incident showed producing wrong-and-confident
+answers. Caught one real wrong-year instance in the wild
+(`2025-09-26 → 2026-09-26`). The Fix B guard fired once and correctly
+*declined* to act (implausible `deliveredAt`, no single resolvable
+year, left as extracted). No regression attributable to Fix A.
+Harness committed as `scripts/validate-anchor-prompt-20260921.ts` —
+date-stamped deliberately: the re-extract/diff/measure loop is
+reusable, but the null-anchor control cohort, the guard-application
+block, and the tuned comparable-field list are specific to this arc,
+so the pattern should be copied rather than re-run unchanged.
+
+**On verification: mark `ANCHOR_DATE_RESOLVER.md` Part 3 SHIPPED.**
+Spec'd and owner-approved 2026-07-25, described in its own text as
+"small" and "the provable-correct half," then deferred ~14 months
+across at least 7 production instances (the `returnDeadline <
+orderDate` sweep: Good Eggs -358d, Emme Parsons -343d, Waitrose
+-2153d, Fitness Superstore, a Target pickup order, Simply Simpson
+#164649). Part 2 shipped 2026-07-25/26; Part 3 was the outstanding
+half. Nothing was missing except the guard — the anchor it needs has
+been computed and persisted on every Email row since Part 2.
+
+### 2026-09-21 — PRODUCTION INCIDENT: web lookup overwrote a stated return window (H&M)
+
+**Live data corruption, found 2026-09-21. Not caused by Act 2 — the
+deployed code was unchanged (`5f8213d`); this is existing production
+behavior.**
+
+**Order:** H&M `#69825036113`, internal id
+`cmu6h9dk10003jz040cc2e6jo`. **Account: the owner's own** (verified by
+scoping the query to the order's user before naming it, per the
+ownership rule in CLAUDE.md).
+
+An H&M return window, **explicitly stated as 30 days in the
+retailer's own delivery email** (`policySource: stated_in_email`), was
+overwritten with **3 days from delivery** sourced from a web lookup.
+
+**Found on the day it expired.** The corrupted `returnDeadline` was
+2026-09-21 — the date the incident was discovered, 27 days early — and
+carries `deadlineIsEstimated: false`, so the UI presented the wrong
+date as a confident fact rather than an estimate. A day later there
+would have been no window left to notice.
+
+**Sequence (four linked emails, one order):**
+1. Delivery email states 30 days → stored correctly,
+   `policySource: stated_in_email`.
+2. Two UPS carrier notifications arrive. Neither contains an order
+   number, totals, line items, or any policy text.
+3. Because each states no window, each fires a billed web-search
+   policy lookup. Both hit the shortest-wins rule: one returns 3 days,
+   one 14. The 3-day answer is a **designer-collaboration exception
+   sourced from a third-party fashion blog**, overriding the flat
+   30-day standard window the lookup itself found on H&M's own
+   official page.
+4. The emails can't auto-link (no order number), so they orphan into
+   needs-review. Later they are linked manually via "Link to order",
+   which calls `mergeEmailIntoOrder` — and the stale stored windows
+   overwrite the order's correct value.
+
+**Two distinct root causes, both structural:**
+- **The existing-order lookup skip cannot fire for carrier emails.**
+  `lib/runExtraction.ts:97` gates the skip on `parsed.orderNumber`,
+  using order number as its only join key. Carrier notifications
+  structurally lack one — and they are exactly the emails with no
+  policy text of their own, so they always trigger a lookup. The
+  guard is weakest precisely where it is needed most.
+- **The manual link path replays a stale lookup without
+  re-evaluating.** `lib/orderReview.ts:78`
+  (`linkEmailToExistingOrder`) merges the email's stored fields
+  directly. When a human supplies the parent the matcher couldn't
+  find, the premise the lookup ran under has been retracted — but its
+  answer is merged unexamined. It also writes `needsReview: false`,
+  which is why both rows sit unflagged despite their own notes saying
+  they should be flagged. **The automatic path has the same hole** for
+  a carrier email that does carry an order number.
+
+**Candidate fixes (not started, decide before building):**
+- Rank by provenance in the merge — `stated_in_email` outranks
+  `web_lookup`, exactly as `orderDateSource: "extracted"` already
+  outranks `"fallback"`. Most robust: holds on every path into the
+  order, manual or automatic. See the confidence-aware-correction
+  item in 🟡 Next.
+- Re-evaluate at link time rather than replaying stored fields.
+- Reconsider whether an email with no order number, no totals, and no
+  line items should reach a billed lookup at all — two searches here
+  produced two wrong answers at cost.
+
+Related and already open: the shortest-wins overfire investigation
+(2026-09-14, three spec options drafted, **no owner decision made** —
+45 of 381 `web_lookup` rows returned ≤7 days) and DECISIONS.md:88
+(merge semantics are load-bearing; don't change them casually).
+
+**Sequencing (owner, 2026-09-21): finish the Act 2 arc first, then
+this.** The affected order's deadline has already passed as displayed,
+so confirm whether that return is still live before any data
+correction.
+
+### 2026-09-21 — Orders with null `returnDeadline` don't surface as needs-review
+
+**Follow-up to Act 2, not deferred backlog.** An order can lack a
+return deadline — the product's core signal, the entire point of the
+app — without being flagged anywhere.
+
+Simply Simpson #164649 is the live case: all three emails extracted
+cleanly, three billed policy lookups all failed to resolve a window
+for this retailer, `returnWindowDays` and `returnDeadline` are both
+null, and the order sits unflagged.
+
+**Priority read directly after Act 2 lands:** Act 2's date correction
+may *remove* Simply Simpson (and rows shaped like it) from
+needs-review while they still have no deadline at all — fixing the
+visible symptom and hiding the real gap. Confirm that before closing
+the Act 2 entry above.
+
 ### 2026-09-20 — Session close
 
 Opened as a read-only diagnostic of the needs-review bucket "regression"
@@ -3643,6 +3828,22 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       ❄️ Deferred to 🐛 Bugs.
 
 ### Infra / reliability
+- [ ] **`lookupReturnPolicy` has no bounded timeout — PRODUCTION RISK,
+      not backlog. Latent since 2026-08-05, re-observed 2026-09-21.**
+      Each call is an Anthropic web-search request (`lib/extract.ts`,
+      `lookupReturnPolicy`) with no explicit timeout, so it inherits
+      the SDK default of 10 minutes. The original 2026-08-05 incident
+      was a lookup that hung near that default long enough for Neon to
+      auto-suspend underneath it.
+      **Re-observed 2026-09-21:** during the Act 2 session the database
+      went unresponsive mid-work — one query succeeded, then three
+      consecutive queries hung with no error — consistent with the same
+      auto-suspend behavior. Not conclusively traced to a policy
+      lookup on that occasion, but the same shape.
+      Framed as a production risk rather than a nice-to-have because the
+      failure mode is not a slow page: it is an ingestion-path call
+      holding a connection long enough to take the database out from
+      under every other request, including inbound webhook processing.
 - [ ] **`Order.trackingNumber`/`returnTrackingNumber` are first-write-wins,
       silently dropping later packages on multi-box orders — NEW
       2026-08-28, found during carrier-row-disposition scoping (Phase 2
@@ -3902,6 +4103,44 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+
+- [ ] **Confidence-aware correction — arc with a live corruption case
+      behind it, was blocked on Act 2 (now unblocking). NEW
+      2026-09-21.** Can the system retract a non-null field when a
+      later, higher-confidence signal contradicts it? Today it cannot:
+      `mergeEmailIntoOrder` coalesces nulls (a later non-null value
+      wins purely by recency) and never reads `confidence` or
+      `policySource` at all. A `confidence: "low"` value beats a later
+      `confidence: "high"` null, permanently.
+      **The live case is the 2026-09-21 H&M incident** (🔴 Now): a
+      `web_lookup` guess overwrote a `stated_in_email` fact and
+      produced a deadline 27 days early, presented as confident.
+      Precedent for the fix already exists in this codebase —
+      `orderDateSource` ranks `"extracted"` above
+      `"fallback"`/`"unknown"` and has since `c150170` (2026-08-27).
+      Extending that shape to `policySource` (`stated_in_email` >
+      `web_lookup`) is the most robust option: it holds on every path
+      into an order, manual link or automatic match. Must respect
+      DECISIONS.md:88 — the nullish-coalescing merge is load-bearing
+      for every backfill and reprocess path, so this is a provenance
+      ranking layered on top, not a rewrite of the coalesce.
+      Related: the Simply Simpson date-correction arc (Act 2) is the
+      *preventive* analogue — stop bad values being written; this is
+      the *corrective* one — allow bad values already written to be
+      replaced.
+
+- [ ] **Simply Simpson #164649 has no return window at all. NEW
+      2026-09-21.** Three linked emails, three billed `web_lookup`
+      calls, all three failed to resolve a policy for this retailer.
+      `returnWindowDays` null, `returnDeadline` null — the order
+      carries no deadline, which is the app's core signal. Distinct
+      from the date bug Act 2 fixed on this same order: that was a
+      wrong delivery date, this is a missing policy. Relates to
+      policy-lookup reliability for small/independent retailers (the
+      lookups did find the retailer's site — `shopsimpson.com` — and a
+      "Returns" footer link, but never surfaced the policy text
+      itself). See also the null-`returnDeadline` surfacing item in
+      🔴 Now: this order is that item's live case.
 
 - [x] **Admin orders "User email contains…" filter matches a field the
       table no longer shows.** Since 2026-09-19 the User column shows the
@@ -4737,6 +4976,44 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       **Out of scope:** any fix; broader tracking-extraction audit;
       re-processing the recovered Gap email.
       **See paired Claude Code prompt (to be drafted).**
+
+      **UPDATE 2026-09-21 — second instance found, and it answers this
+      entry's open question: the gap is NOT closed by the
+      `resolveBodyText` wire-up.** That wire-up shipped `c30c9fc`
+      (2026-09-06); the email below is from 2026-09-19, post-fix, and
+      still fails. So the tracking-extraction gap is separate from the
+      HTML-only gap that work addressed.
+      Evidence is a clean A/B within a single order (Simply Simpson
+      #164649, order `cmu481gzi0003l30448edpnk7`) — two
+      `shipping_confirmation` emails, the **same** USPS tracking
+      number present in both bodies:
+      - `cmu7agz470001l504spqt9l00` (2026-09-18) →
+        `parseTrackingResolved` returns carrier `USPS`, the number,
+        and a `tools.usps.com` URL. Correct.
+      - `cmu8ygmd70001le04ftv2hs5u` (2026-09-19) →
+        `parseTrackingResolved` returns **all nulls**, though a
+        USPS-shaped 22-digit string is present in the body.
+      Same number, same carrier, same order: this isolates the cause
+      to body shape/rendering, NOT the carrier pattern list.
+      **Currently masked and harmless on this order.**
+      `Order.trackingNumber` is correctly populated from the Sep 18
+      email, and `applyShippingTracking`'s `if
+      (existing?.trackingNumber) return;` discards the Sep 19 null
+      parse anyway. The gap is **latent**: it only loses data when a
+      failing-shape email is the FIRST `shipping_confirmation` on an
+      order.
+      **NOT a repro of `478bc2e`** (multi-package first-write-wins).
+      Simply Simpson is a single package; the early return is correct
+      behavior there. These are different bugs — do not merge the two
+      entries.
+      **Correction for future readers:** the model's own
+      `extractionNotes` on the Sep 19 row says "tracking number … is
+      present but not extracted as a standard field." That is the AI
+      commenting on **its own schema**, which has no tracking field —
+      tracking is regex-parsed in `lib/trackingParser.ts`, entirely
+      independent of the AI. That note is not by itself evidence of a
+      parser bug (it misled this session initially). The parser
+      evidence is the direct `parseTrackingResolved` comparison above.
 
 - [ ] **Harden runExtraction.ts catch block against second DB failure
       — silent-loss bug, 3 known cases. NEW 2026-09-11, follows from
@@ -9171,6 +9448,32 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Extraction has meaningful run-to-run non-determinism on unchanged
+  prompts, 2026-09-21.** Observed during Act 2 validation
+  (`scripts/validate-anchor-prompt-20260921.ts`): 1 of 3 null-anchor
+  control rows drifted — `cms0vpp1n0001l504wpgi44gj`, `emailType:
+  order_confirmation → shipping_confirmation` — on a **byte-identical
+  prompt**. That row has `anchorDate: null`, so Fix A emitted no date
+  line at all and the prompt it saw was exactly what production sends.
+  The change is therefore pure model variance, not an effect of the
+  code under test.
+  **Consequence: A/B comparison of extraction changes is noisy below
+  some threshold — small diffs are indistinguishable from baseline.**
+  This governs how any future extraction change can be evaluated. A
+  3-row control cohort gives a rough signal, not a measured rate; a
+  real variance baseline would need the same rows re-extracted several
+  times, which nobody has done. Not urgent, but do not read a handful
+  of field changes in a future validation run as signal without one.
+  Specific instance that could not be cleanly attributed: row
+  `cmu8teux50003l304s2zvclkc`, `orderTotal` **805.96 → 825.96** on
+  re-extraction. Logged, deliberately not investigated (owner,
+  2026-09-21) — disentangling it is not Act 2's job, and the control
+  drift means it cannot be confidently attributed to the prompt change.
+  Historically this shape is line-item summing variance (extraction
+  notes across the corpus routinely say totals were derived by summing
+  line items). If it turns out to affect a real user's displayed
+  total, that becomes a targeted check on that order, not extraction
+  work.
 - **No test binds the reason→action mapping's control set, 2026-09-20.**
   The rule lives in JSX render conditions (`app/NeedsReviewRow.tsx:95-127`),
   which `vitest.config.ts`'s `environment: "node"` cannot reach — no DOM,
