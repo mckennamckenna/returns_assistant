@@ -3837,9 +3837,18 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       auto-suspend underneath it.
       **Re-observed 2026-09-21:** during the Act 2 session the database
       went unresponsive mid-work — one query succeeded, then three
-      consecutive queries hung with no error — consistent with the same
-      auto-suspend behavior. Not conclusively traced to a policy
-      lookup on that occasion, but the same shape.
+      consecutive queries hung. One of those hung for roughly an hour
+      before finally failing with Prisma **`P1017` ("Server has closed
+      the connection")** on a plain `email.findMany`. P1017 is a
+      server-side close, not a client-side timeout, which is the
+      signature of the connection being dropped underneath an
+      in-flight query rather than the client giving up — consistent
+      with Neon auto-suspend. Not traced to a policy lookup as the
+      trigger on this occasion (the session made zero
+      `lookupReturnPolicy` calls), so the recurrence shows the
+      *database side* of this failure mode is live and reachable
+      independently; the unbounded lookup timeout is what makes an
+      ingestion-path call able to sit in that window.
       Framed as a production risk rather than a nice-to-have because the
       failure mode is not a slow page: it is an ingestion-path call
       holding a connection long enough to take the database out from
