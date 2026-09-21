@@ -32,6 +32,22 @@
 
 ## 🔴 Now
 
+- [ ] **URL-poisoning cleanup, Phase B1 — read-only mapping proposal.**
+      Read-only mapping proposal only, per scope-control rule: no code
+      changes, no DB writes, no Anthropic API calls this session.
+      Follows from Phase A (URL-poisoning root fix, shipped and
+      deployed) which stopped new poisoning at source but did not
+      touch existing poisoned data. Scope: produce a proposed mapping
+      from every URL-shaped `Order.retailer` value AND every URL-shaped
+      `ReturnUrlReview.approvedRetailer` value → clean brand name, for
+      owner review. Deliverable: a markdown file with one row per
+      poisoned DB record showing table, primary key, current URL-shaped
+      value, proposed clean name, and confidence level for the mapping
+      decision. NO writes proposed or executed this session. Phase B2
+      (apply the reviewed mapping) is a separate session, drafted
+      after owner reviews and corrects this proposal.
+
+
 ### 2026-09-21 — Session close
 
 **Act 2 shipped, deployed, and verified; one order corrected; three new
