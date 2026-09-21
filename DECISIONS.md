@@ -7,6 +7,23 @@ ACCEPTED ASSUMPTION / Close-out decision notes that had accumulated inside
 
 ---
 
+## 2026-09-20 — Fix all copies of a bug in one commit
+
+**The rule.** When you fix a bug that appears in more than one place — the same wrong sentence copied into two spec sections, or a code comment that references the wrong version of a rule you just corrected — fix every copy in the same commit. Don't scope one and defer the others.
+
+**Why.** Deferring the duplicates is how drift compounds. The whole reason the bug needed fixing is that someone in the past fixed one copy and left the others. Doing the same thing again guarantees a future session will re-diagnose the same problem from the un-fixed copy.
+
+**How it comes up in practice.**
+- Spec edits: check whether the same rule is stated elsewhere in the file (or in a related spec file). Fix all statements together.
+- Code comments: if the fix makes a comment wrong or misleading, the comment gets updated in the same commit, even if the opener said "spec-only" or "code-only."
+- Openers should be written to include these consequences up front, not scoped narrowly and then expanded on review.
+
+**Where this came from.** During the 2026-09-20 needs-review diagnostic session, the Passage B spec cleanup was scoped as spec-only. Claude Code correctly flagged that (a) the same wrong wording appeared a few lines earlier at L263-264, and (b) a code comment at `NeedsReviewRow.tsx:44-49` would become misleading after the fix. Both were flagged as out-of-scope; owner pulled both into scope on review. Codifying the rule here so the next similar situation doesn't need to be relearned.
+
+**See also.** HISTORY 2026-09-20 for the full session narrative.
+
+---
+
 ## 2026-09-20 — Junk vs Archive lifecycle
 
 **Decision:** Archive and Junk are distinct actions with distinct

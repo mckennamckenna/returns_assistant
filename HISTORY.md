@@ -5,6 +5,46 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-20 — Needs-review bucket drift diagnosis and cleanup
+
+**Landed:** five commits, all pushed and deployed.
+- `5e45f0f` — Act 1 code: Archive control wired on every needs-review row kind (`app/NeedsReviewRow.tsx`). Order rows dispatch to the existing `PATCH /api/orders/[id]/archive` route via `ArchiveOrderButton` reuse; email rows retain `archiveOrphanedEmailAction`. Owner-verified in production 2026-09-20.
+- `f143da5` — DECISIONS entry: Junk vs Archive lifecycle (Archive = indefinite retention, "closed order" drawer; Junk = 30-day then hard-delete, "not commerce"). Decided in principle, build deferred to Act 2.
+- `2328ea0` — TASKS Done move for Act 1.
+- `ac018b7` — TASKS ❄️ Deferred entries: (i) registry cleanup for the "Archive" label collision that resolves when Junk exists as a distinct action, (ii) needs-review Archive on order-kind hides but doesn't clear `needsReview`, revisit in Act 2.
+- `2a437ba` — CARD_SPEC Part 3 spec cleanup: Passage B rewrite (~L376) + same-bug fix at L263-264 + one-line code comment amendment at `app/NeedsReviewRow.tsx:44-49`. Part 3 internally consistent across all three control-set descriptions for the first time since 2026-08-25.
+
+**What went wrong.** The dashboard's needs-review bucket was missing Archive on order-kind rows. Owner surfaced this from production screenshots, framed as "second instance of shipping without spec Part 3 honored" (first: 2026-08-19 through 08-23).
+
+**What was actually wrong.** Not a shipping-without-spec pattern. Diagnosis found three stacked problems, none of them "code ignored spec":
+
+1. **Spec drift from a half-completed amendment.** Commit `c11437e` (2026-08-25) added `Archive` as a standing control in the "Two shapes" block but did not update the parallel "View-detail rule, precisely" section, which continued to describe rows without `Archive`. This produced two contradictory passages in the same file. The 2026-09-17 state-split amendment (`34cbdb4`) edited the passage's row-identification clauses but explicitly scoped itself to "table restructure, not control rendering," carrying the stale counts forward untouched. Origin was 08-25, not 09-17 — the 09-17 amendment preserved the drift, it didn't create it.
+
+2. **No test bound the reason→action mapping to spec.** The rule lives partly in JSX (`NeedsReviewRow.tsx` render conditions), which the test suite cannot reach — `vitest.config.ts` runs in `node` environment with no DOM or rendering library. Pure-function tests cover the router's return values but cannot see the JSX-level control set. Every test passed equally before and after the fix.
+
+3. **Backend gap masked as UI gap.** Even had the spec been consistent and a test existed, the fix was not the one-line predicate change initially proposed. No order-archive server action existed reachable from the row's action registry — `ArchiveOrderButton` calls `PATCH /api/orders/[id]/archive` directly from the client. The kind-gated Archive was load-bearing, not cosmetic. Claude Code caught this before applying the proposed one-line fix, which would have hidden the button gate without wiring the action.
+
+**Pattern class.** Not "build ships without honoring spec." The correct name is **"spec amendment updates one location and misses the parallel one; no test binds the rule; drift accumulates until owner-verified regression symptoms surface in prod."** Three mechanisms: incomplete amendments, unbindable rules (JSX where tests can't reach), and the assumption that a green test suite means a class of bug is caught.
+
+**What the diagnostic session revealed but did not fix.**
+- The reason→action mapping remains unbindable in tests without either adding a DOM environment or extracting the control-set logic out of JSX into a pure function. Neither is scoped work yet.
+- No staging environment or component-testing infra; verification remains manual-in-production. Named here so it isn't forgotten as a systemic contributor.
+- Two order-kind reasons (`duplicate`, `belongs_to_existing_order`) are emitted by code but appear in no Part 3 correction table. Currently fall through to "unmapped → degrade" by accident. Poison-vs-clean split showed all 5 currently-visible `duplicate` rows are URL-poison artifacts (100% poison, 0% genuine), so the two reasons were parked rather than spec'd. Revisit only if genuine duplicates appear post-URL-poison cleanup.
+
+**How we almost re-created the same drift while fixing it.** The Passage B spec cleanup was scoped as "spec-only, one section." Claude Code noticed two related problems and flagged them for later:
+
+- The same wrong wording appeared a few lines earlier in Part 3 (at line 263-264). Fixing Passage B would leave the spec still contradicting itself.
+- A code comment at `NeedsReviewRow.tsx:44-49` said the spec was stale. Once the spec was fixed, the comment would be lying.
+
+Owner pulled both into the same commit on review. Leaving either would have reproduced the drift this cleanup exists to close — future readers would hit the un-fixed copy or the misleading comment and re-diagnose a solved problem. Rule codified separately in DECISIONS 2026-09-20 ("Fix all copies of a bug in one commit").
+
+**Related items on the board.**
+- TASKS.md ❄️ Deferred — the two Archive/Junk follow-ups.
+- TASKS.md 🔴 Now — parser non-commerce detection (Act 2 starting scope), Monday 09-21 URL backfill (independent, addresses the 5 poison duplicates).
+- DECISIONS.md 2026-09-20 — Junk vs Archive lifecycle; Fix all copies of a bug in one commit.
+
+---
+
 ## 2026-09-19 — Pre-fix reminder-linked orders: verified, chose not to clean
 
 Follow-up on the self-outbound guard fix (2026-09-07 `b316416`,
