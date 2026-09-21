@@ -32,6 +32,61 @@
 
 ## 🔴 Now
 
+### 2026-09-21 — Session close
+
+**Act 2 shipped, deployed, and verified; one order corrected; three new
+bugs captured.**
+
+**What shipped (4 commits, all pushed):**
+- `850ef38` — Fix A (anchorDate into the extraction prompt) + Fix B
+  (ANCHOR_DATE_RESOLVER.md Part 3's sanity guard, spec'd 2026-07-25 and
+  deferred ~14 months) + the spec's L73 quoted-date year bound. 16 new
+  tests. **Moved to ✅ Done** after the gate row verified.
+- `2f84bb6` / `0e33baa` — TASKS captures, the H&M incident writeup, and
+  the Simply Simpson correction.
+- Plus a TASKS commit sharpening the Neon connection-drop evidence with
+  the actual `P1017` error code.
+
+**Data corrected:** Simply Simpson #164649 (owner's account)
+`deliveryDate`/`estimatedDeliveryDate` 2020-09-28 → 2026-09-28,
+verified by independent read. Scoped hard: one order, extract-only (no
+policy lookup), date fields only. Retailer/total/lineItems/confidence/
+needsReview deliberately untouched — that's where run-to-run
+non-determinism showed up in validation, and none of it was the bug.
+
+**The recon's premise turned out wrong, and that's the useful finding.**
+13 `uncertain_details` rows, 10 within 30 days — but only ONE held a
+wrong-year date. Nine had no delivery date at all. What looked like a
+10-row repair was one correction plus nine speculative re-extracts, and
+the nine were dropped. Worth remembering before the next backfill is
+scoped from a symptom rather than from the data.
+
+**Three bugs captured, none fixed:**
+- Deadline compute gap (🐛 Bugs, Trust-breaking) — single-email orders
+  can hold `orderDate` + `returnWindowDays` and still have no deadline.
+  4 Amazon row IDs listed; repair ships WITH the code fix, per owner,
+  so the rows can't silently re-break.
+- Extraction non-determinism on unchanged prompts (⚠️ Known issues).
+- `lookupReturnPolicy` unbounded timeout (🐛 Bugs, Infra).
+
+**Deploy note:** the `0e33baa` push failed its first production build on
+`next/font/google` failing to resolve Bodoni Moda on Vercel's builder —
+16 errors, all font resolution, in `app/layout.tsx`, a file the commit
+didn't touch. Identical commit succeeded on retry. Transient
+infrastructure, no user impact (a failed build never takes the alias).
+**Process lesson worth keeping:** `vercel.json`'s `ignoreCommand` skips
+builds only when nothing but `*.md` changed. A push touching
+`scripts/*.ts` — code that never runs in production — still triggers a
+full build. This session wrongly assumed "docs and scripts" meant no
+deploy, declared itself finished, and found out from a Vercel alert.
+**Open, not actioned:** add that clarification to CLAUDE.md's deploy
+section (offered, no owner answer yet).
+
+**Anthropic API cost: ~$1.40, 64 billed calls.** 58 calls / $1.31 for the
+Act 2 validation batch (52 rows), 6 calls / ~$0.09 for the Simply Simpson
+re-extract (3 dry-run + 3 apply — an earlier in-session report of "3
+calls / $0.043" counted only the dry run). Zero web searches all session.
+
 ### 2026-09-21 — PRODUCTION INCIDENT: web lookup overwrote a stated return window (H&M)
 
 **Live data corruption, found 2026-09-21. Not caused by Act 2 — the
