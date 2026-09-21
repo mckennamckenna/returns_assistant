@@ -205,6 +205,27 @@ describe("parseForwardedHeaderDate", () => {
   it("returns null for an empty body", () => {
     expect(parseForwardedHeaderDate(null)).toBeNull();
   });
+
+  // ANCHOR_DATE_RESOLVER.md Part 2 Step 2, spec L73 — specified 2026-07-25,
+  // omitted from the Part 2 build (13521ca), restored 2026-09-20.
+  describe("year sanity bound against receivedAt (spec L73)", () => {
+    const body =
+      "---------- Forwarded message ---------\nFrom: Retailer <hi@retailer.com>\nDate: Tue, May 19, 2020 at 4:21 PM\nSubject: Your order\n\nThanks for your order.";
+
+    it("rejects a quoted date whose year is more than ~2 years from receivedAt", () => {
+      expect(parseForwardedHeaderDate(body, new Date("2026-05-19T00:00:00.000Z"))).toBeNull();
+    });
+
+    it("accepts a quoted date within the bound", () => {
+      const parsed = parseForwardedHeaderDate(body, new Date("2021-05-19T00:00:00.000Z"));
+      expect(parsed?.toISOString().slice(0, 10)).toBe("2020-05-19");
+    });
+
+    it("keeps the previous behavior when no receivedAt is supplied", () => {
+      const parsed = parseForwardedHeaderDate(body);
+      expect(parsed?.toISOString().slice(0, 10)).toBe("2020-05-19");
+    });
+  });
 });
 
 // TASKS.md 2026-08-27, diagnosis commit 179389e — the third of three

@@ -128,13 +128,13 @@ describe("runExtraction", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockEmailFindUnique).toHaveBeenCalledWith({ where: { id: BASE_ROW.id } });
-    expect(mockExtractEmailIdentity).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null);
+    expect(mockExtractEmailIdentity).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null, null);
     expect(mockFindMatchingOrder).toHaveBeenCalledWith(BASE_ROW.userId, PARSED_IDENTITY.retailer, PARSED_IDENTITY.orderNumber);
     // 4th arg is effectiveRetailer -- equal to parsed.retailer here since
     // it's already non-null (fallback never consulted). See the dedicated
     // "effectiveRetailer wiring" describe block below for the fallback-
     // resolved and fallback-not-consulted cases.
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer, null);
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BASE_ROW.id }, data: expect.objectContaining({ retailer: "Acme" }) }),
     );
@@ -145,7 +145,7 @@ describe("runExtraction", () => {
     await runExtraction(BASE_ROW as never);
 
     expect(mockEmailFindUnique).not.toHaveBeenCalled();
-    expect(mockExtractEmailIdentity).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null);
+    expect(mockExtractEmailIdentity).toHaveBeenCalledWith(BASE_ROW.textBody, BASE_ROW.subject, BASE_ROW.id, null, null);
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BASE_ROW.id }, data: expect.objectContaining({ retailer: "Acme" }) }),
     );
@@ -203,7 +203,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     await runExtraction(BASE_ROW.id);
 
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, { returnWindowDays: 30 }, PARSED_IDENTITY.retailer);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, { returnWindowDays: 30 }, PARSED_IDENTITY.retailer, null);
   });
 
   it("passes null existingOrder when findMatchingOrder finds nothing", async () => {
@@ -212,7 +212,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     await runExtraction(BASE_ROW.id);
 
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer, null);
   });
 
   it("skips the pre-check query entirely for an Amazon retailer -- never reaches the billed branch regardless", async () => {
@@ -221,7 +221,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockFindMatchingOrder).not.toHaveBeenCalled();
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ retailer: "Amazon" }), BASE_ROW.id, null, "Amazon");
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ retailer: "Amazon" }), BASE_ROW.id, null, "Amazon", null);
   });
 
   it("skips the pre-check query entirely for a food/grocery retailer -- never reaches the billed branch regardless", async () => {
@@ -251,6 +251,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
       BASE_ROW.id,
       null,
       PARSED_IDENTITY.retailer,
+      null,
     );
   });
 });
@@ -417,14 +418,17 @@ describe("runExtraction — effectiveRetailer wiring (2026-09-11/13 fix session)
     mockFinalizeExtraction.mockResolvedValue(EXTRACT_RESULT);
   });
 
-  it("(1) finalizeExtraction is called with exactly 4 args, the 4th being effectiveRetailer", async () => {
+  // Arity updated 2026-09-20 (ANCHOR_DATE_RESOLVER.md Part 3): a 5th arg,
+  // the Email row's anchorDate, now follows effectiveRetailer. The 4th-arg
+  // assertion this test exists for is unchanged.
+  it("(1) finalizeExtraction is called with exactly 5 args, the 4th being effectiveRetailer", async () => {
     mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
 
     await runExtraction(BASE_ROW.id);
 
     expect(mockFinalizeExtraction).toHaveBeenCalledTimes(1);
     const call = mockFinalizeExtraction.mock.calls[0];
-    expect(call).toHaveLength(4);
+    expect(call).toHaveLength(5);
     expect(call[3]).toBe(PARSED_IDENTITY.retailer);
   });
 

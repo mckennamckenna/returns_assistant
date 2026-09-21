@@ -68,7 +68,12 @@ export function resolveAnchorDate(params: {
   // manual — Gmail's quoted "Date:" format only at launch (decision 2).
   // Anything else that doesn't parse falls to the unresolved path, per
   // decision 3 — never a guess.
-  const quotedDate = parseForwardedHeaderDate(bodyText);
+  // receivedAt applies the spec's own L73 year bound to the quoted date —
+  // see parseForwardedHeaderDate. A quoted block that parses to an
+  // implausible year now falls through to the unresolved path below, which
+  // is decision 3's intent ("never a guess"), rather than becoming this
+  // email's anchor.
+  const quotedDate = parseForwardedHeaderDate(bodyText, receivedAt);
   if (quotedDate) {
     return { anchorDate: quotedDate, anchorSource: "quoted_body" };
   }

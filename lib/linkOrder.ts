@@ -125,13 +125,38 @@ function asLineItemArray(value: unknown): unknown[] {
 // required or the Date line never matches at all for that format. The
 // unicode normalization handles Apple's narrow no-break space (U+202F)
 // before AM/PM, which plain whitespace handling can miss.
-export function parseForwardedHeaderDate(bodyText: string | null): Date | null {
+//
+// ANCHOR_DATE_RESOLVER.md Part 2, Step 2 (spec L73): "year within ~2 years
+// of receivedAt". Deliberately declared HERE rather than alongside the Part
+// 3 guard's constants in lib/extract.ts, even though the two shipped
+// together: this is the only consumer, and importing it across the module
+// boundary would make every test that mocks "@/lib/extract" — there are at
+// least two — need to know about a constant that has nothing to do with
+// extraction. Keep it local to its one use.
+const MAX_QUOTED_DATE_YEAR_DRIFT = 2;
+
+// receivedAt enables ANCHOR_DATE_RESOLVER.md Part 2 Step 2's sanity bound
+// (spec L73: "Use the first that parses to a sane date (year within ~2
+// years of receivedAt)"). That bound was specified 2026-07-25 but omitted
+// from the Part 2 build that shipped the following day (13521ca), leaving
+// this function accepting any year Date.parse would take — including a
+// quoted block misparsed into a year that then became an Order's anchor.
+// Restored 2026-09-20 alongside the Part 3 guard. Optional so a caller
+// that has no receivedAt keeps the previous behavior rather than silently
+// rejecting dates it has no way to validate.
+export function parseForwardedHeaderDate(bodyText: string | null, receivedAt?: Date | null): Date | null {
   if (!bodyText) return null;
   const match = bodyText.match(/^(?:>\s*)*Date:\s*(.+)$/m);
   if (!match) return null;
   const normalized = match[1].trim().normalize("NFKC").replace(/\s+/g, " ").replace(" at ", " ");
   const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  if (receivedAt && Math.abs(parsed.getUTCFullYear() - receivedAt.getUTCFullYear()) > MAX_QUOTED_DATE_YEAR_DRIFT) {
+    return null;
+  }
+
+  return parsed;
 }
 
 // Finds the earliest email linked to this order and derives an orderDate
@@ -188,7 +213,7 @@ async function resolveFallbackOrderDate(orderId: string): Promise<Date | null> {
 
   const textBody = earliestEmail.textBody ? decrypt(earliestEmail.textBody) : null;
   const htmlBody = earliestEmail.htmlBody ? decrypt(earliestEmail.htmlBody) : null;
-  const parsed = parseForwardedHeaderDate(resolveBodyText(textBody, htmlBody));
+  const parsed = parseForwardedHeaderDate(resolveBodyText(textBody, htmlBody), earliestEmail.receivedAt);
   return parsed ?? earliestEmail.receivedAt;
 }
 

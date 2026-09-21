@@ -137,7 +137,38 @@ interface PolicyLookupResult {
   notes: string;
 }
 
-function buildPrompt(subject: string, textBody: string): string {
+// The preventive counterpart to ANCHOR_DATE_RESOLVER.md Part 3's guard
+// (2026-09-20). NOT in the 2026-07-25 spec, which only ever specified a
+// post-hoc sanity check. Until now the model was given no temporal
+// reference at all, so a body stating a bare "Monday, Sep 28" had nothing
+// to resolve the year against and picked one six years stale (Simply
+// Simpson #164649 — its own extraction notes said "delivery date year
+// inferred as 2020 since no year given ... low confidence on year", a
+// signal nothing downstream acted on).
+//
+// Every Email row already carries a resolved anchorDate
+// (lib/forwardResolver.ts), computed at ingestion BEFORE extraction runs —
+// this hands that existing value to the model rather than deriving
+// anything new. Null for an unresolved manual forward, in which case no
+// date line is emitted at all rather than a guessed one: the resolver's
+// own never-invent posture (spec L20-21), carried into the prompt.
+//
+// Deliberately scoped to resolving year-less dates only. It must never
+// become licence to infer a date the email doesn't state — that is the
+// exact failure (a fabricated estimatedDeliveryDate) the Part 3 guard
+// below exists to catch, and widening this wording would manufacture more
+// of it.
+function buildPrompt(subject: string, textBody: string, anchorDate: Date | null): string {
+  const anchorBlock = anchorDate
+    ? `TODAY'S DATE: ${anchorDate.toISOString().slice(0, 10)} — the date this email was sent.
+Use it ONLY to resolve a date the email writes WITHOUT a year (e.g. "Monday, Sep 28",
+"9/28", "next Tuesday"): pick the occurrence closest to today's date, and state in notes
+which year you chose and why. Never use today's date to invent, infer, or fill in a date
+the email does not state, and never let it override a date the email states in full.
+
+`
+    : "";
+
   return `You are extracting return/refund-relevant information from a forwarded shopping email.
 
 IMPORTANT: This email was forwarded by the customer, so the From header shows
@@ -145,7 +176,7 @@ the customer, not the retailer. Identify the retailer from the email BODY conten
 only — look for sender names, logos described in text, order confirmation
 language, etc.
 
-First, identify the email type. Then extract what's relevant for that type.
+${anchorBlock}First, identify the email type. Then extract what's relevant for that type.
 
 EMAIL TYPES:
 - "order_confirmation" — confirms a purchase was placed
@@ -298,6 +329,180 @@ export function resolveEstimatedDeliveryDate(
   shipByDate: string | null,
 ): string | null {
   return routedEstimate ?? shipByDate ?? null;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// How far BEFORE the anchor an extracted orderDate may legitimately sit. A
+// shipping or delivery email routinely restates an order placed weeks
+// earlier, so this can't be tight — but every documented instance of this
+// bug class is a ~1-year drift (Fitness Superstore's orderDate, Good Eggs,
+// Emme Parsons), comfortably outside 200 days. A genuinely old order
+// forwarded late is not a false positive: a manual forward's anchor is the
+// quoted original send date, which drifts with the order date rather than
+// against it.
+const MAX_ORDER_AGE_DAYS = 200;
+
+// A carrier ETA further out than this is not a credible estimate. This
+// constant is load-bearing, not cosmetic: it is what collapses the
+// candidate-year set to exactly one answer instead of two. For Simply
+// Simpson (anchor 2026-09-16, extracted 2020-09-28) both 2026-09-28 and
+// 2027-09-28 sit after the reference floor — only this horizon rules the
+// 2027 candidate out and lets the correction resolve at all.
+const MAX_DELIVERY_HORIZON_DAYS = 120;
+
+export interface AnchorGuardFields {
+  orderDate: string | null;
+  estimatedDeliveryDate: string | null;
+  deliveredAt: string | null;
+}
+
+export interface AnchorGuardOutcome extends AnchorGuardFields {
+  // Fields whose year was swapped. Drives the audit note only — per the
+  // 2026-09-20 owner ruling (Q3) a correction is NOT surfaced to the user
+  // as a QA flag and does NOT force needsReview: asking the user to verify
+  // an answer we believe is right is the "asking my users to fix it"
+  // pattern this whole arc exists to remove.
+  correctedFields: string[];
+  // Implausible against the anchor but NOT correctable to a single
+  // unambiguous year — left exactly as extracted, never replaced.
+  unresolvedFields: string[];
+  note: string | null;
+}
+
+function toDate(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function daysBetween(later: Date, earlier: Date): number {
+  return (later.getTime() - earlier.getTime()) / DAY_MS;
+}
+
+// Candidate years are ABSOLUTE (anchor year ±1), never relative shifts off
+// the extracted value. A ±1/±2 shift set would miss Simply Simpson
+// entirely — that error was six years wide. Anchoring the candidates to the
+// anchor's own year makes the correction independent of how far the
+// extraction drifted.
+//
+// Returns a correction only when EXACTLY ONE candidate year is plausible.
+// Two plausible candidates means we cannot tell which is right, and this
+// codebase's standing posture on that (DECISIONS.md:440, the disagreeing-
+// orderDate decision: "we don't trust ourselves to" pick a winner) is to
+// leave the value alone rather than guess. The caller reports it as
+// unresolved instead.
+function pickYearCorrection(value: Date, anchorDate: Date, isPlausible: (candidate: Date) => boolean): Date | null {
+  const anchorYear = anchorDate.getUTCFullYear();
+  const candidates = [anchorYear - 1, anchorYear, anchorYear + 1]
+    .map((year) => {
+      const candidate = new Date(value);
+      candidate.setUTCFullYear(year);
+      return candidate;
+    })
+    .filter(isPlausible);
+
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+// ANCHOR_DATE_RESOLVER.md Part 3 — "No extracted date's year is trusted
+// over the anchor." Spec'd and owner-approved 2026-07-25, built 2026-09-20
+// after this bug class had fired at least seven times in production
+// (the returnDeadline < orderDate sweep: Good Eggs -358d, Emme Parsons
+// -343d, Waitrose -2153d, Fitness Superstore, a Target pickup order, and
+// Simply Simpson #164649).
+//
+// DEVIATION FROM SPEC, owner-approved 2026-09-20: the spec says "discard
+// its year and re-derive from anchorDate + standard shipping." This swaps
+// the YEAR ONLY and preserves the stated month/day. Applied literally, the
+// spec's re-derive would turn Simply Simpson's "Monday, Sep 28" into
+// anchor + 5 days = 2026-09-21 — knowably wrong by a week, when the email
+// plainly states the 28th. Every documented instance of this bug class had
+// a CORRECT month/day and a wrong year, so the month/day is the trustworthy
+// half of the extracted value and throwing it away loses real information.
+// The trade-off accepted: a year-swap can produce a LATER deadline than
+// the spec's re-derive would have, which is the less conservative
+// direction — justified here because it produces the actually-correct date
+// rather than a safer wrong one.
+//
+// Runs at the EMAIL level only. mergeEmailIntoOrder's nullish-coalescing
+// semantics are deliberately untouched (DECISIONS.md:88 — a load-bearing
+// property, not an implementation detail), so existing Order rows are
+// unaffected by this function until the separate backfill.
+//
+// Part 3's second bullet ("a dateless body never yields a fabricated
+// estimatedDeliveryDate") needed no code: routeDeliveryDate already returns
+// null when deliveryDate is null, resolveEstimatedDeliveryDate only falls
+// back to shipByDate (a real stated date), and computeDeadline's case 4
+// estimates transit internally without ever persisting an
+// estimatedDeliveryDate. The Emme Parsons fabrication came from the MODEL,
+// which buildPrompt's anchor block above now addresses at the root.
+export function applyAnchorYearGuard(fields: AnchorGuardFields, anchorDate: Date | null): AnchorGuardOutcome {
+  const outcome: AnchorGuardOutcome = { ...fields, correctedFields: [], unresolvedFields: [], note: null };
+
+  // An unresolved manual forward (anchorSource "unresolved") has no
+  // trustworthy reference, so there is nothing to validate against. Per the
+  // resolver's never-invent rule this declines to act rather than reaching
+  // for receivedAt — exactly what resolveFallbackOrderDate already does for
+  // the same reason.
+  if (!anchorDate) return outcome;
+
+  // orderDate is resolved FIRST: once corrected it becomes the reference
+  // floor for the delivery fields below, so a wrong-year orderDate can't
+  // drag a correct delivery date into looking implausible.
+  const isOrderDatePlausible = (candidate: Date) =>
+    daysBetween(anchorDate, candidate) <= MAX_ORDER_AGE_DAYS && daysBetween(candidate, anchorDate) <= 2;
+
+  const extractedOrderDate = toDate(fields.orderDate);
+  let referenceFloor = extractedOrderDate;
+
+  if (extractedOrderDate && !isOrderDatePlausible(extractedOrderDate)) {
+    const corrected = pickYearCorrection(extractedOrderDate, anchorDate, isOrderDatePlausible);
+    if (corrected) {
+      outcome.orderDate = corrected.toISOString();
+      referenceFloor = corrected;
+      outcome.correctedFields.push("orderDate");
+    } else {
+      outcome.unresolvedFields.push("orderDate");
+    }
+  }
+
+  // When the email states no orderDate of its own, the anchor IS the floor —
+  // no slack. Owner ruling 2026-09-20 (Q2): a delivery date should be on or
+  // after the email's own send date, full stop. If a real "delivered N days
+  // ago" email ever trips this, handle it then rather than pre-engineering
+  // for an edge case that hasn't appeared.
+  const floor = referenceFloor ?? anchorDate;
+  const isDeliveryPlausible = (candidate: Date) =>
+    daysBetween(candidate, floor) >= 0 && daysBetween(candidate, anchorDate) <= MAX_DELIVERY_HORIZON_DAYS;
+
+  for (const field of ["estimatedDeliveryDate", "deliveredAt"] as const) {
+    const extracted = toDate(fields[field]);
+    if (!extracted || isDeliveryPlausible(extracted)) continue;
+
+    const corrected = pickYearCorrection(extracted, anchorDate, isDeliveryPlausible);
+    if (corrected) {
+      outcome[field] = corrected.toISOString();
+      outcome.correctedFields.push(field);
+    } else {
+      outcome.unresolvedFields.push(field);
+    }
+  }
+
+  const parts: string[] = [];
+  if (outcome.correctedFields.length > 0) {
+    parts.push(
+      `Anchor year guard corrected ${outcome.correctedFields.join(", ")} against anchor ${anchorDate.toISOString().slice(0, 10)}.`,
+    );
+  }
+  if (outcome.unresolvedFields.length > 0) {
+    parts.push(
+      `Anchor year guard found ${outcome.unresolvedFields.join(", ")} implausible against anchor ${anchorDate.toISOString().slice(0, 10)} but could not resolve a single year; left as extracted.`,
+    );
+  }
+  outcome.note = parts.length > 0 ? parts.join(" ") : null;
+
+  return outcome;
 }
 
 async function lookupReturnPolicy(retailer: string, emailId?: string | null): Promise<PolicyLookupResult> {
@@ -601,13 +806,14 @@ async function runRawExtraction(
   subject: string,
   emailId: string | null | undefined,
   callSite: "email_extraction" | "email_extraction_retry",
+  anchorDate: Date | null,
 ): Promise<RawExtraction> {
   const message = await anthropic.messages.create({
     model: MODEL,
     // Orders with many line items can produce long responses — 1024 was
     // truncating mid-JSON for orders with a dozen+ items.
     max_tokens: 4096,
-    messages: [{ role: "user", content: buildPrompt(subject, textBody) }],
+    messages: [{ role: "user", content: buildPrompt(subject, textBody, anchorDate) }],
   });
 
   logAnthropicUsage({
@@ -630,9 +836,15 @@ export async function extractEmailIdentity(
   // offered for the two-pass retry below. Optional and unused by every
   // caller except lib/runExtraction.ts.
   alternateBodyText?: string | null,
+  // The Email row's resolved anchorDate (lib/forwardResolver.ts), handed to
+  // buildPrompt as the reference for year-less dates — see buildPrompt's
+  // comment. Optional and defaulting to null so the script callers of
+  // extractEmail below are unaffected; lib/runExtraction.ts (the only path
+  // real inbound mail takes) always passes it.
+  anchorDate: Date | null = null,
 ): Promise<RawExtraction> {
   const resolvedSubject = subject ?? "(no subject)";
-  let parsed: RawExtraction = await runRawExtraction(textBody, resolvedSubject, emailId, "email_extraction");
+  let parsed: RawExtraction = await runRawExtraction(textBody, resolvedSubject, emailId, "email_extraction", anchorDate);
 
   // Two-pass retry (TASKS.md 2026-08-22, H&M return_label case; widened
   // 2026-09-06, Gap order_confirmation case). A commerce email where the
@@ -689,7 +901,7 @@ export async function extractEmailIdentity(
     parsed.emailType !== "other" &&
     alternateDiffersFromPrimary
   ) {
-    const retry = await runRawExtraction(trimmedAlternate, resolvedSubject, emailId, "email_extraction_retry");
+    const retry = await runRawExtraction(trimmedAlternate, resolvedSubject, emailId, "email_extraction_retry", anchorDate);
 
     // Gap-fill only: a field is taken from the retry only when pass 1 left
     // it null (empty lineItems counts as null-equivalent here), and a
@@ -768,6 +980,11 @@ export async function finalizeExtraction(
   // extractEmail below (no sender-fallback context available) is
   // unaffected.
   effectiveRetailer: string | null = parsed.retailer,
+  // The Email row's resolved anchorDate, for the Part 3 sanity guard below.
+  // Optional/null-defaulted for the same reason as extractEmailIdentity's:
+  // script callers don't have it, and a null anchor makes the guard decline
+  // to act rather than guess.
+  anchorDate: Date | null = null,
 ): Promise<ExtractionResult> {
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
@@ -836,10 +1053,41 @@ export async function finalizeExtraction(
   }
 
   const routedDelivery = routeDeliveryDate(parsed.emailType, parsed.deliveryDate);
-  const estimatedDeliveryDate = resolveEstimatedDeliveryDate(routedDelivery.estimatedDeliveryDate, parsed.shipByDate);
-  const { deliveredAt } = routedDelivery;
+  const routedEstimate = resolveEstimatedDeliveryDate(routedDelivery.estimatedDeliveryDate, parsed.shipByDate);
+
+  // ANCHOR_DATE_RESOLVER.md Part 3 — runs AFTER routing (so each date is
+  // validated in the role it will actually be stored under) and BEFORE
+  // computeDeadline (so the deadline is computed from corrected inputs, not
+  // corrected after the fact).
+  const guarded = applyAnchorYearGuard(
+    { orderDate: parsed.orderDate, estimatedDeliveryDate: routedEstimate, deliveredAt: routedDelivery.deliveredAt },
+    anchorDate,
+  );
+
+  // The legacy deliveryDate column carries the same raw extracted value that
+  // fed the routed fields above, and the order detail page still falls back
+  // to it (`deliveredAt ?? estimatedDeliveryDate ?? deliveryDate`). Left
+  // uncorrected it would be a second, stale render path for the exact date
+  // the guard just fixed — so it moves in lockstep (owner ruling
+  // 2026-09-20, Q1). routeDeliveryDate sends a non-null deliveryDate to
+  // exactly one of the two fields, by emailType, which is what makes this
+  // an unambiguous read-across rather than a second guess.
+  const guardedDeliveryDate =
+    parsed.deliveryDate == null
+      ? null
+      : parsed.emailType === "delivery"
+        ? guarded.deliveredAt
+        : guarded.estimatedDeliveryDate;
+
+  const estimatedDeliveryDate = guarded.estimatedDeliveryDate;
+  const deliveredAt = guarded.deliveredAt;
+
+  if (guarded.note) {
+    parsed.notes = `${parsed.notes} ${guarded.note}`;
+  }
+
   const { returnDeadline, deadlineIsEstimated } = computeDeadline({
-    orderDate: parsed.orderDate,
+    orderDate: guarded.orderDate,
     deliveredAt,
     estimatedDeliveryDate,
     returnWindowDays: parsed.returnWindowDays,
@@ -865,6 +1113,11 @@ export async function finalizeExtraction(
 
   return {
     ...parsed,
+    // Both override the spread above: the guard's corrected values are the
+    // ones that must reach lib/runExtraction.ts's write, not the raw
+    // extracted ones still sitting on `parsed`.
+    orderDate: guarded.orderDate,
+    deliveryDate: guardedDeliveryDate,
     estimatedDeliveryDate,
     deliveredAt,
     returnDeadline,

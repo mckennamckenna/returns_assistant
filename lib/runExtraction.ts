@@ -37,7 +37,20 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
       throw new Error("no textBody or htmlBody to extract from");
     }
 
-    const parsed = await extractEmailIdentity(body, email.subject ?? null, emailId, alternateBody);
+    // email.anchorDate is resolved at ingestion (lib/forwardResolver.ts),
+    // before this ever runs, and is already on the row this function holds —
+    // no extra read. Passed to extraction as the reference for year-less
+    // dates (buildPrompt) and, below, to finalizeExtraction for the
+    // ANCHOR_DATE_RESOLVER.md Part 3 sanity guard. Null for an unresolved
+    // manual forward, which both consumers treat as "no reference, don't
+    // guess."
+    // `?? null` normalizes the one shape Prisma never produces but a
+    // hand-built caller can (an object literal with the field omitted) —
+    // both consumers treat null as "no reference, don't guess," so this
+    // keeps that single meaning rather than letting undefined leak through.
+    const anchorDate = email.anchorDate ?? null;
+
+    const parsed = await extractEmailIdentity(body, email.subject ?? null, emailId, alternateBody, anchorDate);
 
     // Sender-derived retailer fallback (ZARA_RETAILER_FALLBACK, 2026-08-25,
     // Decision 1/2/3 — see lib/retailerFallback.ts and
@@ -88,7 +101,7 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
       }
     }
 
-    const result = await finalizeExtraction(parsed, emailId, existingOrder, effectiveRetailer);
+    const result = await finalizeExtraction(parsed, emailId, existingOrder, effectiveRetailer, anchorDate);
 
     // Sender-derived retailer fallback WRITE. Reuses `fallback` computed
     // above rather than re-deriving it — the gating condition below
