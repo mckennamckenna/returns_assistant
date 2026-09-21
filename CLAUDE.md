@@ -114,7 +114,16 @@ Return Window matters until it has happy users.
   `vercel.json`'s `ignoreCommand` skips the build when nothing but `*.md`
   files changed since the last successful deploy — docs-only pushes show
   as canceled/ignored in Vercel and the live deploy stays on the last
-  code commit. Deployment Retention is 7 days (Vercel dashboard), so
+  code commit. **The match is on the `*.md` extension alone, not on
+  whether the changed files run in production** — a push touching
+  `scripts/*.ts`, a test file, or any other non-`.md` path still triggers
+  a full production build and must be verified like any other deploy.
+  (Added 2026-09-21: a `TASKS.md` + `scripts/*.ts` push was read as
+  "docs and scripts, no deploy to verify," the session was declared
+  finished, and the resulting build failure surfaced via a Vercel alert
+  instead. Same day, a `TASKS.md`-only push canceled exactly as
+  documented — both halves of this rule are confirmed against real
+  deploys.) Deployment Retention is 7 days (Vercel dashboard), so
   rollback targets older than that are gone; roll back by revert + push.
   Do **not** run `vercel --prod` — it creates a redundant duplicate
   deployment alongside the one GitHub already triggered. After pushing:
