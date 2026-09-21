@@ -32,6 +32,20 @@
 
 ## 🔴 Now
 
+- [ ] **URL-poisoning cleanup, Phase B2 — apply reviewed mapping.**
+      Apply the reviewed mapping from B1
+      (docs/cleanup/url_poisoning_b1_proposal_2026-09-21.md) to
+      `Order.retailer` and `ReturnUrlReview.approvedRetailer`. Writes
+      only to those two fields, on rows currently URL-shaped per
+      `isUrlShapedRetailer`. Includes owner overrides:
+      - gap.com → Gap (was proposed as GAP; owner correction).
+      Session structure: T1 codebase recon, T2 load mapping, T3
+      re-count verification, T4 dry-run log written to file for
+      owner confirmation, HARD STOP, T5 execute, T6 post-check
+      assertion. No LLM inference. No changes outside the two
+      fields on the poisoned rows.
+
+
 - [ ] **URL-poisoning cleanup, Phase B1 — read-only mapping proposal.**
       Read-only mapping proposal only, per scope-control rule: no code
       changes, no DB writes, no Anthropic API calls this session.
