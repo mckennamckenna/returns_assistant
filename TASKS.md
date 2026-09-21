@@ -32,6 +32,45 @@
 
 ## 🔴 Now
 
+### 2026-09-20 — Session close
+
+Opened as a read-only diagnostic of the needs-review bucket "regression"
+(owner screenshots: all three dashboard rows showing "More info" instead
+of the spec's inline actions). **It was not a regression.** The
+reason→action mapping had never changed since `8de835b`; order-kind rows
+have always degraded, by a deliberate 2026-08-21 deferral. What had
+drifted was CARD_SPEC Part 3 itself — two passages describing a row's
+control set contradicted each other, originating at `c11437e`
+(2026-08-25), preserved but not created by the 09-17 state split.
+
+**What shipped (five commits, all pushed):**
+- `5e45f0f` — Archive renders on every needs-review row, not email-kind
+  only. Order-kind reuses the order detail page's own `ArchiveOrderButton`,
+  so both surfaces hit `PATCH /api/orders/[id]/archive` and the same
+  reversible `archivedAt` semantics. **Owner-verified in production.**
+- `f143da5` — DECISIONS: Junk vs Archive lifecycle (Archive indefinite,
+  Junk 30-day-then-hard-delete). Decided in principle, build is Act 2.
+- `2328ea0` — Done move for the above, after owner verification.
+- `ac018b7` — two ❄️ Deferred follow-ups (Archive label collision;
+  order-kind Archive hides without clearing `needsReview`).
+- `2a437ba` — CARD_SPEC Part 3 cleanup: Passage B rewrite, the same-bug
+  fix at L263-264, and a comment amendment at `NeedsReviewRow.tsx:44-49`
+  (scope exception, owner-approved). Part 3 is internally consistent for
+  the first time since 2026-08-25.
+
+Plus `757439c` — HISTORY 2026-09-20 narrative and DECISIONS "Fix all
+copies of a bug in one commit."
+
+**Findings that did not become work this session** — all three logged to
+⚠️ Known issues: no test binds the mapping's control set; the
+"merge machinery is deferred" comment is inaccurate; the `duplicate`
+reason is not persisted historically.
+
+**0 billed Anthropic API calls for the entire session.** Every task —
+diagnostic, test inventory, spec archaeology, two SELECT-only DB
+censuses, implementation, docs — ran on git/grep/file reads/Prisma
+reads. No model call site invoked.
+
 ### 2026-09-20 — Needs-review row actions
 
 - [ ] **Parser: non-commerce email detection (not_a_purchase reason).**
@@ -64,6 +103,17 @@ operator-only personal-email lookup. 0 billed Anthropic API calls.
       cleanup). Production DB write: owner reviews the proposed mapping
       and signs off before it runs. [needs clarification: confirm the
       backfill's exact scope and mapping at pickup.]
+      **[2026-09-20 finding] This backfill will NOT clear the 5 visible
+      `duplicate` needs-review rows.** That reason derives from the
+      `[auto] retailer prefix match:` marker in `Order.userNote`
+      (`lib/orderReview.ts:227-230`), checked ahead of every other
+      branch — not from `Order.retailer`. Cleaning the retailer column
+      leaves the marker intact, so the rows keep rendering `duplicate`
+      while displaying a now-clean retailer, and the stored marker still
+      records the poisoned string. Clearing them needs a separate
+      decision (strip the marker, or clear `needsReview`) — both are
+      writes, and `userNote` co-mingles auto-markers with user-authored
+      text, so neither is safe to do blind.
 
 ### 2026-09-19 — Session close
 
@@ -9121,6 +9171,42 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **No test binds the reason→action mapping's control set, 2026-09-20.**
+  The rule lives in JSX render conditions (`app/NeedsReviewRow.tsx:95-127`),
+  which `vitest.config.ts`'s `environment: "node"` cannot reach — no DOM,
+  no testing-library, no snapshots anywhere in the repo.
+  `__tests__/needsReviewActions.test.ts` covers the router's return value
+  (the *primary* action) but not which controls a row renders, so the
+  whole suite passed identically before and after `5e45f0f` — it cannot
+  distinguish the bug from the fix in either direction. Decision needed:
+  extract the control-set logic to a pure function, add a DOM
+  environment, or accept as a known limitation. This is the prevention
+  mechanism for a recurrence of the 2026-09-20 drift pattern (see
+  HISTORY 2026-09-20).
+- **`lib/needsReviewActions.ts:30-36` comment is inaccurate, 2026-09-20.**
+  It says "real merge machinery is deferred." The machinery is not
+  deferred — `scripts/backfill-retailer-prefix-match.ts:110-141` is a
+  working, dry-run-guarded order-to-order merge (reassign linked emails
+  to the target, then delete the emptied source order), shipped
+  2026-08-23. What is deferred is the *UI surface*, plus auth scoping
+  (the script runs as a raw `PrismaClient` with no session check) and a
+  decision about whether hard `order.delete` is acceptable on a
+  user-initiated path given the never-hard-delete posture at
+  CARD_SPEC.md:321. Fix the comment when convenient; productize the
+  script only if genuine duplicates appear after the URL-poison cleanup.
+- **`duplicate` reason is not persisted historically, 2026-09-20.**
+  No reason column exists on `Order` — only the `needsReview` boolean
+  and free-text `userNote`. `computeOrderReviewReason`
+  (`lib/orderReview.ts:223-252`) derives the reason on every read, and
+  against *today's* field values, not the values at flagging time.
+  Resolution erases the evidence: `approveOrder`
+  (`lib/orderReview.ts:26-37`) sets `needsReview: false` and records
+  nothing about what the reason had been. `ActionLog` does not cover
+  review flagging. Consequence: any future "how often did needs-review
+  flag X?" question is unanswerable for resolved rows, and biased toward
+  unresolved ones for the rest. Data model limitation, not a bug —
+  noted so the next session doesn't try to query history that isn't
+  stored.
 - **Extraction's returnDeadline calculation ignores anchorDate, 2026-09-19.**
   `lib/extract.ts:841` computes the email's deadline from the AI-extracted
   `orderDate` only; when the email states no date, it returns null even
