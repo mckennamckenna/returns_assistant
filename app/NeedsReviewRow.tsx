@@ -43,11 +43,11 @@ const linkButtonClass = "text-xs font-medium text-secondary underline hover:text
 // previously gated on `row.kind === "email"`, which left every
 // order-kind row one control short of the spec. What differs by kind is
 // only WHICH archive path the control dispatches to (see below), not
-// whether it renders. Part 3's "View-detail rule" passage (~L375) still
-// carries pre-amendment-D control counts that omit Archive entirely;
-// that text is stale, not a competing rule — its counts predate Archive
-// joining the row shape. Spec cleanup is tracked separately; the router
-// in lib/needsReviewActions.ts is untouched by this change.
+// whether it renders. Part 3's "View-detail rule" passage (~L375) and
+// its Slot 4 bullet (~L261) both carried pre-amendment-D control counts
+// that omitted Archive; both were corrected 2026-09-20 to match Passage
+// A, so the whole of Part 3 now agrees with what this file renders. The
+// router in lib/needsReviewActions.ts is untouched by this change.
 export function NeedsReviewRow({
   row,
   linkablePickerOrders,

@@ -260,8 +260,9 @@ state?" must derive from `orderId` and `junkedAt`, not read `Email.needsReview`.
   canonical phrasings.
 - Slot 4: **action** — the row's primary action (from the registry below, chosen
   via the state-appropriate reason → action mapping) plus an always-present
-  `View detail` secondary. Rows whose reason has no mapped primary action show
-  `View detail` alone — see "The View-detail rule" below.
+  `View detail` secondary and an always-present `Archive`. Rows whose reason has
+  no mapped primary action show `Archive` + `View detail` — see "The View-detail
+  rule" below.
 
 **Collapsed vs expanded — CORRECTED 2026-08-21, see Part 5 Q10:**
 
@@ -375,11 +376,30 @@ decision that confirmed reasons should stay few.
 - **The View-detail rule, precisely:** `View detail` is the **always-present secondary
   on every row** — not merely a fallback that shows up when nothing else applies. A
   mapped row (any row whose primary action is not `View detail`, from either state's
-  table) shows **[primary action + View detail]**, two controls. A degrade row (any
-  row whose primary action IS `View detail`, from either state's table, plus any
-  unmapped reason) shows **View detail alone**, because there is no primary action
-  to pair it with. Either way, `View detail` is reachable from every row in the
-  bucket, no exceptions.
+  table) shows **[primary action + Archive + View detail]**, three controls. A degrade
+  row (any row whose primary action IS `View detail`, from either state's table, plus
+  any unmapped reason) shows **[Archive + View detail]**, two controls — there is no
+  primary action to pair them with, and `View detail` is never rendered twice. Either
+  way, both `View detail` and `Archive` are reachable from every row in the bucket,
+  no exceptions.
+
+  **(Superseded text, preserved for the record: "A mapped row … shows [primary action
+  + View detail], two controls. A degrade row … shows View detail alone, because there
+  is no primary action to pair it with." — those counts were written 2026-08-12
+  (`ea939b1`) and were correct when written: `Archive` did not yet exist in the row's
+  control set, so there was nothing to omit. The 2026-08-24 amendment D added it, and
+  the 2026-08-25 clarification (`c11437e`) restated the shapes WITH `Archive` in the
+  "Two shapes" block above — but did not update this bullet, which is where the
+  contradiction entered. The 2026-09-17 state-split amendment (`34cbdb4`) edited this
+  bullet's row-identification clauses only, replacing the positional "top four" /
+  "bottom three" with definitional language, and carried the stale counts through as
+  untouched context; its scope was the table restructure, not control rendering.
+  Corrected 2026-09-20 to match the "Two shapes" block, which is authoritative on
+  control counts. The same correction was applied to the Slot 4 bullet above, which
+  carried an identical "`View detail` alone" claim. Act 1 shipped `Archive` on every
+  row the same day, commit `5e45f0f` — `app/NeedsReviewRow.tsx` renders it
+  unconditionally across both kinds, dispatching to junk-with-rescue for email-kind
+  and reversible `archivedAt` for order-kind.)**
 - **Any reason with no registered mapping — proto or confirmed — degrades to
   `View detail`.** Never throws. This is what lets the bucket ship before every
   possible reason is mapped, and what makes the registry safely extensible: a new
