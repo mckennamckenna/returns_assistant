@@ -9492,10 +9492,11 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
-- **Google Sheet still holds the pre-cleanup URL-shaped retailer values,
+- **Google Sheet may still hold the pre-cleanup URL-shaped retailer values,
   2026-09-21.** URL-poisoning cleanup B2 was DB-only by scope, so the review
-  sheet's `Approved retailer` cells still show domains for the rows that were
-  cleaned in Postgres. Harmless as it stands: those rows are all non-PENDING, so
+  sheet's `Approved retailer` cells likely still show domains for the rows that
+  were cleaned in Postgres. **The sheet was never directly inspected** — this is
+  inferred from the cron's write path, not observed. Harmless as it stands: those rows are all non-PENDING, so
   `app/api/cron/apply-url-reviews/route.ts` skips them, and its
   `isUrlShapedRetailer` guard would reject one even if a row were reset to
   PENDING. But the sheet is the human audit surface, and it now disagrees with

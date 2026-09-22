@@ -5,6 +5,72 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-21 — URL-poisoning cleanup complete (Phase B)
+
+Cleaned 81 URL-shaped values from `Order.retailer` (40 rows) and
+`ReturnUrlReview.approvedRetailer` (41 rows), completing the arc
+started by Phase A on 2026-09-16. Poisoning originated in the
+weekly-url-review cron pre-populating the sheet's Approved retailer
+column with URL/domain strings; Phase A stopped the source, Phase B
+cleaned the existing data.
+
+**Commits:** `d3849cc` (B1 proposal), `c685ec8` (B2 dry-run log),
+`21b928d` (B2 apply log), plus TASKS bookkeeping in `8a0e874`,
+`96b00e8`, `c9fcdd7`, `e70eb77`. All docs-only — no code shipped in
+either phase, so no deploy; the change is entirely in data.
+
+Split into two sessions:
+
+- B1 (read-only mapping proposal): 80 of 81 records recoverable
+  from `ReturnUrlReview.rawRetailer`, the pre-poisoning snapshot
+  captured at queue time. One record (`Amazon.com` → `Amazon`)
+  resolved via mechanical domain transform. Zero records required
+  owner brand-name inference. Deliverable committed as
+  `docs/cleanup/url_poisoning_b1_proposal_2026-09-21.md`.
+
+- B2 (apply the reviewed mapping): 81 bare `updateMany` writes,
+  each gated on both primary key and prior URL-shaped value for
+  idempotency. Zero side-effect functions invoked. One owner
+  override applied (`gap.com` → `Gap`, on the 2 rows B1 had
+  proposed as `GAP` — 1 order, 1 review; the other two `gap.com`
+  rows already proposed `Gap`). Pre-write recon confirmed no Prisma
+  middleware, no apply-cron re-application on retailer divergence
+  (it gates on `status !== "PENDING"`, and all 41 poisoned review
+  rows were terminal), no retailer-keyed cron queries outside
+  `linkOrder.ts`. Post-check: zero URL-shaped values remaining on
+  both tables. Row totals unchanged (285 orders / 72 reviews),
+  `rawRetailer` untouched. Logs at
+  `docs/cleanup/url_poisoning_b2_dryrun_2026-09-21.md` and
+  `docs/cleanup/url_poisoning_b2_apply_log_2026-09-21.md`.
+
+Total billed Anthropic API calls across both sessions: 0.
+Deterministic mapping throughout — no LLM inference used.
+
+Pattern worth remembering: when a bug poisons one field, check
+whether an adjacent field captured the pre-image before reaching
+for inference. `rawRetailer` made this cleanup boring instead of
+scary.
+
+Process note: B2's dry run was written to a committed file and held
+behind a case-sensitive typed go-ahead. The first approval arrived
+as lowercase `go b2` and was declined; the gate existed precisely so
+81 irreversible writes against the single live database couldn't
+land on a casual reply, and honoring it loosely would have meant it
+was never a gate. Cost one round-trip. Worth keeping for any
+future session that writes to production data.
+
+Non-blocking follow-ups:
+- Google Sheet's Approved retailer column may hold historical
+  URL-shaped values in non-PENDING rows. Cosmetic; apply-cron
+  skips non-PENDING and Phase A's guard would reject any reset to
+  PENDING. Not directly inspected — inferred from the cron's write
+  path, so unconfirmed either way. Filed under TASKS ⚠️ Known issues.
+- Backlog 🟡 Next #9 (returnDeadline computed before anchorDate
+  resolved) unblocked by Phase B completion — its own entry ordered
+  it after "Session B cleanup". Not urgent.
+
+---
+
 ## 2026-09-20 — Needs-review bucket drift diagnosis and cleanup
 
 **Landed:** five commits, all pushed and deployed.
