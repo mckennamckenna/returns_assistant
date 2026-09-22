@@ -32,6 +32,42 @@
 
 ## 🔴 Now
 
+- [ ] **Deploy pipeline is blocked: `vercel.json`'s `ignoreCommand` dies on a
+      `VERCEL_GIT_PREVIOUS_SHA` that has fallen out of Vercel's shallow clone.
+      NEW 2026-09-21, found via a Vercel failure alert.** Three production
+      deployments errored at 4s each (`e70eb77`, `838eb2f`, `264840b`), all with
+      the same log line: `fatal: bad object 0e33baa`. `VERCEL_GIT_PREVIOUS_SHA`
+      is pinned at `0e33baa` — the last commit that actually *built* — because
+      every commit since has been `*.md`-only and therefore Canceled/ignored,
+      and an ignored deployment does not advance the pointer. HEAD has now walked
+      12 commits past it, beyond the clone depth, so `git diff` can't resolve the
+      object, exits 128, and Vercel marks the whole deployment Error rather than
+      skipping or building.
+      **Why this matters more than the alert suggests: it blocks code deploys
+      too.** The ignoreCommand runs before the build on every push, so the next
+      code push will error out the same way without building. Production is
+      frozen at `0e33baa` until this is fixed.
+      **No user impact right now** — a failed build never takes the alias, and no
+      code changed in the sessions that triggered these, so production is serving
+      correct code.
+      **Fix applied 2026-09-22:** the guard is an explicit `if/then/else` so the
+      exit code is only ever 0 or 1 —
+      `if [ -n "$VERCEL_GIT_PREVIOUS_SHA" ] && git cat-file -e
+      "$VERCEL_GIT_PREVIOUS_SHA^{commit}" 2>/dev/null && git diff --quiet ...;
+      then exit 0; else exit 1; fi`. Exit 0 still means skip; anything
+      unresolvable now exits 1, which means build. Self-healing: the first real
+      build advances `VERCEL_GIT_PREVIOUS_SHA` back inside the clone depth.
+      **Worth keeping — the obvious one-line fix was wrong.** The first attempt
+      just inserted `git cat-file -e ... &&` ahead of the diff. That suppresses
+      the `fatal:` message but `cat-file` *also* exits 128 on a missing object,
+      and 128 propagates through the `&&` chain — the same non-0/1 exit code
+      Vercel had already turned into an Error. It would have changed the log
+      line and nothing else. Caught by testing the command against a
+      deliberately non-existent SHA before pushing; a local clone is complete,
+      so the real stuck SHA resolves fine here and cannot reproduce the failure.
+      Any future edit to this command must be tested the same way.
+
+
 ### 2026-09-21 — Session close
 
 **Act 2 shipped, deployed, and verified; one order corrected; three new
