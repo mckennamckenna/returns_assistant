@@ -2328,30 +2328,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
 
 ## ⏳ Verifying
 
-- **VERIFY BY: owner glance in the app — open a few order cards whose retailer was a
-  domain (an Amazon order, a Nordstrom order, an H&M order) and confirm the retailer
-  now reads as a brand name, the return-window deadline is unchanged, and the "start a
-  return" button still goes to the right place.**
-- [ ] **URL-poisoning cleanup, Phase B2 — APPLIED 2026-09-21, awaiting owner
-      verification in production.** All 81 reviewed mappings written: 40
-      `Order.retailer` + 41 `ReturnUrlReview.approvedRetailer`, every one gated on
-      primary key AND the prior URL-shaped value. Owner override `gap.com` → `Gap`
-      landed on 2 rows. Post-check: zero URL-shaped values remain on either table,
-      zero `updateMany` counts other than 1, row totals unchanged (285 orders / 72
-      reviews), `rawRetailer` untouched. Artifacts:
-      `docs/cleanup/url_poisoning_b1_proposal_2026-09-21.md` (reviewed mapping),
-      `..._b2_dryrun_2026-09-21.md` (pre-image), `..._b2_apply_log_2026-09-21.md`
-      (per-row write log). Bare field updates only — no recompute, re-link, or
-      status-derivation function was invoked.
-      **Residual, not fixed:** the Google Sheet still holds the old URL-shaped values
-      in its `Approved retailer` cells; cleanup was DB-only. Those rows are all
-      non-PENDING so apply-url-reviews skips them, and its `isUrlShapedRetailer` guard
-      would reject one even if a row were reset to PENDING.
-      **Flagged for owner:** session spec said move this to 👀 Watching; parked there
-      it would read as "revisit only if it recurs," which loses the verification step
-      the spec itself asked for. Filed under ⏳ Verifying instead — move it if you
-      disagree.
-
 - **VERIFY BY: owner glance in the app — forward a real email through Gmail auto-forward and manual-forward, confirm the "Forwarded automatically"/"Forwarded by you" label is correct on each, and that a real order's deadline still computes correctly.**
 - [ ] **Anchor date resolver — PART 2 BUILT AND DEPLOYED 2026-07-26, per
       `ANCHOR_DATE_RESOLVER.md` (owner-approved spec, Part 4 decisions
@@ -7332,6 +7308,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
+- [x] **URL-poisoning cleanup B2 — reviewed mapping applied, 2026-09-21.** All 81 URL-shaped retailer values cleaned to brand names across `Order.retailer` and `ReturnUrlReview.approvedRetailer`, plus the owner's one correction. Every write was a bare field update gated on both primary key and the prior value, so nothing recomputed, re-linked, or cascaded. Dry run went to a file and waited on an explicit typed go-ahead before anything was written; pre-image and per-row write log are committed under `docs/cleanup/`. Post-check found zero URL-shaped values left on either table and no unexpected write counts. Owner verified in prod. 0 model calls.
+
 - [x] **URL-poisoning cleanup B1 — mapping proposal delivered and reviewed, 2026-09-21.** Proposed a clean brand name for all 81 URL-shaped retailer values across `Order.retailer` and `ReturnUrlReview.approvedRetailer`, for owner markup. The useful finding: `ReturnUrlReview.rawRetailer` preserves the pre-poisoning name, so 80 of 81 mappings came from data the database already held — including the cases no mechanical domain transform could recover, where a carrier or returns-platform domain had overwritten the brand. Owner reviewed and returned one correction. Read-only, docs-only, 0 model calls.
 
 - [x] **Act 2 — anchor date into the extraction prompt, and ANCHOR_DATE_RESOLVER.md Part 3 shipped, 2026-09-21.** The extractor was given no temporal reference at all, so a bare "Monday, Sep 28" resolved to 2020; every Email row already carried a correct `anchorDate` computed at ingestion and never handed to the model. Fix A passes it into the prompt; Fix B ships Part 3's sanity guard, spec'd and owner-approved 2026-07-25 and deferred ~14 months across 7+ production instances. Owner-approved deviation: the guard swaps the year only, preserving the stated month/day, rather than re-deriving from anchor + standard shipping — every instance of this bug class had a correct month/day, so re-deriving would discard the trustworthy half. Fix A's effect turned out wider than the spec described: the extractor was also silently *dropping* legitimate year-less dates, not just mis-yearing them (7 of 52 validation rows recovered a real stated date). Validated on 52 rows for $1.31 with zero web searches; no regression attributable to the change. **Owner-verified on the gate row: Simply Simpson #164649 corrected 2020-09-28 → 2026-09-28 in production.** Full detail in HISTORY.md.
@@ -9514,6 +9492,14 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **Google Sheet still holds the pre-cleanup URL-shaped retailer values,
+  2026-09-21.** URL-poisoning cleanup B2 was DB-only by scope, so the review
+  sheet's `Approved retailer` cells still show domains for the rows that were
+  cleaned in Postgres. Harmless as it stands: those rows are all non-PENDING, so
+  `app/api/cron/apply-url-reviews/route.ts` skips them, and its
+  `isUrlShapedRetailer` guard would reject one even if a row were reset to
+  PENDING. But the sheet is the human audit surface, and it now disagrees with
+  the database. Fix is a sheet regeneration, not a code change.
 - **Extraction has meaningful run-to-run non-determinism on unchanged
   prompts, 2026-09-21.** Observed during Act 2 validation
   (`scripts/validate-anchor-prompt-20260921.ts`): 1 of 3 null-anchor
