@@ -32,42 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **Deploy pipeline is blocked: `vercel.json`'s `ignoreCommand` dies on a
-      `VERCEL_GIT_PREVIOUS_SHA` that has fallen out of Vercel's shallow clone.
-      NEW 2026-09-21, found via a Vercel failure alert.** Three production
-      deployments errored at 4s each (`e70eb77`, `838eb2f`, `264840b`), all with
-      the same log line: `fatal: bad object 0e33baa`. `VERCEL_GIT_PREVIOUS_SHA`
-      is pinned at `0e33baa` — the last commit that actually *built* — because
-      every commit since has been `*.md`-only and therefore Canceled/ignored,
-      and an ignored deployment does not advance the pointer. HEAD has now walked
-      12 commits past it, beyond the clone depth, so `git diff` can't resolve the
-      object, exits 128, and Vercel marks the whole deployment Error rather than
-      skipping or building.
-      **Why this matters more than the alert suggests: it blocks code deploys
-      too.** The ignoreCommand runs before the build on every push, so the next
-      code push will error out the same way without building. Production is
-      frozen at `0e33baa` until this is fixed.
-      **No user impact right now** — a failed build never takes the alias, and no
-      code changed in the sessions that triggered these, so production is serving
-      correct code.
-      **Fix applied 2026-09-22:** the guard is an explicit `if/then/else` so the
-      exit code is only ever 0 or 1 —
-      `if [ -n "$VERCEL_GIT_PREVIOUS_SHA" ] && git cat-file -e
-      "$VERCEL_GIT_PREVIOUS_SHA^{commit}" 2>/dev/null && git diff --quiet ...;
-      then exit 0; else exit 1; fi`. Exit 0 still means skip; anything
-      unresolvable now exits 1, which means build. Self-healing: the first real
-      build advances `VERCEL_GIT_PREVIOUS_SHA` back inside the clone depth.
-      **Worth keeping — the obvious one-line fix was wrong.** The first attempt
-      just inserted `git cat-file -e ... &&` ahead of the diff. That suppresses
-      the `fatal:` message but `cat-file` *also* exits 128 on a missing object,
-      and 128 propagates through the `&&` chain — the same non-0/1 exit code
-      Vercel had already turned into an Error. It would have changed the log
-      line and nothing else. Caught by testing the command against a
-      deliberately non-existent SHA before pushing; a local clone is complete,
-      so the real stuck SHA resolves fine here and cannot reproduce the failure.
-      Any future edit to this command must be tested the same way.
-
-
 ### 2026-09-21 — Session close
 
 **Act 2 shipped, deployed, and verified; one order corrected; three new
@@ -2363,6 +2327,49 @@ the 09-17 pattern; the 09-19 placement was a one-off).
   selection") — build session (Session 2) ready to start.
 
 ## ⏳ Verifying
+
+- **VERIFY BY: nothing to click — the evidence is the next two deploys. A `*.md`-only
+  push should show Canceled; a push touching code should build and take the alias.
+  Confirm both once when convenient.**
+- [ ] **Deploy pipeline unblocked — FIXED AND DEPLOYED 2026-09-22.** Was: `vercel.json`'s `ignoreCommand` dies on a
+      `VERCEL_GIT_PREVIOUS_SHA` that has fallen out of Vercel's shallow clone.
+      NEW 2026-09-21, found via a Vercel failure alert.** Three production
+      deployments errored at 4s each (`e70eb77`, `838eb2f`, `264840b`), all with
+      the same log line: `fatal: bad object 0e33baa`. `VERCEL_GIT_PREVIOUS_SHA`
+      is pinned at `0e33baa` — the last commit that actually *built* — because
+      every commit since has been `*.md`-only and therefore Canceled/ignored,
+      and an ignored deployment does not advance the pointer. HEAD has now walked
+      12 commits past it, beyond the clone depth, so `git diff` can't resolve the
+      object, exits 128, and Vercel marks the whole deployment Error rather than
+      skipping or building.
+      **Why this matters more than the alert suggests: it blocks code deploys
+      too.** The ignoreCommand runs before the build on every push, so the next
+      code push will error out the same way without building. Production is
+      frozen at `0e33baa` until this is fixed.
+      **No user impact right now** — a failed build never takes the alias, and no
+      code changed in the sessions that triggered these, so production is serving
+      correct code.
+      **Fix applied 2026-09-22:** the guard is an explicit `if/then/else` so the
+      exit code is only ever 0 or 1 —
+      `if [ -n "$VERCEL_GIT_PREVIOUS_SHA" ] && git cat-file -e
+      "$VERCEL_GIT_PREVIOUS_SHA^{commit}" 2>/dev/null && git diff --quiet ...;
+      then exit 0; else exit 1; fi`. Exit 0 still means skip; anything
+      unresolvable now exits 1, which means build. Self-healing: the first real
+      build advances `VERCEL_GIT_PREVIOUS_SHA` back inside the clone depth.
+      **Worth keeping — the obvious one-line fix was wrong.** The first attempt
+      just inserted `git cat-file -e ... &&` ahead of the diff. That suppresses
+      the `fatal:` message but `cat-file` *also* exits 128 on a missing object,
+      and 128 propagates through the `&&` chain — the same non-0/1 exit code
+      Vercel had already turned into an Error. It would have changed the log
+      line and nothing else. Caught by testing the command against a
+      deliberately non-existent SHA before pushing; a local clone is complete,
+      so the real stuck SHA resolves fine here and cannot reproduce the failure.
+      Any future edit to this command must be tested the same way.
+      **Confirmed live:** `c722145` built and deployed successfully (deployment
+      `ihmsjypu8`, 1m, Ready) — the first real production build in 12 commits.
+      Build log shows the new ignoreCommand running, exiting non-zero, and
+      handing off to `vercel build`. Alias `app.myreturnwindow.com` now points at
+      it. `VERCEL_GIT_PREVIOUS_SHA` is back inside the clone depth.
 
 - **VERIFY BY: owner glance in the app — forward a real email through Gmail auto-forward and manual-forward, confirm the "Forwarded automatically"/"Forwarded by you" label is correct on each, and that a real order's deadline still computes correctly.**
 - [ ] **Anchor date resolver — PART 2 BUILT AND DEPLOYED 2026-07-26, per
@@ -9528,6 +9535,18 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`lib/actionToken.ts` imports Node `crypto` into the Edge runtime —
+  Turbopack build warning, 2026-09-22.** `instrumentation.ts`'s `register()`
+  dynamically imports `@/lib/actionToken`, which imports `createHmac` /
+  `timingSafeEqual` from `crypto` at line 1. Turbopack flags it as "A Node.js
+  module is loaded ('crypto') which is not supported in the Edge Runtime" and
+  prints "Ecmascript file had an error", but the build still compiles and the
+  deploy succeeds. **Pre-existing and not new** — dates to the Phase 1 signed-
+  action-token work (`1517139`), reproduces on a clean local `npm run build`,
+  and was only noticed because the 2026-09-22 ignoreCommand fix produced the
+  first real build log in 12 commits. Not known to be breaking anything; the
+  boot check has been shipping. Worth deciding whether the instrumentation hook
+  should avoid the Node-only import, or whether the Edge trace is spurious here.
 - **Extraction has meaningful run-to-run non-determinism on unchanged
   prompts, 2026-09-21.** Observed during Act 2 validation
   (`scripts/validate-anchor-prompt-20260921.ts`): 1 of 3 null-anchor
