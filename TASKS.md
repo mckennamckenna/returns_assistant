@@ -32,22 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **URL-poisoning cleanup, Phase B1 — read-only mapping proposal.**
-      Read-only mapping proposal only, per scope-control rule: no code
-      changes, no DB writes, no Anthropic API calls this session.
-      Follows from Phase A (URL-poisoning root fix, shipped and
-      deployed) which stopped new poisoning at source but did not
-      touch existing poisoned data. Scope: produce a proposed mapping
-      from every URL-shaped `Order.retailer` value AND every URL-shaped
-      `ReturnUrlReview.approvedRetailer` value → clean brand name, for
-      owner review. Deliverable: a markdown file with one row per
-      poisoned DB record showing table, primary key, current URL-shaped
-      value, proposed clean name, and confidence level for the mapping
-      decision. NO writes proposed or executed this session. Phase B2
-      (apply the reviewed mapping) is a separate session, drafted
-      after owner reviews and corrects this proposal.
-
-
 ### 2026-09-21 — Session close
 
 **Act 2 shipped, deployed, and verified; one order corrected; three new
@@ -7347,6 +7331,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **URL-poisoning cleanup B1 — mapping proposal delivered and reviewed, 2026-09-21.** Proposed a clean brand name for all 81 URL-shaped retailer values across `Order.retailer` and `ReturnUrlReview.approvedRetailer`, for owner markup. The useful finding: `ReturnUrlReview.rawRetailer` preserves the pre-poisoning name, so 80 of 81 mappings came from data the database already held — including the cases no mechanical domain transform could recover, where a carrier or returns-platform domain had overwritten the brand. Owner reviewed and returned one correction. Read-only, docs-only, 0 model calls.
 
 - [x] **Act 2 — anchor date into the extraction prompt, and ANCHOR_DATE_RESOLVER.md Part 3 shipped, 2026-09-21.** The extractor was given no temporal reference at all, so a bare "Monday, Sep 28" resolved to 2020; every Email row already carried a correct `anchorDate` computed at ingestion and never handed to the model. Fix A passes it into the prompt; Fix B ships Part 3's sanity guard, spec'd and owner-approved 2026-07-25 and deferred ~14 months across 7+ production instances. Owner-approved deviation: the guard swaps the year only, preserving the stated month/day, rather than re-deriving from anchor + standard shipping — every instance of this bug class had a correct month/day, so re-deriving would discard the trustworthy half. Fix A's effect turned out wider than the spec described: the extractor was also silently *dropping* legitimate year-less dates, not just mis-yearing them (7 of 52 validation rows recovered a real stated date). Validated on 52 rows for $1.31 with zero web searches; no regression attributable to the change. **Owner-verified on the gate row: Simply Simpson #164649 corrected 2020-09-28 → 2026-09-28 in production.** Full detail in HISTORY.md.
 
