@@ -60,11 +60,12 @@ was never a gate. Cost one round-trip. Worth keeping for any
 future session that writes to production data.
 
 Non-blocking follow-ups:
-- Google Sheet's Approved retailer column may hold historical
-  URL-shaped values in non-PENDING rows. Cosmetic; apply-cron
-  skips non-PENDING and Phase A's guard would reject any reset to
-  PENDING. Not directly inspected — inferred from the cron's write
-  path, so unconfirmed either way. Filed under TASKS ⚠️ Known issues.
+- Google Sheet's Approved retailer column was the one surface Phase B
+  didn't touch, and was suspected to still hold URL-shaped values in
+  non-PENDING rows. **Owner inspected it 2026-09-21 and confirmed it
+  clean — no regeneration needed, nothing left open.** Recorded because
+  the suspicion was reasoned from the cron's write path rather than
+  observed, and the observation went the other way.
 - Backlog 🟡 Next #9 (returnDeadline computed before anchorDate
   resolved) unblocked by Phase B completion — its own entry ordered
   it after "Session B cleanup". Not urgent.
