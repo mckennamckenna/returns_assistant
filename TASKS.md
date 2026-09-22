@@ -108,6 +108,18 @@ carries `deadlineIsEstimated: false`, so the UI presented the wrong
 date as a confident fact rather than an estimate. A day later there
 would have been no window left to notice.
 
+**Email count updated 2026-09-22: the order now has NINE linked
+emails, not four.** The writeup's count was accurate when written; more
+H&M mail (further shipping/delivery notifications) arrived afterward.
+Full breakdown from the 09-22 recon: 7 from `hm.com` (1
+order_confirmation, 3 shipping_confirmation, 3 delivery) + the 2 UPS
+rows. Exactly two rows carry a stated window — the order_confirmation
+and one delivery email, both `returnWindowDays: 30`, both
+`policySource: email`. Five of the nine still sit `needsReview: true`.
+The four-email sequence below is still the correct account of the
+corruption; the other five emails carry no window and contributed
+nothing to it.
+
 **Sequence (four linked emails, one order):**
 1. Delivery email states 30 days → stored correctly,
    `policySource: stated_in_email`.
@@ -132,7 +144,7 @@ would have been no window left to notice.
   policy text of their own, so they always trigger a lookup. The
   guard is weakest precisely where it is needed most.
 - **The manual link path replays a stale lookup without
-  re-evaluating.** `lib/orderReview.ts:78`
+  re-evaluating.** `lib/orderReview.ts:78–89`
   (`linkEmailToExistingOrder`) merges the email's stored fields
   directly. When a human supplies the parent the matcher couldn't
   find, the premise the lookup ran under has been retracted — but its
@@ -140,6 +152,39 @@ would have been no window left to notice.
   which is why both rows sit unflagged despite their own notes saying
   they should be flagged. **The automatic path has the same hole** for
   a carrier email that does carry an order number.
+
+**Mechanism location corrected 2026-09-22.** Earlier notes placed the
+overwrite in `lib/extract.ts`. It is not there. The actual write is
+`mergeEmailIntoOrder`, **`lib/linkOrder.ts:865`** — specifically
+**882–883** (`returnWindowDays`, `returnWindowStartsFrom`) and **914**
+(`policySource`), all three plain nullish-coalescing: any non-null
+incoming value wins, with **no provenance check at all**. Contrast
+`orderDate` twenty lines above at **874–878**, which already has
+exactly the guard this needs (`orderDateSource !== "extracted"`). The
+asymmetry between those two neighbouring blocks is the whole bug.
+`lib/extract.ts` only *mentions* `mergeEmailIntoOrder` in a comment at
+:428. `linkEmailToExistingOrder` is `lib/orderReview.ts:78–89`.
+
+**DECISIONS (owner, 2026-09-22):**
+1. **Ship this session:** the provenance guard in `mergeEmailIntoOrder`
+   (a `stated_in_email` window is never replaced by a lower-provenance
+   one; window, startsFrom and policySource move together as one unit)
+   **plus** the one-order data correction for
+   `cmu6h9dk10003jz040cc2e6jo`. Guard first, deployed and verified,
+   then the correction — so the corrected row cannot be re-corrupted by
+   the next merge.
+2. **Root cause (a) is IN SCOPE this session** — owner-confirmed.
+   `lib/runExtraction.ts:97`, the lookup skip that structurally cannot
+   fire without an order number. Read-only recon first; the fix gets
+   designed from what the recon finds, not from the symptom.
+   **Key lead:** both UPS rows on this order are stamped `retailer:
+   "H&M"`, yet `__tests__/runExtraction.test.ts:307/319` assert that
+   carrier senders leave `retailer` **null** with `retailerSource:
+   "carrier_deferred"`. If that guard had held, `effectiveRetailer`
+   would have been null at :97, no lookup would have fired, and neither
+   wrong window would exist to merge. Establish where "H&M" came from
+   (extraction time vs. a later backfill/reprocess) before designing
+   anything.
 
 **Candidate fixes (not started, decide before building):**
 - Rank by provenance in the merge — `stated_in_email` outranks
@@ -1809,6 +1854,31 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       either way (not the deeper refactor) — nothing here is done or
       self-applied; this is a measured finding awaiting owner sign-off on
       the resequencing, sized-and-ready-to-spec, not built.
+      **EVIDENCE + DESIGN CONSTRAINTS from the 2026-09-21 H&M incident
+      (added 2026-09-22 — capture only, nothing designed or built).**
+      *Evidence:* order `cmu6h9dk10003jz040cc2e6jo` fired **two billed
+      web-search lookups** (two UPS carrier rows) for an order that
+      **already held a correctly stated 30-day window** from the
+      retailer's own email. Both lookups were pure waste on the cost
+      axis and actively harmful on the data axis — they returned 3 and
+      14 days, and the 3 overwrote the stated 30. Cost and correctness
+      are the same problem here, not two problems.
+      *Constraint (i) — provenance rank survives caching.* A cached
+      answer must rank **below** `stated_in_email`, exactly as a live
+      lookup now does after the 09-22 `mergeEmailIntoOrder` guard. A
+      cache that returns instantly must not become a shortcut past the
+      provenance check; the guard lives at the merge, so any cache that
+      writes closer to the order than that would bypass it.
+      *Constraint (ii) — cache what you trust, and decide trust first.*
+      A cache stores whatever the lookup **concludes**, including a
+      shortest-wins overfire. Caching the H&M lookup would have made
+      "H&M = 3 days" durable and reused it across every future H&M
+      order and every user, converting a one-order bug into a
+      retailer-wide one. **Therefore the shortest-wins decision
+      (🟡 Next / 👀 Watching) should be settled BEFORE the cache is
+      built, not after** — otherwise the cache's first job is to
+      propagate an unresolved known defect at scale. This is a
+      sequencing constraint on 1a/1b, not an argument against either.
 - [ ] **PHASE 1c — policy-lookup-gating. NEW 2026-07-22, from the 07-21
       cost investigation.** Decide whether `lookupReturnPolicy()` should be
       reachable from `delivery`- or `shipping_confirmation`-typed emails at
@@ -1836,6 +1906,21 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       (Target ×2, Bloomingdale's ×2). Cost waste on content with zero
       chance of ever needing a return policy. Fold into this gating
       decision, not investigated further here.
+      **Evidence from the 2026-09-21 H&M incident (added 2026-09-22,
+      capture only):** two billed lookups fired from **carrier**
+      (`ups.com`) `shipping_confirmation` rows on an order that already
+      held a stated 30-day window — and one of those answers then
+      overwrote it. This is the 07-21 ACE/FedEx pattern again (a
+      delivery notification is not where a return policy lives), but
+      with the data-corruption half now demonstrated, not just the cost
+      half. **Note it cuts toward gating but does not settle it:** the
+      counter-case above still stands (a shipping email may carry the
+      first mention of a retailer for an order with no
+      `order_confirmation`). What the H&M row adds is that the gate
+      question and root cause (a) at `lib/runExtraction.ts:97` are the
+      same question seen from two ends — one asks "should this email
+      type reach a lookup," the other "should an email whose parent
+      order already has a window reach one." Design them together.
 - [ ] **Dateless-order snapshot 2026-07-25 — 6 of 7 are return-POLICY
       resolution failures (returnWindowDays == null), not date failures.
       Clean real-world sample for the policy-lookup work. Orders:
@@ -2576,6 +2661,25 @@ the 09-17 pattern; the 09-19 placement was a one-off).
 ## 🐛 Bugs
 
 ### Trust-breaking
+- [ ] **`linkEmailToExistingOrder` clears `Email.needsReview`
+      unconditionally. NEW 2026-09-22, found during the H&M incident
+      recon. Capture only — NOT fixed in the 09-22 session, which was
+      scoped to `mergeEmailIntoOrder`.** `lib/orderReview.ts:84` writes
+      `needsReview: false` on every manual "Link to order", with no
+      check on whether the email had its own reason to stay flagged.
+      Linking an email to a parent order answers *one* question — which
+      order does this belong to — and the code treats it as answering
+      every question. **Live evidence on
+      `cmu6h9dk10003jz040cc2e6jo`:** both UPS rows sit `needsReview:
+      false` while their own extraction notes say they should be
+      flagged, which is precisely why two wrong windows sat unexamined
+      until the deadline expired. Note the shape of the harm: the flag
+      that would have caught the corruption was cleared *by the same
+      call that caused it*. Fix needs to decide which needs-review
+      reasons a manual link legitimately resolves (the orphan/no-parent
+      reason) versus which must survive it (policy/extraction-quality
+      reasons) — that is a reason-taxonomy question, not a one-line
+      change, which is why it is captured rather than patched.
 - [ ] **Single-email orders can be stuck with a null `returnDeadline`
       despite holding every input needed to compute one. NEW 2026-09-21,
       found via 4 Amazon rows during the `uncertain_details` recon.**
@@ -4184,6 +4288,30 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+
+- [ ] **`deadlineIsEstimated` describes the ANCHOR DATE only, not the
+      WINDOW — so a guessed window on a known delivery date displays as
+      a confident fact. NEW 2026-09-22, from the H&M incident recon.
+      Semantics question, no fix proposed, nothing designed.** A
+      deadline has two inputs: an anchor date and a window length.
+      `computeDeadline` sets `deadlineIsEstimated` from the anchor
+      alone — real `deliveredAt` → `false`, shipping-buffer estimate →
+      `true`. The window's provenance never enters it. **Consequence,
+      observed live:** on `cmu6h9dk10003jz040cc2e6jo` both UPS emails
+      carry `deadlineIsEstimated: true`, yet the merged order carries
+      **`false`** — because the merge recomputed against the real
+      `deliveredAt`. A web-search guess plus a known delivery date
+      produced a *more* confident-looking output than either input. The
+      UI then presented a 27-days-early date with no hedge at all.
+      **The question to decide (do not skip to an answer):** should
+      `deadlineIsEstimated` mean "the anchor is estimated" (today) or
+      "any input to this deadline is estimated"? The second is what the
+      UI copy already implies to a user. If it changes, every read of
+      the flag needs auditing, and `policySource != stated_in_email`
+      would start surfacing hedged dates on a large share of orders —
+      possibly correct, definitely a product decision, not a refactor.
+      Related: the 09-22 provenance guard reduces how often a bad
+      window reaches an order, but does not touch this flag.
 
 - [ ] **Confidence-aware correction — arc with a live corruption case
       behind it, was blocked on Act 2 (now unblocking). NEW
@@ -5879,6 +6007,11 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       for the full note:** this cache is also gated on reading a few days
       of the now-live `anthropic_usage` logging before spec — same gate,
       not restated twice.
+      **H&M incident evidence + the two cache design constraints
+      (provenance rank survives caching; settle shortest-wins before
+      building the cache) apply to this item identically — written once
+      under PHASE 1a in 🔴 Now, not restated here. Added 2026-09-22,
+      capture only.**
       **Cost findings that reframe this item, 2026-08-05 (from the Aug-4
       backfill's real production usage data) — verify against a full
       Friday's worth of logs, do NOT act on this alone:** actual
@@ -6700,6 +6833,19 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       wrong. Caroline's Bloomingdale's orders manually corrected
       same session, not backfilled as a class. Full report →
       HISTORY.md 2026-09-14 (lookupReturnPolicy investigation).**
+      **CAPTURE 2026-09-22, from the H&M incident recon — shortest-wins
+      did NOT decide the H&M outcome; manual click order did.** The two
+      UPS rows hold 3 days (received 17:05) and 14 days (17:45). Under
+      `mergeEmailIntoOrder`'s nullish-coalescing a receivedAt-ordered
+      merge takes the LATER non-null value — 14. The order holds **3**.
+      So the surviving value was set by the sequence the human happened
+      to click "Link to order" in, not by receivedAt and not by any
+      shortest-wins rule at merge time. Shortest-wins is still
+      implicated in *producing* a 3-day answer inside one lookup; it is
+      not what chose 3 over 14 between two lookups. Worth keeping
+      straight before anyone treats "shortest wins" as a merge-level
+      invariant — there is no merge-level tie-break at all today, which
+      is its own finding. **Capture only, not worked 2026-09-22.**
 
 - [ ] **Multi-shipment orders — watching, 2026-09-04.** The current model
       assumes one order = one delivery date = one return window
