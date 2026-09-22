@@ -32,20 +32,6 @@
 
 ## 🔴 Now
 
-- [ ] **URL-poisoning cleanup, Phase B2 — apply reviewed mapping.**
-      Apply the reviewed mapping from B1
-      (docs/cleanup/url_poisoning_b1_proposal_2026-09-21.md) to
-      `Order.retailer` and `ReturnUrlReview.approvedRetailer`. Writes
-      only to those two fields, on rows currently URL-shaped per
-      `isUrlShapedRetailer`. Includes owner overrides:
-      - gap.com → Gap (was proposed as GAP; owner correction).
-      Session structure: T1 codebase recon, T2 load mapping, T3
-      re-count verification, T4 dry-run log written to file for
-      owner confirmation, HARD STOP, T5 execute, T6 post-check
-      assertion. No LLM inference. No changes outside the two
-      fields on the poisoned rows.
-
-
 - [ ] **URL-poisoning cleanup, Phase B1 — read-only mapping proposal.**
       Read-only mapping proposal only, per scope-control rule: no code
       changes, no DB writes, no Anthropic API calls this session.
@@ -2357,6 +2343,30 @@ the 09-17 pattern; the 09-19 placement was a one-off).
   selection") — build session (Session 2) ready to start.
 
 ## ⏳ Verifying
+
+- **VERIFY BY: owner glance in the app — open a few order cards whose retailer was a
+  domain (an Amazon order, a Nordstrom order, an H&M order) and confirm the retailer
+  now reads as a brand name, the return-window deadline is unchanged, and the "start a
+  return" button still goes to the right place.**
+- [ ] **URL-poisoning cleanup, Phase B2 — APPLIED 2026-09-21, awaiting owner
+      verification in production.** All 81 reviewed mappings written: 40
+      `Order.retailer` + 41 `ReturnUrlReview.approvedRetailer`, every one gated on
+      primary key AND the prior URL-shaped value. Owner override `gap.com` → `Gap`
+      landed on 2 rows. Post-check: zero URL-shaped values remain on either table,
+      zero `updateMany` counts other than 1, row totals unchanged (285 orders / 72
+      reviews), `rawRetailer` untouched. Artifacts:
+      `docs/cleanup/url_poisoning_b1_proposal_2026-09-21.md` (reviewed mapping),
+      `..._b2_dryrun_2026-09-21.md` (pre-image), `..._b2_apply_log_2026-09-21.md`
+      (per-row write log). Bare field updates only — no recompute, re-link, or
+      status-derivation function was invoked.
+      **Residual, not fixed:** the Google Sheet still holds the old URL-shaped values
+      in its `Approved retailer` cells; cleanup was DB-only. Those rows are all
+      non-PENDING so apply-url-reviews skips them, and its `isUrlShapedRetailer` guard
+      would reject one even if a row were reset to PENDING.
+      **Flagged for owner:** session spec said move this to 👀 Watching; parked there
+      it would read as "revisit only if it recurs," which loses the verification step
+      the spec itself asked for. Filed under ⏳ Verifying instead — move it if you
+      disagree.
 
 - **VERIFY BY: owner glance in the app — forward a real email through Gmail auto-forward and manual-forward, confirm the "Forwarded automatically"/"Forwarded by you" label is correct on each, and that a real order's deadline still computes correctly.**
 - [ ] **Anchor date resolver — PART 2 BUILT AND DEPLOYED 2026-07-26, per
