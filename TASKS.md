@@ -93,14 +93,48 @@ calls / $0.043" counted only the dry run). Zero web searches all session.
 deployed code was unchanged (`5f8213d`); this is existing production
 behavior.**
 
-**STATUS 2026-09-22 — the DATA half is done; this entry stays open
-until Phase 4 ships.** The provenance guard (`8599fe1`) is live in
-production and the affected order has been corrected and
-owner-verified (see ✅ Done and HISTORY.md). What remains open here is
-root cause (a) — stopping carrier emails with no order number from
-firing the lookup in the first place — which is Phase 4. The guard
-stops the corruption from landing; it does not stop the wrong lookups
-from being made and billed.
+**STATUS 2026-09-22 — CODE HALF SHIPPED. Awaiting user verification;
+do NOT move to ✅ Done until the criterion below is met.**
+
+**Data half: done and owner-verified in production** — the affected
+order was corrected 2026-09-22 (see ✅ Done and HISTORY.md).
+
+**Code half: three commits, all live in production**
+(deploy `dpl_FdxmZEr3s47CRPuTpeVXZ3zHyYUd`, commit
+`fec408ae2b4ef0bfe3334b5b82cc43571bd91311`, 2026-09-22 20:02 PDT):
+- `8599fe1` — provenance guard. A `stated_in_email` window is never
+  replaced by a lower-provenance one. Stops the corruption LANDING.
+- `a6d1aa3` — carrier block (root cause (a)). A carrier sender with no
+  order number never reaches the lookup. Stops the wrong lookup being
+  MADE.
+- `fec408a` — refund block. Refund-typed emails never reach the lookup.
+
+Together: the guard is the backstop, the two blocks remove the two
+populations that produced wrong answers at cost.
+
+**VERIFICATION CRITERION — run on or after 2026-09-26. Read-only,
+zero model calls.** Scope to emails with `receivedAt` AFTER the deploy
+time above (2026-09-22 20:02 PDT / 2026-09-23 03:02 UTC), then count:
+- (i) carrier-sender emails with **no order number** and
+  `policySource = 'web_lookup'` → **must be 0**
+- (ii) `emailType = 'refund'` emails with `policySource = 'web_lookup'`
+  → **must be 0**
+
+**Also report the DENOMINATORS**, or a zero means nothing: how many
+carrier-sender emails and how many refund emails arrived in that same
+period at all. Two zeroes against zero traffic is not evidence the fix
+works — it is evidence nothing was tested. If volume is too thin by
+09-26, wait rather than declaring success.
+
+Carrier sender = `isCarrierSender()` (`lib/retailerFallback.ts`), the
+same predicate the gate uses, applied to the decrypted `fromEmail`.
+Note `policySource = 'web_lookup'` records SUCCESSFUL lookups only
+(`policyLookupWasUnclear` is never persisted — see ⚠️ Known issues), so
+a nonzero count is conclusive failure while a zero count is necessary
+but not sufficient; the denominators are what make it meaningful.
+
+**If both are 0 with real volume: owner closes the incident and moves
+this entry to ✅ Done.**
 
 **Order:** H&M `#69825036113`, internal id
 `cmu6h9dk10003jz040cc2e6jo`. **Account: the owner's own** (verified by
