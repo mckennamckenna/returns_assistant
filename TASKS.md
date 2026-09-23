@@ -221,9 +221,12 @@ asymmetry between those two neighbouring blocks is the whole bug.
    path — `AUTO_ARCHIVE_GRACE_DAYS` auto-archives closed orders — so
    the mislabel read the system's successes as its garbage.
 
-   **Corrected figures, same 65-row population:**
+   **Corrected figures, same 65-row population** (bucket = per-ORDER
+   measure: "the order's window came only from lookups, possibly
+   several"; see the definitions under STATUS below — do not read
+   these as per-email "sole-source" counts):
    - (i) order also has a stated window: **7** (was reported 4)
-   - (ii) this lookup is the order's ONLY window source: **7**
+   - (ii) the order's window came only from lookups: **7**
      (was reported 0)
    - (iii) orphaned / needs-review: **19**
    - (iv) email genuinely junked: **32**
@@ -251,16 +254,51 @@ asymmetry between those two neighbouring blocks is the whole bug.
    persisted, so failed lookups leave no queryable trace and the true
    billed count is higher.)
 
-   **PROPOSED FIX — owner decision pending, not started.** Block the
-   policy lookup for known carrier senders at the lookup gate itself,
-   regardless of what retailer resolution produced. Retailer resolution
-   stays exactly as it is — the retailer value is arguably correct here
-   (H&M really is the retailer); what is wrong is that a carrier
-   notification became lookup-eligible on the strength of it. This is
-   deliberately NOT "repair the carrier guard," which would mean
-   deciding whether sender domain outranks body extraction — a larger
-   and separate question. **STATUS: awaiting owner decision. Nothing
-   designed or built.**
+   **STATUS: DECIDED 2026-09-22 (owner) — block the policy lookup when
+   the sender is a known carrier domain AND the email has no order
+   number.** Implemented as one added condition on the existing lookup
+   gate in `finalizeExtraction` (`lib/extract.ts`), reusing the carrier
+   domain list already in `lib/retailerFallback.ts` Step 0 — one list,
+   not two. When it blocks: `returnWindowDays` stays null,
+   `policySource` stays null, nothing else changes. Retailer resolution
+   is deliberately untouched — a carrier email whose body names a
+   retailer keeps `retailer` + `retailerSource: "body_extraction"`, and
+   does NOT become `carrier_deferred`. The retailer value is arguably
+   correct (H&M really is the retailer); what was wrong is that a
+   carrier notification became lookup-eligible on the strength of it.
+   This is deliberately NOT "repair the carrier guard," which would mean
+   deciding whether sender domain outranks body extraction — larger, and
+   still open.
+
+   **Why "carrier AND no order number" rather than "all carriers."**
+   The corrected re-run separates the two populations cleanly:
+   - Carrier senders **without** an order number (23 rows): **0
+     sole-source, 0 in bucket (ii)**. Nothing depends on these lookups.
+     Safe to block outright.
+   - Carrier senders **with** an order number (9 rows): **2
+     sole-source** — e.g. the ALDO order `cmrvul0gc0003js04mj1x8rwz`
+     (owner's account), whose 30-day window traces to exactly one
+     FedEx email's lookup and nothing else. Blocking those would
+     destroy a real window source.
+
+   So the with-order-number rows keep today's behavior, which is
+   already conservative: the existing-order check at `:1029` only
+   lets the lookup run when the matched order's own window is blank.
+   That check needs an order number to find the parent — which is
+   precisely why it cannot protect the no-order-number rows, and why
+   they need a separate gate rather than a wider one.
+
+   **Definitions — the two figures above are NOT the same measure, and
+   were conflated in an earlier draft:**
+   - **"sole-source"** = *this one email* is the order's only window
+     source (the order's current `returnWindowDays` equals this
+     email's, and no other linked email has a non-null window).
+     Per-email.
+   - **"bucket (ii)"** = the order's window came only from *lookups*,
+     possibly several of them, with no stated-in-email sibling
+     anywhere. Per-order, and a weaker condition.
+     A row can be in bucket (ii) without being sole-source (two
+     lookups on one order); sole-source rows are a subset.
 
 **Candidate fixes (not started, decide before building):**
 - Rank by provenance in the merge — `stated_in_email` outranks
@@ -316,6 +354,14 @@ is the absence of a join key for carrier emails.
 
 **Second consumer:** `detectMultiShipment()` also reads
 `Order.trackingNumber`, so a wrong value there is not display-only.
+
+**Coverage limit found 2026-09-22 — a tracking join would not cover
+DHL.** "DHL On Demand Delivery" notices carry a *link* to the tracking
+page, not a tracking number in the body (5 of the 23 carrier rows, all
+DHL, have no extractable number at all — versus UPS/FedEx/USPS, which
+all state one). So a tracking-number join key would silently cover
+three carriers and not the fourth. Size that gap before treating the
+join as a general solution.
 
 **Not investigated:** whether the mis-parse is H&M-specific or general
 (a 13-digit order number may be matching a DHL pattern), and how many
@@ -406,6 +452,19 @@ may *remove* Simply Simpson (and rows shaped like it) from
 needs-review while they still have no deadline at all — fixing the
 visible symptom and hiding the real gap. Confirm that before closing
 the Act 2 entry above.
+
+**Design note added 2026-09-22 — decide at build time, not now:** a
+**fully refunded** order should almost certainly NOT be flagged for a
+missing return window. The return already completed; there is nothing
+left to return, and flagging it would manufacture noise on the app's
+own success cases (this is the same mistake a recon script made this
+session, reading archived-and-refunded orders as failures). A
+**partially refunded** order probably SHOULD still be flagged — part
+of it remains returnable and a missing window there is a real gap.
+The flag therefore can't key on `displayStatus === "refunded"` alone;
+it needs to distinguish full from partial, which the data model may
+not currently express. **This item is also a hard prerequisite for
+PHASE 1c's type-gating** — see that entry.
 
 ### 2026-09-20 — Session close
 
@@ -2052,6 +2111,15 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       cache that returns instantly must not become a shortcut past the
       provenance check; the guard lives at the merge, so any cache that
       writes closer to the order than that would bypass it.
+      *Further evidence the answers are near-arbitrary (2026-09-22).*
+      A THIRD H&M order (owner's account, archived, refunded — no user
+      harm) carries two refund emails whose lookups returned **30** and
+      **7** days, while the order itself holds **3**. Across three H&M
+      orders this session the lookup has produced 30, 30, 14, 7 and 3
+      for the same retailer. Combined with the incident order's 3-vs-14
+      split, that is close to a coin flip per call — so whichever
+      answer a cache happens to capture first becomes the durable one
+      for that retailer, across every future order and every user.
       *Constraint (ii) — cache what you trust, and decide trust first.*
       A cache stores whatever the lookup **concludes**, including a
       shortest-wins overfire. Caching the H&M lookup would have made
@@ -2144,6 +2212,36 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       **7** — gating those strands seven orders. The 07-21 ACE/FedEx
       reasoning and the 2026-09-21 H&M incident both concern *carrier*
       senders, which is the class the data actually clears.
+      (That narrow slice shipped 2026-09-22 as root cause (a)'s fix —
+      carrier sender AND no order number. Everything else below is
+      still open.)
+
+      **LEAD PROPOSAL (capture only, 2026-09-22 — not designed):
+      look up AFTER linking, only if the order is still blank.** Don't
+      fire a lookup when a shipping/delivery email *arrives*. Wait
+      until it's attached to an order (or has become one), then look
+      up only if that order still has no window. This dissolves both
+      problems at once — the no-order-number problem (by the time we
+      ask, we know the parent) and the timing problem (G3's 7
+      bucket-(ii) rows fired because the parent had no window *yet*).
+      It also makes the existing `:1029` check the only gate that
+      matters instead of one of several. **Cost: it moves a billed
+      call into the linking step**, which today is a pure DB
+      operation — that changes where failures and latency land, and
+      needs its own design pass before anyone builds it. Weigh
+      against 1a/1b rather than stacking on top of them.
+
+      **REFUND EMAILS (capture only, 2026-09-22 — not decided).**
+      Proposal: block lookups on `refund`-typed emails, on the
+      grounds that the return already happened so a return window is
+      moot. **Two caveats that stop this being obvious:** refunds can
+      be *partial*, leaving the rest of the order still returnable;
+      and a refund's lookup can be an order's only window source —
+      confirmed live on Shopbop order
+      `cmr7z73920001w9hynrbbrs9y` (owner's account), whose 30-day
+      window traces to a refund email's lookup alone. Gated on the
+      null-`returnDeadline` prerequisite recorded above: don't remove
+      a window source until an order without one is visible.
 - [ ] **Dateless-order snapshot 2026-07-25 — 6 of 7 are return-POLICY
       resolution failures (returnWindowDays == null), not date failures.
       Clean real-world sample for the policy-lookup work. Orders:
@@ -9904,6 +10002,64 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **`policyLookupWasUnclear` is never persisted, so failed lookups leave
+  no trace. 2026-09-22.** `lib/extract.ts`'s `finalizeExtraction` keeps it
+  as a local variable; only its prose reaches `Email.extractionNotes`.
+  A lookup that ran, billed, and failed to resolve is indistinguishable
+  in the DB from one that never ran — `policySource` is null either way.
+  **Consequence for every cost estimate on this board:** any billed-call
+  count derived from `policySource = 'web_lookup'` counts SUCCESSES only
+  and undercounts by an unknown amount. Every lookup figure in the
+  2026-09-21/22 H&M work carries this caveat. Fixing it is a prerequisite
+  for honestly sizing PHASE 1a/1b.
+
+- **Orphaned carrier emails still hold guessed return windows.
+  2026-09-22, from the H&M incident recon.** The root-cause-(a) fix stops
+  *new* carrier-without-order-number emails from firing a lookup, but it
+  does not touch rows already stored. 13 orphaned G1 rows currently hold
+  a `web_lookup` window (Vespoli 180, Burnham 30, Net-a-Porter 14/28,
+  GLOBAL-E 14/30). **They are inert only while orphaned.** If any is
+  later linked to an order that has no stated window, the guess merges
+  in exactly as before — the 2026-09-22 provenance guard only protects
+  orders whose window is already `stated_in_email`. **Open question for
+  the owner: clear these stored windows, or leave them?** Not done here;
+  no backfill was run. Deliberately a decision and not a default, since
+  clearing is itself a write to real user data.
+
+- **Extraction misses return-policy language that IS in the body.
+  2026-09-22.** 11 of the 42 retailer-domain lookup rows had genuine
+  return-policy text in the email body and still fired a billed lookup —
+  mostly Bloomingdale's promotional footers carrying boilerplate policy
+  text. Different failure from the H&M case (there the body genuinely had
+  nothing): here the information was present and extraction didn't take
+  it. Worth checking whether the prompt is too conservative about policy
+  text in marketing-shaped mail, or whether footers are being stripped
+  before the model sees them.
+
+- **Food/grocery exclusion doesn't cover Factor or Good Eggs.
+  2026-09-22.** Both reached billed policy lookups (Factor ×6, Good Eggs
+  ×2) despite being exactly the meal-kit/grocery-delivery shape
+  `isFoodGroceryRetailer` (`lib/foodGroceryExclusion.ts`) exists to
+  exclude. Windows returned were nonsense for the category (Factor 5
+  days). Cheap fix, but confirm the list's intended scope first — the
+  original exclusion was written around Amazon Fresh / Whole Foods.
+
+- **Freight forwarder recorded as the retailer. 2026-09-22.**
+  `GLOBAL-E NL B.V` is stored as `Email.retailer` on DHL notices (2 rows,
+  windows 14 and 30). Global-e is a cross-border logistics intermediary,
+  not a merchant — a user would never recognize it as where they shopped,
+  and a policy lookup against it is meaningless. Same root shape as the
+  carrier case: a body-named entity that isn't the retailer. Distinct
+  from `carrier_deferred`, which only knows carrier *domains*.
+
+- **Needs-review rows give no sign an email came via a carrier.
+  2026-09-22.** `app/NeedsReviewRow.tsx:80` renders
+  `row.retailer ?? row.carrier ?? "Unknown retailer"`. A UPS email whose
+  body named H&M shows plain "H&M", identical to a real H&M email — the
+  `carrier` fallback never engages because it is only set on
+  `carrier_deferred` rows. Idea only, not a spec: show "H&M · via UPS"
+  when `retailerSource === "body_extraction"` and the sender is a carrier
+  domain, so the two populations are distinguishable at a glance.
 - **`lib/actionToken.ts` imports Node `crypto` into the Edge runtime —
   Turbopack build warning, 2026-09-22.** `instrumentation.ts`'s `register()`
   dynamically imports `@/lib/actionToken`, which imports `createHmac` /
