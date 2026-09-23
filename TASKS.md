@@ -330,6 +330,43 @@ this.** The affected order's deadline has already passed as displayed,
 so confirm whether that return is still live before any data
 correction.
 
+### 2026-09-22 — Refund emails no longer trigger a policy lookup
+
+**Owner-approved scope addition, shipping this session alongside root
+cause (a)'s carrier gate.** One condition added to the policy-lookup
+gate in `finalizeExtraction`, beside the existing `emailType !==
+"other"`: `emailType !== "refund"`.
+
+**Reason: a return window that arrives with a refund arrives after the
+return. It cannot help.** By the time a refund email exists, the thing
+the window would have told the user about has already happened. Paying
+for a web search to learn it is pure waste, and — as the H&M incident
+showed — a lookup that produces a wrong-and-confident answer is worse
+than no answer at all.
+
+**Partial refunds were considered and deliberately not designed
+around.** A partial refund can leave other items on the order still
+returnable, so in principle a window could still matter there. Judged
+too rare to design for; if real cases turn up, this is the entry to
+revisit. The cost of being wrong is bounded — the order simply has no
+window from this source, which is the same position it would be in if
+the lookup had failed.
+
+**Deliberately unchanged:**
+- A refund email that **states** a window still gets it. The stated
+  branch (`parsed.returnWindowDays != null` → `policySource: "email"`)
+  runs before this gate and is untouched.
+- Refund **matching** is untouched — `findRefundFallbackOrder`'s tiered
+  fallback, and `createOrderFromEmail` when there is no candidate
+  order. A refund with no order number still links, or still creates
+  its own order; it just does so without a looked-up window.
+- No backfill. Existing rows keep whatever they hold.
+
+**Known consequence, accepted:** refund-created orders (a refund email
+that matched nothing, so became its own Order) will now have no return
+window at all. Those must not be flagged as missing one — see the
+null-`returnDeadline` entry.
+
 ### 2026-09-22 — A deadline correction cannot re-send a reminder already sent against the wrong deadline
 
 **CAPTURE ONLY — not fixed, and deliberately not acted on for the H&M
@@ -510,18 +547,22 @@ needs-review while they still have no deadline at all — fixing the
 visible symptom and hiding the real gap. Confirm that before closing
 the Act 2 entry above.
 
-**Design note added 2026-09-22 — decide at build time, not now:** a
-**fully refunded** order should almost certainly NOT be flagged for a
-missing return window. The return already completed; there is nothing
-left to return, and flagging it would manufacture noise on the app's
-own success cases (this is the same mistake a recon script made this
-session, reading archived-and-refunded orders as failures). A
-**partially refunded** order probably SHOULD still be flagged — part
-of it remains returnable and a missing window there is a real gap.
-The flag therefore can't key on `displayStatus === "refunded"` alone;
-it needs to distinguish full from partial, which the data model may
-not currently express. **This item is also a hard prerequisite for
-PHASE 1c's type-gating** — see that entry.
+**Design requirement added 2026-09-22 — refunded orders must NOT be
+flagged for a missing return window.** The return already completed;
+there is nothing left to return, and flagging it would manufacture
+noise on the app's own success cases (the same mistake a recon script
+made this session, reading archived-and-refunded orders as failures).
+
+**This now includes refund-CREATED orders, which will routinely have
+no window at all.** As of 2026-09-22 refund emails no longer trigger a
+policy lookup (see that entry in 🔴 Now), and a refund that matches no
+existing order still creates its own via `createOrderFromEmail`. Such
+an order is born with `returnWindowDays: null` and no path to one.
+That is expected and correct, not a gap to surface — if this item
+flags them, the refund gate will look like it broke something.
+
+**This item is also a hard prerequisite for PHASE 1c's type-gating** —
+see that entry.
 
 ### 2026-09-20 — Session close
 
@@ -2288,17 +2329,24 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       needs its own design pass before anyone builds it. Weigh
       against 1a/1b rather than stacking on top of them.
 
-      **REFUND EMAILS (capture only, 2026-09-22 — not decided).**
-      Proposal: block lookups on `refund`-typed emails, on the
-      grounds that the return already happened so a return window is
-      moot. **Two caveats that stop this being obvious:** refunds can
-      be *partial*, leaving the rest of the order still returnable;
-      and a refund's lookup can be an order's only window source —
-      confirmed live on Shopbop order
-      `cmr7z73920001w9hynrbbrs9y` (owner's account), whose 30-day
-      window traces to a refund email's lookup alone. Gated on the
-      null-`returnDeadline` prerequisite recorded above: don't remove
-      a window source until an order without one is visible.
+      **REFUND EMAILS — DECIDED AND SHIPPED 2026-09-22, no longer part
+      of 1c.** Refund-typed emails are now blocked from the policy
+      lookup (`emailType !== "refund"` on the gate). Owner's reasoning:
+      a window arriving with a refund arrives after the return, so it
+      cannot help. Partial refunds with other still-returnable items
+      were considered and judged too rare to design around. The
+      previously-noted caveat — that a refund's lookup can be an
+      order's only window source (Shopbop order
+      `cmr7z73920001w9hynrbbrs9y`, owner's account) — was accepted
+      rather than resolved; such orders now simply have no window from
+      that source. See the dedicated entry in 🔴 Now.
+      **Consequence for THIS item: PHASE 1c now covers
+      `shipping_confirmation` and `delivery` only.** `other` was gated
+      earlier, `refund` is gated now, and carrier senders with no order
+      number are handled by root cause (a)'s fix. What remains
+      undecided here is the retailer-domain shipping/delivery
+      population — the one with 7 bucket-(ii) dependents, where the
+      null-`returnDeadline` prerequisite still binds.
 - [ ] **Dateless-order snapshot 2026-07-25 — 6 of 7 are return-POLICY
       resolution failures (returnWindowDays == null), not date failures.
       Clean real-world sample for the policy-lookup work. Orders:
