@@ -5,6 +5,122 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-22 — End-of-day housekeeping: cost-visibility and multi-shipment detector closed
+
+Two items whose verification evidence had been gathered earlier the
+same day (during the `03c649b` housekeeping session, as its two
+read-only checks) but never filed. Both were left open at the time
+because that session's brief said the owner decides on closure, not
+the checker. The owner has now decided; this session files them. Both
+had shipped and deployed weeks earlier and needed no further code.
+Docs-only session, 0 billed Anthropic API calls.
+
+### 1. Anthropic cost-visibility pass (`ae9e685`, deployed 2026-08-04)
+
+Per-call `anthropic_usage` JSON logging across all three Anthropic call
+sites, plus the "never research `other` emails" gate that keeps
+marketing mail from reaching a billed policy lookup.
+
+**Verified against the code twice — during the `03c649b` session and
+again at filing time:**
+
+- **Shared helper, not inline logging.** `logAnthropicUsage()` is
+  declared at `lib/anthropicUsage.ts:31` and emits
+  `event: "anthropic_usage"` at `:33`. All three sites call it; none
+  builds the JSON shape itself. Worth recording explicitly, because
+  grepping `classify.ts` or `extract.ts` for the literal string
+  `anthropic_usage` returns nothing and reads as "not implemented" —
+  the shape lives centrally, by design.
+- **The three call sites:** `lib/classify.ts:45`
+  (`commerce_classifier`), `lib/extract.ts:516` (`policy_lookup`), and
+  `lib/extract.ts:819` (email extraction).
+- **Emitted shape:** `event`, `callSite`, `model`, `inputTokens`,
+  `outputTokens`, `cacheCreationInputTokens`, `cacheReadInputTokens`,
+  `webSearchRequests`, plus optional `bodyCharacterCount`, `retailer`
+  and `emailId`.
+- **The `emailType !== "other"` gate is at `lib/extract.ts:1030`,
+  inside `finalizeExtraction` (declared `:962`)** — not inside
+  `extractEmail`, which is a two-line wrapper that calls it. Same code
+  path, different function. The original TASKS entry described the
+  gate as living in `extractEmail()`; that phrasing was imprecise and
+  is corrected here. (Three other `!== "other"` occurrences in the
+  file — `:792`, `:901`, `:1011` — are the retry gate, a separate
+  gate, and the Amazon branch, not the cost-relevant one.)
+
+**Closure basis: code-tier evidence, accepted by the owner.** There is
+no live production log sighting. The Vercel CLI caps log retrieval at
+roughly 1000 lines (established by the 2026-09-19 diagnostic), which
+makes on-demand confirmation impractical at alpha traffic volumes — an
+attempted pull during the `03c649b` session returned a single line, and
+that was the session's own health check. Absence in a capped sample is
+not evidence of absence in production. The owner accepted code-tier
+evidence for closure, the same standard applied to the sender
+display-name item (`6111fe2`), which also closed without an observed
+live render.
+
+**Explicitly still open, not closed by this:** the negative/positive
+policy caches (`PHASE 1a`/`1b`), the remainder of `PHASE 1c`
+(delivery/shipping gating), and email-body truncation.
+
+**Process note carried forward from the original entry:** that entry
+was added to TASKS.md after work had started, contrary to this file's
+own "before starting work" rule — flagged at the time rather than
+silently corrected, and preserved here for the same reason.
+
+### 2. Multi-shipment detector (deployed 2026-09-04)
+
+`detectMultiShipment()` in `lib/linkOrder.ts`, called from
+`applyShippingTracking()` before its first-tracking-wins early return —
+the only point at which a later shipment's tracking information is
+visible at all, since that early return is what was silently discarding
+it. Writes one `ActionLog` row (`action: "multi_shipment_detected"`)
+the first time an order's stored tracking number differs from a newly
+parsed one on a `shipping_confirmation`. A missing tracking number on
+either side does not count as a difference, and the write is guarded
+idempotent. No schema migration: the existing generic `ActionLog` table
+covered "log a marker" without one.
+
+**Verification, 2026-09-22:**
+
+```sql
+SELECT DISTINCT "orderId" FROM "ActionLog" WHERE action = 'multi_shipment_detected';
+```
+
+**1 row — order `cmu6h9dk10003jz040cc2e6jo`** (the H&M incident order,
+owner's own account).
+
+**It fired on a genuine multi-shipment case, not a false positive.**
+That order really did ship in two parcels: two distinct UPS tracking
+numbers, each appearing on one of two H&M `shipping_confirmation`
+emails and again on the matching UPS carrier notification.
+
+**Observation window: ~18 days** of production traffic between deploy
+(2026-09-04) and verification (2026-09-22). A thin sample — it proves
+the code path works, not that the detector catches every
+multi-shipment order.
+
+**Nuance worth recording for future readers, not a blocker.**
+`detectMultiShipment` reads `Order.trackingNumber`, and on this
+particular order that field is itself mis-parsed: it holds the order
+number, labeled carrier DHL, on a shipment UPS actually carried (see
+the 2026-09-22 tracking-parser capture in TASKS.md). The detector still
+fired correctly, because its trigger condition is "two distinct values
+landed on the same order," which was true regardless. Whether either
+value was *accurate* is a separate question tracked in its own entry.
+The two facts are independent and should not be conflated when the
+tracking parser is eventually fixed.
+
+**Closure basis:** the item's own stated success criterion was to
+"install a cheap detector so the affected population is queryable when
+we're ready to spec." The population is queryable, and the detector
+fires. That scope is satisfied. The broader modeling question — orders
+that ship in multiple boxes with different arrival dates and
+potentially different return-window anchors — remains open and
+untouched as its own entry in 👀 Watching, with this same query as its
+marker.
+
+---
+
 ## 2026-09-22 — Housekeeping: six shipped items verified in production and closed
 
 Six items that had shipped and deployed between 2026-08-04 and

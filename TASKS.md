@@ -1217,37 +1217,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       touching PDF ingestion, fixing the DHL/USPS mislabel,
       backfilling existing orders, any UI change.
 
-- [ ] **[CODE BUILT + TESTED + PUSHED, LIVE VERIFICATION PENDING]
-      Multi-shipment detector: log a marker when a second
-      shipping_confirmation with a distinct tracking number lands for an
-      existing order — NEW 2026-09-04, detection only.** Multi-shipment
-      orders aren't modeled yet (see decisions log entry of same date);
-      this task installs a cheap detector so the affected population is
-      queryable when we're ready to spec. No schema migration: neither
-      `Order` nor `Email` has a suitable JSON/metadata field, but the
-      existing `ActionLog` table (already schema-present, generic
-      action/outcome event log) covers "log a marker" with zero migration
-      — used instead of literal Path A/B. Implemented in
-      `detectMultiShipment()` in `lib/linkOrder.ts`, called from
-      `applyShippingTracking()` before its existing first-tracking-wins
-      early return (that early return is what was silently dropping every
-      later shipment's tracking info — this is the only place that later
-      info is ever visible at all). Writes an ActionLog row
-      (`action: "multi_shipment_detected"`) the first time an order's
-      already-stored tracking number differs from a newly parsed one on a
-      shipping_confirmation email; a missing tracking number on either
-      side does not count as a difference; guarded idempotent (checks for
-      an existing marker row before inserting another). Query:
-      `SELECT DISTINCT "orderId" FROM "ActionLog" WHERE action =
-      'multi_shipment_detected'`. Tests added in `__tests__/linkOrder.test.ts`
-      (`describe("detectMultiShipment")`) covering: differing tracking
-      numbers logs once, same tracking number doesn't log, missing
-      tracking number on either side doesn't log, reprocessing doesn't
-      double-log. Explicitly out of scope (untouched): return-window
-      recomputation, `displayStatus` changes, UI changes, any new status
-      value like "partially_delivered". Awaiting a real multi-shipment
-      email to hand-verify against production.
-
 - [ ] **INVESTIGATION IN FLIGHT 2026-09-02 — retailer-name
       normalisation current state.** Read-only audit of how
       retailer names/identities are stored, derived, and
@@ -1750,22 +1719,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       2026-08-04, and the first real `policy_lookup` log line — closes the
       still-open `webSearchRequests > 0` eyeball check from that pass, for
       free, once Phase B runs.
-- [ ] **Anthropic cost-visibility pass — IMPLEMENTED 2026-08-04, tests +
-      build clean, COMMITTED (`ae9e685`), PUSHED, DEPLOYED (confirmed live
-      on `app.myreturnwindow.com` 2026-08-04) — awaiting owner
-      hand-verification in production, not yet Done.** Session-brief scope: per-call `anthropic_usage` JSON
-      logging on all 3 call sites (`lib/classify.ts`, `lib/extract.ts` ×2)
-      via new `lib/anthropicUsage.ts`, plus the `PHASE 1c`-adjacent
-      "never research `other` emails" gate in `extractEmail()`
-      (`lib/extract.ts`) — narrowly scoped to `emailType === "other"` only,
-      not the broader delivery/shipping gating question still open below.
-      Zero billed Anthropic calls this pass (all tests mock the SDK); zero
-      DB reads/writes. Does NOT include: the negative/positive policy
-      cache (`PHASE 1a`), the rest of `PHASE 1c` (delivery/shipping
-      gating), or email-body truncation — see the session's full report.
-      **Process note:** this entry itself was added after work started, not
-      before, per this file's own "before starting work" rule — flagging
-      the miss rather than silently correcting it.
 - [x] **Re-extract the 23 core-block emailType:null rows — DATA REPAIR,
       RUN 2026-07-26, owner-confirmed, WROTE to prod.** Follow-on to the
       digest diagnostic below: the 07-19T23:55:37Z→07-20T22:52:46Z outage
@@ -7602,6 +7555,10 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Per-call Anthropic usage logging live on all three call sites, 2026-08-04.** Every billed call — the commerce classifier, the policy lookup, and email extraction — now emits a usage line through one shared helper, so cost can be attributed per call site rather than guessed at. Ships alongside the gate that stops marketing-typed email reaching a billed policy lookup at all. Closed on code evidence verified twice; a live log sighting isn't practical at alpha volume. 0 model calls.
+
+- [x] **Multi-shipment detector live, 2026-09-04.** When a second shipping email arrives for an order carrying a different tracking number, the app now records a marker, so orders that shipped in more than one parcel are queryable whenever the real modeling work gets specced. Confirmed firing on a genuine two-parcel order in production. 0 model calls.
 
 - [x] **Amazon orders no longer get deadline reminders, 2026-08-04.** Amazon visibility comes from the Sunday digest and Friday coverage-check only — a deadline nag is an action prompt, which v1 doesn't do. One skip at the top of the cron's order loop, so both the normal and forced paths are covered. Owner verified in production 2026-09-22. 0 model calls.
 
