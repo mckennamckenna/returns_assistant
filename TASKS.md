@@ -321,6 +321,54 @@ this.** The affected order's deadline has already passed as displayed,
 so confirm whether that return is still live before any data
 correction.
 
+### 2026-09-22 — A deadline correction cannot re-send a reminder already sent against the wrong deadline
+
+**CAPTURE ONLY — not fixed, and deliberately not acted on for the H&M
+order (owner chose to leave its row as is).** Data corrections that move
+a deadline LATER are blocked from re-sending reminders that already went
+out against the wrong, earlier deadline.
+
+**Mechanism.** The `Reminder` table is a **sent-log, not a schedule** —
+it has no scheduled-for column, only `sentAt @default(now())`, written
+after a successful send, with `@@unique([orderId, reminderType])`. The
+reminder type is derived live each cron run from the order's current
+`returnDeadline` (`reminderTypeForOrder`, `lib/reminders.ts:79`). The
+cron then dedups on that unique key (`app/api/cron/route.ts:338-345`):
+if a row exists for `(orderId, reminderType)`, it skips. So a
+`same_day` reminder sent against a wrong deadline **permanently
+suppresses the real one** — the correction restores the data but not
+the notification.
+
+**Live instance.** The 2026-09-21 H&M incident order (owner's account)
+had a `same_day` reminder delivered on 2026-09-21 against the corrupted
+deadline — the user was told the window closed that day, 27 days early.
+After the 2026-09-22 correction moved the deadline to 2026-10-18, that
+`same_day` row still exists, so no final-day reminder will fire. The
+order's `7_day`/`2_day`/`1_day` reminders were never sent and will fire
+normally. **Owner reviewed and chose to leave the row in place**; this
+entry records the mechanism, not a pending repair for that order.
+
+**The rule for next time: any future deadline correction must decide,
+per order, whether to clear the affected `Reminder` rows.** That
+decision belongs in the correction script itself, alongside the data
+write, not as an afterthought — otherwise the correction silently
+half-lands. Note the decision genuinely is per-order: clearing a row
+re-arms a reminder that may be unwanted (an order already returned),
+and leaving it guarantees silence at the moment the reminder matters
+most.
+
+**Secondary finding from the same 30-day census — the provenance guard
+does not protect mislabeled orders.** One order in scope (owner's
+account, H&M, already returned and refunded) holds the CORRECT window
+(30, matching what the retailer stated) under the WRONG provenance
+label (`policySource: web_lookup` rather than `stated_in_email`).
+Because the 2026-09-22 guard fires only when
+`existing.policySource === "stated_in_email"`, an order in this state is
+**unprotected** — a future email carrying a different window would
+overwrite a value that is actually retailer-stated. Right value, wrong
+label, no guard. Not sized beyond the 30-day window; worth a census
+before deciding whether to relabel.
+
 ### 2026-09-22 — Tracking parser stored the ORDER NUMBER as a tracking number, with the wrong carrier
 
 **CAPTURE ONLY — found during the root cause (a) recon, not fixed.**
