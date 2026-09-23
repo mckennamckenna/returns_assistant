@@ -104,6 +104,54 @@ invariant that lives here.
 
 ---
 
+## 2026-09-22 — A `stated_in_email` return window is never replaced by a lower-provenance window
+
+Companion to the entry directly above, and deliberately scoped not to
+disturb it. The nullish-coalescing merge protects against a fresh `null`
+erasing a resolved value. It does **not** protect against a non-null
+value of *worse provenance* replacing a better one — those are different
+failure modes, and the 2026-09-21 H&M incident is the second one.
+
+**The invariant, as of `mergeEmailIntoOrder` (`lib/linkOrder.ts`):** when
+`Order.policySource` is `stated_in_email` **and the order has a non-null
+`returnWindowDays`**, and an incoming email carries a non-null
+`returnWindowDays` from any other source, the order keeps its existing
+`returnWindowDays`, `returnWindowStartsFrom` and `policySource`.
+The order's own window must be non-null because the guard protects a
+stated *answer* — a null is not an answer, and blocking there would
+strand the order with no deadline.
+All three move together as one unit — taking the window from one source
+and the anchor basis from another would assert a combination neither
+source ever stated, which is worse than either input alone.
+
+**All other merge behavior is unchanged**, and that is the point of the
+design rather than a caveat: a null incoming window still never clears a
+resolved one, `web_lookup` vs `web_lookup` still resolves by recency, and
+`stated_in_email` vs `stated_in_email` still resolves by recency. The
+guard is a layer on top of the coalescing, not a replacement for it,
+precisely because the entry above establishes that the coalescing is
+load-bearing for every backfill and reprocess path in the codebase.
+
+**Why the rule is "the retailer's own statement outranks inference"
+rather than a numeric or recency rule:** the two competing answers on the
+H&M order were 3 days and 14 days, both from web lookups, and neither
+recency nor shortest-wins would have produced the correct 30. Only
+provenance distinguishes them from the stated value. This mirrors the
+`orderDateSource: "extracted"` rule twenty lines above it in the same
+function; the two guards are deliberately the same shape, and a future
+change to one should look at the other.
+
+**Known gap, deliberately left open:** `manual_override` and
+`user_supplied` are not protected. Adding them to this guard's condition
+would place them in the same tier as `stated_in_email`, where ties
+resolve by recency — meaning a later retailer email would overwrite a
+human's correction. That needs an explicit ranking decision (likely
+`manual_override` > `stated_in_email` > the rest) plus a definition of
+`user_supplied`, which currently has no writer and no defined semantics.
+See TASKS.md 🔴 Now (2026-09-22).
+
+---
+
 ## 2026-09-06 — Gmail-verification body parsing: structural gap left unfixed, input shape makes it inert
 
 The 2026-09-06 body-text call-site inventory

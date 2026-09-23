@@ -26,8 +26,13 @@ const mockPrisma = {
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/crypto", () => ({ decrypt: (x: string) => x }));
 vi.mock("@/lib/emailBodyText", () => ({ resolveBodyText: () => null }));
+// computeDeadline is a vi.fn() rather than a plain stub so individual
+// suites can inspect what the merge passed it, or delegate to the real
+// implementation (see "mergeEmailIntoOrder — policy provenance"). The
+// default return value is unchanged from the original plain stub, so every
+// pre-existing test in this file behaves exactly as before.
 vi.mock("@/lib/extract", () => ({
-  computeDeadline: () => ({ returnDeadline: null, deadlineIsEstimated: false }),
+  computeDeadline: vi.fn(() => ({ returnDeadline: null, deadlineIsEstimated: false })),
   normalizeReturnPortalUrl: (url: string | null) => url ?? null,
 }));
 vi.mock("@/lib/displayStatus", async () => {
@@ -37,6 +42,10 @@ vi.mock("@/lib/displayStatus", async () => {
 vi.mock("@/lib/trackingParser", () => ({
   parseTrackingResolved: () => ({ carrier: null, trackingNumber: null, trackingUrl: null }),
 }));
+
+// Imported through the SAME specifier lib/linkOrder.ts uses, so this is the
+// mocked computeDeadline the merge actually calls — not a second instance.
+const { computeDeadline } = await import("@/lib/extract");
 
 const {
   isRetailerPrefixMatch,
@@ -50,6 +59,7 @@ const {
   createOrderFromEmail,
   findShipmentMergeCandidates,
   detectMultiShipment,
+  rebuildOrderFromRemainingEmails,
 } = await import("../lib/linkOrder");
 
 describe("isRetailerPrefixMatch", () => {
@@ -832,6 +842,346 @@ describe("mergeEmailIntoOrder — write-once orderDate", () => {
       expect(data.orderDate).toEqual(extractedDate); // not anchorDate
       expect(data.orderDateSource).toBe("extracted");
     });
+  });
+});
+
+// ── mergeEmailIntoOrder — policy provenance ──────────────────────────────
+// TASKS.md 2026-09-21 H&M incident: a retailer-STATED 30-day return window
+// was replaced by a 3-day web-lookup answer that arrived on a UPS carrier
+// notification carrying no policy text of its own. The three policy fields
+// were plain nullish-coalescing — any non-null incoming value won,
+// regardless of provenance. The guard added 2026-09-22 makes
+// stated_in_email outrank everything else, and moves returnWindowDays,
+// returnWindowStartsFrom and policySource together as one unit.
+//
+// Spelling trap these tests exist partly to pin: the Email row stores
+// "email" and the Order row stores "stated_in_email" for the SAME fact
+// (mapPolicySource translates). Comparing raw values would silently never
+// match, and the guard would never fire.
+describe("mergeEmailIntoOrder — policy provenance", () => {
+  const statedOrder = {
+    id: "order1",
+    orderDate: null as Date | null,
+    orderDateSource: "unknown",
+    orderDateEstimated: false,
+    deliveryDate: null,
+    estimatedDeliveryDate: null,
+    deliveredAt: null,
+    returnWindowDays: 30,
+    returnWindowStartsFrom: "delivery_date",
+    orderTotal: null,
+    orderCurrency: null,
+    lineItems: [],
+    returnPortalUrl: null,
+    policySource: "stated_in_email",
+  };
+
+  function makeEmail(overrides: Record<string, unknown>) {
+    return {
+      emailType: null,
+      orderDate: null,
+      anchorDate: null,
+      deliveryDate: null,
+      estimatedDeliveryDate: null,
+      deliveredAt: null,
+      returnWindowDays: null,
+      returnWindowStartsFrom: null,
+      orderTotal: null,
+      orderCurrency: null,
+      lineItems: [],
+      policySource: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    mockPrisma.order.update.mockReset();
+    mockPrisma.order.update.mockResolvedValue({ id: "order1" });
+    mockPrisma.email.findFirst.mockReset();
+    mockPrisma.email.findFirst.mockResolvedValue(null);
+    vi.mocked(computeDeadline).mockReset();
+    vi.mocked(computeDeadline).mockReturnValue({ returnDeadline: null, deadlineIsEstimated: false });
+  });
+
+  // (1) The incident itself, reduced to its smallest form.
+  it("a web_lookup window never replaces a stated_in_email one, and the deadline is computed from the STATED window", async () => {
+    const email = makeEmail({
+      emailType: "shipping_confirmation",
+      returnWindowDays: 3,
+      returnWindowStartsFrom: "delivery_date",
+      policySource: "web_lookup",
+    });
+
+    await mergeEmailIntoOrder(statedOrder as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(30);
+    expect(data.policySource).toBe("stated_in_email");
+    expect(data.returnWindowStartsFrom).toBe("delivery_date");
+    // The guard has to run BEFORE the deadline is computed, or the order
+    // keeps the right window and still shows a deadline built from 3 days.
+    expect(vi.mocked(computeDeadline).mock.calls[0][0].returnWindowDays).toBe(30);
+  });
+
+  // (2) The guard is one-directional. A stated window may still correct a
+  // guess — otherwise the first lookup to land would freeze the order.
+  it("a stated window still corrects an existing web_lookup guess", async () => {
+    const lookupOrder = { ...statedOrder, returnWindowDays: 3, policySource: "web_lookup" };
+    const email = makeEmail({ emailType: "delivery", returnWindowDays: 30, returnWindowStartsFrom: "delivery_date", policySource: "email" });
+
+    await mergeEmailIntoOrder(lookupOrder as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(30);
+    expect(data.policySource).toBe("stated_in_email");
+  });
+
+  // (3) Lookup-vs-lookup is explicitly UNCHANGED — later non-null still
+  // wins. This merge has no tie-break between two lookups (see the
+  // shortest-wins capture in TASKS.md); the guard deliberately adds none.
+  it("web_lookup vs web_lookup is unchanged — the later value still wins, no tie-break introduced", async () => {
+    const lookupOrder = { ...statedOrder, returnWindowDays: 3, policySource: "web_lookup" };
+    const email = makeEmail({ emailType: "shipping_confirmation", returnWindowDays: 14, policySource: "web_lookup" });
+
+    await mergeEmailIntoOrder(lookupOrder as any, email as any, null);
+
+    expect(mockPrisma.order.update.mock.calls[0][0].data.returnWindowDays).toBe(14);
+  });
+
+  // (4) amazon_default is inference too, not a retailer statement.
+  it("an amazon_default window does not replace a stated_in_email one", async () => {
+    const email = makeEmail({ emailType: "shipping_confirmation", returnWindowDays: 30, policySource: "amazon_default" });
+
+    await mergeEmailIntoOrder({ ...statedOrder, returnWindowDays: 45 } as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(45);
+    expect(data.policySource).toBe("stated_in_email");
+  });
+
+  // (5) Regression guard for DECISIONS.md 2026-09-06: a null incoming
+  // window must still never erase a resolved one. The guard requires a
+  // NON-null incoming window to fire, so this case falls through to the
+  // original coalescing untouched.
+  it("a null incoming window still leaves a stated window intact (original coalescing, guard does not fire)", async () => {
+    const email = makeEmail({ emailType: "delivery", returnWindowDays: null, policySource: null });
+
+    await mergeEmailIntoOrder(statedOrder as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(30);
+    expect(data.policySource).toBe("stated_in_email");
+  });
+
+  // (5b) The narrowing condition, added at review. An order can carry
+  // policySource "stated_in_email" while its returnWindowDays is still
+  // null — a stated email that named a policy source but no number, or a
+  // row mid-backfill. The guard protects a stated ANSWER; a null is not
+  // an answer. Without the existing.returnWindowDays != null condition
+  // the guard would fire here and strand the order with no deadline
+  // forever, since nothing else would ever be allowed to fill it.
+  it("a stated_in_email order whose own window is NULL still takes an incoming web_lookup window", async () => {
+    const statedButEmpty = { ...statedOrder, returnWindowDays: null, returnWindowStartsFrom: null };
+    const email = makeEmail({
+      emailType: "shipping_confirmation",
+      returnWindowDays: 14,
+      returnWindowStartsFrom: "delivery_date",
+      policySource: "web_lookup",
+    });
+
+    await mergeEmailIntoOrder(statedButEmpty as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(14);
+    expect(data.policySource).toBe("web_lookup");
+    expect(data.returnWindowStartsFrom).toBe("delivery_date");
+  });
+
+  // (6) An order with no window at all must still accept a lookup —
+  // otherwise the guard would block the only path to a deadline.
+  it("an order with no window still takes a web_lookup value", async () => {
+    const emptyOrder = { ...statedOrder, returnWindowDays: null, returnWindowStartsFrom: null, policySource: null };
+    const email = makeEmail({ emailType: "shipping_confirmation", returnWindowDays: 3, returnWindowStartsFrom: "delivery_date", policySource: "web_lookup" });
+
+    await mergeEmailIntoOrder(emptyOrder as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(3);
+    expect(data.policySource).toBe("web_lookup");
+  });
+
+  // (7) THE SPELLING TRAP. Email "email" maps to Order "stated_in_email" —
+  // same rank, so recency wins exactly as it does today. If the guard ever
+  // compared raw values instead of mapped ones, this would wrongly keep 30.
+  it("stated vs stated is unchanged — a later stated email wins (email/stated_in_email are the same rank)", async () => {
+    const email = makeEmail({ emailType: "delivery", returnWindowDays: 45, policySource: "email" });
+
+    await mergeEmailIntoOrder(statedOrder as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowDays).toBe(45);
+    expect(data.policySource).toBe("stated_in_email");
+  });
+
+  // (8) The three fields move as one unit. Keeping the stated window but
+  // taking the lookup's anchor basis would assert a combination neither
+  // source ever stated — worse than either input alone.
+  it("keeps the unit: returnWindowStartsFrom is not taken from the email when the guard fires", async () => {
+    const email = makeEmail({
+      emailType: "shipping_confirmation",
+      returnWindowDays: 3,
+      returnWindowStartsFrom: "order_date",
+      policySource: "web_lookup",
+    });
+
+    await mergeEmailIntoOrder(statedOrder as any, email as any, null);
+
+    const data = mockPrisma.order.update.mock.calls[0][0].data;
+    expect(data.returnWindowStartsFrom).toBe("delivery_date");
+    expect(data.returnWindowDays).toBe(30);
+    expect(data.policySource).toBe("stated_in_email");
+  });
+
+  // (9) Full incident replay against the REAL computeDeadline, in both
+  // merge orders. Order-independence is the point: pre-fix, which of the
+  // two carrier emails was linked first decided the stored window (the
+  // live order ended on 3 despite 14 arriving later — see TASKS.md). The
+  // guard must make that sequence irrelevant.
+  describe("H&M incident replay (real computeDeadline, both merge orders)", () => {
+    const DELIVERED_AT = new Date("2026-09-18T17:42:42.000Z");
+    const EXPECTED_DEADLINE = "2026-10-18T17:42:42.000Z";
+
+    beforeEach(async () => {
+      const realExtract = await vi.importActual<typeof import("../lib/extract")>("../lib/extract");
+      vi.mocked(computeDeadline).mockImplementation(realExtract.computeDeadline);
+    });
+
+    async function replay(windows: number[]) {
+      // Seeded exactly as the live order was: H&M's own delivery email
+      // stated 30 days from delivery, and the package really did arrive.
+      let current: Record<string, unknown> = {
+        ...statedOrder,
+        deliveredAt: DELIVERED_AT,
+        returnWindowDays: 30,
+        returnWindowStartsFrom: "delivery_date",
+        policySource: "stated_in_email",
+      };
+
+      for (const days of windows) {
+        mockPrisma.order.update.mockReset();
+        mockPrisma.order.update.mockResolvedValue({ id: "order1" });
+        const carrierEmail = makeEmail({
+          emailType: "shipping_confirmation",
+          // The real UPS rows carried no order number and no policy text
+          // of their own — only the lookup's answer.
+          returnWindowDays: days,
+          returnWindowStartsFrom: "delivery_date",
+          policySource: "web_lookup",
+        });
+        await mergeEmailIntoOrder(current as any, carrierEmail as any, null);
+        const data = mockPrisma.order.update.mock.calls[0][0].data;
+        // Fold the result forward, so the second merge sees what the first
+        // one actually wrote — the real sequence, not two independent runs.
+        current = { ...current, ...data };
+      }
+      return current;
+    }
+
+    it("3 then 14 → keeps the stated 30 and the correct deadline", async () => {
+      const result = await replay([3, 14]);
+      expect(result.returnWindowDays).toBe(30);
+      expect(result.policySource).toBe("stated_in_email");
+      expect((result.returnDeadline as Date).toISOString()).toBe(EXPECTED_DEADLINE);
+      expect(result.deadlineIsEstimated).toBe(false);
+    });
+
+    it("14 then 3 → identical result; link order no longer decides the window", async () => {
+      const result = await replay([14, 3]);
+      expect(result.returnWindowDays).toBe(30);
+      expect(result.policySource).toBe("stated_in_email");
+      expect((result.returnDeadline as Date).toISOString()).toBe(EXPECTED_DEADLINE);
+      expect(result.deadlineIsEstimated).toBe(false);
+    });
+  });
+});
+
+// ── rebuildOrderFromRemainingEmails — policy provenance ──────────────────
+// The rebuild seeds unconditionally from the EARLIEST-received email, then
+// merges the rest through mergeEmailIntoOrder. So the guard covers only the
+// merges, never the seed — which means the two orderings reach the stated
+// value by two different routes: seed-then-guard, or seed-then-correct.
+// Both must land in the same place, or splitting an email out of an order
+// could silently change its return window.
+describe("rebuildOrderFromRemainingEmails — policy provenance", () => {
+  function emailRow(overrides: Record<string, unknown>) {
+    return {
+      orderDate: null,
+      anchorDate: null,
+      deliveryDate: null,
+      estimatedDeliveryDate: null,
+      deliveredAt: null,
+      returnWindowDays: null,
+      returnWindowStartsFrom: null,
+      returnDeadline: null,
+      deadlineIsEstimated: false,
+      policySource: null,
+      orderTotal: null,
+      orderCurrency: null,
+      lineItems: [],
+      emailType: "shipping_confirmation",
+      ...overrides,
+    };
+  }
+
+  const statedRow = emailRow({
+    emailType: "delivery",
+    returnWindowDays: 30,
+    returnWindowStartsFrom: "delivery_date",
+    policySource: "email",
+  });
+  const lookupRow = emailRow({ returnWindowDays: 3, returnWindowStartsFrom: "delivery_date", policySource: "web_lookup" });
+
+  async function rebuildWith(rows: Record<string, unknown>[]) {
+    // findMany is what supplies receivedAt order; the array order IS the
+    // rebuild order, so passing them reversed exercises the other route.
+    mockPrisma.email.findMany.mockResolvedValue(rows);
+    mockPrisma.order.update.mockReset();
+    mockPrisma.order.update.mockResolvedValue({ id: "order1" });
+
+    // Each order.update folds into the state the next findUniqueOrThrow
+    // returns, so the loop sees what the previous step actually wrote.
+    let state: Record<string, unknown> = { id: "order1", userId: "u1", policySource: null, returnWindowDays: null };
+    mockPrisma.order.update.mockImplementation(async (args: any) => {
+      state = { ...state, ...args.data };
+      return state;
+    });
+    mockPrisma.order.findUniqueOrThrow.mockImplementation(async () => state);
+    mockPrisma.order.findUnique.mockImplementation(async () => state);
+
+    await rebuildOrderFromRemainingEmails("order1");
+    return state;
+  }
+
+  beforeEach(() => {
+    mockPrisma.email.findMany.mockReset();
+    mockPrisma.email.findFirst.mockReset();
+    mockPrisma.email.findFirst.mockResolvedValue(null);
+    mockPrisma.order.findUniqueOrThrow.mockReset();
+    mockPrisma.order.findUnique.mockReset();
+    vi.mocked(computeDeadline).mockReset();
+    vi.mocked(computeDeadline).mockReturnValue({ returnDeadline: null, deadlineIsEstimated: false });
+  });
+
+  it("stated email first, lookup second → the guard holds the stated window", async () => {
+    const state = await rebuildWith([statedRow, lookupRow]);
+    expect(state.returnWindowDays).toBe(30);
+    expect(state.policySource).toBe("stated_in_email");
+  });
+
+  it("lookup email first, stated second → the seed is the lookup, and the stated email corrects it", async () => {
+    const state = await rebuildWith([lookupRow, statedRow]);
+    expect(state.returnWindowDays).toBe(30);
+    expect(state.policySource).toBe("stated_in_email");
   });
 });
 

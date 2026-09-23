@@ -879,8 +879,71 @@ export async function mergeEmailIntoOrder(
   const mergedDeliveryDate = email.deliveryDate ?? existing.deliveryDate;
   const mergedEstimatedDeliveryDate = email.estimatedDeliveryDate ?? existing.estimatedDeliveryDate;
   const mergedDeliveredAt = email.deliveredAt ?? existing.deliveredAt;
-  const mergedReturnWindowDays = email.returnWindowDays ?? existing.returnWindowDays;
-  const mergedReturnWindowStartsFrom = email.returnWindowStartsFrom ?? existing.returnWindowStartsFrom;
+  // POLICY PROVENANCE GUARD (TASKS.md 2026-09-21 H&M incident, added
+  // 2026-09-22). Modeled deliberately on the orderDate guard directly
+  // above: same shape, same reasoning, different field group.
+  //
+  // The bug it closes: a return window the retailer STATED in its own
+  // email was replaced by a web-search guess, because the three policy
+  // fields below were plain nullish-coalescing — any non-null incoming
+  // value won, regardless of where it came from. On the live case two
+  // UPS carrier notifications (no order number, no totals, no policy
+  // text of their own) each fired a billed lookup, and one of the two
+  // answers — 3 days, from a third-party blog — overwrote H&M's stated
+  // 30, moving the displayed deadline 27 days early.
+  //
+  // The rule: a `stated_in_email` window is never replaced by a
+  // lower-provenance one. The retailer saying it outranks anything
+  // inferred about the retailer.
+  //
+  // Three properties this deliberately preserves, because DECISIONS.md
+  // (2026-09-06) records this merge as load-bearing for every reprocess
+  // and backfill path in the codebase — this is a guard layered on top,
+  // not a rewrite of the coalescing:
+  //   - A null incoming window still never clears a resolved one (the
+  //     guard requires a NON-NULL incoming window to fire, so the
+  //     "anything vs null" case falls through to the coalescing below
+  //     completely untouched).
+  //   - web_lookup vs web_lookup is unchanged — later non-null still
+  //     wins. This merge has no tie-break between two lookups and this
+  //     guard does not add one (see the shortest-wins capture).
+  //   - stated vs stated is unchanged — same rank, so recency wins, as
+  //     it does today.
+  //   - An order whose own window is still null takes the incoming one:
+  //     the guard protects a stated ANSWER, and a null is not an answer,
+  //     so blocking there would strand the order with no deadline.
+  //
+  // Compared only AFTER mapPolicySource: the Email row spells this
+  // "email" and the Order row spells it "stated_in_email" for the same
+  // fact, so comparing raw values would silently never match.
+  //
+  // Scope note: Order.policySource also admits "manual_override" and
+  // "user_supplied" — values mapPolicySource never produces, and which
+  // this guard does NOT currently protect. See TASKS.md 🔴 Now,
+  // "2026-09-22 — mergeEmailIntoOrder can overwrite manual_override —
+  // live violation of a documented schema invariant"; owner-scoped out
+  // of this fix, not an oversight.
+  //
+  // The three fields move as ONE UNIT. Keeping the window while taking
+  // the other email's startsFrom would produce a combination neither
+  // source ever asserted — "30 days" from one email anchored to a date
+  // basis from another — which is worse than either input.
+  const incomingPolicySource = mapPolicySource(email.policySource);
+  const policyGuardApplies =
+    existing.policySource === "stated_in_email" &&
+    existing.returnWindowDays != null &&
+    incomingPolicySource !== "stated_in_email" &&
+    email.returnWindowDays != null;
+
+  const mergedReturnWindowDays = policyGuardApplies
+    ? existing.returnWindowDays
+    : (email.returnWindowDays ?? existing.returnWindowDays);
+  const mergedReturnWindowStartsFrom = policyGuardApplies
+    ? existing.returnWindowStartsFrom
+    : (email.returnWindowStartsFrom ?? existing.returnWindowStartsFrom);
+  const mergedPolicySource = policyGuardApplies
+    ? existing.policySource
+    : (incomingPolicySource ?? existing.policySource);
   const existingLineItems = asLineItemArray(existing.lineItems);
   const mergedLineItems = emailLineItems.length > existingLineItems.length ? emailLineItems : existingLineItems;
   const mergedOrderTotal = await resolveOrderTotal(existing, email);
@@ -911,7 +974,7 @@ export async function mergeEmailIntoOrder(
     returnWindowStartsFrom: mergedReturnWindowStartsFrom,
     returnDeadline: returnDeadline ? new Date(returnDeadline) : null,
     deadlineIsEstimated,
-    policySource: mapPolicySource(email.policySource) ?? existing.policySource,
+    policySource: mergedPolicySource,
     orderTotal: mergedOrderTotal,
     orderCurrency: email.orderCurrency ?? existing.orderCurrency,
     lineItems: mergedLineItems as object,
