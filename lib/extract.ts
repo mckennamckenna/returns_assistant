@@ -1028,6 +1028,31 @@ export async function finalizeExtraction(
   } else if (
     effectiveRetailer &&
     parsed.emailType !== "other" &&
+    // A return window that arrives WITH a refund arrives after the return
+    // — by the time a refund email exists, the thing the window would have
+    // told the user about has already happened, so a billed search buys
+    // nothing. Same shape and placement as the "other" gate above it, and
+    // added for the same reason: content with no realistic chance of ever
+    // needing a return policy. TASKS.md 2026-09-22, owner-approved.
+    //
+    // Deliberately narrow, in the same way the "other" gate is:
+    //   - A refund email that STATES a window still gets it. The stated
+    //     branch (parsed.returnWindowDays != null -> policySource "email")
+    //     runs before this if/else chain reaches here.
+    //   - Refund MATCHING is untouched — findRefundFallbackOrder's tiered
+    //     fallback still links an order-number-less refund, and
+    //     createOrderFromEmail still creates an order when nothing
+    //     matches. Those just proceed without a looked-up window.
+    //
+    // Accepted consequence: a refund-created order (a refund that matched
+    // nothing) is now born with returnWindowDays null and no path to one.
+    // That is expected, not a gap — see the null-returnDeadline entry in
+    // TASKS.md, which must not flag these.
+    //
+    // Partial refunds can leave other items still returnable, so a window
+    // could in principle still matter there; owner judged that too rare to
+    // design around. Revisit from the TASKS entry if real cases appear.
+    parsed.emailType !== "refund" &&
     // ROOT CAUSE (a), TASKS.md 2026-09-21 H&M incident. A carrier
     // notification with no order number never reaches a billed lookup,
     // whatever the body named as the retailer.
