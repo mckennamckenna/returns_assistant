@@ -6,7 +6,7 @@ import { decrypt } from "@/lib/crypto";
 import { resolveBodyTextWithAlternate } from "@/lib/emailBodyText";
 import { isAmazonOrder } from "@/lib/amazonBundle";
 import { isFoodGroceryRetailer } from "@/lib/foodGroceryExclusion";
-import { RETAILER_FALLBACK_GATE_EMAIL_TYPES, resolveRetailerFallback } from "@/lib/retailerFallback";
+import { RETAILER_FALLBACK_GATE_EMAIL_TYPES, resolveRetailerFallback, isCarrierSender } from "@/lib/retailerFallback";
 
 // Accepts either an id (scripts and the manual re-extract action only ever
 // hold an id) or the row itself (the inbound route, which already has the
@@ -101,7 +101,21 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
       }
     }
 
-    const result = await finalizeExtraction(parsed, emailId, existingOrder, effectiveRetailer, anchorDate);
+    // Envelope fact, not a body fact — computed here because this is where
+    // the decrypted From header is available. Deliberately independent of
+    // `fallback` above: that only resolves when body extraction found NO
+    // retailer, so it cannot answer "did a carrier send this" for the H&M
+    // case (UPS sender, body names H&M). TASKS.md 2026-09-21, root cause (a).
+    const senderIsCarrier = isCarrierSender(decrypt(email.fromEmail));
+
+    const result = await finalizeExtraction(
+      parsed,
+      emailId,
+      existingOrder,
+      effectiveRetailer,
+      anchorDate,
+      senderIsCarrier,
+    );
 
     // Sender-derived retailer fallback WRITE. Reuses `fallback` computed
     // above rather than re-deriving it — the gating condition below

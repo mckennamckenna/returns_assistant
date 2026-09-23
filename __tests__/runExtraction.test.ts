@@ -134,7 +134,7 @@ describe("runExtraction", () => {
     // it's already non-null (fallback never consulted). See the dedicated
     // "effectiveRetailer wiring" describe block below for the fallback-
     // resolved and fallback-not-consulted cases.
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer, null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer, null, false);
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BASE_ROW.id }, data: expect.objectContaining({ retailer: "Acme" }) }),
     );
@@ -178,12 +178,15 @@ describe("runExtraction", () => {
 
 // The parent-order pre-check itself (TASKS.md 2026-08-24 widened
 // lookupReturnPolicy skip). finalizeExtraction's own branch logic (the
-// actual skip decision) lives in lib/extract.ts and isn't unit-tested here
-// or there -- extract.test.ts only covers extract.ts's small pure helpers,
-// since testing extractEmail/finalizeExtraction's branches directly would
-// require mocking the Anthropic SDK, which no test in this codebase does
-// today (the pre-existing Amazon-default and food-grocery branches aren't
-// unit-tested either). What IS testable, and covered below, is
+// actual skip decision) lives in lib/extract.ts.
+// CORRECTED 2026-09-22: this comment used to say that branch "isn't
+// unit-tested here or there" because doing so "would require mocking the
+// Anthropic SDK, which no test in this codebase does today." Both halves
+// are now out of date -- extractRetry/extractUsageLogging/classify/
+// anthropicUsage all mock the SDK, and __tests__/policyLookupCarrierGate
+// .test.ts now covers finalizeExtraction's gate directly (including the
+// Amazon-default branch this comment called untested). What IS testable
+// here, and covered below, is
 // runExtraction.ts's own orchestration: does it call findMatchingOrder at
 // all, with what arguments, and does it correctly skip that DB read for
 // retailers that could never reach the billed branch regardless.
@@ -203,7 +206,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     await runExtraction(BASE_ROW.id);
 
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, { returnWindowDays: 30 }, PARSED_IDENTITY.retailer, null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, { returnWindowDays: 30 }, PARSED_IDENTITY.retailer, null, false);
   });
 
   it("passes null existingOrder when findMatchingOrder finds nothing", async () => {
@@ -212,7 +215,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
 
     await runExtraction(BASE_ROW.id);
 
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer, null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(PARSED_IDENTITY, BASE_ROW.id, null, PARSED_IDENTITY.retailer, null, false);
   });
 
   it("skips the pre-check query entirely for an Amazon retailer -- never reaches the billed branch regardless", async () => {
@@ -221,7 +224,7 @@ describe("runExtraction — parent-order pre-check wiring", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockFindMatchingOrder).not.toHaveBeenCalled();
-    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ retailer: "Amazon" }), BASE_ROW.id, null, "Amazon", null);
+    expect(mockFinalizeExtraction).toHaveBeenCalledWith(expect.objectContaining({ retailer: "Amazon" }), BASE_ROW.id, null, "Amazon", null, false);
   });
 
   it("skips the pre-check query entirely for a food/grocery retailer -- never reaches the billed branch regardless", async () => {
@@ -246,12 +249,18 @@ describe("runExtraction — parent-order pre-check wiring", () => {
     await runExtraction(BASE_ROW.id);
 
     expect(mockFindMatchingOrder).not.toHaveBeenCalled();
+    // 6th arg (senderIsCarrier) added 2026-09-22 — a mechanical arity
+    // update only. This test's subject, that findMatchingOrder is not
+    // called when orderNumber is null, is deliberately unchanged: the
+    // :97 order-number skip was NOT touched by root cause (a)'s fix.
+    // BASE_ROW's sender is noreply@acme.com, so false is correct here.
     expect(mockFinalizeExtraction).toHaveBeenCalledWith(
       expect.objectContaining({ orderNumber: null }),
       BASE_ROW.id,
       null,
       PARSED_IDENTITY.retailer,
       null,
+      false,
     );
   });
 });
@@ -419,17 +428,61 @@ describe("runExtraction — effectiveRetailer wiring (2026-09-11/13 fix session)
   });
 
   // Arity updated 2026-09-20 (ANCHOR_DATE_RESOLVER.md Part 3): a 5th arg,
-  // the Email row's anchorDate, now follows effectiveRetailer. The 4th-arg
-  // assertion this test exists for is unchanged.
-  it("(1) finalizeExtraction is called with exactly 5 args, the 4th being effectiveRetailer", async () => {
+  // the Email row's anchorDate, now follows effectiveRetailer. Updated
+  // again 2026-09-22 (TASKS.md root cause (a)): a 6th arg, senderIsCarrier,
+  // follows anchorDate. The 4th-arg assertion this test exists for is
+  // unchanged through both.
+  it("(1) finalizeExtraction is called with exactly 6 args, the 4th being effectiveRetailer", async () => {
     mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
 
     await runExtraction(BASE_ROW.id);
 
     expect(mockFinalizeExtraction).toHaveBeenCalledTimes(1);
     const call = mockFinalizeExtraction.mock.calls[0];
-    expect(call).toHaveLength(5);
+    expect(call).toHaveLength(6);
     expect(call[3]).toBe(PARSED_IDENTITY.retailer);
+  });
+
+  // The 6th arg is an ENVELOPE fact and must be computed from the sender,
+  // independently of whatever the body named as the retailer — that
+  // independence is the whole point of root cause (a)'s fix, since the H&M
+  // case is precisely where the two disagree (UPS sender, body says H&M).
+  it("(1b) senderIsCarrier is passed as the 6th arg, derived from the sender and not from the body's retailer", async () => {
+    mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "pkginfo@ups.com" });
+
+    await runExtraction(BASE_ROW.id);
+
+    const call = mockFinalizeExtraction.mock.calls[0];
+    expect(call[5]).toBe(true);
+    // ...while the body-extracted retailer is untouched by it.
+    expect(call[3]).toBe(PARSED_IDENTITY.retailer);
+  });
+
+  it("(1c) a non-carrier sender passes senderIsCarrier false", async () => {
+    mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
+    mockEmailFindUnique.mockResolvedValue({ ...BASE_ROW, fromEmail: "orders@email.bloomingdales.com" });
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockFinalizeExtraction.mock.calls[0][5]).toBe(false);
+  });
+
+  // Both production entry points must compute this, not just the id-based
+  // one. Verified 2026-09-22 that runExtraction is the ONLY production path
+  // to finalizeExtraction (app/ never imports @/lib/extract): the inbound
+  // Postmark webhook passes the ROW OBJECT (app/api/inbound/route.ts:397,
+  // skipping the re-fetch entirely), while the manual re-extract action
+  // passes an id (app/(app)/emails/[id]/actions.ts:17). This covers the
+  // object path, which is the higher-volume one and the one that never
+  // touches findUnique.
+  it("(1d) the object path (inbound webhook) computes senderIsCarrier too, not just the id path", async () => {
+    mockExtractEmailIdentity.mockResolvedValue(PARSED_IDENTITY);
+
+    await runExtraction({ ...BASE_ROW, fromEmail: "pkginfo@ups.com" } as never);
+
+    expect(mockEmailFindUnique).not.toHaveBeenCalled();
+    expect(mockFinalizeExtraction.mock.calls[0][5]).toBe(true);
   });
 
   it("(2) parsed.retailer null + fallback-eligible sender -- effectiveRetailer is the fallback-resolved value at BOTH the findMatchingOrder pre-check and the finalizeExtraction call", async () => {

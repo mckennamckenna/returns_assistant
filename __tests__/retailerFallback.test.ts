@@ -4,6 +4,7 @@ import {
   registeredDomain,
   CARRIER_DOMAINS,
   CARRIER_DOMAIN_NAMES,
+  isCarrierSender,
   GENERIC_FROM_NAMES,
 } from "../lib/retailerFallback";
 
@@ -114,5 +115,60 @@ describe("resolveRetailerFallback", () => {
     const nonCarrierResult = resolveRetailerFallback("noreply@zara.com", "Zara");
     expect(nonCarrierResult.retailerSource).not.toBe("carrier_deferred");
     expect(nonCarrierResult.carrier).toBeNull();
+  });
+
+  // Regression guard for the 2026-09-22 helper extraction (root cause (a)):
+  // Step 0's inline CARRIER_DOMAINS.has(registered) was replaced by the
+  // shared isCarrierSender() so the policy-lookup gate in lib/extract.ts
+  // can ask the same question against the same list. Step 0's behavior
+  // must be byte-for-byte what it was — every domain that deferred before
+  // still defers, including via an ESP prefix and a tracking subdomain.
+  it("Step 0 still defers for EVERY carrier domain after the isCarrierSender extraction", () => {
+    for (const domain of Object.keys(CARRIER_DOMAIN_NAMES)) {
+      const direct = resolveRetailerFallback(`tracking@${domain}`, "Some Shop");
+      expect(direct.retailerSource).toBe("carrier_deferred");
+      expect(direct.retailer).toBeNull();
+      expect(direct.carrier).toBe(CARRIER_DOMAIN_NAMES[domain]);
+
+      // Subdomain form (tracking.usps.com -> usps.com) must defer too — a
+      // real shape in production data.
+      const sub = resolveRetailerFallback(`noreply@tracking.${domain}`, "Some Shop");
+      expect(sub.retailerSource).toBe("carrier_deferred");
+    }
+  });
+});
+
+describe("isCarrierSender", () => {
+  // The predicate the policy-lookup gate depends on. It answers a question
+  // about the ENVELOPE only; it deliberately knows nothing about what the
+  // body named as the retailer, which is what makes it usable at the gate
+  // where resolveRetailerFallback is not (that only runs when body
+  // extraction found no retailer at all).
+  it("is true for every carrier domain, in direct and subdomain form", () => {
+    for (const domain of CARRIER_DOMAINS) {
+      expect(isCarrierSender(`tracking@${domain}`)).toBe(true);
+      expect(isCarrierSender(`noreply@tracking.${domain}`)).toBe(true);
+    }
+  });
+
+  it("is false for retailer and ESP senders", () => {
+    expect(isCarrierSender("noreply@zara.com")).toBe(false);
+    expect(isCarrierSender("orders@email.bloomingdales.com")).toBe(false);
+    expect(isCarrierSender("us@delivery.hm.com")).toBe(false);
+  });
+
+  it("agrees with Step 0 on every input: carrier iff carrier_deferred", () => {
+    const inputs = [
+      "pkginfo@ups.com",
+      "noreply@tracking.usps.com",
+      "shipment@fedex.com",
+      "noreply@zara.com",
+      "orders@email.bloomingdales.com",
+      "us@delivery.hm.com",
+    ];
+    for (const from of inputs) {
+      const deferred = resolveRetailerFallback(from, null).retailerSource === "carrier_deferred";
+      expect(isCarrierSender(from)).toBe(deferred);
+    }
   });
 });

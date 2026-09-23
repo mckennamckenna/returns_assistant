@@ -985,6 +985,14 @@ export async function finalizeExtraction(
   // script callers don't have it, and a null anchor makes the guard decline
   // to act rather than guess.
   anchorDate: Date | null = null,
+  // True when the EMAIL'S SENDER is a known carrier/logistics domain
+  // (lib/retailerFallback.ts's isCarrierSender — the same list Step 0
+  // uses). A fact about the envelope, computed in runExtraction.ts where
+  // the decrypted From header is available; deliberately independent of
+  // whatever retailer the BODY named. Defaults false so extractEmail below
+  // and the audit-script callers are unaffected. TASKS.md 2026-09-21 H&M
+  // incident, root cause (a).
+  senderIsCarrier: boolean = false,
 ): Promise<ExtractionResult> {
   let policySource: PolicySource | null = null;
   let policyLookupWasUnclear = false;
@@ -1020,6 +1028,35 @@ export async function finalizeExtraction(
   } else if (
     effectiveRetailer &&
     parsed.emailType !== "other" &&
+    // ROOT CAUSE (a), TASKS.md 2026-09-21 H&M incident. A carrier
+    // notification with no order number never reaches a billed lookup,
+    // whatever the body named as the retailer.
+    //
+    // Why both conditions. The sender check alone is too broad: carrier
+    // emails that DO carry an order number have real dependents (2
+    // sole-source orders in the 09-22 census, e.g. an ALDO order whose
+    // only window source is one FedEx email's lookup), and those are
+    // already protected by the existingOrder check below, which is
+    // conservative — it only permits the lookup when the matched order's
+    // own window is blank. The order-number check alone is also too
+    // broad: plenty of legitimate retailer emails lack one.
+    //
+    // It is the INTERSECTION that is provably safe to block: across the
+    // 09-22 census, carrier-sender-and-no-order-number rows had ZERO
+    // sole-source orders and ZERO in bucket (ii) — nothing depends on
+    // them. They are also exactly the rows that cannot be protected any
+    // other way, since the existingOrder check needs an order number to
+    // find a parent at all. The guard is weakest precisely where these
+    // emails live, which is why they need their own gate rather than a
+    // wider one.
+    //
+    // Scope: this blocks the LOOKUP only. Retailer resolution is
+    // untouched — the email keeps retailer + retailerSource
+    // "body_extraction", and does NOT become carrier_deferred. Earlier
+    // branches are untouched too: a carrier email that STATES a window
+    // still gets it as policySource "email" (the first branch), and the
+    // Amazon/food-grocery short-circuits still run ahead of this one.
+    !(senderIsCarrier && parsed.orderNumber == null) &&
     // TASKS.md 2026-08-23/24: an order that already has a resolved
     // returnWindowDays doesn't need a fresh billed lookup just because
     // another email linked to it. Checks returnWindowDays specifically,

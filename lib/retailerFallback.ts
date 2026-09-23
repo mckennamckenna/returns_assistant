@@ -72,6 +72,21 @@ function titleCase(label: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+// Is this sender one of the carrier/logistics domains above? Extracted
+// 2026-09-22 so the policy-lookup gate in lib/extract.ts can ask the same
+// question Step 0 asks, against the SAME list — a second hard-coded carrier
+// list in the lookup gate would be guaranteed to drift from this one.
+//
+// Note what this is and isn't: it answers "did a carrier send this," which
+// is a fact about the envelope. It says nothing about whether the body
+// names a retailer — the two are independent, and the 2026-09-21 H&M
+// incident is exactly the case where they disagree (UPS sender, body says
+// H&M). Step 0 below only ever runs when body extraction found NO retailer,
+// so it cannot answer the envelope question on its own.
+export function isCarrierSender(fromEmail: string): boolean {
+  return CARRIER_DOMAINS.has(registeredDomain(domainOf(fromEmail)));
+}
+
 export interface RetailerFallbackResult {
   retailer: string | null;
   // null here (Step 3/4, nothing resolved) is a deliberate choice, not an
@@ -96,8 +111,11 @@ export function resolveRetailerFallback(fromEmail: string, fromName: string | nu
   const domain = domainOf(fromEmail);
   const registered = registeredDomain(domain);
 
-  // Step 0 — carrier deferral.
-  if (CARRIER_DOMAINS.has(registered)) {
+  // Step 0 — carrier deferral. Uses the shared isCarrierSender above so
+  // this and the policy-lookup gate can never disagree about what a
+  // carrier is; the predicate is identical to the previous inline
+  // CARRIER_DOMAINS.has(registered), so behavior here is unchanged.
+  if (isCarrierSender(fromEmail)) {
     return { retailer: null, retailerSource: "carrier_deferred", carrier: CARRIER_DOMAIN_NAMES[registered] };
   }
 
