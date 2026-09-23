@@ -1384,51 +1384,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       opened during this build for out-of-scope-for-v1 work flagged
       along the way.
 
-- [ ] **[CODE BUILT + TESTED + DEPLOYED 2026-08-27, LIVE VERIFICATION
-      SKIPPED per owner] Sender display name change — reminder / digest /
-      coverage-check / admin-notify emails show the sender name as
-      literally "reminders."** Owner wants "My Return Window" on all of
-      them; sending address stays `reminders@myreturnwindow.com`
-      unchanged.
-      **Root cause:** `REMINDER_FROM_EMAIL` (Vercel production env var)
-      is a bare address with no display name — Gmail (and most clients)
-      fall back to showing the local-part as a pseudo-name. Confirmed via
-      `vercel env pull` against production, read-only.
-      **Built and deployed (commit `6111fe2`):** `lib/postmark.ts` — new
-      `SENDER_DISPLAY_NAME = "My Return Window"` constant +
-      `formatSenderEmail(email)` helper, formatting `"Display Name
-      <address>"` the way Postmark's `From` field expects. Wired into all
-      4 call sites that read `REMINDER_FROM_EMAIL` directly:
-      `app/api/cron/route.ts`, `.../weekly-digest/route.ts`,
-      `.../weekly-coverage/route.ts`, and — per owner's "brand them all"
-      — `lib/adminNotify.ts` (internal admin alerts, not originally in
-      scope, added on request). `lib/refundCheckin.ts`'s check-in emails
-      receive the already-formatted value passed through from
-      `app/api/cron/route.ts`, so they're fixed for free, not a 5th site
-      to edit. Pure code change — no env var, DKIM, SPF, or
-      sending-address change. New `__tests__/postmark.test.ts` for the
-      formatter; 6 existing test files' `@/lib/postmark` mocks updated to
-      also export `formatSenderEmail` (they broke on the new import, not
-      a logic regression — confirmed by reading each failure). 683/683
-      tests passing, `npm run build` clean, deploy confirmed live.
-      **Live email verification attempted and blocked, not skipped
-      carelessly:** the real cron endpoints' `?force=true` path processes
-      every user's real orders, not just the owner's — running it for
-      real would have emailed other actual users just to check a sender
-      name, so that path was correctly ruled out (owner confirmed via
-      explicit question, per this repo's standing email-testing rule). A
-      direct one-off test send to the owner's own inbox was attempted
-      instead but blocked: the local `.env`'s `POSTMARK_SERVER_TOKEN` is
-      stale (401 Unauthorized), and the real production token is marked
-      **Sensitive** in Vercel, so `vercel env pull` returns it empty —
-      same restriction already known for `AUTH_SECRET`. **Owner chose to
-      skip live verification for now rather than work around the
-      Sensitive-var restriction.** Correctness rests on code review + the
-      passing tests, not an observed Gmail render. **Verify opportunistically
-      the next time a real reminder/digest/coverage/admin email goes out**
-      — check the sender name in Gmail's inbox list, not just the message
-      body — and close this fully at that point, not before.
-
 - [ ] **`Email.returnDeadline` frozen-snapshot drift — NEW 2026-08-27,
       end-of-day close-out on the orderDate write-once session.**
       Per-email `returnDeadline` is computed once, at extraction time
@@ -1559,168 +1514,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       git/Vercel cross-reference — **DEPLOYED**, confirmed live in
       production. See session report; drafted update text for item 315
       handed to owner, not applied directly (per instruction).
-- [x] **Routing tree design for needs-review bucket action selection — NEW
-      2026-08-24, SUPERSEDES the "default-action heuristic" entry
-      (🟡 Next).** That entry implicitly assumed a decision tree existed
-      and needed better defaults. This session's read-only diagnostic
-      (`scripts/pm-diag-needsreview-action-routing-20260824.ts`, deleted
-      2026-08-24 close-out, superseded) confirmed: no tree exists.
-      `lib/needsReviewRows.ts:67-74` has one branch (exact orderNumber
-      match) and one fallback (`real_purchase_no_record`), which
-      `lib/needsReviewActions.ts:47-48` maps to "Start a new order."
-      `emailType` is not even fetched by either call site's Prisma select
-      (`app/(app)/page.tsx:86`, `app/(app)/needs-review/page.tsx:36`).
-      **SCOPE: design pass first, not build.** Session 1 = enumerate
-      branches needed + correct action per branch + which fields the Prisma
-      selects have to start fetching. Branch shapes to work out at minimum:
-      return-side (return_label/refund with recoverable parent link),
-      purchase-side no match (real orphan → Create), noise (non-e-commerce
-      → Archive), residue (pre-gating carrier/promo → Archive), duplicate
-      (same-order already present → Merge or dedupe). Session 2 = build,
-      after owner reviews the design.
-      **PRE-CODE VERIFICATION:** the 2026-08-24 diagnostic's 19-row table is
-      90% of the baseline. Extend it to include an "expected action under
-      proposed tree" column and commit alongside the design doc
-      (paper-trail pattern from the 2026-08-23 H&M fix,
-      `scripts/pm-verify-resolvebodytext-hm.ts`).
-      **DEPENDENCIES: none blocking.** H&M attachment dependency from the
-      old entry is discharged (2026-08-23 fix). Chan Luu dependency
-      reframed as a data-integrity issue re: the synthetic `HRYTSJRJ` order
-      (tracked separately, not blocking this).
-      **NOT IN SCOPE:** the residue-cleanup sweep (separate 🟡 Next task,
-      can run in parallel or after); the 4 deferred H&M/Chan Luu refund
-      rows (still waiting on the `lookupReturnPolicy` bug); the Chan Luu
-      new-order-number-on-return pattern (separate future entry).
-      **SESSION 1 COMPLETE 2026-08-24 — design doc ready for owner review,
-      not built.** Full design → `NEEDS_REVIEW_ROUTING_DESIGN.md` (repo
-      root, follows `CARD_SPEC.md`/`return-window-design-tokens.md`
-      precedent for design-doc location). Four-branch tree proposed
-      (exact-match → Link; return_label/refund → Link, NEW; purchase-side
-      with signal → Create; everything else → View detail, NEW
-      `no_extraction_signal` reasonId). Verified against the live 19-row
-      population: 8/18 email-kind rows change action (all
-      Start-a-new-order → More-info; zero move to Merge in today's snapshot
-      — the Link-on-return-type branch exists for the next H&M-shaped
-      recurrence, not because it changes anything visible today).
-      Pre-code verification committed: `scripts/pm-design-needsreview-
-      routing-tree-20260824.ts`. Only `emailType` needs adding to the two
-      Prisma selects — `extractedAt` turned out not to be a routing input.
-      Three CARD_SPEC.md Part 3 amendments proposed for owner sign-off
-      (design doc §5), not applied. Spawned one 🐛 Bugs entry (Infra/
-      reliability, cross-referencing the 2026-08-21 Done entry above).
-      **[2026-08-24 close-out]** Design pass complete —
-      `NEEDS_REVIEW_ROUTING_DESIGN.md` committed with pre-code verification
-      script. Owner review complete. Spec amendments A+B applied to
-      `CARD_SPEC.md` Part 3; C deferred (see spec note). Build session
-      ready to schedule. Owner UX call about collapsed bucket rows
-      formalized as `CARD_SPEC.md` Part 3 amendment D in this commit — no
-      separate build-session reconciliation needed.
-      **MOVED HERE FROM 🟡 Next, 2026-08-24 close-out follow-up** — design
-      pass complete, spec amendments applied, next session is the build
-      session; belongs in Now for that session to start clean. Per the
-      header's scope-control rule, this move should have happened before
-      the design session began — flagged, not re-litigated. **Next
-      session starts the build (Session 2).**
-      **[2026-08-25 Session 2 — build complete, awaiting owner
-      verification, NOT ✅.]** All four branches + two new reasonIds +
-      collapsed-row control set implemented per
-      `NEEDS_REVIEW_ROUTING_DESIGN.md` §2 and `CARD_SPEC.md` Part 3
-      amendment D. `lib/needsReviewRows.ts:49-81` (`EmailReviewInput`
-      gains `emailType`; `detectEmailReviewReason` rewritten to the
-      four-branch tree — [now five branches after the 2026-08-28 carrier
-      addition and the 2026-08-30 shipment_unlinked rename/expansion, see
-      the shipment_unlinked ticket below]). `lib/needsReviewReasons.ts:11-20,29-38` (two new
-      reasonIds + their exact spec sentences). `lib/needsReviewActions.ts:
-      45-50` (`return_or_refund_no_link` added additively to the
-      `link_to_order` branch; `no_extraction_signal` needs no new branch —
-      falls through the existing degrade `else`, untouched). Prisma
-      selects: `app/(app)/page.tsx:86`, `app/(app)/needs-review/page.tsx:
-      36` both add `emailType: true` — grep confirmed no third
-      `EmailReviewInput`-building call site exists. Collapsed-row control
-      set: `app/NeedsReviewRow.tsx:72-96` — email-kind rows now render
-      `{primary action, Archive (NEW standing control, `not_a_purchase` →
-      `archiveOrphanedEmailAction`, already-wired), optional More info}`;
-      order-kind rows unchanged (amendment D's "primary action from the
-      routing tree" ties to the design doc's email-kind-only scope — see
-      code comment at `app/NeedsReviewRow.tsx:29-38` for the reasoning,
-      flagged here as an interpretation call, not an owner-confirmed
-      literal instruction, since order-kind rows have no archive
-      mechanism to wire to). Order-kind routing (`needsReviewActions.ts:
-      43-44`) and the existing degrade path (`:49-51`, now the tail of an
-      unchanged if/else chain) both confirmed untouched. Pre/post-code
-      `pm-design-needsreview-routing-tree-20260824.ts` snapshots are
-      byte-identical (0 DB drift) and match the design doc's exact
-      prediction: 8/18 email-kind rows move Start-a-new-order → More
-      info, 0 move to Merge (no live return/refund orphan exists yet —
-      branch 2 verified instead via a seeded unit-test row, not prod
-      data, per the session brief). 20/20 tests pass in
-      `__tests__/needsReviewRows.test.ts` +
-      `__tests__/needsReviewActions.test.ts` (both extended with explicit
-      per-branch cases, including a seeded `emailType: "refund"` row
-      confirming `return_or_refund_no_link` → "Merge with existing
-      order"). `npx tsc --noEmit` and `npm run build` both clean (two
-      pre-existing, unrelated failures noted and left alone:
-      `anthropicUsage.test.ts` type errors, one timezone-sensitive date
-      assertion in `orderCardState.test.ts` — both confirmed via
-      `git stash` to predate this session). 0 billed Anthropic API calls
-      (diagnostic script is read-only + non-model; no code change adds a
-      model call). **Status: awaiting owner hand-verification in
-      production before ✅** (dev-server smoke test only — no browser
-      auth session available in this session; both `/` and
-      `/needs-review` returned 307 redirect-to-login with no server
-      error, confirming no runtime crash, but the actual three-control
-      row rendering has not been eyeballed live). Commit/push/deploy
-      status: see this session's close-out report.
-      **[2026-08-25 — Session 2 hand-verified in prod, ✅ Done.]**
-      Owner hand-verified deployed behavior at `app.myreturnwindow.com`
-      against live population (19 email-kind orphan rows).
-
-      **Verified working as designed:**
-      - Branch 1 (`belongs_to_existing_order` → Link): no live rows
-        exercise this today; classifier logic verified via unit test
-        path per Session 2 report.
-      - Branch 2 (`return_or_refund_no_link` → Link): no live rows
-        exercise this today (no return/refund orphans in DB, as design
-        doc §3 predicted); classifier logic verified via unit test.
-        First real return/refund orphan arriving will exercise the
-        branch in production; watch for it.
-      - Branch 3 (`real_purchase_no_record` → Create, narrowed): 10 of
-        19 rows correctly route here.
-      - Branch 4 (`no_extraction_signal` → View detail degrade): 9 of
-        19 rows correctly route here with the canonical sentence
-        ("We couldn't extract any details from this email.") rendering
-        in slot 3. Verified via `scripts/pm-verify-branch4-shipped-
-        20260825.ts` (committed same day).
-      - Collapsed-row two-shape rule: mapped rows render 3 controls
-        (primary + Archive + More info); degrade rows render 2
-        controls (Archive + More info); no duplicates. Verified in
-        hand-verification of `/needs-review` page.
-
-      **Live-data drift note:** design doc §3 predicted 8/18 rows on
-      `no_extraction_signal`; actual live is 9/19 (one new orphan
-      arrived between design and hand-verification, also correctly
-      branch-4). Not a bug — expected drift as new emails arrive.
-      Documented for future-reader clarity.
-
-      **Session-2-adjacent findings NOT blocking ✅** (all logged
-      separately as their own entries, do not conflate):
-      - HTML-scanning fallback not triggering on Buff / H&M shapes
-        → 🐛 Bugs Trust-breaking, new 2026-08-25.
-      - `orderCardState.test.ts` timezone-dependent assertion
-        → 🐛 Bugs Trust-breaking (assumed placement — CC prompt for
-        that entry may not have been sent yet at time of this update;
-        if not present, that's expected).
-      - `anthropicUsage.test.ts` stale type fixture → 🟡 Next.
-      - Elevate bucket-residue-cleanup priority → 🟡 Next.
-      - Order-kind Archive not-yet-wired (from Session 2 B1) → 🟡 Next,
-        added by CC end-of-Session-2.
-
-      **Deploy-first-not-preview-first process note:** this session
-      deployed to prod before hand-verification. TASKS.md header rule
-      was not violated (rule gates ✅, not deploy timing), but preview-
-      first is the intended discipline in this feature area and was
-      missed. Not repeated in future sessions — preview-first is the
-      default going forward for the needs-review bucket work.
 - [x] **Read-only diagnosis of needs-review bucket action-routing — NEW
       2026-08-24, owner-directed, SCOPE-CAPPED (0 billed Anthropic calls, 0
       writes, no re-extraction) — COMPLETE, reported to owner 2026-08-24.**
@@ -1852,77 +1645,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
 >    have flooded a surface built for the real orphaned-genuine-commerce
 >    emails. Not started today unless owner says so.
 
-- [ ] **Exclude Amazon from the Sunday returns digest — BUILT, committed
-      (`fd5ec95`), and pushed 2026-08-10. Deploy triggered on push; not yet
-      hand-verified live. Pure content filter, 0 billed Anthropic calls,
-      0 writes.**
-      `app/api/cron/weekly-digest/route.ts` — filter Amazon out of the
-      "due this week" content selection (the forward-looking `sevenDaysOut`
-      query, which is separate from and does NOT touch
-      `lib/weeklyDigestDedup.ts`) using strict `isAmazonOrder(retailer)` from
-      `lib/amazonBundle.ts` (strict only — Whole Foods / Zappos excluded by
-      design). Apply in the shared content selection so both the normal and
-      `?force=true` paths are covered. Import cycle: import `isAmazonOrder`
-      INTO the route, not into a lib amazonBundle imports — same clean shape
-      as the shipped cron reminder skip (`90dccd0`); confirm via grep +
-      `npm run build`. **Empty-week behavior — DECIDED: on an all-Amazon
-      week the digest STILL SENDS (weekly touchpoint retained during alpha).
-      No skip-empty logic; zero-returns fallback copy unchanged.** Global for
-      all users (no per-user preference infra). Supersedes the 2026-08-04
-      "visibility comes from the digest only" rationale — see Decisions log.
-      **Tests:** new `__tests__/weeklyDigestAmazonExclusion.test.ts`
-      (route-mock convention, matching `__tests__/cronAmazonSkip.test.ts`,
-      since the filter lives inline in the route) — 5 cases: Amazon row
-      excluded / non-Amazon row retained / Amazon excluded under
-      `?force=true` / mixed batch drops only Amazon / all-Amazon week still
-      sends (no skip-empty). 521/521 full suite passing, `npm run build`
-      clean. **VERIFY BY: real Sunday 16:00 UTC cron fire — no ✅ until owner
-      hand-verifies in production.**
-
-- [ ] **Amazon return-window default (30 days), forward short-circuit —
-      Step 1 BUILT on branch `amazon-return-window-default` 2026-08-09,
-      MERGED to `main` (`b2fbc10`) and PUSHED to `origin/main` this
-      session — confirmed via `git log`/`git merge-base --is-ancestor`,
-      not just taken on the owner's word. Awaiting owner hand-verification
-      in production — not ✅ until then. Step 2 backfill APPLIED,
-      owner-approved (detail below). 0 billed Anthropic calls, 0 writes
-      beyond the approved Step 2 backfill. Owner decisions locked
-      2026-08-08. Grocery decoupled — separate task below.** **Headline: 94
-      of 99 Amazon-retailer emails ever received
-      (95%) already carry `policySource: "web_lookup"`** — i.e. already
-      triggered a billed Sonnet+web-search call historically that
-      deterministically resolves to ~30 days; that's the volume this rule
-      stops paying for going forward. (Order-level proxy 51/52 — the
-      cited prior snapshot of 83 is a units difference, not investigated
-      further, per owner.) **Step 1:** `lib/extract.ts` — before
-      `lookupReturnPolicy()` fires, `isAmazonOrder(retailer) &&
-      emailType !== "other"` with no stated window now sets
-      `returnWindowDays: 30`, `policySource: "amazon_default"` (new
-      `PolicySource` variant), and the lookup call is skipped entirely,
-      not just overwritten after. New value threaded through
-      `mapPolicySource()` (`lib/linkOrder.ts`) and the order/email detail
-      page display ternaries; schema comments updated (no migration — both
-      fields are untyped `String?`). Guard preserved: orders with a
-      resolved window for any other reason never reach the new branch, so
-      the 3 flagged-for-tier-confidence rows are untouched by construction.
-      `npx tsc --noEmit` clean on all touched files (10 pre-existing
-      unrelated test-file errors confirmed via `git stash`, same before and
-      after). **Step 2 APPLIED 2026-08-09, owner-approved.** 1 row
-      (`cms0p1qi00005l204zy6iq57m`, Amazon, order `113-5215249-6165864`):
-      `returnWindowDays` null→30, `policySource` null→`amazon_default`,
-      `returnDeadline` null→2026-08-24 (`deadlineIsEstimated: true`,
-      anchored on `orderDate` since no `returnWindowStartsFrom` was ever
-      stated), `needsReview` true→false via the existing
-      `recomputeOrderStatus()` (byproduct, not hand-set) — `status` also
-      advanced to `returnable`. Verified after: total `needsReview: true`
-      orders (all retailers) 22→21, exactly the expected delta; all 3 guard
-      rows re-checked unchanged (`returnWindowDays: 30`, `policySource:
-      web_lookup`, `needsReview: true` — untouched); 0 non-Amazon rows
-      touched. **Merged + pushed** — branch
-      `amazon-return-window-default`, merge commit `b2fbc10` on
-      `origin/main`, awaiting owner hand-verification in production (not
-      Done until then, per this board's own rule). Marketplace-seller
-      simplification logged in `DECISIONS.md` 2026-08-08.
 - [ ] **Amazon grocery exclusion (Whole Foods / Amazon Fresh) — decoupled
       2026-08-09, RETIRED 2026-08-21 during main/origin-main
       reconciliation: superseded by the broader food + grocery delivery
@@ -1963,48 +1685,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       a stricter/second-pass classifier check would be a different, and
       on these numbers likely bigger, win than PHASE 1a/1b — owner
       decision, not built here.
-- [ ] **Suppress Amazon deadline reminders — IMPLEMENTED 2026-08-04, tests +
-      build clean, COMMITTED (`90dccd0`), PUSHED, DEPLOYED (confirmed live
-      on `app.myreturnwindow.com` as of this session's close-out,
-      2026-08-05) — awaiting owner hand-verification in production, not
-      yet Done.** Confirmed owner decision: Amazon orders must not get the
-      standalone 7/2/1/same-day deadline reminders — visibility comes from
-      the Sunday digest / Friday coverage-check only, applying
-      `AMAZON_HANDLING.md`'s awareness-only principle to reminders (a
-      deadline nag is an action prompt, which v1 doesn't do). Net-new
-      enforcement, not a repaired guard — `lib/reminders.ts` had zero
-      Amazon references before this. **Diagnostic-first catch: the
-      session brief's file path (`app/api/cron/reminders/route.ts`)
-      doesn't exist — the real cron lives at `app/api/cron/route.ts`**
-      (confirmed by directory listing before editing anything); implemented
-      against the real file. **Option A (cron-loop skip), not Option B
-      (pure-function rule)** — one line, `if (isAmazonOrder(order.retailer))
-      continue;`, added at the top of the order loop before `reminderType`
-      is computed, covering both the normal and `?force=true` paths since
-      both flow through the same loop. Reuses `isAmazonOrder` from
-      `lib/amazonBundle.ts` unchanged. **Import-cycle check, as flagged in
-      the brief:** `amazonBundle.ts` imports `daysUntil` FROM
-      `reminders.ts`; importing `isAmazonOrder` INTO `route.ts` (not into
-      `reminders.ts`) avoids the cycle entirely — confirmed via grep (
-      neither `reminders.ts` nor `amazonBundle.ts` imports from
-      `route.ts`) and a clean `npm run build`. **Tests:** new
-      `__tests__/cronAmazonSkip.test.ts`, 6 cases (Amazon order skipped /
-      still skipped under `?force=true` / non-Amazon order unaffected /
-      existing estimated-deadline suppression unchanged / case-insensitive
-      match / mixed batch skips only the Amazon row) — full-route mock
-      pattern matching `__tests__/inboundDedup.test.ts`'s convention, not
-      cron.test.ts's pure-function-only pattern, since the skip lives
-      inline in the route. 504/504 full suite passing, `npm run build`
-      clean. **Open question, not decided here (per brief's explicit
-      scope):** whether the same carve-out should apply to
-      `runRefundCheckinReminders()` (`lib/refundCheckin.ts`) — a different
-      reminder type, not touched this pass, plausibly the same
-      awareness-only logic but a separate owner decision. **Also flagged:**
-      `amazon-per-email-reminder-cadence` (🟡 Next, MORE per-email Amazon
-      reminders) is the opposite direction from this fix (fewer/none) —
-      needs owner reconciliation, not resolved here. **Zero billed
-      Anthropic calls — pure logic change, tests mock the DB, no live or
-      forced send run.**
 - [ ] **Orphan census refresh — NEW 2026-08-04, READ-ONLY, 0 billed
       Anthropic calls, 0 writes.** Systematic re-count of the four
       no-resolve-path populations first sized 2026-07-23 (orphaned
@@ -2131,40 +1811,6 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       kill before touching any code. See full findings once this pass
       closes (below in 🐛 Bugs, updated in place) — not duplicating the
       write-up here.
-- [ ] **Coverage-check "this week" fix — defect 3 (stale/wrong-window),
-      IMPLEMENTED 2026-08-05, tests + build clean, COMMITTED (`2ef71e5`,
-      `20477e7`), PUSHED, DEPLOYED (confirmed `app.myreturnwindow.com`
-      alias on commit `20477e7`, 2026-08-05) — AWAITING OWNER
-      VERIFICATION on the next scheduled Friday run (2026-08-07), not yet
-      Done. Process note: this entry itself was added after code was
-      already touched, not before — flagging the miss per this file's own
-      convention rather than silently correcting it.** Direct follow-on
-      to the diagnostic pass above: a linked
-      order whose delivery/shipping email merely arrived this week was
-      being shown as if newly purchased, even when the order itself was
-      placed weeks earlier (real example: Alex's Jul 31 digest showing
-      Emme Parsons/Mejuri "delivery" lines for old orders).
-      `app/api/cron/weekly-coverage/route.ts`'s linked-email branch now
-      filters on the order's own `orderDate` (placedDate) against the
-      rolling 7-day content window, not the triggering email's
-      `receivedAt` — unlinked emails are unchanged, still keyed on
-      `receivedAt` since they're the missing-order signal this email
-      exists to surface. `placedDate` reuses `Order.orderDate` as-is
-      (already the right "when placed" signal end-to-end via
-      `applyFallbackOrderDate`/`resolveFallbackOrderDate` in
-      `lib/linkOrder.ts` — derived from the EARLIEST linked email, never
-      a later delivery email, and only when that earliest email's type
-      is `order_confirmation`/`shipping_confirmation`/`delivery`). Null
-      policy: a null `orderDate` (fallback couldn't resolve one) defaults
-      to inclusion rather than silent exclusion — dropping it could hide
-      a real this-week purchase; only excluded on positive evidence
-      (`orderDate` before the window start). Dedup window
-      (`scheduledRunWeekStart`) and the force-path's "never write a
-      Reminder row" rule are untouched. **Amazon caveat, not fixed this
-      pass:** Amazon orders' `orderDate` often falls back to `receivedAt`
-      (no `order_confirmation` emailType), so this date-filter is close
-      to a no-op for Amazon specifically — Amazon has its own coverage-
-      grouping fix queued separately, see report.
 - [ ] **PHASE 1a — policy-lookup-negative-cache. The single highest-value
       fix from the 2026-07-21 cost investigation. NEW 2026-07-22.** Cache
       failed return-policy lookups, not just successful ones, so a retailer
@@ -7956,6 +7602,18 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Amazon orders no longer get deadline reminders, 2026-08-04.** Amazon visibility comes from the Sunday digest and Friday coverage-check only — a deadline nag is an action prompt, which v1 doesn't do. One skip at the top of the cron's order loop, so both the normal and forced paths are covered. Owner verified in production 2026-09-22. 0 model calls.
+
+- [x] **Amazon excluded from the Sunday returns digest, 2026-08-10.** Amazon rows are filtered out of the "due this week" content, strictly by retailer so Whole Foods and Zappos are unaffected. Decided at the time: an all-Amazon week still sends, keeping the weekly touchpoint during alpha. Owner verified in production 2026-09-22. 0 model calls.
+
+- [x] **Coverage-check stops showing old orders as new purchases, 2026-08-05.** The Friday check was treating any order whose delivery or shipping email merely arrived this week as newly purchased. It now filters on when the order was actually placed; orders with no known date are still included rather than silently dropped. Owner verified in production 2026-09-22. 0 model calls.
+
+- [x] **Outbound email now shows the sender as "My Return Window," 2026-08-27.** Reminders, digests, coverage-checks and admin alerts were all arriving from a sender named "reminders." The sending address is unchanged — only the display name was added. Live verification was blocked at the time by a stale local token and a Sensitive production var, so it waited for a real send. Owner verified in production 2026-09-22. 0 model calls.
+
+- [x] **Amazon orders default to a 30-day return window, 2026-08-09.** 95% of Amazon emails were already paying for a web search that always resolved to about 30 days; that call is now skipped entirely rather than made and overwritten. One existing order was backfilled with owner approval, and the guard rows flagged for tier-confidence were left untouched. Owner verified in production 2026-09-22. 0 model calls.
+
+- [x] **Needs-review rows route to the right action, 2026-08-25.** A four-branch tree replaced a single match-or-fallback, so an orphaned email now gets the action that fits it instead of defaulting to "Start a new order," and rows that genuinely yielded nothing say so plainly. Owner hand-verified in production on 2026-08-25; the entry simply never got moved out of Now until the 2026-09-22 housekeeping pass. 0 model calls.
 
 - [x] **H&M incident order's return window corrected, 2026-09-22.** The order that the 2026-09-21 incident corrupted now shows a 30-day window anchored on the delivery date, with a deadline of Oct 18 instead of the wrong Sep 21, and no longer presents as web-lookup-sourced. The two carrier emails keep their wrong guesses as history, and no other order or email row was touched. Shipped only after the provenance guard was live in production, so the corrected row cannot be overwritten again. **Owner verified in production 2026-09-22.** Full detail in HISTORY.md. 0 model calls.
 
