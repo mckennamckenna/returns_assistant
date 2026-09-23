@@ -185,6 +185,48 @@ asymmetry between those two neighbouring blocks is the whole bug.
    wrong window would exist to merge. Establish where "H&M" came from
    (extraction time vs. a later backfill/reprocess) before designing
    anything.
+   **RECON FINDINGS, 2026-09-22 (read-only, 0 billed calls). Findings
+   only — no fix is decided, designed, or applied.**
+
+   **Finding 1 — the carrier guard only runs on the fallback path, so a
+   carrier email whose body names a retailer bypasses it.**
+   `resolveRetailerFallback` (`lib/retailerFallback.ts`, "Step 0 —
+   carrier deferral") returns `retailer: null` /
+   `retailerSource: "carrier_deferred"` for a known carrier domain — but
+   `lib/runExtraction.ts:71-74` only *calls* that function when
+   `parsed.retailer == null`. When body extraction names a retailer, the
+   deferral never runs, `effectiveRetailer` is non-null, and the email
+   becomes lookup-eligible at the gate. On the incident order both UPS
+   rows carry `retailerSource: "body_extraction"`, `carrier: null`, and
+   an `extractedAt` 85-126s after `receivedAt` — written by the AI at
+   first extraction from "From H&M" in the UPS body (both rows'
+   `extractionNotes` say so). Nothing backfilled the value.
+   `runExtraction.test.ts:307/319` are not wrong: they set
+   `retailer: null` and pin the fallback path. No test covers a carrier
+   sender whose body names a retailer.
+   **Scale, all users:** 76 emails from carrier domains; **54 (71%)
+   carry a non-null retailer**; **32 of those fired a billed
+   `web_lookup`.** Not a one-off.
+
+   **Finding 2 — nothing depends on these lookups for its only window.**
+   Across the 65 no-order-number emails that reached a successful lookup,
+   bucket (ii) — "this lookup is the order's ONLY window source" — is
+   **empty**. No order would lose its deadline if this class of lookup
+   were blocked. (Caveat: 65 counts *successful* lookups only.
+   `policyLookupWasUnclear` is a local in `finalizeExtraction`, never
+   persisted, so failed lookups leave no queryable trace and the true
+   billed count is higher.)
+
+   **PROPOSED FIX — owner decision pending, not started.** Block the
+   policy lookup for known carrier senders at the lookup gate itself,
+   regardless of what retailer resolution produced. Retailer resolution
+   stays exactly as it is — the retailer value is arguably correct here
+   (H&M really is the retailer); what is wrong is that a carrier
+   notification became lookup-eligible on the strength of it. This is
+   deliberately NOT "repair the carrier guard," which would mean
+   deciding whether sender domain outranks body extraction — a larger
+   and separate question. **STATUS: awaiting owner decision. Nothing
+   designed or built.**
 
 **Candidate fixes (not started, decide before building):**
 - Rank by provenance in the merge — `stated_in_email` outranks
@@ -206,6 +248,113 @@ Related and already open: the shortest-wins overfire investigation
 this.** The affected order's deadline has already passed as displayed,
 so confirm whether that return is still live before any data
 correction.
+
+### 2026-09-22 — Tracking parser stored the ORDER NUMBER as a tracking number, with the wrong carrier
+
+**CAPTURE ONLY — found during the root cause (a) recon, not fixed.**
+
+**What already exists — the order half is built.** `Order` stores
+`trackingNumber`, `carrier` and `trackingUrl`, populated by
+`applyShippingTracking()` from shipping-email bodies, and the UI already
+renders a "Track package" link from them. So a tracking-number join key
+is not a from-scratch feature; the order side of it is in place.
+
+**Gap (a) — nothing stores a tracking number on `Email`.** The `Email`
+model has no `trackingNumber` column at all (only `carrier`, and that is
+set iff `retailerSource === "carrier_deferred"`). So even a perfectly
+parsed tracking number on an inbound carrier email has nowhere to land,
+and there is no per-email value to join ON.
+
+**Gap (b) — parser accuracy.** On order
+`cmu6h9dk10003jz040cc2e6jo`, `Order.trackingNumber` holds
+**`69825036113` — the order number** — labeled carrier **DHL**, on a
+shipment UPS actually carried. `trackingUrl` is a DHL URL built from
+that order number, so the "Track package" link cannot resolve. A user
+clicking it gets nothing.
+
+**Both gaps matter because the join key was genuinely available.** Both
+UPS carrier emails on that order contain `1Z` tracking numbers that
+match H&M's own shipping emails **exactly** — two shipments, two matched
+pairs. A working tracking-number join would have linked both carrier
+emails to the order automatically, with no order number needed. That
+makes this directly relevant to root cause (a), whose whole difficulty
+is the absence of a join key for carrier emails.
+
+**Second consumer:** `detectMultiShipment()` also reads
+`Order.trackingNumber`, so a wrong value there is not display-only.
+
+**Not investigated:** whether the mis-parse is H&M-specific or general
+(a 13-digit order number may be matching a DHL pattern), and how many
+orders hold a `trackingNumber` equal to their own `orderNumber`. Size
+that before designing anything. **Capture only — no fix proposed.**
+
+### 2026-09-22 — `mergeEmailIntoOrder` can overwrite `manual_override` — live violation of a documented schema invariant
+
+**CAPTURE ONLY — not fixed 2026-09-22. Owner decision required before
+building.** Surfaced while scoping the H&M provenance guard. Filed in
+🔴 Now rather than Next because it is an active contradiction of a
+promise the schema makes in writing.
+
+**The hole.** `prisma/schema.prisma:269` documents `manual_override` as
+"human-corrected via admin/script … **never overwritten** by a
+re-extraction's `returnWindowDays` gate since that only checks
+nullity." That is true of the re-extraction path and false of the merge
+path. `mergeEmailIntoOrder` will replace a `manual_override` or
+`user_supplied` window with **any** non-null incoming window today —
+the exact mechanism as the H&M incident, one tier up. **This session's
+guard neither causes nor fixes it:** the guard fires only when
+`existing.policySource === "stated_in_email"`, so `manual_override`
+falls straight through to the unchanged coalescing.
+
+**Reachability — confirmed reachable, 2026-09-22 read-only check.** No
+caller of `mergeEmailIntoOrder` protects these values before calling:
+grepping `manual_override`/`user_supplied` across the codebase returns
+only the schema comment, the one-off writer script
+(`scripts/pm-caroline-bloomingdales-apply-20260914.ts:47`), two reads
+in `app/(app)/orders/[id]/page.tsx`, and this session's own scope note.
+Nothing guards it. All four merge call sites are exposed.
+
+**Current scale (counts only; owner's account holds none of these).**
+`Order.policySource` across all users: `web_lookup` 174,
+`amazon_default` 62, `stated_in_email` 28, null 21, **`manual_override`
+2**, `user_supplied` **0**. Of the 2 `manual_override` orders, **1**
+currently has at least one linked email holding a non-null window — so
+one live row is one merge away from losing its human correction.
+`user_supplied` is documented but unused; nothing writes it.
+
+**Past damage is not measurable this way, and the capture should not
+pretend otherwise.** An order that has *already* been overwritten no
+longer reads `manual_override` — the evidence of the correction is
+destroyed by the same write that destroys the correction. The 2 rows
+above are the survivors, not the population. The only way to size prior
+loss would be `ActionLog`/script re-derivation, not a `policySource`
+query.
+
+**Why the fix is NOT "add them to the guard's condition."** Treating
+`manual_override`, `user_supplied` and `stated_in_email` as one peer
+tier would make them tie on rank, and same-rank ties resolve by
+recency — so a later retailer email stating a window would overwrite a
+human's deliberate correction. That is a regression, not a fix, and it
+is exactly the Caroline/Bloomingdale's case (a human corrected a
+shortest-wins overfire; a later H&M-shaped stated email would undo it).
+**A real fix needs an explicit ranking decision** — likely
+`manual_override` > `stated_in_email` > `web_lookup`/`amazon_default` —
+**plus a definition of what `user_supplied` means and where it sits.**
+`user_supplied` has zero rows and no writer, so its intended semantics
+are currently undefined in both code and docs; per the definitional-
+search rule in CLAUDE.md, that definition has to be produced as part of
+the work rather than assumed from the name. Owner decides the ranking
+before anything is built.
+
+**Related, found in the same grep — a second definition of
+`deadlineIsEstimated`.** `app/(app)/orders/[id]/page.tsx:164` does not
+read the `deadlineIsEstimated` column at all; it recomputes its own
+from `policySource !== "stated_in_email" && !== "manual_override"`.
+So the order detail page already implements the *window*-provenance
+semantics that the stored column lacks, and the two disagree. Feeds
+directly into the `deadlineIsEstimated` semantics item in 🟡 Next —
+whatever is decided there has to reconcile these two, not just define
+one.
 
 ### 2026-09-21 — Orders with null `returnDeadline` don't surface as needs-review
 
