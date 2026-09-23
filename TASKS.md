@@ -208,11 +208,45 @@ asymmetry between those two neighbouring blocks is the whole bug.
    carry a non-null retailer**; **32 of those fired a billed
    `web_lookup`.** Not a one-off.
 
-   **Finding 2 — nothing depends on these lookups for its only window.**
-   Across the 65 no-order-number emails that reached a successful lookup,
-   bucket (ii) — "this lookup is the order's ONLY window source" — is
-   **empty**. No order would lose its deadline if this class of lookup
-   were blocked. (Caveat: 65 counts *successful* lookups only.
+   **Finding 2 — CORRECTED 2026-09-22. The original claim was wrong.**
+   ~~Bucket (ii) is empty; nothing depends on these lookups.~~ That was
+   an artifact of a bug in the recon script, not a fact about the data.
+   The script's `outcome()` tested `archivedAt || deletedAt` **before**
+   evaluating bucket membership and labeled the row "junked/archived",
+   so **every row on an archived order was short-circuited out before
+   the bucket (ii) test ever ran.** It also conflated two opposite
+   things under one label: an email actually junked
+   (`Email.junkedAt` set) versus an email linked to an order that
+   completed normally and was later archived. Archiving is the success
+   path — `AUTO_ARCHIVE_GRACE_DAYS` auto-archives closed orders — so
+   the mislabel read the system's successes as its garbage.
+
+   **Corrected figures, same 65-row population:**
+   - (i) order also has a stated window: **7** (was reported 4)
+   - (ii) this lookup is the order's ONLY window source: **7**
+     (was reported 0)
+   - (iii) orphaned / needs-review: **19**
+   - (iv) email genuinely junked: **32**
+
+   **What the correction does and does not change.** Split by sender
+   class, the picture is sharper than the aggregate:
+   - **Carrier senders, no order number (23 rows): bucket (ii) = 0.**
+     Also 0 rows where the order's current window came from that
+     email's lookup with no other linked email supplying one. **So
+     carrier-only gating still strands nothing** — that conclusion
+     survives the correction intact.
+   - **Retailer-domain senders, no order number (42 rows): bucket
+     (ii) = 7.** Blocking *that* class would leave 7 orders with no
+     window source at all.
+   - Carrier senders WITH an order number (9 rows): bucket (ii) = 7 —
+     but these are not the population root cause (a) is about.
+
+   **Net effect: the correction strengthens the narrow (carrier-only)
+   case and weakens the broad one.** Do not carry the old "nothing
+   depends on these" line into a decision about gating by email type
+   or by retailer-domain sender; it is only true of carrier senders.
+
+   (Caveat unchanged: 65 counts *successful* lookups only.
    `policyLookupWasUnclear` is a local in `finalizeExtraction`, never
    persisted, so failed lookups leave no queryable trace and the true
    billed count is higher.)
@@ -2028,6 +2062,22 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       built, not after** — otherwise the cache's first job is to
       propagate an unresolved known defect at scale. This is a
       sequencing constraint on 1a/1b, not an argument against either.
+      **Figure correction, 2026-09-22.** Outcome counts reported
+      earlier the same day overstated waste: the recon script labeled
+      an email "junked" whenever its linked ORDER was archived, even
+      though the email was never junked and the order had completed
+      normally (archiving is the success path). Of 65 no-order-number
+      lookup rows, **32 are genuinely junked** (`Email.junkedAt` set —
+      almost entirely `other`-typed marketing, a class the shipped
+      `emailType !== "other"` gate has since closed), while **17 are
+      linked to orders that completed and were later archived** — cost
+      spent on real orders, not garbage. The waste case for a cache is
+      still strong, but it rests on repeat lookups per retailer, not
+      on a claim that most lookups fire on junk. **Third constraint
+      this adds:** a cache keyed on retailer must not be sized or
+      justified from the junk population, because the gate already
+      removed most of it — measure repeats on the surviving
+      transactional rows.
 - [ ] **PHASE 1c — policy-lookup-gating. NEW 2026-07-22, from the 07-21
       cost investigation.** Decide whether `lookupReturnPolicy()` should be
       reachable from `delivery`- or `shipping_confirmation`-typed emails at
@@ -2070,6 +2120,30 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       same question seen from two ends — one asks "should this email
       type reach a lookup," the other "should an email whose parent
       order already has a window reach one." Design them together.
+      **HARD PREREQUISITE — do not gate anything by type until this
+      holds:** orders left with no return window must surface in
+      needs-review (see the null-`returnDeadline` item, 🔴 Now,
+      2026-09-21). Otherwise a gated single-email order silently has
+      no deadline — the product's entire signal — and nothing anywhere
+      tells the user or us. Gating without that lands the failure in
+      the one place the app is supposed to be authoritative, and makes
+      it invisible.
+      **Corrected evidence, 2026-09-22 — supersedes figures reported
+      earlier the same day.** The first pass claimed no order depends
+      on a no-order-number lookup as its only window source ("bucket
+      (ii) is empty"). That was a recon-script bug: archived orders
+      were short-circuited out before the bucket test ran, and
+      "archived" was wrongly labeled "junked" (an archived order is a
+      *completed* one — the success path — not garbage). True figures
+      across the 65-row population: bucket (ii) = **7**, bucket (i) =
+      **7**, orphaned = 19, genuinely junked = 32.
+      **This cuts directly against broad gating and leaves narrow
+      gating intact.** For carrier senders with no order number,
+      bucket (ii) is **0** — gating those strands nothing. For
+      retailer-domain senders with no order number, bucket (ii) is
+      **7** — gating those strands seven orders. The 07-21 ACE/FedEx
+      reasoning and the 2026-09-21 H&M incident both concern *carrier*
+      senders, which is the class the data actually clears.
 - [ ] **Dateless-order snapshot 2026-07-25 — 6 of 7 are return-POLICY
       resolution failures (returnWindowDays == null), not date failures.
       Clean real-world sample for the policy-lookup work. Orders:
