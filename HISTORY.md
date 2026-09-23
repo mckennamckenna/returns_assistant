@@ -5,6 +5,79 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-22 — H&M incident: provenance guard shipped, one order corrected
+
+Closes the data half of the 2026-09-21 production incident, in which a
+return window the retailer stated in its own email was overwritten by a
+web-search guess and presented as fact.
+
+**Commits:** `8599fe1` (the provenance guard, code + 15 tests +
+DECISIONS + BUILD) and `9628b00` (the one-order data correction
+script). Guard deployed to production and confirmed on the deployment
+itself — Vercel `dpl_7qozczC2bkx44T9e38JoWkhJu8mp`, `githubCommitSha`
+matching `origin/main` exactly, status Ready — before the correction
+was applied, so the corrected row could not be re-corrupted by the next
+merge.
+
+**Root cause.** `mergeEmailIntoOrder` merged `returnWindowDays`,
+`returnWindowStartsFrom` and `policySource` by plain nullish
+coalescing: any non-null incoming value won regardless of provenance.
+Twenty lines above it, `orderDate` had carried a provenance guard since
+2026-08-27. The asymmetry between the two neighbouring blocks was the
+whole bug. Two UPS carrier notifications — no order number, no totals,
+no policy text of their own — each fired a billed lookup returning 3
+and 14 days; when manually linked, the 3 replaced the retailer's stated
+30, moving the deadline 27 days early. Because the merge recomputed
+against a real `deliveredAt`, the wrong date carried
+`deadlineIsEstimated: false` — a web-search guess plus a known delivery
+date produced a more confident-looking output than either input.
+
+**The fix.** A `stated_in_email` window is never replaced by a
+lower-provenance one; window, anchor basis and policy source move
+together as one unit. Deliberately narrow: null incoming windows still
+never clear a resolved one, lookup-vs-lookup still resolves by recency,
+stated-vs-stated still resolves by recency, and the guard requires the
+order's own window to be non-null so it can never strand an order with
+no deadline. Verified by mutation — disabling the guard fails exactly 7
+tests, removing only the non-null condition fails exactly 1.
+
+**The correction.** Order `cmu6h9dk10003jz040cc2e6jo` (owner's
+account): `returnWindowDays` 3 → 30, `policySource` `web_lookup` →
+`stated_in_email`, `returnDeadline` 2026-09-21T17:42:42Z →
+2026-10-18T17:42:42Z. The 30 was read from the order's own two
+stated-window emails rather than assumed, the script aborting unless
+they agreed; the deadline came from the app's own `computeDeadline` and
+was asserted against the same constant the replay test asserts. A
+full-row diff across all 35 Order columns ran before the write. All 9
+Email rows were left untouched, verified by hashing them before and
+after — the two carrier rows keep their 3 and 14 as history.
+
+**Owner verified in production 2026-09-22:** deadline Oct 18, 30 days
+from delivery date, no longer labeled "Web lookup."
+
+**Left as is by owner choice: the suppressed reminder.** A `same_day`
+reminder was delivered on 2026-09-21 against the corrupted deadline,
+telling the user the window closed that day. The `Reminder` table is a
+sent-log deduped on `(orderId, reminderType)`, so that row permanently
+suppresses the real final-day reminder on 2026-10-18. The order's
+`7_day`/`2_day`/`1_day` reminders were never sent and will fire
+normally. Owner reviewed and chose not to delete the row. The general
+lesson — that any future deadline correction must decide per order
+whether to clear affected `Reminder` rows, in the correction script
+itself — is captured in TASKS.md.
+
+**Scope check.** A census of the 120 orders with a linked email in the
+preceding 30 days found exactly one other order with any stated-window
+disagreement, and it holds the correct value (30) under a wrong
+provenance label — no live exposure, no other user affected. The
+incident was not a widespread pattern.
+
+**Zero billed Anthropic API calls** for the entire arc: diagnosis,
+recon, implementation, correction and verification all ran on
+git/grep/file reads, Prisma reads and pure functions.
+
+---
+
 ## 2026-09-21 — URL-poisoning cleanup complete (Phase B)
 
 Cleaned 81 URL-shaped values from `Order.retailer` (40 rows) and

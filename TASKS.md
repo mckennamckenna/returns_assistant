@@ -93,6 +93,15 @@ calls / $0.043" counted only the dry run). Zero web searches all session.
 deployed code was unchanged (`5f8213d`); this is existing production
 behavior.**
 
+**STATUS 2026-09-22 — the DATA half is done; this entry stays open
+until Phase 4 ships.** The provenance guard (`8599fe1`) is live in
+production and the affected order has been corrected and
+owner-verified (see ✅ Done and HISTORY.md). What remains open here is
+root cause (a) — stopping carrier emails with no order number from
+firing the lookup in the first place — which is Phase 4. The guard
+stops the corruption from landing; it does not stop the wrong lookups
+from being made and billed.
+
 **Order:** H&M `#69825036113`, internal id
 `cmu6h9dk10003jz040cc2e6jo`. **Account: the owner's own** (verified by
 scoping the query to the order's user before naming it, per the
@@ -7865,6 +7874,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **H&M incident order's return window corrected, 2026-09-22.** The order that the 2026-09-21 incident corrupted now shows a 30-day window anchored on the delivery date, with a deadline of Oct 18 instead of the wrong Sep 21, and no longer presents as web-lookup-sourced. The two carrier emails keep their wrong guesses as history, and no other order or email row was touched. Shipped only after the provenance guard was live in production, so the corrected row cannot be overwritten again. **Owner verified in production 2026-09-22.** Full detail in HISTORY.md. 0 model calls.
 
 - [x] **URL-poisoning cleanup B2 — reviewed mapping applied, 2026-09-21.** All 81 URL-shaped retailer values cleaned to brand names across `Order.retailer` and `ReturnUrlReview.approvedRetailer`, plus the owner's one correction. Every write was a bare field update gated on both primary key and the prior value, so nothing recomputed, re-linked, or cascaded. Dry run went to a file and waited on an explicit typed go-ahead before anything was written; pre-image and per-row write log are committed under `docs/cleanup/`. Post-check found zero URL-shaped values left on either table and no unexpected write counts. Owner verified in prod. 0 model calls.
 
