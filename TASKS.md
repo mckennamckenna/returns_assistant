@@ -32,6 +32,148 @@
 
 ## 🔴 Now
 
+### 2026-09-23 — Read-only investigation: two orders with no deadline (Gap 1S053MR, Simply Simpson #164649)
+
+**Owner-requested diagnostic. Read-only: no code changes, no DB writes,
+zero billed model calls, no "Re-extract" pressed. Do NOT repair either
+row this session.**
+
+**Context that prompted it.** A 2026-09-23 census of 110 active orders
+(not archived / not deleted / not refunded, order date within 90 days)
+found **1 non-Amazon order with an order date and a return window but
+no deadline** — the Gap order below — and **8 small retailers with no
+return window at all**, Simply Simpson among them. All 9 were flagged
+`needsReview = true`, and **none had ever been sent a reminder.**
+Excluded-retailer counts, shown separately and not in the headline: 4
+Amazon in the first shape, 3 (Etsy ×1, Nordstrom ×2) in the second.
+
+**Case 1 — Gap 1S053MR: why was no delivery estimate ever set?**
+Order has order date 2026-09-18, `returnWindowDays` 30,
+`returnWindowStartsFrom` `delivery_date`, `policySource` `web_lookup`,
+and all three delivery fields empty, so the deadline has nothing to
+count from. The 2026-07-20 Decisions-log entry ("preorder deadline
+model") says delivery is assumed to be order date + 5 days unless an
+email moves it. Hypothesis to test, not assume: same ordering bug as
+🐛 Bugs → Trust-breaking, "Single-email orders can be stuck with a null
+`returnDeadline`."
+
+**Case 2 — Simply Simpson #164649: why was a delivery email never
+extracted?** A readable "shipment ... has been delivered" email shows
+every extracted field empty and "Not yet extracted." Parked and
+explicitly out of scope this session: why Simply Simpson's policy
+lookups failed.
+
+**Deliverable:** findings only — no fix proposals, no design. Sizing
+question that matters most: how many emails silently never get read.
+
+**FINDINGS — 2026-09-23, read-only. Diagnosis only, nothing repaired.**
+
+**Case 1 — Gap #1S053MR: hypothesis CONFIRMED, with one correction.**
+Confirmed ownership first: this order is NOT on the owner's account.
+Sequence, evidenced: the AI found no order date in a poorly-rendered
+body -> computeDeadline ran with orderDate null and returned null ->
+createOrderFromEmail copied that null deadline AND set orderDate from
+`anchorDate` (orderDateSource "extracted"; order.orderDate exactly
+equals the email's anchorDate) -> applyFallbackOrderDate
+(lib/linkOrder.ts:238) opened with `if (order.orderDate) return` and
+early-returned, never recomputing. `updatedAt == createdAt`: untouched
+since creation.
+**Correction to the hypothesis:** the order-date-plus-5-days estimate is
+never "worked out and lost" — it is never persisted at all. It exists
+only as a local inside computeDeadline (lib/extract.ts:599,
+STANDARD_SHIPPING_DAYS = 5 at lib/extract.ts:16), and only runs when
+orderDate is non-null. An empty `estimatedDeliveryDate` here is correct,
+not a symptom. `resolveEstimatedDeliveryDate` (lib/extract.ts:327)
+handles preorder shipByDate only and was never in this path.
+**Sub-finding:** `orderDateEstimated` reads false only because
+createOrderFromEmail never writes the field (schema default). The date
+IS inferred. The record understates its own uncertainty.
+**Population: 1, database-wide.** Active orders with orderDate + window
+counting from delivery_date + no delivery signal + no deadline: Gap
+#1S053MR only. Amazon 0, Nordstrom 0, Etsy 0. (Yesterday's looser census
+found 5; the other 4 are Amazon, whose window counts from order_date —
+same root cause, different exit.)
+**No lost Gap mail:** decrypted-body scan of 538 emails / 60 days on
+that account for "1S053MR" returned exactly 1 hit, the linked
+confirmation. The shipping email has genuinely not arrived in 5 days.
+**Self-heals:** mergeEmailIntoOrder (lib/linkOrder.ts:951) recomputes
+the deadline on every merge unconditionally. Any second linked email
+produces a deadline — a stated ETA + 30, or case 4's 2026-10-23.
+**Tracking:** moved to 🟡 Next, merged into Next #9 (same root cause),
+with a 2026-10-07 re-check date.
+
+**Case 2 — Simply Simpson #164649: extraction never ran, and it is not
+one email but THREE.** Ownership confirmed: owner's account.
+`extractedAt: null` is decisive — runExtraction stamps `extractedAt` on
+BOTH the success path and the catch path, so null means neither branch
+ever completed. `needsReview` is false on all three, confirming the
+catch was never reached either. The email-detail page's "Not yet
+extracted" is solely `!email.extractedAt`
+(app/(app)/emails/[id]/page.tsx:154).
+**Three consecutive orphans, 36 hours, one retailer:** 09-21 13:14
+("arriving today"), 09-22 00:17 ("has been delivered"), 09-22 00:46
+("shipment ... has been delivered") — all unlinked, unextracted,
+needsReview false, bodies intact. The order itself has 3 linked emails;
+the census's count of 3 was correct and these are 3 MORE, not a fourth.
+**Act 2 is exonerated:** backfill-simply-simpson-dates-20260921.ts reads
+via `order.emails`, so unlinked rows were structurally invisible to it;
+it also never writes `extractedAt`. Timing corroborates — its writes
+landed 2026-09-21 21:31:27Z, eight hours AFTER the first orphan arrived
+and it still wasn't seen.
+**No usage TABLE exists** — checked all 17 Prisma models; there is no
+per-call cost table, and `extractedAt`/`extractionRaw` are the only
+per-email database evidence of a billed call. Both are empty here.
+**Correction so the board doesn't contradict itself:** per-call
+`anthropic_usage` logging DID ship 2026-08-04, as structured LOG OUTPUT
+(lib/anthropicUsage.ts:33, `event: "anthropic_usage"`, callSite
+`policy_lookup` at lib/extract.ts:517) — not a table. So "no usage
+table" is correct, but "no usage evidence" may not be: Vercel runtime
+logs for 09-21/22 would carry these lines if still within retention.
+See the log-retention check at the end of this entry.
+**This is the already-open 2026-09-11 item** ("Harden runExtraction.ts
+catch block against second DB failure"): primary write fails, the catch's
+recovery write fails too (Neon P1017), the second exception escapes
+through route.ts's console.error-only handler. Two of the five stuck
+rows ARE that item's named cases (Shutterfly 09/05, Factor 08/31) —
+**identified 2026-09-11 and still unrecovered as of 2026-09-23.**
+**Possible aggravating factor, not proven:** the three SUCCESSFUL Simply
+Simpson extractions took 2m01s / 3m16s / 3m17s, and no `maxDuration` is
+configured anywhere in the repo or vercel.json. Long-running extractions
+near an unconfigured platform timeout would be killed before either
+write lands, producing this exact signature. Worth confirming against
+Vercel's actual limit before treating P1017 as the sole mechanism.
+**Hypothesis, UNPROVEN — what makes them slow (owner, 2026-09-23):** the
+slow part is likely the web policy lookup, which fails for this retailer
+every time. The existing-order skip only fires when the matched order
+already HAS a window (`existingOrder?.returnWindowDays == null` —
+lib/extract.ts:1091; owner cited ~:1029, actual line verified this
+session). Simply Simpson's order has `returnWindowDays: null`, so the
+skip never engages and **every new Simply Simpson email fires another
+slow, failing lookup.** Verified this session: `lookupReturnPolicy`
+(lib/extract.ts:508) has NO time limit — grep of lib/extract.ts for
+AbortController / signal / Promise.race / timeout returns zero hits on
+that path. See 🐛 Bugs → Infra "lookupReturnPolicy unbounded timeout"
+and the Suzie Kondi precedent in the Aug 1–4 re-extract entry. A lookup
+running past the platform timeout would kill the function before either
+`extractedAt` write. **If true, the slow lookup and the Neon P1017 drop
+are two separate routes to the same symptom** — which matters, because
+fixing only the catch block would not close the timeout route.
+**Sizing — the number that matters:** 5 never-extracted non-junked
+emails in the last 30 days (of 293, 1.7%); 6 all-time (of 745, 0.8%),
+across 3 orders. Scale caveat: 43 rows database-wide have a null
+`extractedAt`, but 37 are junked — never meant to be extracted, correct
+behaviour, not loss. The real population is 6.
+**What changed:** prior instances were scattered singletons across
+months. Three consecutive drops from one retailer inside 36 hours,
+taking out an order's entire delivery sequence, is a new shape.
+**Nothing recovers these:** no retry sweep; needsReview false keeps them
+out of the review queue; orderId null leaves them unflagged in Unlinked
+emails. Manual "Re-extract" only — deliberately NOT pressed this session.
+**OWNER DECISION, 2026-09-23: do NOT re-extract the three Simply Simpson
+emails yet.** Re-extracting them after the fix ships becomes the fix's
+live verification. Leaving them stuck is deliberate, not an oversight —
+do not "clean them up" in a future session without revisiting this line.
+
 ### 2026-09-21 — Session close
 
 **Act 2 shipped, deployed, and verified; one order corrected; three new
@@ -3910,6 +4052,18 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       most, not blocking.
 
 ### Cosmetic
+- [ ] **[Low] Email detail page renders timestamps in UTC, not the
+      user's timezone. NEW 2026-09-23, found during the Simply Simpson
+      investigation.** `app/(app)/emails/[id]/page.tsx:78` (receivedAt)
+      and `:154` (extractedAt) call `.toLocaleString()` with no explicit
+      timezone in a SERVER component, so they render in the server's
+      zone (UTC on Vercel). A delivery email received 2026-09-21 17:46
+      Pacific displays as "9/22/2026 12:46:02 AM" — the wrong DAY, to
+      the user. Instance of the already-tracked timezone-drift class
+      (the 2026-08-27 closed entry and its siblings), not a new class —
+      same root shape as the stray `toLocaleDateString` entry directly
+      below. Low severity, but it actively misled a timestamp reading
+      during a live investigation, which is how it was found.
 - [ ] **[Low] Stray toLocaleDateString at `app/(app)/orders/[id]/
       page.tsx:369` — linked-emails list only, not the estimated-
       dates banner. NEW 2026-09-11, surfaced by Trace 7 of the Zara
@@ -4735,6 +4889,35 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       to compute." Diagnosis is done — scope the fix directly. Not urgent; ordered after
       Session A verify + Session B cleanup. If it turns out to affect
       many active orders, revisit ordering.
+      **MERGED IN 2026-09-23 — Gap #1S053MR, same root cause, a second
+      retailer confirming this is not eBay-specific.** Full evidence in
+      🔴 Now, "Read-only investigation: two orders with no deadline."
+      Gap's exit from computeDeadline differs from eBay's only in which
+      branch runs out of inputs: window counts from `delivery_date`, no
+      delivery signal exists, and `parsed.orderDate` was null, so all
+      four branches failed. `applyFallbackOrderDate`
+      (lib/linkOrder.ts:238) then early-returned on
+      `if (order.orderDate) return` because createOrderFromEmail had
+      just set orderDate from `anchorDate` one step earlier — so the one
+      function that recomputes after an order date is established never
+      ran. With the order date present, case 4 would have produced
+      2026-10-23.
+      **Also note:** `orderDateEstimated` is never written by
+      `createOrderFromEmail` at all (falls to the schema default of
+      false), so anchor-derived order dates are recorded as NOT
+      estimated. Any fix here should decide that deliberately rather
+      than inherit it.
+      **Current population: 1 active order** in Gap's exact shape,
+      database-wide (Amazon 0, Nordstrom 0, Etsy 0). Self-heals the
+      moment any second email links, since mergeEmailIntoOrder
+      (lib/linkOrder.ts:951) recomputes unconditionally — so a low
+      standing count does NOT mean low incidence; it means rows leave
+      the population as fast as they enter it.
+      **RE-CHECK 2026-10-07:** count active orders hitting this shape
+      that were created AFTER the 850ef38 deploy (2026-09-21 18:33:50Z).
+      Every affected row found on 2026-09-23 predated it, but only two
+      days of "after" had elapsed — too thin to conclude anything. The
+      2026-10-07 count is the real read on whether Act 2 narrowed this.
 
 - [ ] **Start-return: used-token click should still offer retailer
       redirect (not just dead-end). NEW 2026-09-15, follow-up to the
@@ -5304,6 +5487,23 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       (cmth52vom0001i704plg50wwu), Amazon 08/06
       (cmsgsp9s40001jv04qc7csnt8). Retailer-agnostic. Real bug, low
       base rate, silent when it fires — trust-breaking not urgent.
+      **UPDATE 2026-09-23 — full findings in 🔴 Now, "Read-only
+      investigation: two orders with no deadline."** This bug fired 3
+      MORE times, consecutively, on one retailer inside 36 hours,
+      taking out Simply Simpson #164649's entire delivery sequence.
+      Population is now 5 in the last 30 days / 6 all-time non-junked.
+      **The Shutterfly (09-05) and Factor (08-31) rows named above
+      remain unrecovered as of 2026-09-23** — three weeks after they
+      were identified. Also: "low base rate" and "not urgent" were
+      written against scattered singletons; three consecutive drops on
+      one order is a different shape and may warrant re-rating.
+      **A second candidate mechanism surfaced that this entry's scope
+      does NOT cover:** an unbounded `lookupReturnPolicy`
+      (lib/extract.ts:508, no timeout — verified 2026-09-23) running
+      past the platform function timeout would kill the request before
+      either `extractedAt` write, producing an identical signature with
+      no DB failure at all. Unproven. If it holds, hardening the catch
+      block alone does not close this bug.
       **Not a one-line fix — design decision required before code:**
       (a) where to log durably when both the primary and recovery
       writes fail (new failure-log table? existing DiscardLog with a
