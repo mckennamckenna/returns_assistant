@@ -6,6 +6,52 @@ import { isFoodGroceryRetailer } from "./foodGroceryExclusion";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// --- Bounded model calls (TASKS.md 2026-09-23/24 build) ---------------------
+// The SDK client above is deliberately left at its defaults; every bound
+// below is a PER-REQUEST override, so nothing else that shares this client
+// changes behaviour.
+//
+// Why both fields, always: the SDK's default request timeout is 10 MINUTES
+// and `maxRetries` defaults to 2 — and the SDK retries timeouts. A timeout
+// on its own therefore bounds nothing; worst case is timeout x 3. Setting
+// `maxRetries: 0` alongside it is what makes these real ceilings. Do not
+// drop either half.
+//
+// Sizes come from measured production data (2026-09-24, 653 extractions
+// since 2026-08-24, floor-of-distribution method — receivedAt is the
+// SENDER's clock so only the floor bounds true function time):
+//   * extraction, no lookup: ~12-15s  -> 90s cap is ~6x headroom
+//   * lookup adds:           ~25-35s  -> 60s cap is ~2x headroom
+// Both nest well inside MAX_DURATION_SECONDS (300) on every extraction
+// route, so the model call always gives up before the platform kills the
+// function — which is the whole point: a killed function writes neither
+// success nor failure and leaves the email looking brand new.
+export const EXTRACTION_TIMEOUT_MS = 90_000;
+export const POLICY_LOOKUP_TIMEOUT_MS = 60_000;
+
+// Exported so the recovery sweep can DERIVE its per-email worst case
+// instead of hardcoding a number that silently rots when these change.
+// Worst case for one email: two extraction passes (primary + alternate
+// body) plus one policy lookup.
+export const WORST_CASE_EXTRACTION_MS = EXTRACTION_TIMEOUT_MS * 2 + POLICY_LOOKUP_TIMEOUT_MS;
+
+// Searchable marker written into the email's stored extractionNotes when a
+// bound above is hit. Deliberately in the DATABASE, not just the logs:
+// runtime logs on this plan are retained for minutes, so a log-only record
+// is gone before anyone looks (TASKS.md 2026-09-24, owner decision 6).
+// Counting rows containing these phrases is how the 60s cap gets re-tuned.
+export const LOOKUP_TIMEOUT_NOTE = `Policy lookup timed out after ${POLICY_LOOKUP_TIMEOUT_MS / 1000}s`;
+export const EXTRACTION_TIMEOUT_NOTE = `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 1000}s`;
+
+// A timeout surfaces as APIConnectionTimeoutError; an aborted request as
+// APIUserAbortError. Matched by name rather than `instanceof` so this still
+// works against the mocked SDK in tests, which never constructs real SDK
+// error classes.
+export function isTimeoutError(error: unknown): boolean {
+  const name = (error as { name?: string } | null)?.name;
+  return name === "APIConnectionTimeoutError" || name === "APIUserAbortError";
+}
+
 const MODEL = "claude-sonnet-4-6";
 
 // Conservative assumption when we only have an order date, no confirmed
@@ -506,12 +552,17 @@ export function applyAnchorYearGuard(fields: AnchorGuardFields, anchorDate: Date
 }
 
 async function lookupReturnPolicy(retailer: string, emailId?: string | null): Promise<PolicyLookupResult> {
-  const message = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 1024,
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
-    messages: [{ role: "user", content: buildPolicyLookupPrompt(retailer) } as MessageParam],
-  });
+  const message = await anthropic.messages.create(
+    {
+      model: MODEL,
+      max_tokens: 1024,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
+      messages: [{ role: "user", content: buildPolicyLookupPrompt(retailer) } as MessageParam],
+    },
+    // See the bounded-model-calls block at the top of this file. Both
+    // fields are load-bearing; `timeout` alone would be retried twice.
+    { timeout: POLICY_LOOKUP_TIMEOUT_MS, maxRetries: 0 },
+  );
 
   logAnthropicUsage({
     callSite: "policy_lookup",
@@ -808,13 +859,20 @@ async function runRawExtraction(
   callSite: "email_extraction" | "email_extraction_retry",
   anchorDate: Date | null,
 ): Promise<RawExtraction> {
-  const message = await anthropic.messages.create({
-    model: MODEL,
-    // Orders with many line items can produce long responses — 1024 was
-    // truncating mid-JSON for orders with a dozen+ items.
-    max_tokens: 4096,
-    messages: [{ role: "user", content: buildPrompt(subject, textBody, anchorDate) }],
-  });
+  const message = await anthropic.messages.create(
+    {
+      model: MODEL,
+      // Orders with many line items can produce long responses — 1024 was
+      // truncating mid-JSON for orders with a dozen+ items.
+      max_tokens: 4096,
+      messages: [{ role: "user", content: buildPrompt(subject, textBody, anchorDate) }],
+    },
+    // See the bounded-model-calls block at the top of this file. Unlike the
+    // lookup, a timeout here is NOT swallowed — it propagates to
+    // runExtraction's catch, which stamps extractedAt + needsReview, so the
+    // row is visibly failed rather than silently untouched.
+    { timeout: EXTRACTION_TIMEOUT_MS, maxRetries: 0 },
+  );
 
   logAnthropicUsage({
     callSite,
@@ -1111,6 +1169,14 @@ export async function finalizeExtraction(
     } catch (error) {
       console.error("Return policy web lookup failed for", parsed.retailer, error);
       policyLookupWasUnclear = true;
+      // A timed-out lookup is treated exactly like a lookup that found
+      // nothing — no window saved, extraction carries on and finishes
+      // normally, no retry inside this call. The ONLY difference is the
+      // note, which makes the timeout countable later from stored data
+      // (TASKS.md 2026-09-24 decision 6; re-check scheduled 2026-10-07).
+      if (isTimeoutError(error)) {
+        parsed.notes = `${parsed.notes} ${LOOKUP_TIMEOUT_NOTE}.`;
+      }
     }
   }
 

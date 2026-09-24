@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/apply-url-reviews",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/extraction-sweep",
+      "schedule": "0 9 * * *"
     }
   ]
 }

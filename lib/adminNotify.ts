@@ -15,7 +15,11 @@ export type NotificationKind =
   | "inbound_volume_spike"
   | "inbound_rate_limited"
   | "magic_link_rate_limited"
-  | "magic_link_sent";
+  | "magic_link_sent"
+  // Extraction recovery sweep (2026-09-24): emails that were retried once
+  // and are still unextracted, plus retries interrupted mid-flight. Admin
+  // only — nothing on this path ever reaches a user.
+  | "extraction_retry_failed";
 
 // Centralizes "never let an admin notification failure break the real flow
 // it's attached to" — a missing ADMIN_EMAIL or a Postmark hiccup here

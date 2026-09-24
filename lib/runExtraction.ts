@@ -1,6 +1,12 @@
 import type { Email } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { extractEmailIdentity, finalizeExtraction, type ExistingOrderContext } from "@/lib/extract";
+import {
+  extractEmailIdentity,
+  finalizeExtraction,
+  isTimeoutError,
+  EXTRACTION_TIMEOUT_NOTE,
+  type ExistingOrderContext,
+} from "@/lib/extract";
 import { linkEmailToOrder, findMatchingOrder } from "@/lib/linkOrder";
 import { decrypt } from "@/lib/crypto";
 import { resolveBodyTextWithAlternate } from "@/lib/emailBodyText";
@@ -188,7 +194,17 @@ export async function runExtraction(emailOrId: string | Email): Promise<void> {
 
     await prisma.email.update({
       where: { id: emailId },
-      data: { needsReview: true, extractedAt: new Date() },
+      data: {
+        needsReview: true,
+        extractedAt: new Date(),
+        // Notes were never written on this path before (TASKS.md
+        // 2026-09-24, decision 6). A timeout is the one failure we need to
+        // be able to COUNT later from stored data, because runtime logs on
+        // this plan are retained for minutes. Only set for timeouts —
+        // every other failure keeps the previous behaviour of leaving
+        // extractionNotes untouched.
+        ...(isTimeoutError(error) ? { extractionNotes: EXTRACTION_TIMEOUT_NOTE } : {}),
+      },
     });
   }
 }

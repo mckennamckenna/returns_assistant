@@ -32,6 +32,141 @@
 
 ## 🔴 Now
 
+### 2026-09-23 — BUILD: stop inbound emails from silently dying during extraction
+
+**Owner-directed build. Three parts, one goal: an email that arrives can
+never end up stored-but-never-read with nothing flagged and nothing
+retrying it.**
+
+**Why now.** 5 emails in the last 30 days (1.7% of non-junked mail) were
+stored and never extracted — including three consecutive Simply Simpson
+emails on 2026-09-21/22 that took out an entire delivery sequence. Full
+evidence in the 2026-09-23 findings entry below (commit 5922f2a).
+
+**Two routes to the same symptom:**
+- (a) **Proven** — extraction fails, the catch block's own recovery write
+  ALSO fails (Neon P1017), and the second exception escapes through
+  route.ts's console.error-only handler. This is the 2026-09-11 "Harden
+  runExtraction.ts catch block" entry, which stays a SEPARATE item.
+- (b) **Likely, unproven** — an unbounded `lookupReturnPolicy` runs until
+  the platform kills the whole function, before either `extractedAt`
+  write lands. This is 🐛 Bugs → Infra "lookupReturnPolicy unbounded
+  timeout."
+
+**Scope — three parts:**
+1. A time limit on `lookupReturnPolicy`. On timeout, behave exactly like
+   today's "lookup found nothing": no window saved, extraction carries on
+   and finishes normally. No retry inside the same call.
+2. An explicit `maxDuration` on every route that runs extraction, set
+   comfortably above the lookup limit so the lookup always gives up
+   first, and within the platform ceiling.
+3. A recovery sweep on its own route and schedule (NOT the existing cron
+   route, which sends real reminder emails): finds emails still
+   unextracted, not junked, received more than N minutes ago, and retries
+   extraction exactly ONCE — with a durable database record that makes a
+   second automatic retry impossible. Failed retries notify the owner via
+   the existing notifyAdmin pattern under a new kind. Nothing goes to
+   users. Covers only emails received AFTER this deploys.
+   **Runs ONCE A DAY (owner amendment 2026-09-24).** The platform plan
+   caps cron frequency at daily and fires at any point within the
+   scheduled hour, so the sweep must be sized for "one run, several
+   candidates" rather than "frequent runs, one candidate." It caps the
+   number handled per run instead of timing out halfway; leftovers wait
+   for the next day. The schedule lives in exactly one obvious place, so
+   moving to a more frequent cadence later is a one-line change plus a
+   deploy. The retry record stores when the retry ran, how long it took,
+   and whether it succeeded — the database is the only record, because
+   runtime logs on this plan are retained for minutes.
+
+**Platform facts this build is sized against (owner-supplied
+2026-09-24):** plan Hobby, Fluid compute on, function max duration 300
+seconds. **Caveat the owner flagged:** the 300s figure was read from
+the platform's public docs, not from this project's own Settings →
+Functions page, and the CLI does not expose it (`vercel project
+inspect` returns framework and Node version only). **Open contradiction
+— see the build report: `vercel.json` already carries FIVE cron jobs
+that deploy successfully, which does not fit the documented Hobby cap of
+two.** Resolve before adding a sixth.
+
+**Handled by hand, NOT by the sweep:** the 6 existing stuck rows (3
+Simply Simpson, Shutterfly 09-05, Factor 08-31, 1 older Amazon).
+
+**Relationship to "Ingestion observability + recovery" (🟡 Next) —
+partial coverage, DO NOT open a parallel entry.** That item has two
+halves. This build delivers **half (b) only, and only partly**: an
+auto-recovery mechanism for rows stuck at `extractedAt IS NULL` past an
+age threshold. **Still open on that item after this ships:** half (a)
+entirely — per-request logging at each ingestion stage (webhook receipt,
+commerce classification, row creation, extraction) — and the part of (b)
+beyond this sweep's own retry record, i.e. any durable per-stage failure
+log that would let a future incident be diagnosed after Vercel's minutes-
+long log retention expires. This build's ActionLog rows record only that
+a retry ran and how it ended, not why the original attempt died.
+
+**Checkpoints:** (1) read-only design + numbers, owner approves before
+any code. (2) build + tests, owner approves before deploy. (3) live
+verification by re-extracting the three Simply Simpson emails.
+
+**STATUS 2026-09-24 — BUILT, NOT DEPLOYED. Awaiting owner approval to
+deploy; awaiting user verification thereafter.**
+Approved numbers, all implemented: policy lookup 60,000 ms /
+`maxRetries: 0`; extraction call 90,000 ms / `maxRetries: 0` (owner-
+approved scope expansion — the extraction call was equally unbounded,
+so bounding only the lookup would have left the same silent-death route
+open via a different call); `maxDuration = 300` on all three extraction
+routes; sweep threshold 20 minutes, daily at 09:00 UTC, max 3 emails per
+run, `SWEEP_COVERAGE_START` a constant. Migration written but NOT
+applied — it runs only as part of the approved deploy, and the generated
+SQL matched the owner-approved SQL exactly (verified with
+`prisma migrate diff`).
+**Worst case per daily run: 9 billed Anthropic calls** (3 emails x [2
+extraction + 1 lookup]), up to 9 web searches. Expected on a healthy
+day: 0 — no eligible rows means no model calls at all.
+**ROLLBACK FOR THE MIGRATION — recorded, NOT run (owner, 2026-09-24).**
+If `ActionLog.emailId` ever had to come out, the order is: **revert the
+CODE FIRST**, deploy that, and only then drop the database objects —
+dropping the column under code that still references it breaks every
+`ActionLog` write, including the action links in live reminder emails
+(`app/api/action/*/route.ts`) and the status routes. Then, in this
+order — foreign key, index, column:
+```sql
+ALTER TABLE "ActionLog" DROP CONSTRAINT "ActionLog_emailId_fkey";
+DROP INDEX "ActionLog_emailId_idx";
+ALTER TABLE "ActionLog" DROP COLUMN "emailId";
+```
+This is NOT additive and would be destructive — it discards every
+recorded "this email has had its one automatic retry" fact, after which
+the sweep would re-retry every email it had already tried. It therefore
+needs explicit owner sign-off on this exact SQL at the time, per the
+CLAUDE.md migration rule. Recorded here so the path exists; it is not a
+routine undo.
+
+**Two things the build changed from the approved design, both because
+tests caught them:**
+(a) The per-run cap is now enforced in the LOOP as well as the query's
+`take`. A test that returned more rows than the cap proved the loop
+would have processed all of them — the cap was a property of one query,
+not of the run.
+(b) `lib/runExtraction.ts`'s catch now writes `extractionNotes` on a
+timeout. It previously wrote no notes at all on any failure path, so
+there was nowhere for the searchable timeout phrase to land.
+**Regression found and fixed while building:** four existing test files
+mock `@/lib/extract` wholesale. Adding `isTimeoutError` /
+`EXTRACTION_TIMEOUT_NOTE` to that module broke
+`__tests__/runExtraction.test.ts` (2 failures) until its mock was
+updated. Worth remembering: any new export from `lib/extract.ts` must be
+added to those mocks or the catch path throws inside the test.
+
+**Explicitly OUT of scope this session** — flag and ask, do not do:
+direct retailer policy-page fetching (the Shopify
+`/policies/refund-policy` idea); the shortest-wins rule; positive/
+negative lookup caches; lookup gating by email type; Simply Simpson's
+missing return window; re-extracting Shutterfly/Factor/anything else;
+any user-facing Needs-review change; the email-page timezone display;
+the rest of the Ingestion observability item per the paragraph above;
+**any Vercel plan change** (added by owner amendment 2026-09-24 — the
+design must fit the current plan's limits, not assume an upgrade).
+
 ### 2026-09-23 — Read-only investigation: two orders with no deadline (Gap 1S053MR, Simply Simpson #164649)
 
 **Owner-requested diagnostic. Read-only: no code changes, no DB writes,
@@ -65,6 +200,10 @@ lookups failed.
 
 **Deliverable:** findings only — no fix proposals, no design. Sizing
 question that matters most: how many emails silently never get read.
+
+**BUILD SPAWNED 2026-09-23 — these findings are the basis for the
+🔴 Now entry "BUILD: stop inbound emails from silently dying during
+extraction," directly above.**
 
 **FINDINGS — 2026-09-23, read-only. Diagnosis only, nothing repaired.**
 
@@ -137,11 +276,28 @@ through route.ts's console.error-only handler. Two of the five stuck
 rows ARE that item's named cases (Shutterfly 09/05, Factor 08/31) —
 **identified 2026-09-11 and still unrecovered as of 2026-09-23.**
 **Possible aggravating factor, not proven:** the three SUCCESSFUL Simply
-Simpson extractions took 2m01s / 3m16s / 3m17s, and no `maxDuration` is
-configured anywhere in the repo or vercel.json. Long-running extractions
-near an unconfigured platform timeout would be killed before either
-write lands, producing this exact signature. Worth confirming against
-Vercel's actual limit before treating P1017 as the sole mechanism.
+Simpson extractions showed gaps of 2m01s / 3m16s / 3m17s, and no
+`maxDuration` is configured anywhere in the repo or vercel.json.
+Long-running extractions near an unconfigured platform timeout would be
+killed before either write lands, producing this exact signature. Worth
+confirming against Vercel's actual limit before treating P1017 as the
+sole mechanism.
+**CORRECTION 2026-09-24 — the "2m01s / 3m16s / 3m17s" figures above are
+NOT function durations, and the "platform limit is at least 197s"
+inference drawn from them is WITHDRAWN.** They are
+`extractedAt − receivedAt`, and `receivedAt` is set from the inbound
+payload's own `Date` header (`app/api/inbound/route.ts:99`) — the
+SENDER's clock at send time, not when our webhook fired. The gap
+therefore includes mail transit and forwarding lag, and spans two
+unsynchronised clocks. Proof it is not function time: across 653
+extractions since 2026-08-24, 60 show gaps over 300s (one at 1635s) —
+impossible inside a single 300s-capped invocation — and one gap is
+NEGATIVE (−4.6s), which only a sender clock ahead of ours can produce.
+**Nothing in the database records how long an extraction actually
+ran.** Email has no "extraction started" timestamp; `receivedAt` and
+`extractedAt` come from different clocks measuring different events.
+Function duration is only inferable as an upper bound from the floor of
+the distribution (see the 2026-09-24 build entry's timing table).
 **Hypothesis, UNPROVEN — what makes them slow (owner, 2026-09-23):** the
 slow part is likely the web policy lookup, which fails for this retailer
 every time. The existing-order skip only fires when the matched order
@@ -158,6 +314,13 @@ running past the platform timeout would kill the function before either
 `extractedAt` write. **If true, the slow lookup and the Neon P1017 drop
 are two separate routes to the same symptom** — which matters, because
 fixing only the catch block would not close the timeout route.
+**Consequence for the slow-lookup theory (2026-09-24):** with those
+durations withdrawn, the theory that a slow lookup killed these three
+emails now rests ONLY on the lookup being unbounded — which is proven
+from the code (no timeout, and `maxRetries` defaulting to 2 on a client
+that retries timeouts, so a worst case of ~30 minutes). There is no
+longer any timing evidence that these three specific emails ran long.
+The mechanism is plausible and now closed off; it is not demonstrated.
 **Sizing — the number that matters:** 5 never-extracted non-junked
 emails in the last 30 days (of 293, 1.7%); 6 all-time (of 745, 0.8%),
 across 3 orders. Scale caveat: 43 rows database-wide have a null
@@ -4219,6 +4382,35 @@ the 09-17 pattern; the 09-19 placement was a one-off).
 ### Infra / reliability
 - [ ] **`lookupReturnPolicy` has no bounded timeout — PRODUCTION RISK,
       not backlog. Latent since 2026-08-05, re-observed 2026-09-21.**
+      **BEING FIXED 2026-09-23 — see 🔴 Now "BUILD: stop inbound emails
+      from silently dying during extraction," part 1.** That build bounds
+      this call and treats a timeout as today's "lookup found nothing."
+      Note for whoever picks this up: the SDK default is 10 minutes AND
+      `maxRetries` defaults to 2, and the SDK retries timeouts — so the
+      true unbounded worst case is ~30 minutes of wall clock, not 10.
+      A timeout alone does not bound it; `maxRetries` must be set too.
+      **MERGED 2026-09-24 (owner-directed).** A second entry for this
+      same bug lived in 🟡 Next ("`lookupReturnPolicy` needs a bounded
+      timeout — latent bug, NEW 2026-08-05", slug
+      `lookup-return-policy-timeout`). That entry has been deleted and
+      its unique content folded in below; this is now the single entry.
+      **The 2026-08-05 Suzie Kondi origin (from the merged entry):**
+      during the Aug-4 backfill the lookup for retailer "Suzie Kondi"
+      hung near the SDK default long enough for Neon to auto-suspend and
+      wedge the process's other DB connections — taking the whole run
+      down twice, billing 2 wasted extraction calls, and leaving one row
+      unrepaired (`cmsdunton0001gt04vm8msv9m`; full trace in the
+      Aug-outage backfill entry). The point that entry made and this one
+      should keep: **the same call site fires from live inbound traffic,
+      not just backfill scripts**, so a hanging lookup stalls the real
+      pipeline.
+      **Note on the merged entry's proposed fix:** it specified failing
+      the row to `needsReview` on timeout. The build took the owner's
+      later instruction instead — a timeout behaves exactly like a
+      lookup that found nothing (no window saved, extraction completes
+      normally), plus a searchable note in `extractionNotes`. Recorded
+      here so the difference is deliberate and visible, not silently
+      dropped.
       Each call is an Anthropic web-search request (`lib/extract.ts`,
       `lookupReturnPolicy`) with no explicit timeout, so it inherits
       the SDK default of 10 minutes. The original 2026-08-05 incident
@@ -4383,20 +4575,8 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       future downstream consumer of the field (currently just the
       anchor-date resolver's `auto`/`manual` branch and the
       `forwardTypeLabel()` UI string).
-- [ ] **`lookupReturnPolicy` needs a bounded timeout — latent bug, NEW
-      2026-08-05, from the Aug-4 backfill.** During that backfill, the
-      lookup for retailer "Suzie Kondi" hung near the Anthropic SDK's
-      default timeout — long enough for Neon to auto-suspend and wedge the
-      process's other DB connections, taking the whole run down twice,
-      billing 2 wasted extraction calls, and leaving one row unrepaired
-      (`cmsdunton0001gt04vm8msv9m` — see the 🔴 Now Aug-outage backfill
-      entry for the full trace). With no per-call timeout on the lookup,
-      any slow/hanging web-search call can stall the whole pipeline, not
-      just a backfill script — the same call site fires from live inbound
-      traffic (`extractEmail()`). **Fix:** a bounded timeout on
-      `lookupReturnPolicy` (`lib/extract.ts`) that fails the row to
-      `needsReview` instead of hanging. Real production code change — its
-      own small pass, not built here. Slug: `lookup-return-policy-timeout`.
+- [x] **MERGED 2026-09-24 — was "`lookupReturnPolicy` needs a bounded timeout" (NEW 2026-08-05, slug `lookup-return-policy-timeout`). Duplicate of 🐛 Bugs → Infra "`lookupReturnPolicy` has no bounded timeout — PRODUCTION RISK"; content folded there, which is now the single entry.**
+
 - [ ] **Follow-up (low priority): `weekly-coverage` cron fetches full
       `Email` rows with no select — split out of the missing-select
       bandwidth bug 2026-08-20, deliberately NOT built in that pass.**
@@ -4501,6 +4681,32 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       investigation, diff) → HISTORY.md 2026-08-24, not duplicated here.**
 
 ## 🟡 Next
+
+- [ ] **RE-CHECK 2026-10-07 — is the 60s policy-lookup cap costing real
+      return windows? NEW 2026-09-24, from the extraction-timeout build.**
+      The 60,000 ms cap on `lookupReturnPolicy` was sized from measured
+      data (lookups add ~25-35s; floor-of-distribution over 653
+      extractions), but the owner accepted a known risk: if 60s is
+      tighter than some legitimate slow lookups, those orders silently
+      get "no window found" and land in Needs review instead of getting a
+      deadline. Nobody would notice from the outside — it looks exactly
+      like a retailer whose policy couldn't be found.
+      **How to check (read-only, 0 billed calls):** count emails whose
+      `extractionNotes` contain the exact phrase `Policy lookup timed out
+      after 60s` (exported as `LOOKUP_TIMEOUT_NOTE` in lib/extract.ts).
+      Do the same for `Extraction timed out after 90s`
+      (`EXTRACTION_TIMEOUT_NOTE`). Deliberately stored in the DATABASE,
+      not the logs — runtime logs on this plan are retained for minutes,
+      so a log-only record would be gone before this re-check ran.
+      **Decision rule:** a handful over two weeks is the cap working as
+      intended. A steady stream, or any row where a retailer with a known
+      real policy timed out, means 60s is too tight — raise it (there is
+      room: worst case is currently 240s against a 300s ceiling) rather
+      than removing the bound.
+      **Related:** if timeouts are near zero AND the never-extracted
+      count is also near zero, that is evidence route (b) was never the
+      main mechanism and route (a) — the catch-block double-failure,
+      still open in 🐛 Bugs → Trust-breaking — is what matters.
 
 - [ ] **`deadlineIsEstimated` describes the ANCHOR DATE only, not the
       WINDOW — so a guessed window on a known delivery date displays as
@@ -5487,6 +5693,14 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       (cmth52vom0001i704plg50wwu), Amazon 08/06
       (cmsgsp9s40001jv04qc7csnt8). Retailer-agnostic. Real bug, low
       base rate, silent when it fires — trust-breaking not urgent.
+      **BACKSTOPPED (not fixed) 2026-09-23 — see 🔴 Now "BUILD: stop
+      inbound emails from silently dying during extraction," part 3.**
+      That build's recovery sweep catches rows this bug strands, but does
+      NOT fix the bug: the catch block can still double-fail and lose the
+      failure silently. **This entry stays open on its own merits.** The
+      sweep only means a stranded row is now retried once and surfaced,
+      instead of sitting undetected. Owner asked to be consulted if the
+      hardening turns out to be a one- or two-line change.
       **UPDATE 2026-09-23 — full findings in 🔴 Now, "Read-only
       investigation: two orders with no deadline."** This bug fired 3
       MORE times, consecutively, on one retailer inside 36 hours,
@@ -6125,7 +6339,34 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       reference). Full return-in-transit feature is explicitly out of
       scope this pass — parked as a separate future item.
 - [ ] **Ingestion observability + recovery. NEW 2026-08-20 — not scoped,
-      waiting on owner priority.** Direct predecessor: the 2026-07-21
+      waiting on owner priority. PARTIALLY COVERED 2026-09-23 — see
+      🔴 Now "BUILD: stop inbound emails from silently dying during
+      extraction," part 3. This entry stays OPEN; do not close it and do
+      not open a parallel entry for the same problem.**
+      **What that build delivers:** half (b) below, partly — an
+      auto-recovery mechanism for rows stuck at `extractedAt IS NULL`
+      past an age threshold, retried once, with a durable record and an
+      admin notification on failure.
+      **What remains open here:** half (a) in full — per-request logging
+      at each ingestion stage — plus the rest of (b): any durable
+      per-stage failure log explaining WHY an attempt died. The sweep's
+      ActionLog rows record only that a retry ran and how it ended. The
+      2026-09-23 investigation re-proved the need for (a): Vercel logs
+      for the 09-21/22 incident had already aged out by 09-23, so the
+      `anthropic_usage` lines that would have settled the timeout
+      hypothesis were unrecoverable.
+      **Extraction has no start timestamp — belongs here, not to the
+      2026-09-24 build (owner, 2026-09-24).** Nothing stored records how
+      long an extraction actually RAN. `Email.receivedAt` is the sender's
+      own `Date` header (`app/api/inbound/route.ts:99`), not when our
+      webhook fired, and `extractedAt` is our clock — so the difference
+      spans two unsynchronised clocks and includes mail transit. It is
+      not a duration. This is what made the 2026-09-23 "2-3 minute
+      extraction" reading wrong (see the correction in that entry), and
+      it is why the only way to size a function-duration budget today is
+      the floor-of-distribution method. Any per-stage logging built for
+      half (a) should carry a real extraction start timestamp so
+      duration becomes directly measurable instead of inferred. Direct predecessor: the 2026-07-21
       ingestion incident (🐛 Bugs, Trust-breaking) could not be
       root-caused because no per-request logging existed at any
       ingestion stage — `DiscardLog` carries no per-email identifier, no
@@ -9958,6 +10199,32 @@ part of Task 2 (dry run, snapshot, or apply — pure DB/logic path).
 
 ## ⚠️ Known issues / tech debt
 <!-- Claude Code: append issues you discover here, newest first, with the file involved -->
+- **28 emails are extracted but never linked to an order, and none is
+  `emailType: "other"`. NEW 2026-09-24 — CAPTURE ONLY, not sized.**
+  Found incidentally while checking whether the extraction recovery sweep
+  could create duplicate Orders (it can't — see the 🔴 Now build entry).
+  Shape: `extractedAt` set, `orderId` null, `junkedAt` null. The query
+  that found them also confirmed **zero** rows in the opposite,
+  dangerous shape (`extractedAt` null with `orderId` set).
+  **Most of these are probably fine, and that is the caveat that matters:**
+  `lib/linkOrder.ts:1188` has a deliberate orphan branch that leaves an
+  email unlinked when it cannot resolve a retailer or order number,
+  setting `needsReview: true` — a legitimate, designed outcome, not a
+  failure. What makes the count worth recording rather than ignoring is
+  that the one type expected to sit unlinked, `emailType: "other"`,
+  accounts for **none** of the 28, so that explanation is ruled out for
+  all of them.
+  **A smaller, second possibility:** `lib/runExtraction.ts` stamps
+  `extractedAt` (:187) and only then calls `linkEmailToOrder` (:191), so
+  an invocation killed between those two writes lands in exactly this
+  shape — and the sweep will never pick it up, because eligibility
+  requires `extractedAt` to be null. Unknown how many, if any, are this.
+  **Separating the two needs its own read-only pass** (check
+  `needsReview`, whether `extractionRaw` is present, and whether a
+  matching Order exists). Deliberately not done here — out of scope.
+  **Related, do not duplicate:** the "Orphan census refresh" item and
+  🟡 Next "Ingestion observability + recovery" already cover this
+  territory; fold this in rather than opening a parallel thread.
 - **`policyLookupWasUnclear` is never persisted, so failed lookups leave
   no trace. 2026-09-22.** `lib/extract.ts`'s `finalizeExtraction` keeps it
   as a local variable; only its prose reaches `Email.extractionNotes`.

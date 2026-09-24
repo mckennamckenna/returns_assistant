@@ -24,6 +24,15 @@ const mockFinalizeExtraction = vi.fn();
 vi.mock("@/lib/extract", () => ({
   extractEmailIdentity: mockExtractEmailIdentity,
   finalizeExtraction: mockFinalizeExtraction,
+  // Added 2026-09-24: runExtraction's catch block now consults these to
+  // decide whether a failure was a timeout. Mirrors the real
+  // implementations rather than stubbing them out, so the catch path is
+  // exercised for real here.
+  isTimeoutError: (error: unknown) => {
+    const name = (error as { name?: string } | null)?.name;
+    return name === "APIConnectionTimeoutError" || name === "APIUserAbortError";
+  },
+  EXTRACTION_TIMEOUT_NOTE: "Extraction timed out after 90s",
 }));
 
 const mockLinkEmailToOrder = vi.fn();
@@ -534,5 +543,54 @@ describe("runExtraction — effectiveRetailer wiring (2026-09-11/13 fix session)
     expect(mockEmailUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ retailer: "Zara", retailerSource: "sender_fallback" }) }),
     );
+  });
+});
+
+// Extraction-call timeout (TASKS.md 2026-09-24 build, owner-approved scope
+// expansion). Bounding the extraction call created a new failure shape: the
+// SDK now throws APIConnectionTimeoutError at 90s. It must land in the SAME
+// catch that every other extraction failure lands in, so the row is stamped
+// and visibly needs review — never left at pure Prisma defaults, which is
+// the signature of the silent-loss bug this whole build targets.
+describe("extraction-call timeout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindMatchingOrder.mockResolvedValue(null);
+    mockFinalizeExtraction.mockResolvedValue(EXTRACT_RESULT);
+  });
+
+  function timeoutError() {
+    const e = new Error("Request timed out.");
+    e.name = "APIConnectionTimeoutError";
+    return e;
+  }
+
+  it("goes through the normal catch path: extractedAt stamped, needsReview true", async () => {
+    mockEmailFindUnique.mockResolvedValue(BASE_ROW);
+    mockExtractEmailIdentity.mockRejectedValue(timeoutError());
+
+    await runExtraction(BASE_ROW.id);
+
+    expect(mockEmailUpdate).toHaveBeenCalledTimes(1);
+    const data = mockEmailUpdate.mock.calls[0][0].data;
+    // The row must NOT look brand new.
+    expect(data.extractedAt).toBeInstanceOf(Date);
+    expect(data.needsReview).toBe(true);
+    // And the timeout must be countable later from stored data, because
+    // runtime logs on this plan are retained for minutes.
+    expect(data.extractionNotes).toBe("Extraction timed out after 90s");
+  });
+
+  it("does not write a timeout note for an ordinary extraction failure", async () => {
+    mockEmailFindUnique.mockResolvedValue(BASE_ROW);
+    mockExtractEmailIdentity.mockRejectedValue(new Error("malformed JSON"));
+
+    await runExtraction(BASE_ROW.id);
+
+    const data = mockEmailUpdate.mock.calls[0][0].data;
+    expect(data.extractedAt).toBeInstanceOf(Date);
+    expect(data.needsReview).toBe(true);
+    // Previous behaviour preserved: notes untouched on every other failure.
+    expect(data.extractionNotes).toBeUndefined();
   });
 });

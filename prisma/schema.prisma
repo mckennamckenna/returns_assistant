@@ -196,6 +196,10 @@ model Email {
   orderId String?
   order   Order?  @relation(fields: [orderId], references: [id])
 
+  // Back-relation for ActionLog.emailId (extraction recovery sweep,
+  // 2026-09-24). Relation field only — adds no column to Email.
+  actionLogs ActionLog[]
+
   // --- Milestone 8 addition ---
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -480,6 +484,17 @@ model ActionLog {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   orderId   String?
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  // Added 2026-09-24 for the extraction recovery sweep
+  // (app/api/cron/extraction-sweep). ActionLog previously had no way to
+  // name an EMAIL — only an order — and the rows the sweep exists to
+  // recover have orderId: null by definition (that's part of what makes
+  // them invisible). Nullable and SetNull-on-delete, exactly like orderId
+  // above: an ActionLog row is an audit record and must outlive the thing
+  // it describes. This is the durable "this email has had its one
+  // automatic retry" record — deliberately in the database, because
+  // runtime logs on this plan are retained for minutes.
+  emailId   String?
+  email     Email?   @relation(fields: [emailId], references: [id], onDelete: SetNull)
   action    String
   // Token-route outcomes: "success" | "expired" | "already_used" | "invalid"
   //   | "order_state_changed" | "no_portal"
@@ -495,6 +510,10 @@ model ActionLog {
   ipAddress String?
   userAgent String?
   at        DateTime @default(now())
+
+  // The sweep's eligibility check is "has this email ever had an
+  // extraction_retry row" — run once per candidate, every day, forever.
+  @@index([emailId])
 }
 
 // --- Milestone 10: aggregate-only record of non-commerce discards at

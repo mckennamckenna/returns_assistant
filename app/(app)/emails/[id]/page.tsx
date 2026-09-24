@@ -10,6 +10,14 @@ import { formatCalendarDate } from "@/lib/dateDisplay";
 
 export const dynamic = "force-dynamic";
 
+// Route segment config — applies to this page AND to the Server Actions it
+// invokes, which is how the Re-extract action (./actions.ts) gets covered:
+// a Server Action has no segment config of its own, it inherits the
+// segment's. Same reasoning and same value as the inbound webhook and the
+// recovery sweep: must cover a full worst-case extraction with margin, and
+// must not exceed the platform's function limit.
+export const maxDuration = 300;
+
 // lib/dateDisplay.ts — reads the UTC calendar-date components, matching
 // every other calendar-date render site in the app (TASKS.md 2026-08-27).
 const formatDate = formatCalendarDate;

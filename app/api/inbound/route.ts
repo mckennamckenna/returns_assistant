@@ -15,6 +15,14 @@ import { shouldAutoJunk } from "@/lib/junk";
 import { extractDomain } from "@/lib/foodGroceryExclusion";
 import { detectSelfOutboundLoop } from "@/lib/selfOutboundGuard";
 
+// Must cover a full worst-case extraction — two bounded extraction passes
+// plus a bounded policy lookup (lib/extract.ts) — with margin, and must not
+// exceed the platform's function limit. Before this was declared, a slow
+// extraction could be killed at an undeclared ceiling before runExtraction
+// wrote EITHER success or failure, leaving the email stored but never read
+// with nothing flagged (TASKS.md 2026-09-23 findings).
+export const maxDuration = 300;
+
 const INBOUND_RATE_LIMIT = 30;
 const INBOUND_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const INBOUND_RATE_LIMIT_NOTIFY_WINDOW_MS = 60 * 60 * 1000;
