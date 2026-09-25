@@ -5,6 +5,65 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-25 — `orderDate` overwrite audit: no user's deadline is wrong
+
+Follow-up to the coverage-digest closure below, which deliberately left
+the Suzie Kondi `orderDate` corruption open on the grounds that a
+correct-looking digest cannot verify a data-correctness bug. This is
+that verification. Read-only: 0 writes, 0 billed Anthropic API calls.
+
+**The bug.** A refund email's own extracted date had silently overwritten
+Suzie Kondi #99500's real `orderDate` (2026-07-23 → 2026-08-12) through
+`mergeEmailIntoOrder`, which at the time had no `emailType` gate.
+`orderDate` feeds `returnDeadline`, so this could move a live deadline.
+
+**Two corrections to what the board previously claimed.** The banner said
+the fix was unverified and the corrupted row was never confirmed
+repaired. Both were wrong. #99500 was repaired on **2026-08-16** by a
+dedicated one-order backfill (`scripts/backfill-writeonce-orderdate-suzie.ts`,
+commit `25cd981`) — eleven days *before* the provenance fix shipped — and
+now reads its true 2026-07-23. The row is also moot twice over: archived
+2026-08-12, `displayStatus: refunded`, with a 14-day deadline
+(2026-08-11) that had passed six weeks before this audit ran.
+
+**Population scan.** Of **103 active orders** with an `orderDate`, **zero**
+show the overwrite shape — defined as an `orderDate` later than the
+earliest establishing email's own date, or matching the date of a later
+refund/shipping/delivery email.
+
+**Why the zero is trustworthy.** A scan that finds nothing is
+indistinguishable from a broken scan, so the detector was run against a
+positive control first: replayed against #99500's corrupted 2026-08-12
+value it fires correctly (drift 20 days, matched a later `refund`
+email), and against the repaired value it stays clean. Only then was the
+empty result accepted.
+
+**Widened to all 280 orders in any state**, exactly 2 flag, neither this
+bug: Shopbop #143429832 (1-day `fallback` drift, no post-purchase email
+matches, archived) and Fitness Superstore #48868 (365-day drift in the
+*opposite* direction — the known wrong-year extraction class, which the
+Suzie backfill had deliberately excluded for that exact reason;
+archived).
+
+**The fix is holding, structurally as well as empirically.** Zero
+candidates from any email linked after `c150170` (2026-08-28 00:25 UTC),
+across the 69 of 103 active orders created since — two thirds of the live
+population through a month of real inbound traffic.
+`mergeEmailIntoOrder`'s `canOverwriteOrderDate` now requires an
+establishing `emailType`, so a refund email is structurally incapable of
+setting `orderDate` at all, rather than merely not having been observed
+doing so.
+
+**Also checked and cleared:** 3 active post-fix orders still marked
+`orderDateSource: "unknown"` all carry a null `orderDate` — the
+documented legitimate case where no date was extracted and the fallback
+declined. No provenance gap.
+
+**Conclusion: no current user's return deadline is wrong because of this
+bug.** Closed.
+
+---
+
 ## 2026-09-25 — Friday coverage-check digest closed after three incidents
 
 The Friday weekly coverage-check digest — a real all-users email — went
@@ -78,9 +137,8 @@ A correct-looking digest cannot verify any of these, so none was closed:
    there.
 2. **Suzie Kondi `orderDate` corruption.** A data-correctness bug
    feeding `returnDeadline`; a corrupted date looks identical to a
-   correct one in digest output. The provenance-aware `orderDateSource`
-   merge has since shipped, but that is unverified and the known-bad row
-   was never confirmed repaired.
+   correct one in digest output. **Closed later the same day by its own
+   read-only audit — see the section below.**
 3. **`weekly-coverage` missing `select`.** The route fetches full
    `Email` rows including `textBody`/`htmlBody`/`rawJson`. A Neon
    bandwidth concern that is invisible in output by construction — a

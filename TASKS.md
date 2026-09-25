@@ -3709,19 +3709,53 @@ design must fit the current plan's limits, not assume an upgrade).
       remain.** (The separate "same real order under two order numbers"
       finding in this entry's CORRECTION has its own bug entry and is
       untouched here.)
-      **⚠️ Cause 2 (Suzie Kondi `orderDate` corruption) — STAYS OPEN,
-      and a clean digest cannot verify it.** This is a DATA-CORRECTNESS
+      **Cause 2 (Suzie Kondi `orderDate` corruption) — NOW ALSO CLOSED,
+      2026-09-25, by its own read-only audit (detail at the end of this
+      banner). It stayed open at the 09-25 digest closure because a
+      clean digest genuinely cannot verify it; the audit that followed
+      is what closed it.** Original reasoning preserved: This is a DATA-CORRECTNESS
       bug, not a display one, as this entry already says: a refund
       email's own extracted date silently overwrote a real order's
       `orderDate` via `mergeEmailIntoOrder`, and `orderDate` feeds
       `returnDeadline`. A corrupted value looks identical to a correct
       one in digest output, so the owner's check is silent on it either
       way. The provenance-aware `orderDateSource` merge has since
-      shipped (lib/linkOrder.ts), which should prevent recurrence — but
-      **that is unverified, and the known-corrupted row was never
-      confirmed repaired.** Verifying needs its own read-only pass:
-      re-run the provenance diagnostic and check whether Suzie Kondi
-      #99500 still reads 2026-08-12 instead of its true 2026-07-23.
+      shipped (lib/linkOrder.ts), which should prevent recurrence.
+      **VERIFIED AND CLOSED 2026-09-25 — read-only audit, 0 billed calls,
+      0 writes. Supersedes this banner's earlier "unverified, and the
+      known-corrupted row was never confirmed repaired" claim, which was
+      WRONG on both counts.**
+      **#99500 was repaired on 2026-08-16** by a dedicated one-order
+      backfill (`scripts/backfill-writeonce-orderdate-suzie.ts`, commit
+      `25cd981`) — eleven days BEFORE the provenance fix shipped. It now
+      reads its true 2026-07-23. It is also moot twice over: archived
+      2026-08-12, `displayStatus: refunded`, and its 14-day deadline
+      (2026-08-11) passed six weeks ago.
+      **Population: 0 of 103 active orders** show the overwrite shape
+      (orderDate later than the earliest establishing email's own date,
+      or matching a later refund/shipping/delivery email).
+      **The zero is trustworthy — the detector was validated against a
+      positive control** rather than assumed: replayed against #99500's
+      corrupted 2026-08-12 value it fires correctly (drift 20d, "matched
+      a later refund email"), and against the repaired value it stays
+      clean. A scan finding nothing is indistinguishable from a broken
+      scan without this step.
+      Widening to all 280 orders in any state flags exactly 2, neither
+      this bug: Shopbop #143429832 (1-day `fallback` drift, no
+      post-purchase match, archived) and Fitness Superstore #48868
+      (365-day drift in the OPPOSITE direction — the known wrong-year
+      extraction class, which the Suzie backfill deliberately excluded
+      for exactly that reason; archived).
+      **The fix is holding: 0 candidates from any email linked after
+      `c150170` (2026-08-28 00:25 UTC), across the 69 of 103 active
+      orders created since.** Structurally, not just empirically —
+      `mergeEmailIntoOrder`'s `canOverwriteOrderDate` requires an
+      establishing emailType, so a refund email can no longer set
+      `orderDate` at all.
+      Also checked and cleared: 3 active post-fix orders still marked
+      `orderDateSource: "unknown"` all have a null `orderDate`, the
+      documented legitimate case — no provenance gap.
+      **Bottom line: no current user's deadline is wrong because of this.**
 - [ ] **Weekly coverage-check digest junk RECURRED AGAIN on the 2026-08-14
       run — NEW FINDING 2026-08-16, READ-ONLY diagnosis
       (`scripts/pm-repro-coverage-digest-mckenna-v2.ts`, already-existing +
@@ -8315,7 +8349,9 @@ design must fit the current plan's limits, not assume an upgrade).
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
 
-- [x] **Friday weekly coverage-check digest reads correctly, 2026-09-25.** The 07-24 regression, the 08-07 recurrence and the 08-14 recurrence are closed. The new-purchase-signal gate fixed the phantom-purchase lines that made the digest untrustworthy, and July's duplicate rows aged permanently out of the rolling 7-day window. Owner verified across several consecutive real Friday digests in production: no flood of unknown-retailer lines, no marketing or non-purchase emails listed as orders, no duplicates, nothing obviously missing. **Some unknown-retailer lines remain — "no flood" is the claim, not "none"** (tracked in 🟡 Next). Four sub-items a correct-looking digest cannot verify stay open: the Chan Luu order-linking gap, the Suzie Kondi `orderDate` corruption, the `weekly-coverage` missing-`select` bandwidth fix, and the remaining unknown-retailer lines. Detail in HISTORY.md. 0 model calls.
+- [x] **Friday weekly coverage-check digest reads correctly, 2026-09-25.** The 07-24 regression, the 08-07 recurrence and the 08-14 recurrence are closed. The new-purchase-signal gate fixed the phantom-purchase lines that made the digest untrustworthy, and July's duplicate rows aged permanently out of the rolling 7-day window. Owner verified across several consecutive real Friday digests in production: no flood of unknown-retailer lines, no marketing or non-purchase emails listed as orders, no duplicates, nothing obviously missing. **Some unknown-retailer lines remain — "no flood" is the claim, not "none"** (tracked in 🟡 Next). Four sub-items a correct-looking digest cannot verify were carved out and left open; one of them, the Suzie Kondi `orderDate` corruption, was closed the same day by its own audit (see the entry below). Still open: the Chan Luu order-linking gap, the `weekly-coverage` missing-`select` bandwidth fix, and the remaining unknown-retailer lines. Detail in HISTORY.md. 0 model calls.
+
+- [x] **No user's return deadline is wrong from the `orderDate` overwrite bug, 2026-09-25.** A refund email's date had once overwritten a real order date, and `orderDate` feeds `returnDeadline`, so this needed checking rather than assuming. The one known-corrupted order was repaired back in August and was archived and refunded anyway, with a deadline long past. Across all users, none of the 103 active orders carries an order date its own emails contradict, and none has been affected since the provenance fix shipped a month ago — through the 69 active orders created since. The check that found nothing was first proven able to find the original bug, so the clean result means the problem is gone rather than the check being broken. Read-only, 0 writes, 0 model calls. Detail in HISTORY.md.
 
 - [x] **Per-call Anthropic usage logging live on all three call sites, 2026-08-04.** Every billed call — the commerce classifier, the policy lookup, and email extraction — now emits a usage line through one shared helper, so cost can be attributed per call site rather than guessed at. Ships alongside the gate that stops marketing-typed email reaching a billed policy lookup at all. Closed on code evidence verified twice; a live log sighting isn't practical at alpha volume. 0 model calls.
 
