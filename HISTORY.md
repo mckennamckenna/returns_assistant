@@ -5,6 +5,93 @@ backfill counts, and verification details removed from BUILD.md and TASKS.md.
 
 ---
 
+## 2026-09-25 — Friday coverage-check digest closed after three incidents
+
+The Friday weekly coverage-check digest — a real all-users email — went
+through three separate junk incidents between July and August 2026. The
+owner verified on 2026-09-25 that it has been reading correctly for
+several consecutive weeks. This entry files the closure and, more
+importantly, records what that verification does and does not cover.
+Docs-only session, 0 billed Anthropic API calls.
+
+### The three incidents and their distinct root causes
+
+**2026-07-24/25 — regression, multiple alpha users.** Four defects were
+logged. Defects 1 (unknown-retailer flood) and 3 (stale orders / wrong
+window) turned out to be an **outage scar, not a code regression**: the
+volume was `emailType: null` orphans from the 07-19→07-21 Anthropic API
+outage, repaired by re-extracting 23 rows. Defect 4 (a `JUNK_FILTER`
+field regression) was **refuted twice over** — `JUNK_FILTER` had no
+prior working version to break, and both accused commits were made
+*after* the broken run they were suspected of causing. Defect 2
+(duplicate lines) was the only part still open at closure.
+
+**2026-08-07 — recurrence, different cause.** Eleven "1 order from an
+unknown retailer" lines plus one phantom "Chan Luu" line. The eleven
+were all real emails: unlinked rows, `emailType: null` extraction
+failures, a marketing newsletter that slipped the commerce gate. The
+coverage-check query filtered only on `junkedAt` and so could not tell
+"extraction failed, needs a human" from "here is an order." The Chan Luu
+line was a genuine linking gap, not junk.
+
+**2026-08-14 — recurrence again, two more causes.** J.Crew appeared via
+the same null-`orderDate` orphan mechanism. Suzie Kondi appeared for a
+different reason entirely: its `orderDate` had been silently overwritten
+by a refund email's own date through `mergeEmailIntoOrder`, which had no
+`emailType` gate — a data-correctness bug that happened to surface in
+the digest.
+
+### What actually fixed it
+
+The **coverage-check new-purchase-signal gate** (shipped 2026-08-16,
+owner-verified) was candidate fix (a) from the 08-07 entry and is the
+common fix across the phantom-purchase lines in all three incidents. It
+counts only orders backed by an establishing email, rather than any
+order that entered the window.
+
+The duplicate lines closed by a **different mechanism, worth recording
+because it is not a fix**: those 12 rows arrived 2026-07-21 and 07-23,
+and the digest window is a rolling 7 days keyed on `Email.receivedAt`,
+so they left every possible window in July and can never render again.
+The content-based dedup key the entry specified was never built and is
+moot for them. Forward protection comes from the separate
+`@@unique([userId, messageId])` ingestion guard.
+
+### The verification, stated precisely
+
+Owner observation of several consecutive **real** Friday sends in
+production — not a repro script, not a `?force=true` run. No flood of
+unknown-retailer lines, no marketing or non-purchase emails listed as
+orders, no duplicates, nothing obviously missing.
+
+**"No flood" is the accurate claim, not "none."** Some unknown-retailer
+lines still appear; they remain tracked in 🟡 Next.
+
+### Four sub-items deliberately left open
+
+A correct-looking digest cannot verify any of these, so none was closed:
+
+1. **Chan Luu order-linking gap.** A return-approval email created an
+   orphan Order instead of matching the existing one. The gate now folds
+   orphan orders out of the digest, so a clean digest **hides this
+   defect rather than disproving it** — the mis-linked Order is still
+   there.
+2. **Suzie Kondi `orderDate` corruption.** A data-correctness bug
+   feeding `returnDeadline`; a corrupted date looks identical to a
+   correct one in digest output. The provenance-aware `orderDateSource`
+   merge has since shipped, but that is unverified and the known-bad row
+   was never confirmed repaired.
+3. **`weekly-coverage` missing `select`.** The route fetches full
+   `Email` rows including `textBody`/`htmlBody`/`rawJson`. A Neon
+   bandwidth concern that is invisible in output by construction — a
+   correct digest is exactly what you see while this is still wrong.
+4. **Remaining unknown-retailer lines.** Per the owner, the goal is to
+   make each one correctable by the user rather than suppressed, since
+   the line is a symptom of an email the app could not tie to an order.
+   Captured as a proposal with open questions; not built.
+
+---
+
 ## 2026-09-22 — End-of-day housekeeping: cost-visibility and multi-shipment detector closed
 
 Two items whose verification evidence had been gathered earlier the

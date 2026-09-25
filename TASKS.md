@@ -1922,6 +1922,17 @@ the 09-17 pattern; the 09-19 placement was a one-off).
       since none are `emailType: null` anymore). Did NOT touch digest
       logic or make any exclude/design change — that
       decision is the owner's, gated on this repaired/residue split.
+- [x] **CLOSED 2026-09-25 — owner-verified in production. See ✅ Done
+      ("Friday weekly coverage-check digest reads correctly") and
+      HISTORY.md 2026-09-25. Kept in place, not deleted.** This pointer
+      was scoped to defects 1 (unknown-retailer flood) and 3
+      (stale/wrong-window), both resolved; defect 2 and defect 4 were
+      never in its scope. The owner's check across several consecutive
+      real Friday digests found **no flood** of unknown-retailer lines,
+      no marketing or non-purchase emails rendered as orders, no
+      duplicates, and nothing obviously missing. **Note: "no flood" is
+      the accurate claim — some unknown-retailer lines remain**, tracked
+      in 🟡 Next ("Unknown retailer in weekly digest").
 - [ ] **Friday weekly coverage-check digest badly broken — DIAGNOSTIC PASS,
       2026-07-26, promoted from 🐛 Bugs (Trust-breaking) per session brief
       (customer-facing email quality is today's priority). Read-only only —
@@ -3607,6 +3618,26 @@ design must fit the current plan's limits, not assume an upgrade).
       (census → dry-run → owner-approved apply). Needs its own
       owner-approved dry-run before any write — separate flow from this
       board update.
+- [ ] **PARTIALLY CLOSED 2026-09-25 — cause 1 closed, CAUSE 2 STAYS OPEN.
+      Owner-verified in production; see ✅ Done and HISTORY.md 2026-09-25.
+      Kept in place, not deleted.**
+      **Cause 1 (the 11 "unknown retailer" lines) — CLOSED.** The
+      new-purchase-signal gate (✅ Done, 2026-08-16) was candidate fix
+      (a) from this entry and is what fixed it. Owner confirms across
+      several consecutive real Friday digests: **no flood** of
+      unknown-retailer lines, no non-purchase emails rendered as orders.
+      **"No flood" is the accurate claim — some unknown-retailer lines
+      remain**, tracked in 🟡 Next ("Unknown retailer in weekly digest").
+      **⚠️ Cause 2 (the Chan Luu line) — STAYS OPEN, and a clean digest
+      is NOT evidence about it.** The underlying defect is a linking
+      gap: a "Your Chan Luu return is approved" email created a brand-new
+      orphan Order (`cmsf9771o000fw9xbdateg6nu`) instead of matching the
+      existing Chan Luu order. The gate now folds orphan orders out of
+      the digest, so **the symptom is hidden, not repaired** — the
+      mis-linked Order is still there, and a correct-looking digest is
+      exactly what you would see either way. This is candidate fix (b)
+      from this entry and it was never built. May share a root cause
+      with the other orphan/no-fallback-matcher items on this board.
 - [ ] **Weekly coverage-check digest junk RECURRED on the 2026-08-07 run —
       NEW FINDING 2026-08-08, READ-ONLY diagnosis (scripts/pm-repro-coverage-
       digest-mckenna*.ts, uncommitted), 0 billed Anthropic calls, 0 writes.
@@ -3666,6 +3697,31 @@ design must fit the current plan's limits, not assume an upgrade).
       class of gap as the already-tracked "no-fallback-matcher" orphan
       items elsewhere in this file, worth checking whether it's the same
       root cause or a new one.
+- [ ] **PARTIALLY CLOSED 2026-09-25 — cause 1 closed, CAUSE 2 STAYS OPEN.
+      Owner-verified in production; see ✅ Done and HISTORY.md 2026-09-25.
+      Kept in place, not deleted.**
+      **Cause 1 (the J.Crew line, and the phantom-purchase class
+      generally) — CLOSED.** Same fix as the 08-07 entry above: the
+      new-purchase-signal gate. Owner confirms **no flood** of
+      unknown-retailer lines and no non-purchase emails rendered as
+      orders across several consecutive real Friday digests. **"No
+      flood" is the accurate claim — some unknown-retailer lines
+      remain.** (The separate "same real order under two order numbers"
+      finding in this entry's CORRECTION has its own bug entry and is
+      untouched here.)
+      **⚠️ Cause 2 (Suzie Kondi `orderDate` corruption) — STAYS OPEN,
+      and a clean digest cannot verify it.** This is a DATA-CORRECTNESS
+      bug, not a display one, as this entry already says: a refund
+      email's own extracted date silently overwrote a real order's
+      `orderDate` via `mergeEmailIntoOrder`, and `orderDate` feeds
+      `returnDeadline`. A corrupted value looks identical to a correct
+      one in digest output, so the owner's check is silent on it either
+      way. The provenance-aware `orderDateSource` merge has since
+      shipped (lib/linkOrder.ts), which should prevent recurrence — but
+      **that is unverified, and the known-corrupted row was never
+      confirmed repaired.** Verifying needs its own read-only pass:
+      re-run the provenance diagnostic and check whether Suzie Kondi
+      #99500 still reads 2026-08-12 instead of its true 2026-07-23.
 - [ ] **Weekly coverage-check digest junk RECURRED AGAIN on the 2026-08-14
       run — NEW FINDING 2026-08-16, READ-ONLY diagnosis
       (`scripts/pm-repro-coverage-digest-mckenna-v2.ts`, already-existing +
@@ -3851,6 +3907,22 @@ design must fit the current plan's limits, not assume an upgrade).
       (confirmed 08-16: 6-of-11 style codes matched exactly between
       #2522877374 and orphan #2523415500). Order number, fromEmail, and
       amount all diverge — do NOT use them as match signals.
+- [x] **CLOSED 2026-09-25 — owner-verified in production. See ✅ Done and
+      HISTORY.md 2026-09-25. Kept in place, not deleted.**
+      **Closes defect 2** (the 12 pre-guard duplicate rows), the only
+      part still open. Defects 1 + 3 were already closed as an outage
+      scar and defect 4 was refuted — see the CURRENT STATE note below.
+      **Be precise about WHY defect 2 closes, because the owner's check
+      is not by itself the proof.** Those 12 rows arrived 2026-07-21 and
+      07-23. The coverage-check window is a rolling 7 days keyed on
+      `Email.receivedAt`, so they fell out of every possible window in
+      July and **can never render again** — the content-based dedup key
+      this entry specified was never built and is now moot for them.
+      Forward protection is separate and already shipped: the
+      `@@unique([userId, messageId])` ingestion guard stops new
+      duplicate Email rows at source. Historical instances unreachable +
+      new ones prevented = closed. The owner seeing no duplicates is
+      consistent with this, not evidence for it.
 - [ ] **Friday weekly coverage-check digest badly broken — REGRESSION,
       user-facing, multiple alpha users, weekly all-users email. HIGH
       SEVERITY. Confirmed 2026-07-25 on 2+ alpha users via real received
@@ -6452,6 +6524,43 @@ design must fit the current plan's limits, not assume an upgrade).
       just-shipped establishing-email gate). Store name didn't resolve.
       Read-only identify only when picked up; likely tied to existing
       retailer-lookup/extraction gaps.
+      **STILL OPEN as of 2026-09-25, confirmed by the owner.** The digest
+      closure of that date is scoped to "no FLOOD of unknown-retailer
+      lines" — **some unknown-retailer lines are still appearing.** This
+      entry is what tracks them. Do not read the ✅ Done digest entry as
+      saying there are none.
+      **OWNER PRODUCT DIRECTION, 2026-09-25 — capture only, do NOT
+      build.** The framing is deliberately different from suppression:
+      **an unknown-retailer line is always a symptom of something else**
+      — typically an email the app could not tie to an order — so the
+      goal is to make each one **correctable by the user**, not merely
+      hidden from them. Suppressing the line would discard the signal
+      and leave the underlying email just as broken.
+      **Proposal:** each unknown-retailer line in the digest links
+      through to the place in the app where the user can fix it.
+      **Open questions to answer BEFORE building (read-only pass,
+      later):**
+      1. Which page should the link open? (Unlinked emails, the email
+         detail page, needs-review, or something new?)
+      2. Are the existing review actions — "link to order", "split into
+         separate order", "not a purchase" (lib/orderReview.ts,
+         app/actions.ts) — actually available there for this KIND of
+         email? An unlinked, retailer-less email may not be routed to a
+         surface that offers them.
+      3. Does the link need a signed action token (lib/actionToken.ts,
+         as the reminder-email CTAs use) or is a normal logged-in deep
+         link enough? These are emails, so the recipient may not have a
+         live session.
+      4. **What are the recent unknown-retailer lines actually made of?**
+         A count by underlying cause is the highest-value first step: it
+         says how many a USER could fix versus how many need a CODE fix.
+         No point building a correction surface for a population that is
+         mostly extraction failures.
+      **Cross-reference:** the Chan Luu order-linking gap (🐛 Bugs, the
+      2026-08-07 coverage-digest entry, cause 2 — still open) is a
+      plausible underlying cause of exactly this shape, an email that
+      could not be tied to its existing order. Check whether it accounts
+      for some of these lines before treating them as a separate problem.
 - [x] **Reconcile grocery entries. POINTER only, NEW 2026-08-13 — RESOLVED
       2026-08-21 during main/origin-main reconciliation.** The
       2026-08-09 food/grocery-delivery-exclusion task (this pointer's
@@ -8205,6 +8314,8 @@ design must fit the current plan's limits, not assume an upgrade).
       than creating new Someday rows for each. Not scoped, not
       started; do not promote to Next without a scoping session first.
 ## ✅ Done
+
+- [x] **Friday weekly coverage-check digest reads correctly, 2026-09-25.** The 07-24 regression, the 08-07 recurrence and the 08-14 recurrence are closed. The new-purchase-signal gate fixed the phantom-purchase lines that made the digest untrustworthy, and July's duplicate rows aged permanently out of the rolling 7-day window. Owner verified across several consecutive real Friday digests in production: no flood of unknown-retailer lines, no marketing or non-purchase emails listed as orders, no duplicates, nothing obviously missing. **Some unknown-retailer lines remain — "no flood" is the claim, not "none"** (tracked in 🟡 Next). Four sub-items a correct-looking digest cannot verify stay open: the Chan Luu order-linking gap, the Suzie Kondi `orderDate` corruption, the `weekly-coverage` missing-`select` bandwidth fix, and the remaining unknown-retailer lines. Detail in HISTORY.md. 0 model calls.
 
 - [x] **Per-call Anthropic usage logging live on all three call sites, 2026-08-04.** Every billed call — the commerce classifier, the policy lookup, and email extraction — now emits a usage line through one shared helper, so cost can be attributed per call site rather than guessed at. Ships alongside the gate that stops marketing-typed email reaching a billed policy lookup at all. Closed on code evidence verified twice; a live log sighting isn't practical at alpha volume. 0 model calls.
 
