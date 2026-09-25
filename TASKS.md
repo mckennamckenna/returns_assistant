@@ -155,6 +155,84 @@ are deliberately NOT being edited after the fact. So the phrase count
 on 2026-10-07 will be short by exactly one known timeout; add it before
 judging whether 60s is too tight.
 
+**CHECKPOINT 3 RESULTS — 2026-09-25. All three Simply Simpson emails
+recovered. AWAITING USER VERIFICATION.**
+Run locally via `scripts/reextract-simply-simpson-cp3-20260925.ts`,
+which calls `runExtraction(id)` — the exact code path the production
+Re-extract action uses. That exercises the real SDK timeout settings
+against the real API and the live database, but NOT `maxDuration`;
+there was no platform ceiling locally.
+
+| email | wall clock | lookup | timeout phrase | linked |
+|---|---|---|---|---|
+| `cmubye119…` | 69.12s | timed out | **NO — the `isTimeoutError` bug** | yes |
+| `cmub9ov9y…` | 70.19s | timed out | yes | yes |
+| `cmubxdpng…` | **226.30s** | timed out | yes | yes |
+
+All three now: `extractedAt` set, `emailType: delivery`, retailer
+"Simply Simpson Boutique", orderNumber 164649, linked to the order,
+`needsReview: true`. **No lookup ever succeeded**, so the retailer-name
+collision the owner warned about (real policy: 14 days from receipt,
+store credit only) never arose — no window was invented. The 60s cap
+fired on all three and extraction completed normally every time; no
+call threw out of `runExtraction`.
+**⚠️ 226.30s on the third email — unexplained, and it matters.**
+Expected shape is ~10s extraction + 60s lookup ≈ 70s, which is what the
+first two did. Only ONE `anthropic_usage` line was logged (no
+alternate-body pass), so ~156s is unaccounted for and was NOT model
+time. Leading candidate, untested: this was the third email merging
+into an order that now has 6 linked emails, so `mergeEmailIntoOrder` +
+`recomputeOrderStatus` + `recomputeDisplayStatus` +
+`applyFallbackOrderDate` all ran over a larger set, possibly against a
+cold Neon connection. **Implication: 226s against a 300s `maxDuration`
+leaves only 74s of margin** — the budget math assumed a worst case of
+~86s and reality reached 226s. The sweep's guard uses
+`WORST_CASE_EXTRACTION_MS` = 240s, so it happens to be sized correctly,
+but that is luck rather than design. **Needs its own read-only timing
+pass before anyone trusts the 300s ceiling.** Not investigated here —
+out of scope.
+
+**ORDER #164649 AFTER ALL THREE (owner expectation confirmed):**
+`returnWindowDays` null, `returnWindowStartsFrom` null, `policySource`
+null, **`returnDeadline` null** — still no window and no deadline, as
+expected. Reminders ever sent: 0. What DID change: `deliveredAt` and
+`deliveryDate` are now **2026-09-22**, a real confirmed delivery from a
+`delivery`-typed email, replacing nothing (they were null) —
+`estimatedDeliveryDate` still holds the Act 2 value 2026-09-28, now
+superseded for deadline purposes since `computeDeadline` prefers
+`deliveredAt`. `status` advanced `shipped` → `returnable`,
+`displayStatus` → `delivered`, `needsReview` still true. 6 linked
+emails.
+**Note on the two delivery emails' dates:** `cmub9ov9y…` ("arriving
+today", received 09-21) extracted `deliveredAt` 2026-09-25 and
+`cmubxdpng…` ("has been delivered", received 09-22) extracted
+2026-09-22. The order folded to 09-22 (later non-null wins in
+receivedAt order). The 09-25 value is almost certainly wrong — it came
+from a year-less "September 25" resolved against a *re-extraction* run
+on 2026-09-25, not against the email's own 2026-09-21 anchor. Worth a
+look; not touched here.
+
+**PRODUCTION PATH UNDER `maxDuration 300` — the real test, 2026-09-25.**
+24 inbound emails received since 5fe6b6a deployed: **every one
+extracted, zero stuck.** Send-to-extracted gaps cluster at 14-18s
+(consistent with the measured ~12-15s floor); two outliers of 1653s and
+731s are both Bloomingdale's mail transit lag, not function time.
+
+**SWEEP VERIFIED LIVE (partially).** `npx vercel crons ls` confirms **6
+cron jobs registered**, including `/api/cron/extraction-sweep` at
+`0 9 * * *` — this replaces the earlier inference from "the build
+succeeded." `npx vercel crons run /api/cron/extraction-sweep` triggered
+it on production at 2026-09-25T16:42:52Z: **0 `extraction_retry`
+ActionLog rows written, 0 admin notifications, 0 billed calls** —
+correct, because the eligibility query (verified read-only against the
+live database, including the `actionLogs: { none: ... }` relation
+filter) returns 0 candidates. **What is still NOT verified: the sweep
+actually recovering a real stranded email.** That needs an organic
+failure; stays "awaiting user verification" until one is caught.
+**Stuck emails remaining: 3** (Amazon 08-06, Factor 08-31, Shutterfly
+09-05) — all pre-date `SWEEP_COVERAGE_START`, so the sweep will never
+touch them by design. Still owner-handled by hand.
+
 **ROLLBACK FOR THE MIGRATION — recorded, NOT run (owner, 2026-09-24).**
 If `ActionLog.emailId` ever had to come out, the order is: **revert the
 CODE FIRST**, deploy that, and only then drop the database objects —
