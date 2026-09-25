@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, { APIConnectionTimeoutError, APIUserAbortError } from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { logAnthropicUsage } from "./anthropicUsage";
 import { isAmazonOrder } from "./amazonBundle";
@@ -44,12 +44,22 @@ export const LOOKUP_TIMEOUT_NOTE = `Policy lookup timed out after ${POLICY_LOOKU
 export const EXTRACTION_TIMEOUT_NOTE = `Extraction timed out after ${EXTRACTION_TIMEOUT_MS / 1000}s`;
 
 // A timeout surfaces as APIConnectionTimeoutError; an aborted request as
-// APIUserAbortError. Matched by name rather than `instanceof` so this still
-// works against the mocked SDK in tests, which never constructs real SDK
-// error classes.
+// APIUserAbortError.
+//
+// MUST stay `instanceof` against the SDK's exported classes. Two wrong
+// approaches, both already made or considered here:
+//   * `error.name` — the FIRST version of this function, shipped in
+//     5fe6b6a and broken. SDK error classes do NOT set `name`; it inherits
+//     Error.prototype.name === "Error". The class name appears in the stack
+//     trace, which makes the log LOOK right, so this failed silently: a
+//     real 60s lookup timeout on 2026-09-24 left no note at all.
+//   * `error.constructor.name` — works locally, but production builds
+//     minify class names, so it would pass in dev and fail live. Worse
+//     than the bug it replaces, because it would look verified.
+// `instanceof` survives minification because it compares prototype chains,
+// not strings.
 export function isTimeoutError(error: unknown): boolean {
-  const name = (error as { name?: string } | null)?.name;
-  return name === "APIConnectionTimeoutError" || name === "APIUserAbortError";
+  return error instanceof APIConnectionTimeoutError || error instanceof APIUserAbortError;
 }
 
 const MODEL = "claude-sonnet-4-6";

@@ -21,19 +21,20 @@ vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
 const mockExtractEmailIdentity = vi.fn();
 const mockFinalizeExtraction = vi.fn();
-vi.mock("@/lib/extract", () => ({
-  extractEmailIdentity: mockExtractEmailIdentity,
-  finalizeExtraction: mockFinalizeExtraction,
-  // Added 2026-09-24: runExtraction's catch block now consults these to
-  // decide whether a failure was a timeout. Mirrors the real
-  // implementations rather than stubbing them out, so the catch path is
-  // exercised for real here.
-  isTimeoutError: (error: unknown) => {
-    const name = (error as { name?: string } | null)?.name;
-    return name === "APIConnectionTimeoutError" || name === "APIUserAbortError";
-  },
-  EXTRACTION_TIMEOUT_NOTE: "Extraction timed out after 90s",
-}));
+vi.mock("@/lib/extract", async (importOriginal) => {
+  // Keeps the REAL isTimeoutError and EXTRACTION_TIMEOUT_NOTE, stubbing only
+  // the two functions that would make network calls. The first version of
+  // this mock re-implemented isTimeoutError by hand, which meant these tests
+  // asserted against a copy of the assumption rather than the shipped code —
+  // and passed while production was broken (5fe6b6a). Never re-implement a
+  // function you are trying to test; stub only what must not run.
+  const actual = await importOriginal<typeof import("@/lib/extract")>();
+  return {
+    ...actual,
+    extractEmailIdentity: mockExtractEmailIdentity,
+    finalizeExtraction: mockFinalizeExtraction,
+  };
+});
 
 const mockLinkEmailToOrder = vi.fn();
 const mockFindMatchingOrder = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("@/lib/emailBodyText", () => ({
   resolveBodyTextWithAlternate: (t: string | null) => ({ primary: t, alternate: null }),
 }));
 
+const { APIConnectionTimeoutError } = await import("@anthropic-ai/sdk");
 const { runExtraction } = await import("../lib/runExtraction");
 
 const BASE_ROW = {
@@ -559,10 +561,11 @@ describe("extraction-call timeout", () => {
     mockFinalizeExtraction.mockResolvedValue(EXTRACT_RESULT);
   });
 
+  // A genuine SDK error instance, not a hand-built Error with `name` set.
+  // See __tests__/modelCallTimeouts.test.ts for why that distinction is the
+  // whole point.
   function timeoutError() {
-    const e = new Error("Request timed out.");
-    e.name = "APIConnectionTimeoutError";
-    return e;
+    return new APIConnectionTimeoutError({ message: "Request timed out." });
   }
 
   it("goes through the normal catch path: extractedAt stamped, needsReview true", async () => {

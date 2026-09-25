@@ -122,6 +122,39 @@ SQL matched the owner-approved SQL exactly (verified with
 **Worst case per daily run: 9 billed Anthropic calls** (3 emails x [2
 extraction + 1 lookup]), up to 9 web searches. Expected on a healthy
 day: 0 — no eligible rows means no model calls at all.
+**BUG SHIPPED IN 5fe6b6a AND FIXED 2026-09-25 — `isTimeoutError` never
+matched a real SDK error.** The first version tested `error.name`. SDK
+error classes do NOT set `name`: it inherits `Error.prototype.name ===
+"Error"`, and only the CONSTRUCTOR carries the class name (which is why
+the stack trace read `APIConnectionTimeoutError` and the log looked
+correct). So every real timeout was classified as an ordinary failure
+and no note was written — the feature was inert in production while 949
+tests passed.
+**Why the tests missed it — the lesson worth keeping.** They built a
+fake error and set `name` by hand, i.e. they asserted against a copy of
+the assumption instead of the real object; and the SDK mock returned
+`{ default }` only, wiping the real error classes out of the module so
+`instanceof` could never have been used. A third instance: the
+`@/lib/extract` mock in `__tests__/runExtraction.test.ts`
+re-implemented `isTimeoutError` by hand rather than importing it.
+**Fix:** `instanceof APIConnectionTimeoutError || instanceof
+APIUserAbortError`. Deliberately NOT `constructor.name` — that passes
+locally and breaks under a minifying production build, which would be
+worse than the original bug because it would look verified. Both
+timeout paths (lookup and extraction) share this one function, so one
+fix covers both. Tests now construct genuine SDK instances via
+`importOriginal`, and pin three traps: that a real error's `.name` is
+`"Error"`, that detection survives a mangled constructor name, and that
+a hand-built impostor with the right `name` is REJECTED.
+**⚠️ COUNTING CORRECTION FOR THE 2026-10-07 RE-CHECK: add 1.** One real
+policy-lookup timeout occurred on 2026-09-24 against email
+`cmubye1190001jp0480z8v02n` (Simply Simpson) — the 60s cap fired
+exactly as designed, 69.12s total wall clock, extraction completed
+normally — but it left NO note because of this bug. That email's notes
+are deliberately NOT being edited after the fact. So the phrase count
+on 2026-10-07 will be short by exactly one known timeout; add it before
+judging whether 60s is too tight.
+
 **ROLLBACK FOR THE MIGRATION — recorded, NOT run (owner, 2026-09-24).**
 If `ActionLog.emailId` ever had to come out, the order is: **revert the
 CODE FIRST**, deploy that, and only then drop the database objects —

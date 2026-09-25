@@ -8,12 +8,23 @@ const mockCreate = vi.hoisted(() => vi.fn());
 const mockEmailUpdate = vi.hoisted(() => vi.fn());
 const mockEmailFindUnique = vi.hoisted(() => vi.fn());
 
-vi.mock("@anthropic-ai/sdk", () => ({
-  default: class {
-    messages = { create: mockCreate };
-  },
-}));
+// Replaces ONLY the client class, keeping every real export — crucially the
+// error classes, so `instanceof` checks in lib/extract.ts run against the
+// genuine prototypes. The previous version of this mock returned `{ default }`
+// alone, which wiped the error classes out; that is what let a broken
+// `isTimeoutError` pass its tests while failing in production (5fe6b6a).
+vi.mock("@anthropic-ai/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@anthropic-ai/sdk")>();
+  return {
+    ...actual,
+    default: class {
+      messages = { create: mockCreate };
+    },
+  };
+});
 vi.mock("@/lib/anthropicUsage", () => ({ logAnthropicUsage: vi.fn() }));
+
+const { APIConnectionTimeoutError, APIUserAbortError } = await import("@anthropic-ai/sdk");
 
 const {
   finalizeExtraction,
@@ -26,12 +37,17 @@ const {
   EXTRACTION_TIMEOUT_NOTE,
 } = await import("../lib/extract");
 
-// What the SDK actually throws when a request exceeds its timeout. Matched
-// by name, so a plain object with the right name is a faithful stand-in.
+// A GENUINE SDK error instance, constructed from the real exported class —
+// never a hand-built Error with `name` set. The whole reason the original
+// bug shipped is that the fake satisfied the old check and the real object
+// did not: a real APIConnectionTimeoutError has
+// `name === "Error"` (inherited) and only its CONSTRUCTOR is named.
 function timeoutError() {
-  const e = new Error("Request timed out.");
-  e.name = "APIConnectionTimeoutError";
-  return e;
+  return new APIConnectionTimeoutError({ message: "Request timed out." });
+}
+
+function abortError() {
+  return new APIUserAbortError();
 }
 
 function extractionResponse(overrides: Record<string, unknown> = {}) {
@@ -166,17 +182,41 @@ describe("a timed-out lookup behaves exactly like a lookup that found nothing", 
 });
 
 describe("isTimeoutError", () => {
-  it("recognises the SDK's timeout and abort errors", () => {
+  it("recognises GENUINE SDK timeout and abort errors", () => {
     expect(isTimeoutError(timeoutError())).toBe(true);
-    const abort = new Error("aborted");
-    abort.name = "APIUserAbortError";
-    expect(isTimeoutError(abort)).toBe(true);
+    expect(isTimeoutError(abortError())).toBe(true);
+  });
+
+  // The regression test for 5fe6b6a. A real SDK error does NOT carry a
+  // useful `name`; only its constructor is named. Any implementation that
+  // reads `error.name` fails this test, which is exactly what shipped
+  // broken and cost a real 2026-09-24 timeout its record.
+  it("a real timeout error's .name is 'Error' — so .name must never be the check", () => {
+    const real = timeoutError();
+    expect(real.name).toBe("Error");
+    expect(real.constructor.name).toBe("APIConnectionTimeoutError");
+    // Detected anyway, because the check is instanceof.
+    expect(isTimeoutError(real)).toBe(true);
+  });
+
+  // constructor.name was the tempting second fix. It passes locally and
+  // breaks under a minifying production build, so it must not be used —
+  // this asserts the detection survives a renamed constructor.
+  it("still detects a timeout when the constructor name is mangled (minification)", () => {
+    const real = timeoutError();
+    Object.defineProperty(real.constructor, "name", { value: "a", configurable: true });
+    expect(isTimeoutError(real)).toBe(true);
   });
 
   it("does not misclassify ordinary failures as timeouts", () => {
     expect(isTimeoutError(new Error("connection reset"))).toBe(false);
     expect(isTimeoutError(null)).toBe(false);
     expect(isTimeoutError(undefined)).toBe(false);
+    // A hand-built impostor with the right name must NOT pass — the old
+    // implementation accepted this while rejecting the real thing.
+    const impostor = new Error("nope");
+    impostor.name = "APIConnectionTimeoutError";
+    expect(isTimeoutError(impostor)).toBe(false);
   });
 });
 
