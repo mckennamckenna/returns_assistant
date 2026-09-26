@@ -32,6 +32,271 @@
 
 ## 🔴 Now
 
+### 2026-09-25 — Read-only: Needs review actions on detail pages
+
+Owner-requested fact-finding for step 1 of "let users correct what
+the app got wrong": make every Needs review correction action
+available from the email detail and order detail pages. Read-only:
+no code changes, no DB writes, zero billed model calls. Findings
+only — no design.
+
+**FINDINGS — 2026-09-25, read-only. Code-read only; no scripts run, no
+DB queries, no actions triggered, 0 billed model calls.**
+
+**Plain English first.** The board's "five-action registry" is real but
+it is a menu, not what a user sees. In practice a Needs review row shows
+at most three controls, and a row only ever gets ONE correction action
+chosen for it by a router — plus Archive and More info, which every row
+gets. The two detail pages today offer almost none of it. The email
+detail page offers **zero** of the correction actions: its only controls
+are two navigation links and a Re-extract button. The order detail page
+offers one ("Looks correct"), which isn't in the five-action registry at
+all, plus Archive, plus per-email Unlink and Delete buttons that aren't
+in the registry either. So the honest shape of the gap is: for an EMAIL,
+nothing is available on its own detail page; for an ORDER, the registry
+never had anything to offer in the first place (every order row is
+routed to "go look at the detail page," and this page is that
+destination). The good news for step 1 is that all four email-side
+correction functions are plain server actions that each re-check
+ownership themselves and take only an email id, so they are not welded
+to the Needs review page — the one thing a detail page would have to add
+is the list of orders to merge into, which neither detail page loads
+today. The sharpest thing found: an email is in Needs review because it
+has no order attached and hasn't been junked — the email's own
+`needsReview` flag is never consulted — yet the email detail page's
+"Needs Review" badge reads that flag. Those two conditions disagree, so
+the badge and the bucket are answering different questions.
+
+---
+
+**PART A — the actions as they exist in code**
+
+**A0. The registry is five ids; only four are reachable, and a row gets
+one of two.** CONFIRMED — `NeedsReviewActionId` is
+`link_to_order | create_new_order | not_a_purchase | view_detail |
+nothing` (lib/needsReviewActions.ts:5), labels at
+lib/needsReviewActions.ts:13-19. The router `needsReviewAction()`
+(lib/needsReviewActions.ts:41-58) can only ever return
+`view_detail`, `link_to_order`, or `create_new_order` — `nothing` and
+`not_a_purchase` are unreachable through it (`not_a_purchase` noted as
+deliberately unrouted at lib/needsReviewActions.ts:38-40; `nothing` has
+no branch at all). `not_a_purchase` still reaches the user, but as a
+standing control rendered outside the router (NeedsReviewRow.tsx:108-114).
+So the user-visible control set per row is `{router's one primary,
+Archive, More info}` (NeedsReviewRow.tsx:88-128), and a row whose primary
+is already `view_detail` renders only `{Archive, View detail}`
+(`isDegrade`, NeedsReviewRow.tsx:60, 96).
+
+**A1. `link_to_order` — "Merge with existing order."** CONFIRMED.
+User sees a button that opens a dropdown panel headed "Which order is
+this?" listing every active order (retailer · #number · date · total),
+plus — only for `shipment_unlinked` — a pinned-first "+ Start a new
+order for <retailer>" item (app/LinkToOrderPicker.tsx:101-156).
+Server function: `linkEmailToOrderAction(emailId, targetOrderId)`
+(app/actions.ts:48-57) → `linkEmailToExistingOrder`
+(lib/orderReview.ts:78-89).
+Appears when: `row.kind === "email"` AND the router returned
+`link_to_order`, i.e. reason is `belongs_to_existing_order`,
+`duplicate`, `return_or_refund_no_link`, or `shipment_unlinked`
+(lib/needsReviewActions.ts:45-51; the kind gate at
+NeedsReviewRow.tsx:97).
+Writes: `Order` — the full merged field set via `mergeEmailIntoOrder`
+(orderDate, orderDateSource, orderDateEstimated, deliveryDate,
+estimatedDeliveryDate, deliveredAt, returnWindowDays,
+returnWindowStartsFrom, returnDeadline, deadlineIsEstimated,
+policySource, orderTotal, orderCurrency, lineItems, returnPortalUrl —
+lib/linkOrder.ts:959-982); then `Email.orderId` +
+`Email.needsReview = false` (lib/orderReview.ts:84); then
+`applyFallbackOrderDate` / `recomputeOrderStatus` /
+`recomputeDisplayStatus` (lib/orderReview.ts:85-87).
+ActionLog: **no** — CONFIRMED, no `actionLog.create` or
+`logActionWithRetry` anywhere in this path (grep of both symbols across
+app/ and lib/ returns app/actions.ts:149/176/184 — all inside
+`advanceDisplayStatus` only — the four `app/api/action/*` routes,
+`app/api/orders/[id]/status`, `[id]/unkeep`, lib/linkOrder.ts:459,
+lib/extractionSweep.ts:126, lib/orderReview.ts:152).
+Needs-review dependencies: needs `emailId` + a `LinkablePickerOrder[]`
+(id, retailer, orderNumber, orderDate, orderTotal —
+LinkToOrderPicker.tsx:18-24), and `reasonId`/`retailer` only to decide
+the escape hatch (NeedsReviewRow.tsx:101-102,
+lib/shipmentUnlinkedPicker.ts:21-23). The server action itself takes
+only two ids and re-checks ownership itself (app/actions.ts:52-54), so
+**callable from another page as-is**; the component needs the candidate
+order list passed in — which is the only real data dependency in Part A.
+
+**A2. `create_new_order` — "Start a new order."** CONFIRMED.
+User sees a dark pill button; clicking raises
+`window.confirm("Create a new order from this email?")`
+(NeedsReviewRowActions.tsx:30). Server function:
+`createOrderFromEmailAction(emailId)` (app/actions.ts:82-91) →
+`createOrderFromOrphanedEmail` (lib/orderReview.ts:95-105).
+Appears when: email-kind row whose reason is `real_purchase_no_record`
+(lib/needsReviewActions.ts:52-53); **or** as the picker's escape-hatch
+list item on a `shipment_unlinked` row (LinkToOrderPicker.tsx:117-126) —
+two entry points, same action, same confirm copy
+(lib/shipmentUnlinkedPicker.ts:41-49).
+Writes: creates an `Order` row seeded from the email's own fields
+(lib/linkOrder.ts:1001-1032), then `Email.orderId` +
+`needsReview = false` (lib/orderReview.ts:100), then the same three
+recomputes. ActionLog: **no**.
+Dependencies: `emailId` only. **Callable from another page as-is.**
+
+**A3. `not_a_purchase` — "Archive" (email).** CONFIRMED.
+User sees an underlined text link labelled "Archive"; no confirm step —
+deliberately, because it's reversible (NeedsReviewRowActions.tsx:27-29).
+Server function: `archiveOrphanedEmailAction(emailId)`
+(app/actions.ts:93-102) → `archiveOrphanedEmail`
+(lib/orderReview.ts:113-118).
+Appears when: **unconditionally on every email-kind row** — not routed,
+rendered as a standing control (NeedsReviewRow.tsx:108-114).
+Writes: `Email.junkedAt = now()` and nothing else
+(lib/orderReview.ts:116). Junk-with-rescue, never a delete
+(lib/junk.ts:13-14 names this as junk trigger #2; `JUNK_FILTER` is
+`{ junkedAt: null }`, lib/junk.ts:42-44). ActionLog: **no**.
+Dependencies: `emailId` only. **Callable from another page as-is.**
+
+**A4. `view_detail` — "More info."** CONFIRMED. A plain `next/link`
+to `/orders/<id>` or `/emails/<id>` (NeedsReviewRow.tsx:58, 125-127).
+Appears on every row, always; styled as the primary pill when the row
+degraded, as a text link otherwise (NeedsReviewRow.tsx:125). No writes,
+no ActionLog. Trivially available anywhere — and on a detail page it is
+by definition a self-link, which is the same reason
+`approveOrderAction` exists (see A6).
+
+**A5. `nothing`.** CONFIRMED unreachable — in the type and the label map
+(lib/needsReviewActions.ts:5, 18), returned by no branch of the router,
+and no component references it.
+
+**A6. Two order-kind controls that are NOT in the registry.**
+CONFIRMED. Order-kind rows are hard-routed to `view_detail`
+(lib/needsReviewActions.ts:43-44) because the picker can only attach an
+unlinked email to an order — there is no order-to-order merge
+(lib/needsReviewActions.ts:30-36). Their Archive control therefore
+dispatches elsewhere: `ArchiveOrderButton` → `PATCH
+/api/orders/<id>/archive` → `Order.archivedAt` (ArchiveOrderButton.tsx:22-26;
+app/api/orders/[id]/archive/route.ts:39-43), no ActionLog. And the
+order detail page carries `approveOrderAction` → `approveOrder`, writing
+`Order.needsReview = false` (+ `userNote` if passed)
+(app/actions.ts:113-123, lib/orderReview.ts:26-38) — explicitly created
+because this page IS the view_detail destination and mirroring the
+bucket's action here would be a self-link (app/actions.ts:104-112). No
+ActionLog. Both take only an order id and re-check ownership —
+callable anywhere.
+
+**A7. The exact conditions for being "in Needs review" — and they are
+not symmetric.** CONFIRMED, identical queries on both surfaces
+(app/(app)/page.tsx:71-110 and app/(app)/needs-review/page.tsx:23-53):
+- **Order-kind:** `userId` matches AND `needsReview: true` AND
+  `archivedAt: null` AND `deletedAt: null`
+  (app/(app)/page.tsx:99, needs-review/page.tsx:25).
+- **Email-kind:** `userId` matches AND **`orderId: null`** AND
+  `junkedAt: null` (app/(app)/page.tsx:84, needs-review/page.tsx:34).
+  **`Email.needsReview` is not part of this condition at all.** Every
+  unlinked, un-junked email is a Needs review row and is then *assigned*
+  a reason by `detectEmailReviewReason` (lib/needsReviewRows.ts:119-135)
+  — worst case `no_extraction_signal`. There is no "this email is fine"
+  email-side exit.
+- Consequence for the detail pages: an email with `needsReview: true`
+  that IS linked to an order is **not** a Needs review row, and the
+  email detail page's badge (which reads `email.needsReview`,
+  app/(app)/emails/[id]/page.tsx:98) will disagree with the bucket in
+  both directions. INFERRED from the two conditions; not measured
+  against live rows (no DB read this session).
+
+---
+
+**PART B — what the detail pages offer today**
+
+**B1. app/(app)/emails/[id]/page.tsx — complete control inventory.**
+CONFIRMED, four items, nothing else interactive:
+| Control | Condition | Line |
+|---|---|---|
+| "← Back to dashboard" link | always | :73-75 |
+| "View Order →" link | `email.orderId` non-null | :76-80 |
+| Re-extract button (form → `reExtract`) | always | :93-95 |
+| "Needs Review" badge (inert text) | `email.needsReview` true | :98-102 |
+| sandboxed `<iframe>` of the body | `email.htmlBody` present | :167-172 |
+
+Part A actions available here: `link_to_order` **no**;
+`create_new_order` **no**; `not_a_purchase` **no**; `view_detail` **n/a**
+(this is the destination); `nothing` **n/a**. Evidence: the page's only
+imports of behavior are `reExtract` and `ReExtractButton`
+(emails/[id]/page.tsx:5-6) — it imports nothing from `@/app/actions`,
+and the earlier grep shows no call site of `linkEmailToOrderAction`,
+`createOrderFromEmailAction` or `archiveOrphanedEmailAction` outside
+`app/LinkToOrderPicker.tsx` and `app/NeedsReviewRowActions.tsx`.
+**Note: Re-extract is a billed model call site** — `reExtract` →
+`runExtraction` (emails/[id]/actions.ts:17); not pressed this session.
+Data loaded: one whole `Email` row, `findUnique({ where: { id, userId }})`,
+no `select`, then `decryptEmailContent` (:62, :68) — so every email
+field the actions need is already here.
+Data missing for the Part A actions: **the candidate order list.** The
+page loads no `Order` rows whatsoever. `link_to_order` would need the
+`LinkablePickerOrder[]` population — active orders for this user
+(`archivedAt: null, deletedAt: null`, five fields:
+needs-review/page.tsx:48-52). `create_new_order` and `not_a_purchase`
+need **no additional data** — both take `emailId`, which the page has.
+Also absent: the row's `reasonId`, which the page never computes for an
+email (no `emailReviewRow` call) and which the escape-hatch gate reads.
+
+**B2. app/(app)/orders/[id]/page.tsx — complete control inventory.**
+CONFIRMED:
+| Control | Condition | Line |
+|---|---|---|
+| "← Back to dashboard" | always | :169-171 |
+| `OrderStateChip` (inert) | always | :176 |
+| "Needs Review" badge (inert) | `order.needsReview` | :177-181 |
+| **"Looks correct"** → `approveOrderAction` | `order.needsReview && reviewReason` | :192-204 |
+| `StartReturnButton` | `canStartReturn` | :266-271 |
+| "Dropped it off?" → `markReturnedAction` | `canMarkReturned` | :272-278 |
+| `MarkRefundedButton` | `canMarkRefunded` | :279-284 |
+| "Keep" → `markKeptAction` | `canKeep` | :285-295 |
+| `UnkeepOrderButton` | `displayStatus === "kept"` | :296-301 |
+| `ArchiveOrderButton` | **always** (label flips on `archivedAt`) | :302-306 |
+| "View return policy →" link | `order.returnPortalUrl` | :235-244 |
+| "Web lookup" policy link | `policySource === "web_lookup"` | :78-89 |
+| `CopyButton` (order number) | `order.orderNumber` | :217 |
+| "Track package" / "Track your return" | tracking number + url present | :314-336 |
+| per-email link to `/emails/<id>` | per linked email | :365 |
+| per-email `UnlinkEmailButton` → `unlinkEmailFromOrderAction` | per linked email, unconditional | :374-376 |
+| per-email `DeleteButton` → `deleteEmail` | per linked email, unconditional | :377-379 |
+The five gating booleans come from `orderCardActions(state)`
+(:154-159), i.e. the shared `lib/orderCardState.ts` machine.
+
+Part A actions available here: `link_to_order` **no**;
+`create_new_order` **no**; `not_a_purchase` **no** (the email action;
+the order-level `ArchiveOrderButton` at :302 is the different path
+described in A6); `view_detail` **n/a**. Present instead:
+`approveOrderAction` (A6), which no bucket row ever renders.
+Data loaded: the whole `Order` plus **all** linked `Email` rows,
+`include: { emails: { orderBy: { receivedAt: "asc" }}}` (:116-119); and
+when `order.needsReview`, a second query for candidate orders —
+`{ userId, archivedAt: null, deletedAt: null }` selecting `id` and
+`orderNumber` only (:130-138).
+Data missing for the Part A actions: that candidate query is the right
+population but **the wrong projection** — it selects two fields, while
+`LinkablePickerOrder` needs five (`retailer`, `orderDate`, `orderTotal`
+as well), and it is only run when `needsReview` is true. Each linked
+email here already has its full row, so `create_new_order` /
+`not_a_purchase` against an individual linked email would need no extra
+data — though both are defined against an *orphaned* email, and every
+email on this page has an `orderId` by construction.
+
+---
+
+**Noticed, not investigated** (flagged only, not pursued per scope):
+- `rescueEmailAction` (app/actions.ts:125-134) has **zero call sites** —
+  no UI anywhere invokes it, so a junked email has no user-facing
+  un-junk path even though the server action exists. CONFIRMED by grep.
+- None of the five correction paths (link / create / archive-email /
+  approve / archive-order) writes an ActionLog row, while every
+  `displayStatus` transition does. CONFIRMED.
+- `Email.needsReview` is written (e.g. lib/orderReview.ts:84,
+  app/actions.ts:75) but read by no Needs review query — only by the
+  email detail badge. See A7.
+- The email detail page's Re-extract button is unconditional and is a
+  billed model call, sitting one tap away on every email.
+
 ### 2026-09-23 — Read-only investigation: two orders with no deadline (Gap 1S053MR, Simply Simpson #164649)
 
 **Owner-requested diagnostic. Read-only: no code changes, no DB writes,
