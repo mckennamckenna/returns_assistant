@@ -40,6 +40,14 @@ available from the email detail and order detail pages. Read-only:
 no code changes, no DB writes, zero billed model calls. Findings
 only — no design.
 
+**ADDENDUM STARTED 2026-09-26 — follow-up on this same entry: history of
+the email-vs-order split in Needs review since ~2026-09-15, plus four
+code questions (unlink/delete semantics, what "Looks correct" writes,
+order-side review reasons, and missing-return-window detectability and
+display). Same constraints: read-only, no in-app actions, zero billed
+model calls; SELECT-only Prisma in uncommitted scripts/pm-*.ts if counts
+are needed. Findings appended at the bottom of this entry.**
+
 **FINDINGS — 2026-09-25, read-only. Code-read only; no scripts run, no
 DB queries, no actions triggered, 0 billed model calls.**
 
@@ -296,6 +304,467 @@ email on this page has an `orderId` by construction.
   email detail badge. See A7.
 - The email detail page's Re-extract button is unconditional and is a
   billed model call, sitting one tap away on every email.
+
+---
+
+**ADDENDUM FINDINGS — 2026-09-26, read-only. Docs + git + source reads,
+plus two SELECT-only Prisma scripts (listed at the end). No writes, no
+migrations, no in-app actions, 0 billed model calls.**
+
+**Plain English first.** Two threads ran side by side since 2026-09-15.
+The *concept* thread settled: Needs review is one queue holding two
+different kinds of item — an **email that hasn't been filed yet**, and an
+**order that is being tracked but looks wrong**. That's written down and
+agreed (CARD_SPEC Part 3). The *code* thread has not caught up, and one
+of the two kinds has no repair story at all. Along the way a big
+embarrassment got corrected honestly: for two days everyone believed
+`Email.needsReview` was a routing flag and filed a bug against it; it
+turned out to be the AI's own confidence score, the "bug" was correct
+behaviour, and the real problem was the reverse — user actions have been
+overwriting the AI's score. The field is slated for deletion.
+
+The sharpest thing this addendum found is about the missing-return-window
+case, and it is worse than a UI gap. An order is flagged for review by
+exactly one data rule: **it has no return deadline.** Not "no order
+date," not "no total" — those are guesses the row-labeller makes
+afterwards, and they can name a reason that had nothing to do with why
+the order was flagged. So when the app says "We're not certain about some
+details on this order," what it almost always means is "we have no
+deadline for this order" — the one fact the product exists to provide —
+and it never says that in words on any surface. The order detail page
+shows "—" for the deadline, "—" for the policy, and offers one button,
+"Looks correct," which clears the flag without checking whether a
+deadline exists. Nothing stops a user from marking a deadline-less order
+as fine and having it silently leave the queue forever. Meanwhile a
+missing window is invisible everywhere else too, and on the dashboard it
+is worse than invisible: because the card's badge is driven by delivery
+rather than by the deadline, an undelivered order with no deadline shows
+a perfectly ordinary "Ordered" or "Shipped" — it looks tracked. Only a
+delivered one shows "—". Reminders skip the order by an eligibility
+check, and both digests filter it out by a date range a null can never
+satisfy. Six surfaces, none of which says the window is missing.
+
+On counts: **21** active orders have no return deadline right now. **18**
+are flagged; the **3** unflagged are all return-side-only orders
+(refund / return-label), which is the correct behaviour the board already
+asked for. The largest group — **12 orders across 5 other users** — are
+orders where a policy lookup genuinely ran and came back unclear. Those
+12 have a stored explanation on the email that no user-facing page shows;
+the admin dashboard already renders exactly that text.
+
+Also worth stating plainly: the "✕" next to each linked email on the
+order detail page is a **hard delete with no confirm step**, and deleting
+the last email soft-deletes the whole Order.
+
+---
+
+**PART 1 — HISTORY OF THE EMAIL-VS-ORDER SPLIT**
+
+**P1.1 — 2026-09-17: the two-state split (`34cbdb4`, `1c5c1a9`).**
+CONFIRMED. A four-round diagnostic that began as "the bucket is
+under-populating" ended as a concept definition. It found **three
+overlapping definitions of "needs review"** in play — the bucket's
+structural query, `Email.needsReview`, and `Order.needsReview` — with
+five downstream surfaces silently reading Order-only
+(HISTORY.md:1156-1200). Decided: needs-review is one concept in two
+states, **proto** (orphan email, `orderId IS NULL AND junkedAt IS NULL`)
+and **confirmed** (`Order.needsReview = true`), differing only in
+reasons. Shipped: the CARD_SPEC Part 3 amendment plus three 🟡 Next bugs
+(#1 auto-match no-clear, #2 order-delete ghost emails, #3
+`Email.needsReview` deprecation) — HISTORY.md:1246-1259. Parked at the
+time: the "visible dashboard fix" aligning the five Order-only surfaces,
+deferred as blocked on the spec landing (HISTORY.md:1284-1290).
+Also surfaced and preserved deliberately: the confirmed table had only
+two reasons, **both degrade**, so "correcting a 'couldn't find purchase
+date' flag requires going into detail" (HISTORY.md:1265-1276) — the
+earliest statement of the gap this whole 🔴 Now entry is about.
+
+**P1.2 — 2026-09-18: the split is reframed from stages to kinds
+(`2720766`).** CONFIRMED. Owner-authored replacement for "The two
+states": one queue, two **kinds** — *routing review* and *order
+correction* — rather than two maturity stages, because "most routing
+items never become correction items" so a lifecycle framing overclaimed
+(HISTORY.md:1004-1019). Language only; structural definitions and tables
+unchanged. Now the live text at CARD_SPEC.md:179-232.
+
+**P1.3 — 2026-09-18/19: `Email.needsReview` reinterpreted, and #3's
+rationale rewritten (`798524c`, `56b63a6`).** CONFIRMED, and this is the
+load-bearing correction. Phase 1 traced every write site and found the
+field is **the AI extraction engine's confidence signal**, not a routing
+flag (HISTORY.md:857-864). Consequences recorded:
+- 🟡 Next #1 **closed as not-a-bug** — the auto-match path correctly
+  leaves the field alone (TASKS.md:5357-5395). The 425-row
+  linked-but-flagged population is correct data, and the "~108" figure
+  the 09-17 session used was a stale 2026-07-23 number repeated without
+  re-verification (HISTORY.md:866-873).
+- **The real mis-behaviour is the opposite:** the manual link / create /
+  unlink paths write the field as if it were a routing flag, corrupting
+  the AI's signal; the signal survives only in `extractionRaw.needsReview`
+  (HISTORY.md:875-885). Verified live today: `lib/orderReview.ts:84`,
+  `:100`, `app/actions.ts:75`.
+- 🟡 Next #3 (deprecation) **still holds, for new reasons** — nobody can
+  state the field's meaning; its one UI surface (the email detail badge)
+  is "silently unreliable"; the signal is safe in `extractionRaw`; a
+  better boolean can be backfilled later (TASKS.md:5438-5457).
+- Blast radius recorded: 6 write sites, **1 live read site**, 5 test
+  assertions, ~45 non-operational scripts (TASKS.md:5459-5480). Status:
+  Phase 1 done, Phase 2/3 not started, **parked ready-to-build**.
+- Named pattern: the correct definition existed at `BUILD.md:1000` since
+  July and simply wasn't reached for — "documentation existed but wasn't
+  reached for at the moment the concept was being decided"
+  (HISTORY.md:900-909). This is what `CLAUDE.md`'s definitional-search
+  habit was added for the same day (`41f3943`).
+- **Line drift in the paper trail (INFERRED → CONFIRMED by read):** #3
+  cites write site `runExtraction.ts:151` and read site
+  `emails/[id]/page.tsx:90`. Today those are `lib/runExtraction.ts:184`
+  (success) / `:198` (error) and `app/(app)/emails/[id]/page.tsx:98`.
+  Same code, shifted lines; the entry's references need re-locating when
+  picked up.
+
+**P1.4 — 2026-09-20: order-kind rows always degrade, and the
+2026-08-21 deferral behind it (`5e45f0f`, `2a437ba`, and three docs
+commits).** CONFIRMED. Owner reported from production screenshots that
+all three dashboard rows showed "More info" instead of inline actions,
+framed as a second shipping-without-spec incident. **It was not a
+regression** — "order-kind rows have always degraded, by a deliberate
+2026-08-21 deferral" (TASKS.md:1047-1050). The deferral's reason is in
+code: the picker only attaches an unlinked email to an Order, there is
+**no order-to-order merge capability**, so `belongs_to_existing_order` /
+`duplicate` degrade for order-kind rows even though the same reasons map
+to `link_to_order` for email-kind
+(lib/needsReviewActions.ts:30-36, :43-44). Real merge machinery is
+tracked as 🟡 Next "Order-to-order merge action — DESIGN + BUILD, not a
+small follow-up" (TASKS.md:7801).
+What actually went wrong was three stacked problems, none of them "code
+ignored spec" (HISTORY.md:660-668): a **half-completed spec amendment**
+from `c11437e` (2026-08-25) that updated one passage and not its
+parallel; **no test can bind the mapping**, because it lives in JSX and
+vitest runs node-only with no DOM; and a **backend gap masked as a UI
+gap** — the proposed one-line predicate fix would have shown a button
+with no server action behind it. Shipped: Archive on every row kind
+(`5e45f0f`, owner-verified in production), and Part 3 made internally
+consistent for the first time since 2026-08-25 (`2a437ba`).
+Parked from that session: two ❄️ Deferred Archive/Junk follow-ups
+(`ac018b7`), including **"needs-review Archive on order-kind hides but
+doesn't clear `needsReview`"**; and three ⚠️ Known-issues items
+(TASKS.md:1076-1079). Also parked, and directly relevant here: two
+order-kind reasons (`duplicate`, `belongs_to_existing_order`) are
+**emitted by code but appear in no Part 3 correction table**, falling
+through to "unmapped → degrade" by accident; parked because all 5
+visible `duplicate` rows were URL-poison artifacts
+(HISTORY.md:672-675).
+
+**P1.5 — the currently decided model, in plain terms.** CONFIRMED
+against CARD_SPEC.md:186-207 and the code:
+- **An email needs review when the app hasn't filed it yet** — it has no
+  Order and hasn't been junked (`Email.orderId IS NULL AND
+  Email.junkedAt IS NULL`). Resolutions: link to an existing Order, start
+  a new Order, or discard. **Meant to be resolved in the bucket row**,
+  which is where all three controls live.
+- **An order needs review when it is tracked but something on it is
+  flagged** (`Order.needsReview = true`). Resolutions: correct the flag
+  per its reason, or accept as-is. **Meant to be resolved on the order
+  detail page** — the spec routes every correction row to View detail,
+  and `app/actions.ts:104-112` states that explicitly as the reason
+  `approveOrderAction` exists.
+- The two are related but not stages; the one real transition is
+  create-new-order producing an incomplete Order, named as the exception
+  path (CARD_SPEC.md:205-217).
+
+**P1.6 — where docs and today's code disagree.** Each CONFIRMED:
+1. **The spec forbids exactly what the email detail page does.**
+   "Code that needs to know 'is this email in routing state?' must derive
+   from `orderId` and `junkedAt`, not read `Email.needsReview`"
+   (CARD_SPEC.md:230-232). The page's amber "Needs Review" badge reads
+   `email.needsReview` (app/(app)/emails/[id]/page.tsx:98). HISTORY
+   already names this surface as "silently unreliable"
+   (HISTORY.md:952-957) — so this is a known, tracked disagreement
+   (🟡 Next #3), not a new find. Yesterday's A7 finding is the same
+   disagreement observed from the query side.
+2. **Two spec routing reasons are unreachable in code.** Part 3's
+   routing table maps "We think this may not be e-commerce." →
+   Not a purchase, and "This looks like a duplicate of another order." →
+   Merge (CARD_SPEC.md:341-343). Neither exists for email-kind rows:
+   there is no non-commerce reason id at all
+   (lib/needsReviewReasons.ts:20-29; detector unbuilt, tracked at
+   TASKS.md:1085-1095), and `duplicate` is never produced for emails
+   ("No 'duplicate' detection for email-kind rows this pass",
+   lib/needsReviewRows.ts:107-109).
+3. **Three order-kind reasons code emits are absent from the correction
+   table.** The table lists only `missing_order_date` and
+   `missing_order_total` (CARD_SPEC.md:352-357), while
+   `computeOrderReviewReason` also returns `duplicate`,
+   `belongs_to_existing_order` and `uncertain_details`
+   (lib/orderReview.ts:229, :242, :251). Two of the three were
+   deliberately parked 2026-09-20; `uncertain_details` is the catch-all
+   and reaches users constantly (see P2.3).
+4. **The spec's per-reason routing is moot for orders.** Part 3 splits
+   the tables by kind so each reason routes independently, but
+   `needsReviewAction` short-circuits on `kind === "order"` before
+   reading the reason at all (lib/needsReviewActions.ts:43-44). Same
+   end result today, different mechanism — any new mapped correction
+   reason added to the spec would not take effect without changing that
+   branch.
+5. **Next #8's own premise is still unverified.** The five Order-only
+   surfaces were never given file:line references ("specific file:line
+   references not captured at the time — Phase 1 would re-locate",
+   TASKS.md:5622-5625), so the count of five is not independently
+   checkable from the board today.
+
+**P1.7 — is there a board entry for the order detail page dead-ending on
+a missing return window? NO — not for the dead end.** CONFIRMED by
+search of all TASKS.md sections. What exists:
+- **The closest entry, and it is about surfacing, not resolving:**
+  🔴 Now, "**2026-09-21 — Orders with null `returnDeadline` don't surface
+  as needs-review**" (TASKS.md:1010-1042). Its named live case is the
+  same order: "Simply Simpson #164649 is the live case: all three emails
+  extracted cleanly, three billed policy lookups all failed to resolve a
+  window for this retailer, `returnWindowDays` and `returnDeadline` are
+  both null, and the order sits unflagged." It carries two design
+  requirements (refunded orders and refund-created orders must NOT be
+  flagged) and is named a hard prerequisite for PHASE 1c type-gating
+  (TASKS.md:2377-2383). **It is entirely about whether such an order gets
+  flagged — it says nothing about what a user can do once it is.**
+- 🟡 Next #9, "Return deadline should always be computable when order
+  date and retailer are both known" (TASKS.md:5638+) — the
+  *computability* side, merged with Gap #1S053MR 2026-09-23. Also not
+  about the page.
+- Two older dead-end entries exist but are both **email-side and
+  stale**: "Unlinked email 'Needs review' badge is a dead end"
+  (2026-07-22, TASKS.md:4371-4390) and the "live instance of the
+  email-level badge dead end" note (2026-07-23, TASKS.md:2679-2686).
+  Both predate the bucket rebuild and concern `Email.needsReview`.
+- The earliest statement of the order-side gap is prose in HISTORY, not a
+  board item: HISTORY.md:1265-1276 ("a candidate for a later
+  confirmed-side design pass"). **Not created — reporting only, as
+  instructed.**
+
+---
+
+**PART 2 — CODE QUESTIONS**
+
+**P2.1 — "Unlink" and "✕" on each linked email.** CONFIRMED.
+- **"Unlink"** — `UnlinkEmailButton` (app/UnlinkEmailButton.tsx:9-23),
+  no confirm step by design ("trivially reversible", :5-8), submitted via
+  `unlinkEmailFromOrderAction` bound at
+  app/(app)/orders/[id]/page.tsx:374. Server: app/actions.ts:68-80.
+  Writes **one row, two fields**: `Email.orderId = null` and
+  `Email.needsReview = true` (app/actions.ts:75), then revalidates the
+  order page and dashboard. **No ActionLog.** The email re-enters the
+  bucket and is reclassified as `shipment_unlinked`
+  (app/actions.ts:59-67). Note the `needsReview: true` write here is one
+  of the four drifted writes P1.3 identified — it stamps the AI's
+  confidence field on a routing action.
+- **"✕"** — `DeleteButton` with `label="Delete email"`
+  (app/DeleteButton.tsx:5-18; the glyph is literally `"✕"` at :16),
+  bound to `deleteEmail` at app/(app)/orders/[id]/page.tsx:377.
+  **No confirm dialog, no soft-delete.**
+- **Yes — "✕" is exactly the `deleteEmail` path.** app/actions.ts:12-38
+  is the function bound. It hard-deletes the row
+  (`prisma.email.delete`, app/actions.ts:19), then **if that was the
+  order's last email, soft-deletes the Order**: counts remaining emails
+  (:30) and on zero sets `Order.deletedAt = now()` scoped to
+  `deletedAt: null` so an already-soft-deleted order's 30-day clock
+  doesn't reset (:31-33). So one un-confirmed click on the last linked
+  email removes the email permanently and starts the Order's deletion
+  clock. **No ActionLog** on this path either (the order-delete junk
+  cascade at lib/orderReview.ts:144-160 does log, but it runs on Order
+  hard-delete, and this email is already gone by then).
+
+**P2.2 — what "Looks correct" writes.** CONFIRMED.
+`approveOrderAction` (app/actions.ts:113-123) → `approveOrder`
+(lib/orderReview.ts:26-38). Writes **`Order.needsReview = false`**, plus
+`userNote` only if a note was passed — and the action passes `null`
+(app/actions.ts:120), so in practice it is a single-field write. Then
+revalidates `/` and `/orders/<id>`.
+- **Can it clear review on an order whose `returnDeadline` is null? Yes,
+  unconditionally.** `approveOrder` reads the order, checks only that it
+  exists (lib/orderReview.ts:27-28), and writes. There is no deadline
+  check, no reason check, and no guard of any kind. Its own comment says
+  it "always wins over whatever the data-completeness recompute would
+  otherwise decide" (lib/orderReview.ts:23-25). Since the flag is
+  *derived from* a null deadline (see P2.3), this is precisely the
+  button that can dismiss a deadline-less order.
+- **Not durable, either:** any later `recomputeOrderStatus` re-derives
+  `needsReview` from scratch (lib/linkOrder.ts:330-334), so a subsequent
+  merge on a still-deadline-less order silently re-flags it. The
+  approval is not recorded anywhere that survives that recompute.
+- **Is it logged? No.** No `actionLog.create` or `logActionWithRetry` in
+  `approveOrderAction` or `approveOrder` — confirmed by grep of both
+  symbols across app/ and lib/ (the hits are `advanceDisplayStatus`, the
+  four `app/api/action/*` routes, `orders/[id]/status`, `[id]/unkeep`,
+  lib/linkOrder.ts:459, lib/extractionSweep.ts:126,
+  lib/orderReview.ts:152). So a user clearing a flag on an order with no
+  deadline leaves **no trace at all**.
+
+**P2.3 — which reasons put an ORDER into Needs review.** This is the
+most important finding in the addendum, because the *labels* and the
+*trigger* are different things.
+- **The trigger — one data rule, CONFIRMED.** `computeOrderStatus`
+  (lib/linkOrder.ts:276-328) sets
+  `needsReview = looksLikeRealOrder && returnDeadline == null`
+  (**lib/linkOrder.ts:294**), where `looksLikeRealOrder` means the order
+  has at least one `order_confirmation`, `shipping_confirmation` or
+  `delivery` email (:293). Written by `recomputeOrderStatus`
+  (:330-334). Two other writers set it true directly: the
+  retailer-prefix-match merge path (lib/linkOrder.ts:1287, with an
+  `[auto]` note into `userNote`) and lib/linkOrder.ts:1191. A
+  `status: "needs_review"` fallthrough also forces true (:327).
+  **So, other than the prefix-match case, an order is flagged for
+  exactly one reason: it has no return deadline.** Not a missing date,
+  not a missing total.
+- **The labels — computed after the fact, and can misname the cause.**
+  `computeOrderReviewReason` (lib/orderReview.ts:223-252) runs at render
+  time and returns, in priority order: `duplicate` (an `[auto]`
+  retailer-prefix note, :227-230), `belongs_to_existing_order`
+  (:232-243), `missing_order_date` (:245-247), `missing_order_total`
+  (:248-250), else **`uncertain_details`** (:251).
+- **"We're not certain about some details on this order." is
+  `uncertain_details`** — lib/needsReviewReasons.ts:50. It is the
+  **catch-all tail**, reached when no earlier branch matched
+  (lib/orderReview.ts:251), and its text was deliberately reused rather
+  than newly written because Part 3 defines no sentence for an unmapped
+  reason (lib/needsReviewReasons.ts:33-40).
+- **INFERRED, and it follows directly from the two points above:** for a
+  flagged order that *has* an order date and a total, the reason shown is
+  always `uncertain_details`, even though the actual trigger was a null
+  deadline. And where the order is flagged *and* lacks an order date, the
+  label says "We couldn't find a purchase date" — true, but it names a
+  contributing input rather than the deadline that actually triggered the
+  flag. There is no reason id for "no return deadline" anywhere in
+  `NeedsReviewReasonId` (lib/needsReviewReasons.ts:20-29).
+- **Is the more specific underlying reason stored anywhere the page could
+  show it? Yes — two places, both already on disk.**
+  1. **`Email.extractionNotes`** on each linked email carries the
+     lookup's own account of itself (see P2.4a for the exact strings).
+  2. **`Order.userNote`** holds `[auto]`-prefixed merge provenance
+     naming both retailer strings (lib/orderReview.ts:192-199).
+  And there is already a helper that renders (1):
+  **`reviewReason()`** (lib/orderReview.ts:171-176) returns the most
+  recent linked email's `extractionNotes`, falling back to "Missing
+  return deadline information." when no note exists and the deadline is
+  null. It is rendered **on the admin dashboard**
+  (app/admin/page.tsx:98) and **nowhere on the user-facing order detail
+  page**, which calls `computeOrderReviewReason` instead
+  (app/(app)/orders/[id]/page.tsx:130-138, :194). So the specific
+  explanation exists, is already formatted for display, and is shown to
+  the operator but not the owner of the order.
+
+**P2.4a — can the app tell the four missing-window cases apart?**
+**Partly — three of four, and only by string-matching prose in
+`Email.extractionNotes`. There is no status field.** CONFIRMED: grep of
+`prisma/schema.prisma` for "lookup" returns only comments and
+`policySource`; no `policyLookupStatus`, attempt counter, or timestamp
+exists on either model.
+The branches all live in `finalizeExtraction` (lib/extract.ts:1030+):
+| Case | How it is distinguishable today | Written at |
+|---|---|---|
+| **Found a policy, couldn't compute a deadline** | `returnWindowDays != null` while `returnDeadline == null`. Cleanest of the four — a real structured signal. | window/source set at lib/extract.ts:1077-1078 (stated in email), :1087-1088 (`amazon_default`), :1166-1169 (`web_lookup`); persisted to Email at lib/runExtraction.ts:175-180, to Order at lib/linkOrder.ts:968-976 |
+| **Ran, found nothing / low confidence** | `extractionNotes` contains **"Web lookup for return policy was unclear: …"** | lib/extract.ts:1176-1177 |
+| **Ran and failed (timeout)** | `extractionNotes` contains **"Policy lookup timed out after 60s"** (`LOOKUP_TIMEOUT_NOTE`, lib/extract.ts:43) — added expressly so timeouts are "countable later from stored data" | lib/extract.ts:1187-1188 (guarded by `isTimeoutError`) |
+| **Never ran (gated)** | **Not distinguishable.** No note, no field — it is the absence of evidence. | the gate itself, lib/extract.ts:1077-1162 |
+Two further gaps, both CONFIRMED:
+- **A non-timeout exception is indistinguishable from "never ran."** The
+  catch sets `policyLookupWasUnclear = true` but only writes a note when
+  `isTimeoutError(error)` is true (lib/extract.ts:1181-1189) — any other
+  thrown error leaves no stored trace whatsoever.
+- **Why the lookup was skipped is never recorded**, though the gate has
+  six distinct reasons, each reconstructible only by re-deriving it from
+  other fields: window already stated (:1077), Amazon default (:1079),
+  food/grocery retailer (:1089), `emailType === "other"` or `"refund"`
+  (:1096+), **carrier sender AND no order number** (:1152), and parent
+  order already has a window (:1159).
+- Also note `policySource` is **not** a lookup-outcome field: it is null
+  both when no lookup ran and when one ran and failed, and the Email and
+  Order vocabularies differ (`"email"` vs `"stated_in_email"` —
+  prisma/schema.prisma:152 vs :273, mapped by `mapPolicySource`).
+
+**P2.4b — every surface that shows a missing-window order.** CONFIRMED.
+**None of the six says the window or deadline is missing.**
+| Surface | What the user sees | Evidence |
+|---|---|---|
+| Dashboard card chip | **depends on delivery, not on the deadline — and mostly looks healthy.** The card's state ignores `returnDeadline` entirely (`computeOrderCardState`: delivered → `returnable`, else `awaiting_delivery`). Only the `returnable` branch renders **"—"**; an undelivered order renders `Arrives <date>` or a plain status word — **"Ordered"**, **"Shipped"** — with no hint that no deadline exists | state at lib/orderCardState.ts:(computeOrderCardState, `deliveredAt !== null ? "returnable" : "awaiting_delivery"`); "—" at lib/orderCardState.ts:106; status words at :103 via DISPLAY_STATUS_LABELS (lib/displayStatus.ts:29-37). Applies to **~14 of the 21** (the `ordered`/`shipped` rows in P2.4c); only the 3 `delivered` rows get "—" |
+| Needs review row (slot 3) | **"We're not certain about some details on this order."** — or "We couldn't find a purchase date…" if the date is also missing | lib/needsReviewReasons.ts:50, :48; routed at lib/orderReview.ts:245-251 |
+| Order detail — Return deadline field | **"—"** | app/(app)/orders/[id]/page.tsx:234 |
+| Order detail — Return policy field | **"—"** (`PolicyLine` returns "—" on `!returnWindowDays`) | app/(app)/orders/[id]/page.tsx:74, :248 |
+| Order detail — estimated-dates caption | **nothing**; `deadlineIsEstimated` requires a non-null deadline, so the "Some dates on this order are estimated" line cannot fire | app/(app)/orders/[id]/page.tsx:164-165, :207-209 |
+| Reminder emails | **nothing — the order is never eligible.** `isEligibleForReminder` returns false on a null deadline | lib/reminders.ts:67-72 |
+| Friday coverage digest | **"- \<retailer\> — \<total\>"**, or "- 1 order from \<retailer\>" — no deadline, window or flag mentioned at all | app/api/cron/weekly-coverage/route.ts:47-58, body at :60-72 |
+| Sunday weekly digest | **nothing — filtered out by the query**, `returnDeadline: { gte: now, lte: sevenDaysOut }`, which a null can never satisfy | app/api/cron/weekly-digest/route.ts:164 |
+So: two detail fields render an em dash, the dashboard card usually
+renders an ordinary-looking status word, one surface renders a sentence
+that doesn't mention the window, one renders a sentence about a different
+field, and three say nothing by construction. The only text anywhere that names the
+real problem is `reviewReason()`'s fallback string **"Missing return
+deadline information."** (lib/orderReview.ts:174) — rendered on the
+admin dashboard only (app/admin/page.tsx:98).
+
+**P2.4c — counts (SELECT-only, 2026-09-26).** CONFIRMED by script.
+**21 active orders** (`returnDeadline: null, archivedAt: null,
+deletedAt: null`). Split by the P2.4a cases, classified in priority
+order (window present → timeout note → unclear note → never extracted →
+no evidence):
+| Case | Total | Owner | Other users |
+|---|---|---|---|
+| Ran, unclear / found nothing | **12** | 0 | **12**, across 5 userIds |
+| Found a window, no deadline | **8** | **1** | 7, across 3 userIds |
+| Ran and timed out | **1** | **1** | 0 |
+| Never ran (no evidence) | **0** | 0 | 0 |
+| Never extracted | **0** | 0 | 0 |
+- Other-user userIds, counts only: `cmqvuw5810000l204tjaldnfx` 7,
+  `cmqu524vl0000jx047nhnk6r5` 7, `cmrp9zgm60000l104691ogioe` 3,
+  `cmrclvr4g0003l704f3qglal5` 1, `cmqx4cy1r0000jl04i6kwmk8j` 1.
+- **Flagged vs not: 18 of 21 flagged.** The **3 unflagged** are all
+  return-side-only orders — email types `["refund"]`, `["return_label"]`,
+  `["return_label"]` — so `looksLikeRealOrder` is false and they are
+  correctly excluded. **This matches the 2026-09-21 entry's own design
+  requirement** that refunded and refund-created orders must not be
+  flagged. No silent unflagged gap in this population today.
+- The **"found a window, no deadline"** group is mostly Amazon:
+  `policySource` tallies `amazon_default` 5, `web_lookup` 2,
+  `stated_in_email` 1. **None of the 8 has any delivery signal** and only
+  5 of 8 have an order date — consistent with 🟡 Next #9's mechanism
+  (window known, anchor missing, deadline never recomputed).
+- The **12 unclear** rows all have `policySource: null`, 11 of 12 have an
+  order date, and only 3 have any delivery signal.
+- The owner's two rows are the two already on the board: one `gap` order
+  in the "found a window, no deadline" group (🟡 Next #9's merged Gap
+  case) and Simply Simpson Boutique in the timeout group.
+- **One caveat on the timeout row:** classification is priority-ordered,
+  so Simply Simpson lands in "timed out" because a timeout note exists on
+  one of its emails from the 2026-09-24/25 extraction-timeout work. Its
+  three *earlier* lookups were unclear-type failures. The single-case
+  buckets should be read as "has this evidence," not "only this
+  evidence."
+- Cross-check: **0** orders have an accepted web-lookup note but no
+  window — i.e. no case of a lookup succeeding and the window being lost
+  afterwards.
+
+**Scripts run this session (both uncommitted, SELECT-only, no model
+imports):**
+1. `scripts/pm-missing-window-census-20260926.ts` — the four-case split
+   and owner/other split above.
+2. `scripts/pm-unflagged-null-deadline-20260926.ts` — characterizes the
+   3 unflagged rows.
+
+**Noticed, not investigated** (this addendum; flagged only):
+- **The order detail page renders soft-deleted orders.** Its query is
+  `where: { id, userId }` with no `deletedAt` filter
+  (app/(app)/orders/[id]/page.tsx:116-119), so after "✕" on the last
+  email soft-deletes the Order, the page keeps rendering it normally with
+  full controls. CONFIRMED by read.
+- **"Looks correct" is silently undone by the next recompute** — see
+  P2.2. Whether an accepted flag should survive `recomputeOrderStatus`
+  has never been decided anywhere in the paper trail.
+- **The "✕" has no confirm step** while "Start a new order" does
+  (NeedsReviewRowActions.tsx:30), and `deleteEmail` is the app's only
+  genuine hard delete of user content.
+- **`uncertain_details` has no spec sentence of its own** and reuses
+  older copy by 2026-08-21 sign-off (lib/needsReviewReasons.ts:33-40) —
+  now the most-shown correction reason, on the strength of a stopgap.
+- **No `Order` field records that a deadline was ever attempted** — the
+  whole of P2.4a rests on prose in `Email.extractionNotes`, which the
+  H&M and Simply Simpson arcs have both had to reconstruct by hand.
 
 ### 2026-09-23 — Read-only investigation: two orders with no deadline (Gap 1S053MR, Simply Simpson #164649)
 
